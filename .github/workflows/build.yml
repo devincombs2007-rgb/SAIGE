@@ -56,6 +56,7 @@ jobs:
           Copy-Item build/windows-release/Release/saige_scene_asset_tool.exe project-preflight/
           Copy-Item -Recurse examples/textured-scene project-preflight/
           Copy-Item docs/project-format-0.2.md project-preflight/
+          Copy-Item build/windows-release/_deps/saige_json-src/LICENSE.MIT project-preflight/nlohmann-json-LICENSE.MIT
       - name: Upload project and glTF preflight
         if: matrix.preset == 'windows-release'
         uses: actions/upload-artifact@v4

@@ -86,9 +86,12 @@ texture needs `Sampled | TransferDst`, one sample and a 2D dimension. Afterwards
 `sampled_texture_state`, so an immutable uploaded texture never needs another barrier before it is sampled.
 Only color formats are uploadable: depth/stencil textures need per-aspect copy regions and layouts, which 0.2 does not
 need, so `validate_texture_upload` rejects them (shared by every backend). Re-uploading a texture that earlier, possibly
-still-executing frames read is supported: the upload's first transition is an execution dependency on all prior work
-(write-after-read), verified with the validation layer's synchronization validation, which reports
-`SYNC-HAZARD-WRITE-AFTER-READ` if that dependency is removed. Uploading is not allowed between `begin_frame()` and
+still-executing frames read or wrote is supported: the upload's first transition is a full dependency on all prior work,
+with every earlier write as its source access. The validation layer's synchronization validation reports
+`SYNC-HAZARD-WRITE-AFTER-READ` if the execution dependency is removed and `SYNC-HAZARD-WRITE-AFTER-WRITE` if the source
+access is (rendering into a texture that also has attachment usage, then overwriting it, is the case that shows it).
+Shader-read ordering is argued from the same barrier, not shown by a test: the layer version in use does not track
+descriptor reads. Uploading is not allowed between `begin_frame()` and
 `end_frame()` (it throws `std::logic_error`). It blocks the
 calling thread by design: 0.2 loads synchronously on one thread, and an asynchronous transfer-queue path is added only
 after upload cost is measured.

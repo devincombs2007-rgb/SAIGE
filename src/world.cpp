@@ -56,6 +56,12 @@ bool World::set_position(Entity entity, Vec3 position) {
 
 std::vector<RenderInstance> World::snapshot() const {
     std::vector<RenderInstance> instances;
+    snapshot_into(instances);
+    return instances;
+}
+
+void World::snapshot_into(std::vector<RenderInstance>& instances) const {
+    instances.clear();
     instances.reserve(slots_.size() - free_indices_.size());
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         const auto& slot = slots_[i];
@@ -63,7 +69,6 @@ std::vector<RenderInstance> World::snapshot() const {
             instances.push_back({{static_cast<std::uint32_t>(i), slot.generation}, slot.position});
         }
     }
-    return instances;
 }
 
 } // namespace saige

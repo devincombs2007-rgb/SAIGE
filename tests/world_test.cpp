@@ -36,4 +36,18 @@ int main() {
         std::cerr << "Snapshot contents, lifetime, or ordering changed\n";
         return 1;
     }
+
+    auto reused = before;
+    reused.reserve(8);
+    const auto capacity = reused.capacity();
+    if (!world.destroy(replacement)) {
+        std::cerr << "Failed to remove a live entity before reusing the snapshot\n";
+        return 1;
+    }
+    world.snapshot_into(reused);
+    if (reused.size() != 1 || reused.front().entity != survivor ||
+        reused.front().position != end || reused.capacity() != capacity) {
+        std::cerr << "Snapshot reuse left stale entries or changed capacity\n";
+        return 1;
+    }
 }

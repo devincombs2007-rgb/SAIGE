@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <vector>
 
 namespace saige {
 
@@ -19,6 +20,7 @@ RunStats run(World& world, IPlatform& platform, IGame& game, IFrameSink& sink,
     }
     auto previous = platform.now();
     auto remainder = nanoseconds::zero();
+    std::vector<RenderInstance> instances;
     while ((!frame_budget || stats.frames < *frame_budget) && platform.poll_events()) {
         const auto current = std::max(previous, platform.now());
         const auto elapsed = duration_cast<nanoseconds>(current - previous);
@@ -42,7 +44,7 @@ RunStats run(World& world, IPlatform& platform, IGame& game, IFrameSink& sink,
             ++stats.ticks;
         }
 
-        const auto instances = world.snapshot();
+        world.snapshot_into(instances);
         const double phase = static_cast<double>(remainder.count()) /
                              static_cast<double>(config.fixed_step.count());
         sink.submit(FrameView{stats.ticks, std::min(phase, std::nextafter(1.0, 0.0)), instances});

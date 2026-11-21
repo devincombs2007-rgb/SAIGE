@@ -25,6 +25,7 @@ public:
     [[nodiscard]] NativeWindowHandle native_window() const noexcept override;
     [[nodiscard]] SurfaceState surface() const noexcept override;
     [[nodiscard]] bool key_down(Key key) const noexcept override;
+    [[nodiscard]] LookDelta consume_look_delta() noexcept override;
 
 private:
     struct Impl;

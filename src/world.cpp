@@ -1,5 +1,7 @@
 #include "saige/world.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <stdexcept>
@@ -21,6 +23,8 @@ Entity World::create(Vec3 position) {
     auto& slot = slots_[index];
     slot.occupied = true;
     slot.position = position;
+    slot.world_matrix.reset();
+    slot.mesh = {};
     return {index, slot.generation};
 }
 
@@ -50,7 +54,28 @@ bool World::set_position(Entity entity, Vec3 position) {
     if (!alive(entity)) {
         return false;
     }
-    slots_[entity.index].position = position;
+    auto& slot = slots_[entity.index];
+    if (slot.world_matrix) {
+        if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+            return false;
+        }
+        (*slot.world_matrix)[12] = position.x;
+        (*slot.world_matrix)[13] = position.y;
+        (*slot.world_matrix)[14] = position.z;
+    }
+    slot.position = position;
+    return true;
+}
+
+bool World::set_render_pose(Entity entity, const WorldMatrix& matrix, AssetId mesh) {
+    if (!alive(entity) || matrix[3] != 0.F || matrix[7] != 0.F || matrix[11] != 0.F || matrix[15] != 1.F ||
+        !std::ranges::all_of(matrix, [](float value) { return std::isfinite(value); })) {
+        return false;
+    }
+    auto& slot = slots_[entity.index];
+    slot.position = {matrix[12], matrix[13], matrix[14]};
+    slot.world_matrix = matrix;
+    slot.mesh = mesh;
     return true;
 }
 
@@ -66,7 +91,8 @@ void World::snapshot_into(std::vector<RenderInstance>& instances) const {
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         const auto& slot = slots_[i];
         if (slot.occupied) {
-            instances.push_back({{static_cast<std::uint32_t>(i), slot.generation}, slot.position});
+            instances.push_back({{static_cast<std::uint32_t>(i), slot.generation}, slot.position,
+                                 slot.world_matrix, slot.mesh});
         }
     }
 }

@@ -29,6 +29,8 @@ elseif(SAIGE_VULKAN_FETCH_HEADERS)
         GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
         GIT_TAG v1.3.296
         GIT_SHALLOW TRUE)
+    # Only the C headers are needed; skip Vulkan-Headers' optional C++20 module (vulkan.cppm), which slows MSVC builds.
+    set(VULKAN_HEADERS_ENABLE_MODULE OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(saige_vulkan_headers)
     set(_saige_vulkan_headers Vulkan::Headers)
 else()

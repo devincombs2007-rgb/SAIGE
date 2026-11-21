@@ -15,6 +15,8 @@ function(saige_gfx_configure_target target)
 
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:__cplusplus /utf-8 /EHsc)
+        # Standard C functions such as std::getenv are not deprecated; keep MSVC's C4996 from failing /WX builds.
+        target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
         if(SAIGE_GFX_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)
         endif()

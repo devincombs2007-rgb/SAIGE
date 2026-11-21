@@ -106,3 +106,16 @@ if(SAIGE_BUILD_PROJECTS)
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/hierarchy/saige.scene.json")
     endif()
 endif()
+
+if(TARGET saige::project AND TARGET saige::gfx_assets)
+    add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
+    target_link_libraries(saige_scene_asset_tool PRIVATE saige::project saige::gfx_assets)
+    if(BUILD_TESTING)
+        find_package(Python3 COMPONENTS Interpreter)
+        if(Python3_Interpreter_FOUND)
+            add_test(NAME scene_asset_preflight COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/scene_asset_preflight_test.py"
+                $<TARGET_FILE:saige_scene_asset_tool>)
+        endif()
+    endif()
+endif()

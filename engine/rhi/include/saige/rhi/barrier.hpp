@@ -84,6 +84,11 @@ struct ResourceState {
     friend constexpr bool operator==(const ResourceState&, const ResourceState&) noexcept = default;
 };
 
+/// The state a texture must be in while shaders sample it. `Device::upload_texture` leaves its texture in exactly
+/// this state, so an uploaded, immutable texture needs no further barriers before it is drawn with.
+inline constexpr ResourceState sampled_texture_state{PipelineStage::VertexShader | PipelineStage::PixelShader,
+                                                     Access::ShaderSampledRead, TextureLayout::ShaderReadOnly};
+
 inline constexpr uint32_t all_mips = 0xFFFFFFFFu;
 inline constexpr uint32_t all_layers = 0xFFFFFFFFu;
 

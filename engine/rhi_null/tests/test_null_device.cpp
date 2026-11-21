@@ -3,6 +3,8 @@
 #include "saige/rhi_null/null_device.hpp"
 
 #include <array>
+#include <span>
+#include <vector>
 #include <stdexcept>
 
 using namespace saige::rhi;
@@ -279,4 +281,98 @@ TEST_CASE("NullDevice: readback copy validates usage and size")
     cmd.copy_texture_to_buffer(rt, small);
     CHECK(device.validation_error_count() == 1);
     (void)device.end_frame();
+}
+
+namespace {
+
+TextureDesc sampled_texture(uint32_t w, uint32_t h, uint32_t mips = 1, uint32_t layers = 1)
+{
+    TextureDesc d;
+    d.format = Format::RGBA8_UNORM;
+    d.width = w;
+    d.height = h;
+    d.mip_levels = mips;
+    d.array_layers = layers;
+    d.usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+    return d;
+}
+
+template <typename Fn>
+bool throws_invalid(Fn&& fn)
+{
+    try {
+        fn();
+    } catch (const std::invalid_argument&) {
+        return true;
+    } catch (...) {
+        return false;
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("NullDevice: upload_texture checks the data size against the full mip chain and layers")
+{
+    NullDevice device;
+    const TextureDesc desc = sampled_texture(13, 7, full_mip_chain, 3);
+    const TextureHandle t = device.create_texture(desc);
+    const uint64_t expected = compute_texture_data_size(desc);
+    CHECK(expected > 13 * 7 * 4 * 3);  // more than level 0 alone
+    std::vector<std::byte> data(expected);
+    CHECK(device.uploaded_bytes(t) == 0);
+    device.upload_texture(t, data);
+    CHECK(device.uploaded_bytes(t) == expected);
+
+    CHECK(throws_invalid([&] { device.upload_texture(t, std::span<const std::byte>(data).first(expected - 1)); }));
+    data.push_back(std::byte{0});
+    CHECK(throws_invalid([&] { device.upload_texture(t, data); }));
+    CHECK(throws_invalid([&] { device.upload_texture(TextureHandle{}, std::span<const std::byte>{}); }));
+    CHECK(device.validation_error_count() == 0);
+}
+
+TEST_CASE("NullDevice: upload_texture requires Sampled | TransferDst, single sample, and no open frame")
+{
+    NullDevice device;
+    TextureDesc no_dst = sampled_texture(4, 4);
+    no_dst.usage = TextureUsage::Sampled;
+    TextureDesc no_sampled = sampled_texture(4, 4);
+    no_sampled.usage = TextureUsage::TransferDst;
+    const std::vector<std::byte> data(4 * 4 * 4);
+    CHECK(throws_invalid([&] { device.upload_texture(device.create_texture(no_dst), data); }));
+    CHECK(throws_invalid([&] { device.upload_texture(device.create_texture(no_sampled), data); }));
+
+    const TextureHandle ok = device.create_texture(sampled_texture(4, 4));
+    (void)device.begin_frame();
+    bool threw_logic = false;
+    try {
+        device.upload_texture(ok, data);
+    } catch (const std::logic_error&) {
+        threw_logic = true;
+    }
+    CHECK(threw_logic);
+    (void)device.end_frame();
+    device.upload_texture(ok, data);
+    CHECK(device.uploaded_bytes(ok) == data.size());
+}
+
+TEST_CASE("NullDevice: samplers are validated, counted as live, and retire after their frames")
+{
+    NullDevice device;
+    SamplerDesc bad;
+    bad.max_anisotropy = 32.0f;
+    CHECK(throws_invalid([&] { (void)device.create_sampler(bad); }));
+
+    const SamplerHandle s = device.create_sampler({});
+    CHECK(s.is_valid());
+    CHECK(device.live_resource_count() == 1);
+    device.destroy(s);
+    CHECK(device.pending_destruction_count() == 1);
+    CHECK(device.live_resource_count() == 1);  // still alive for in-flight frames
+    device.wait_idle();
+    CHECK(device.pending_destruction_count() == 0);
+    CHECK(device.live_resource_count() == 0);
+
+    device.destroy(s);  // a stale handle is a reported validation error, not a crash
+    CHECK(device.validation_error_count() == 1);
 }

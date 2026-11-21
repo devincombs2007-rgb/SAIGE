@@ -77,6 +77,25 @@ Instance/Adapter enumeration ─► Device ─┬─► Queue (Graphics | Comput
 - Push constants (≤128 bytes) carry per-dispatch and per-draw parameters.
 - A single global pipeline layout makes pipelines layout-compatible and avoids rebinding.
 
+### 4.1 Texture upload and samplers (0.2)
+
+`Device::upload_texture(texture, data)` is the load-time upload path: synchronous, one staging buffer, one
+transfer-and-barrier submission that waits for completion. `data` is tightly packed with the mip level outermost, then
+array layer, then rows (the order `compute_texture_data_size` already sums), and must match that size exactly. The
+texture needs `Sampled | TransferDst`, one sample and a 2D dimension. Afterwards the texture is in
+`sampled_texture_state`, so an immutable uploaded texture never needs another barrier before it is sampled.
+Uploading is not allowed between `begin_frame()` and `end_frame()` (it throws `std::logic_error`). It blocks the
+calling thread by design: 0.2 loads synchronously on one thread, and an asynchronous transfer-queue path is added only
+after upload cost is measured.
+
+`Device::create_sampler` creates immutable samplers (`hash_sampler_desc` lets callers deduplicate). Requested
+anisotropy degrades to trilinear on devices without `samplerAnisotropy` instead of failing the load. Destruction of
+samplers and textures is deferred until in-flight frames retire, like every other resource. A texture whose usage allows
+no shader or attachment access (transfer only) has no image view.
+
+Binding textures and samplers to draws (bind groups, one descriptor set per material first, bindless optional later)
+is the next RHI step and is specified separately before it lands.
+
 ## 6. Pipelines
 
 - Pipelines are created from compiled SPIR-V blobs produced offline by `saige-shaderc`

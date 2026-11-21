@@ -33,3 +33,15 @@ if(TARGET saige_desktop AND TARGET saige::rhi_vulkan)
     target_link_libraries(saige_desktop PRIVATE saige::render_sink saige::rhi_vulkan)
     target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_VULKAN)
 endif()
+
+# Windows end-to-end: Core's real Win32Platform + RendererFrameSink + Vulkan swapchain. Runs on any Vulkan 1.3
+# device, including a software ICD on hosted CI (see .github/workflows/windows-vulkan.yml). Exit 77 = skipped.
+if(WIN32 AND TARGET saige::rhi_vulkan AND TARGET saige::desktop)
+    add_executable(saige_win32_vulkan_tests tests/test_win32_vulkan.cpp)
+    target_include_directories(saige_win32_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include)
+    target_link_libraries(saige_win32_vulkan_tests PRIVATE saige::render_sink saige::rhi_vulkan saige::desktop)
+    target_compile_definitions(saige_win32_vulkan_tests PRIVATE WINVER=0x0A00 _WIN32_WINNT=0x0A00)
+    saige_gfx_configure_target(saige_win32_vulkan_tests)
+    add_test(NAME saige_win32_vulkan_tests COMMAND saige_win32_vulkan_tests)
+    set_tests_properties(saige_win32_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
+endif()

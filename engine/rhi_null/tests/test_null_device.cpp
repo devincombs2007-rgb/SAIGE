@@ -376,3 +376,167 @@ TEST_CASE("NullDevice: samplers are validated, counted as live, and retire after
     device.destroy(s);  // a stale handle is a reported validation error, not a crash
     CHECK(device.validation_error_count() == 1);
 }
+
+namespace {
+
+struct BindFixture {
+    NullDevice device;
+    BindGroupLayoutHandle layout;
+    ShaderHandle vs, ps;
+    PipelineHandle pipeline;
+    TextureHandle texture;
+    SamplerHandle sampler;
+    BufferHandle uniform;
+    TextureHandle target;
+
+    BindFixture()
+    {
+        BindGroupLayoutDesc ld;
+        ld.entries = {{0, BindingType::SampledTexture}, {1, BindingType::Sampler}, {2, BindingType::UniformBuffer}};
+        layout = device.create_bind_group_layout(ld);
+        vs = device.create_shader({ShaderStage::Vertex, fake_spirv, "main", nullptr});
+        ps = device.create_shader({ShaderStage::Pixel, fake_spirv, "main", nullptr});
+        GraphicsPipelineDesc pd;
+        pd.vertex_shader = vs;
+        pd.pixel_shader = ps;
+        pd.color_formats = {Format::RGBA8_SRGB};
+        pd.bind_group_layouts = {layout};
+        pipeline = device.create_graphics_pipeline(pd);
+        texture = device.create_texture(sampled_texture(4, 4));
+        sampler = device.create_sampler({});
+        BufferDesc bd;
+        bd.size = 256;
+        bd.usage = BufferUsage::Uniform;
+        bd.memory = MemoryLocation::CpuToGpu;
+        uniform = device.create_buffer(bd);
+        target = device.create_texture(color_target());
+    }
+
+    std::vector<BindGroupEntry> entries() const
+    {
+        std::vector<BindGroupEntry> e(3);
+        e[0].binding = 0;
+        e[0].texture = texture;
+        e[1].binding = 1;
+        e[1].sampler = sampler;
+        e[2].binding = 2;
+        e[2].buffer = uniform;
+        e[2].size = 16;
+        return e;
+    }
+
+    /// Records one frame that binds the pipeline, then runs `inside` and draws.
+    template <typename Fn>
+    void frame(Fn&& inside)
+    {
+        CommandList& cmd = device.begin_frame();
+        RenderingDesc rd;
+        ColorAttachment ca;
+        ca.texture = target;
+        rd.colors.push_back(ca);
+        rd.area = {0, 0, 64, 32};
+        const TextureBarrier to_attachment{
+            target, {}, {PipelineStage::ColorAttachmentOutput, Access::ColorAttachmentWrite, TextureLayout::ColorAttachment}, {}};
+        cmd.barrier(std::span(&to_attachment, 1));
+        cmd.begin_rendering(rd);
+        cmd.bind_pipeline(pipeline);
+        inside(cmd);
+        cmd.draw(3);
+        cmd.end_rendering();
+        (void)device.end_frame();
+    }
+};
+
+} // namespace
+
+TEST_CASE("NullDevice: bind group layouts and groups are validated like the Vulkan backend")
+{
+    BindFixture f;
+    BindGroupLayoutDesc dup;
+    dup.entries = {{0, BindingType::Sampler}, {0, BindingType::SampledTexture}};
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group_layout(dup); }));
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group_layout({}); }));
+
+    const BindGroupHandle ok = f.device.create_bind_group(f.layout, f.entries());
+    CHECK(ok.is_valid());
+    auto missing = f.entries();
+    missing.pop_back();
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, missing); }));
+    auto no_sampled_usage = f.entries();
+    no_sampled_usage[0].texture = f.target;
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, no_sampled_usage); }));
+    auto misaligned = f.entries();
+    misaligned[2].offset = 16;
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, misaligned); }));
+    auto too_long = f.entries();
+    too_long[2].size = 4096;
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, too_long); }));
+    auto dead_sampler = f.entries();
+    dead_sampler[1].sampler = SamplerHandle{};
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, dead_sampler); }));
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(BindGroupLayoutHandle{}, f.entries()); }));
+    CHECK(f.device.validation_error_count() == 0);
+}
+
+TEST_CASE("NullDevice: drawing needs a compatible bind group at every set the pipeline declares")
+{
+    BindFixture f;
+    const BindGroupHandle group = f.device.create_bind_group(f.layout, f.entries());
+
+    f.frame([&](CommandList& cmd) { cmd.bind_group(0, group); });
+    CHECK(f.device.validation_error_count() == 0);
+    bool recorded = false;
+    for (const RecordedCommand& c : f.device.last_frame_commands()) {
+        recorded |= c.type == CommandType::BindGroup && c.group == group && c.count == 0;
+    }
+    CHECK(recorded);
+
+    const uint32_t before = f.device.validation_error_count();
+    f.frame([&](CommandList&) {});  // draw without binding
+    CHECK(f.device.validation_error_count() == before + 1);
+
+    // A group made from a different (but identical-looking) layout is not compatible.
+    BindGroupLayoutDesc ld;
+    ld.entries = {{0, BindingType::SampledTexture}, {1, BindingType::Sampler}, {2, BindingType::UniformBuffer}};
+    const BindGroupLayoutHandle other_layout = f.device.create_bind_group_layout(ld);
+    const BindGroupHandle other_group = f.device.create_bind_group(other_layout, f.entries());
+    const uint32_t before_mismatch = f.device.validation_error_count();
+    f.frame([&](CommandList& cmd) { cmd.bind_group(0, other_group); });
+    CHECK(f.device.validation_error_count() > before_mismatch);
+
+    // Binding to a set the pipeline does not declare, and to a dead group, are errors too.
+    const uint32_t before_set = f.device.validation_error_count();
+    f.frame([&](CommandList& cmd) {
+        cmd.bind_group(0, group);
+        cmd.bind_group(3, group);
+    });
+    CHECK(f.device.validation_error_count() == before_set + 1);
+}
+
+TEST_CASE("NullDevice: bind groups and layouts retire after their frames and count as live")
+{
+    BindFixture f;
+    const uint32_t base = f.device.live_resource_count();
+    const BindGroupHandle group = f.device.create_bind_group(f.layout, f.entries());
+    CHECK(f.device.live_resource_count() == base + 1);
+    f.device.destroy(group);
+    CHECK(f.device.pending_destruction_count() >= 1);
+    CHECK(f.device.live_resource_count() == base + 1);  // alive until in-flight frames retire
+    f.device.wait_idle();
+    CHECK(f.device.live_resource_count() == base);
+    f.device.destroy(group);  // stale handle: reported, not fatal
+    CHECK(f.device.validation_error_count() == 1);
+}
+
+TEST_CASE("NullDevice: pipelines reject invalid or too many bind group layouts")
+{
+    BindFixture f;
+    GraphicsPipelineDesc pd;
+    pd.vertex_shader = f.vs;
+    pd.pixel_shader = f.ps;
+    pd.color_formats = {Format::RGBA8_SRGB};
+    pd.bind_group_layouts = {BindGroupLayoutHandle{}};
+    CHECK(throws_invalid([&] { (void)f.device.create_graphics_pipeline(pd); }));
+    pd.bind_group_layouts.assign(max_bind_groups_per_pipeline + 1, f.layout);
+    CHECK(throws_invalid([&] { (void)f.device.create_graphics_pipeline(pd); }));
+}

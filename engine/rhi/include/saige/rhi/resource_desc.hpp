@@ -3,10 +3,15 @@
 
 #include "saige/rhi/flags.hpp"
 #include "saige/rhi/format.hpp"
+#include "saige/rhi/handle.hpp"
 
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <optional>
+#include <span>
+#include <vector>
 
 namespace saige::rhi {
 
@@ -172,6 +177,65 @@ struct SamplerDesc {
 };
 
 [[nodiscard]] ValidationResult validate(const SamplerDesc& desc) noexcept;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Bind groups (plain descriptor sets; bindless is a later, capability-gated optimization)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// What a binding holds. All bindings are visible to the vertex and pixel stages in 0.2.
+enum class BindingType : uint8_t {
+    SampledTexture,  ///< A texture (HLSL `Texture2D`); read through a separate `Sampler` binding.
+    Sampler,         ///< A sampler (HLSL `SamplerState`). Textures and samplers are separate bindings, as in HLSL.
+    UniformBuffer,
+    StorageBuffer,
+};
+
+inline constexpr uint32_t max_bindings_per_group = 16;
+inline constexpr uint32_t max_bind_groups_per_pipeline = 4;  ///< Vulkan guarantees at least 4 descriptor sets.
+/// Buffer offsets in a bind group must be a multiple of this (the portable worst case of uniform/storage alignment).
+inline constexpr uint64_t bind_group_buffer_alignment = 256;
+
+struct BindGroupLayoutEntry {
+    uint32_t binding = 0;
+    BindingType type = BindingType::SampledTexture;
+
+    friend bool operator==(const BindGroupLayoutEntry&, const BindGroupLayoutEntry&) noexcept = default;
+};
+
+struct BindGroupLayoutDesc {
+    std::vector<BindGroupLayoutEntry> entries;
+    const char* debug_name = nullptr;
+};
+
+/// One resource bound to one layout entry. Set `texture` for SampledTexture, `sampler` for Sampler, `buffer` (+ range)
+/// for buffers.
+/// The group does not own what it references: the referenced resources must stay alive until every submission that uses
+/// the group has retired. Destroying a group and its resources in any order is safe because destruction is deferred.
+struct BindGroupEntry {
+    uint32_t binding = 0;
+    TextureHandle texture;
+    SamplerHandle sampler;
+    BufferHandle buffer;
+    uint64_t offset = 0;
+    uint64_t size = ~uint64_t{0};  ///< Bytes from `offset`; the default means "to the end of the buffer".
+};
+
+/// Backend-independent layout rules: 1..max_bindings_per_group entries and unique binding numbers.
+[[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept;
+
+/// How a backend looks resources up, so bind group entries are validated by one shared rule set.
+struct BindGroupResolver {
+    std::function<std::optional<TextureDesc>(TextureHandle)> texture;  ///< nullopt = invalid or destroyed
+    std::function<bool(SamplerHandle)> sampler_exists;
+    std::function<std::optional<BufferDesc>(BufferHandle)> buffer;
+};
+
+/// Checks `entries` against `layout`: exactly one entry per layout entry (no extras, no repeats), each holding live
+/// resources of the right kind (SampledTexture: a texture with `Sampled` usage and one sample; Sampler: a live sampler;
+/// buffers: `Uniform` / `Storage` usage, offset aligned to `bind_group_buffer_alignment`, non-empty range inside the
+/// buffer).
+[[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const BindGroupEntry> entries,
+                                        const BindGroupResolver& resolver);
 
 /// Stable hash for sampler deduplication (the bindless sampler table is small and shared).
 [[nodiscard]] std::size_t hash_sampler_desc(const SamplerDesc& desc) noexcept;

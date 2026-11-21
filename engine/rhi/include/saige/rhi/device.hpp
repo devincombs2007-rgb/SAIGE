@@ -70,6 +70,9 @@ struct GraphicsPipelineDesc {
     std::vector<Format> color_formats;
     Format depth_format = Format::Unknown;
     uint32_t push_constant_size = 0;  ///< Bytes visible to vertex and pixel stages (<= 128).
+    /// Descriptor set layouts; the position in this list is the set index (HLSL `[[vk::binding(b, set)]]`).
+    /// At most `max_bind_groups_per_pipeline`. Drawing requires a compatible group bound to every set.
+    std::vector<BindGroupLayoutHandle> bind_group_layouts;
     const char* debug_name = nullptr;
 };
 
@@ -134,6 +137,10 @@ public:
     virtual void set_viewport(const Viewport& viewport) = 0;
     virtual void set_scissor(const Rect2D& rect) = 0;
     virtual void bind_pipeline(PipelineHandle pipeline) = 0;
+    /// Binds `group` to descriptor set `set` of the bound pipeline. Requires a bound pipeline with a layout at `set`
+    /// and a group created from that same layout. Bound groups persist across pipeline changes only if the new
+    /// pipeline uses the same layout at that set; rebind after switching to be safe.
+    virtual void bind_group(uint32_t set, BindGroupHandle group) = 0;
     virtual void push_constants(std::span<const std::byte> data, uint32_t offset = 0) = 0;
     virtual void bind_vertex_buffer(BufferHandle buffer, uint64_t offset = 0) = 0;
     virtual void bind_index_buffer(BufferHandle buffer, IndexType type, uint64_t offset = 0) = 0;
@@ -243,6 +250,16 @@ public:
     virtual void upload_texture(TextureHandle texture, std::span<const std::byte> data) = 0;
     /// Samplers are immutable and cheap to share; callers may deduplicate with `hash_sampler_desc`.
     virtual SamplerHandle create_sampler(const SamplerDesc& desc) = 0;
+    /// Layouts are shared by pipelines and groups. Throws std::invalid_argument for an invalid layout description.
+    virtual BindGroupLayoutHandle create_bind_group_layout(const BindGroupLayoutDesc& desc) = 0;
+    /// Creates an immutable descriptor set for `layout`. `entries` must supply exactly one entry per layout entry with
+    /// resources valid for its type (textures need `Sampled` usage; samplers must be live; buffers need `Uniform` or
+    /// `Storage` usage; offsets are multiples of `bind_group_buffer_alignment` and the range lies inside the buffer).
+    /// Anything else throws std::invalid_argument. Create groups at load time, not per frame: sets are pooled, but
+    /// updating one per draw is a different, dynamic mechanism that does not exist yet.
+    virtual BindGroupHandle create_bind_group(BindGroupLayoutHandle layout, std::span<const BindGroupEntry> entries) = 0;
+    virtual void destroy(BindGroupLayoutHandle handle) = 0;
+    virtual void destroy(BindGroupHandle handle) = 0;
     virtual ShaderHandle create_shader(const ShaderDesc& desc) = 0;
     virtual PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) = 0;
     virtual void destroy(BufferHandle handle) = 0;

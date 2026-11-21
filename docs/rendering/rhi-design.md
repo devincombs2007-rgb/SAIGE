@@ -93,8 +93,28 @@ anisotropy degrades to trilinear on devices without `samplerAnisotropy` instead 
 samplers and textures is deferred until in-flight frames retire, like every other resource. A texture whose usage allows
 no shader or attachment access (transfer only) has no image view.
 
-Binding textures and samplers to draws (bind groups, one descriptor set per material first, bindless optional later)
-is the next RHI step and is specified separately before it lands.
+### 4.2 Bind groups (0.2)
+
+Bind groups are plain descriptor sets: no bindless, no extensions, so the software lanes stay representative. A
+`BindGroupLayout` lists bindings of type `SampledTexture`, `Sampler`, `UniformBuffer` or `StorageBuffer`. Textures and
+samplers are separate bindings, which is HLSL's model (`Texture2D` + `SamplerState`) and what both glslang and DXC emit;
+it also lets materials share one sampler. Pipelines list their layouts (position = descriptor set index, at most 4), and
+`CommandList::bind_group(set, group)` binds a group made from the same layout. All bindings are visible to the vertex and
+pixel stages.
+
+- **Immutable and load-time.** `create_bind_group` writes the descriptors once. Per-draw or per-frame data goes through
+  push constants today and an instance buffer next; there is no dynamic-offset or update-after-bind path yet.
+- **One rule set.** `validate(layout, entries, resolver)` in `saige::rhi` is shared by every backend: exactly one entry
+  per binding, live resources, `Sampled` usage and one sample for textures, `Uniform` / `Storage` usage for buffers,
+  256-byte aligned offsets and a non-empty range inside the buffer. Violations throw `std::invalid_argument` at creation.
+- **Lifetimes.** A group does not own what it references. Destruction of groups, layouts and the resources they point at
+  is deferred until in-flight submissions retire, so they can be destroyed in any order right after a frame is
+  submitted (tested on Vulkan with validation). A group must not outlive the device. Leaked groups are reported at
+  device teardown like other resources.
+- **Pooling.** The Vulkan backend allocates sets from growing pools of 256 sets and frees them individually when they
+  retire.
+- **Null backend.** Records `BindGroup` commands and reports a validation error for a draw without a compatible group at
+  every declared set, a layout mismatch, or an undeclared set.
 
 ## 6. Pipelines
 

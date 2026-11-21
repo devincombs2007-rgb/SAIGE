@@ -96,3 +96,37 @@ All paths and names will be adapted to Core's layout once D-04 is decided.
 | **6** | Virtualized geometry (cluster LOD DAG, streaming) and virtual shadow maps | Phases 3 and 5 |
 
 See [render-architecture.md §7](render-architecture.md#7-feature-roadmap-toward-aaa-targets) for details.
+
+## 6. Implementation status
+
+Built so far: only components with **no dependency on unresolved Core interfaces**. Everything builds
+standalone today and joins Core's build with a single `add_subdirectory` once D-02 lands.
+
+| Component | Location | Status | Tests |
+|-----------|----------|--------|-------|
+| Generational handles + `HandlePool` | `engine/rhi/include/saige/rhi/handle*.h` | ✅ | `engine/rhi/tests/test_handle.cpp` |
+| Format table (64 formats, constexpr metadata, surface layout) | `engine/rhi/include/saige/rhi/format.h` | ✅ | `test_format.cpp` |
+| Buffer/texture/sampler descriptions + validation | `engine/rhi/include/saige/rhi/resource_desc.h` | ✅ | `test_resource_desc.cpp` |
+| Bindless index allocator + GPU-timeline deferred release | `engine/rhi/include/saige/rhi/bindless_allocator.h` | ✅ | `test_bindless_allocator.cpp` |
+| Sync2-style barrier model | `engine/rhi/include/saige/rhi/barrier.h` | ✅ | `test_barrier.cpp` |
+| **Render graph**: culling, barrier generation, usage inference, transient aliasing, Graphviz | `engine/render/` | ✅ v1 | `engine/render/tests/test_render_graph.cpp` |
+| `Device` / `CommandList` interfaces, null backend | `engine/rhi`, `engine/rhi_null` | ⏳ Next | — |
+| Vulkan backend | `engine/rhi_vulkan` | ⛔ Blocked on D-01…D-05, D-12 (and Vulkan SDK in CI) | — |
+| `saige-shaderc` | `tools/shaderc` | ⏳ Next (independent) | — |
+
+### Building and testing (until Core's build exists)
+
+```bash
+# Requires CMake ≥ 3.25 and a C++20 compiler (GCC 13+, Clang 16+, MSVC 2022).
+cmake -S engine/render -B build/render -G Ninja -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON   # also builds engine/rhi
+cmake --build build/render && ctest --test-dir build/render --output-on-failure
+cmake -S engine/rhi -B build/rhi -G Ninja && cmake --build build/rhi && ctest --test-dir build/rhi
+# Optional: -DSAIGE_GFX_SANITIZERS=ON (ASan + UBSan, GCC/Clang)
+```
+
+CI: `.github/workflows/graphics.yml` runs Linux GCC (Debug + ASan/UBSan), Linux Clang (Release) and
+Windows MSVC (Release), all with warnings as errors. It is limited to graphics paths.
+
+**Temporary local conventions** (replaced when Core decides D-05, D-11 and D-17): `SAIGE_RHI_ASSERT`
+routes to Core's `SAIGE_ASSERT` if that is defined. Tests use a doctest-compatible mini harness
+(`engine/gfx_test_support`). Shared build flags are in `cmake/SaigeGraphics.cmake`.

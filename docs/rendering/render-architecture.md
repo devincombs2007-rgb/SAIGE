@@ -88,6 +88,20 @@ graph.addPass("GBuffer", QueueType::Graphics,
   semaphore waits.
 - **Debugging:** dump the graph to Graphviz, and name every resource and pass for RenderDoc.
 
+**v1 implementation notes** (`engine/render/src/render_graph.cpp`):
+- *Culling:* the roots are passes that write an imported resource or call `setSideEffects()`.
+  Data dependencies are read-after-write, plus write-after-write when the later write preserves
+  contents (`LoadOp::Load`, partial storage writes). A full overwrite (`Clear`/`DontCare`) breaks the
+  dependency, so the earlier writer can be culled.
+- *Barriers:* tracked per resource as (layout, last write stages/access, readers since the write).
+  Read-after-read needs no barrier. Reads in a new stage chain through earlier readers, so layout
+  transitions stay ordered. Discarding writes transition from `Undefined`.
+- *Aliasing:* greedy best-fit interval assignment per resource kind (textures with textures, buffers
+  with buffers). The first use of an aliased resource waits on the previous occupant's last accesses.
+  Sizes come from a callback, so the Vulkan backend can supply exact `vkGetDeviceImageMemoryRequirements` values.
+- *Not yet:* async-compute scheduling and cross-queue sync, subresource (per-mip) tracking, split
+  barriers, parallel recording. All are planned and none changes the public API.
+
 ## 5. GPU scene & materials
 
 - **Bindless everywhere:** every texture, buffer and sampler is accessed by an index into global

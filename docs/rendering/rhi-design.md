@@ -7,7 +7,7 @@
 - **Thin and explicit.** The RHI mirrors modern explicit APIs (Vulkan 1.3, D3D12, Metal 3) rather than
   emulating legacy state machines. No implicit state tracking inside command lists: barriers come
   from the render graph.
-- **Handles, not pointers.** Every GPU object is a 32-bit generational handle into a backend-owned pool.
+- **Handles, not pointers.** Every GPU object is a 32-bit generational handle (20-bit index, 12-bit generation) into a backend-owned pool.
   Handles are trivially copyable, safe to compare, and stale handles are detected in debug builds.
 - **Bindless first.** Shaders access resources through indices into global descriptor heaps, so there is
   no per-draw descriptor set management.
@@ -116,7 +116,7 @@ namespace saige::rhi {
 enum class Backend : uint8_t { Null, Vulkan /*, D3D12, Metal */ };
 enum class QueueType : uint8_t { Graphics, Compute, Transfer };
 
-template <typename Tag> struct Handle { uint32_t index : 24; uint32_t generation : 8; };
+template <typename Tag> class Handle;   // 32-bit: [generation:12 | index:20], generation 0 = invalid (implemented: engine/rhi/include/saige/rhi/handle.h)
 using BufferHandle   = Handle<struct BufferTag>;
 using TextureHandle  = Handle<struct TextureTag>;
 using PipelineHandle = Handle<struct PipelineTag>;

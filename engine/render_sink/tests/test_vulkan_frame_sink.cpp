@@ -84,6 +84,8 @@ TEST_CASE("Vulkan sink: the runtime moves the marker and the rendered cube moves
 {
     rhi::DeviceDesc dd;
     dd.enable_validation = true;
+    const char* require = std::getenv("SAIGE_REQUIRE_VALIDATION");  // CI: a missing validation layer is a failure
+    dd.require_validation = require != nullptr && require[0] != '\0' && require[0] != '0';
     auto device = rhi::create_vulkan_device(dd);
     rhi::Device* raw = device.get();
 

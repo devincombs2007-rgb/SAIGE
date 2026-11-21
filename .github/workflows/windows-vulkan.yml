@@ -1,0 +1,111 @@
+# Windows Vulkan verification on free hosted runners (owner: Rendering; issue #9).
+#
+# GitHub's Windows runners have no GPU and no Vulkan loader, but Vulkan can run on the CPU: this job installs
+#   - the Khronos Vulkan loader and validation layers from MSYS2 (signed packages), and
+#   - Mesa's lavapipe software driver from pal1000/mesa-dist-win (pinned version and SHA-256),
+# registers them in the Windows registry (an elevated process makes the loader ignore VK_* environment variables),
+# builds the whole tree with MSVC /W4 /WX, and runs the Vulkan tests *with the validation layer required* and with
+# skips treated as failures. That exercises vkCreateWin32SurfaceKHR, swapchain create/present/resize/minimize/restore
+# and shutdown order with Core's real Win32Platform.
+#
+# It does NOT prove behavior on a real GPU driver or a real display; native hardware remains the final acceptance.
+name: Windows Vulkan
+
+on:
+  push:
+    branches: ['claude/**', 'core/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-vulkan-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  MESA_VERSION: '26.3.0'
+  # SHA-256 of mesa3d-<version>-release-msvc.7z. Empty = print the hash and warn (used only to pin a new version).
+  MESA_SHA256: ''
+
+jobs:
+  windows-lavapipe:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vulkan loader and validation layers (MSYS2 signed packages)
+        shell: pwsh
+        run: |
+          & C:\msys64\usr\bin\bash.exe -lc "pacman -Sy --noconfirm && pacman -S --noconfirm --needed mingw-w64-x86_64-vulkan-loader mingw-w64-x86_64-vulkan-validation-layers"
+          if ($LASTEXITCODE -ne 0) { throw "pacman failed ($LASTEXITCODE)" }
+          $bin = 'C:\msys64\mingw64\bin'
+          Get-ChildItem $bin -Filter 'vulkan-1.dll' | Format-List FullName, Length
+          $layer = Get-ChildItem C:\msys64\mingw64 -Recurse -Filter 'VkLayer_khronos_validation.json' | Select-Object -First 1
+          if (-not $layer) { throw "validation layer manifest not found" }
+          Write-Host "layer manifest: $($layer.FullName)"; Get-Content $layer.FullName
+          # The loader (vulkan-1.dll) is found through PATH (appended, so MSYS2 never shadows the runner's tools).
+          "PATH=$env:PATH;$bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          # Explicit layers are registered in the registry: elevated processes ignore VK_LAYER_PATH.
+          reg add "HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers" /v $layer.FullName /t REG_DWORD /d 0 /f
+
+      - name: Install Mesa lavapipe (software Vulkan driver), pinned
+        shell: pwsh
+        run: |
+          $url = "https://github.com/pal1000/mesa-dist-win/releases/download/$env:MESA_VERSION/mesa3d-$env:MESA_VERSION-release-msvc.7z"
+          Invoke-WebRequest -Uri $url -OutFile mesa.7z
+          $hash = (Get-FileHash mesa.7z -Algorithm SHA256).Hash.ToLower()
+          Write-Host "mesa3d-$env:MESA_VERSION-release-msvc.7z sha256: $hash"
+          if ($env:MESA_SHA256 -eq '') { Write-Host "::warning::MESA_SHA256 is not pinned; pin $hash" }
+          elseif ($hash -ne $env:MESA_SHA256) { throw "Mesa archive hash mismatch: expected $env:MESA_SHA256, got $hash" }
+          7z x mesa.7z -omesa -y | Out-Null
+          Write-Host "== archive layout"; Get-ChildItem mesa -Depth 1 | Select-Object -ExpandProperty FullName
+          $icd = Get-ChildItem mesa -Recurse -Filter '*.json' | Where-Object { $_.Name -match 'lvp' -and $_.FullName -match 'x64' } | Select-Object -First 1
+          if (-not $icd) { Get-ChildItem mesa -Recurse -Filter '*.json' | Select-Object -ExpandProperty FullName; throw "lavapipe ICD manifest not found" }
+          Write-Host "ICD manifest: $($icd.FullName)"; Get-Content $icd.FullName
+          $lib = Join-Path $icd.DirectoryName 'vulkan_lvp.dll'
+          Write-Host "driver dll exists: $(Test-Path $lib)"
+          reg add "HKLM\SOFTWARE\Khronos\Vulkan\Drivers" /v $icd.FullName /t REG_DWORD /d 0 /f
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Vulkan tests on lavapipe (validation required; a skip is a failure)
+        shell: pwsh
+        env:
+          SAIGE_REQUIRE_VALIDATION: '1'
+        run: |
+          New-Item -ItemType Directory -Force captures | Out-Null
+          $env:SAIGE_CAPTURE_DIR = "$PWD\captures"
+          $suites = @(
+            'build\engine\rhi_vulkan\Release\saige_rhi_vulkan_tests.exe',
+            'build\engine\render_sink\Release\saige_render_sink_vulkan_tests.exe',
+            'build\engine\render_sink\Release\saige_win32_vulkan_tests.exe')
+          $failed = @()
+          foreach ($suite in $suites) {
+            Write-Host "::group::$suite"
+            & $suite
+            $rc = $LASTEXITCODE
+            Write-Host "::endgroup::"
+            if ($rc -eq 77) { Write-Host "::error::$suite found no Vulkan device (driver registration failed?)"; $failed += $suite }
+            elseif ($rc -ne 0) { Write-Host "::error::$suite failed with exit code $rc"; $failed += $suite }
+          }
+          if ($failed.Count -gt 0) { throw "failed: $($failed -join ', ')" }
+
+      - name: Remaining CTest suites
+        run: ctest --test-dir build -C Release --output-on-failure -E "vulkan"
+
+      - name: Upload captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-windows-lavapipe-captures
+          path: captures/
+          if-no-files-found: ignore

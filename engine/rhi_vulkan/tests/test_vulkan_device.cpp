@@ -30,6 +30,8 @@ std::unique_ptr<rhi::Device> make_device()
 {
     rhi::DeviceDesc desc;
     desc.enable_validation = true;
+    const char* require = std::getenv("SAIGE_REQUIRE_VALIDATION");  // CI: a missing validation layer is a failure
+    desc.require_validation = require != nullptr && require[0] != '\0' && require[0] != '0';
     desc.application_name = "saige_rhi_vulkan_tests";
     return rhi::create_vulkan_device(desc);
 }

@@ -1,0 +1,71 @@
+name: Windows software Vulkan
+
+on:
+  push:
+    branches: [core/windows-software-vulkan]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  win32-lavapipe:
+    runs-on: windows-2022
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan loader and validation layer
+        id: msys
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            mingw-w64-ucrt-x86_64-vulkan-loader
+            mingw-w64-ucrt-x86_64-vulkan-validation-layers
+      - name: Obtain and verify Mesa Lavapipe
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'saige-mesa.7z'
+          $mesa = Join-Path $env:RUNNER_TEMP 'saige-mesa'
+          Invoke-WebRequest 'https://github.com/pal1000/mesa-dist-win/releases/download/26.3.0/mesa3d-26.3.0-release-msvc.7z' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'c505fcc77e8f63a09d7ddac086591d2f542c0698d37fc9e3094685a34d0d9991') {
+            throw 'Unexpected Mesa archive checksum'
+          }
+          & 7z x $archive "-o$mesa" -y 'x64\*'
+          if ($LASTEXITCODE -ne 0) { throw 'Mesa extraction failed' }
+          $icd = Join-Path $mesa 'x64/lvp_icd.x86_64.json'
+          if (!(Test-Path $icd)) { throw 'Lavapipe driver manifest missing' }
+          "VK_DRIVER_FILES=$icd" >> $env:GITHUB_ENV
+      - name: Configure and build Win32 Vulkan acceptance
+        shell: pwsh
+        run: |
+          cmake --preset windows-release -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_TEST_WIN32_VULKAN=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset windows-release --parallel
+      - name: Verify pixels, Win32 surface lifecycle, and presentation
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys.outputs.msys2-location }}
+        run: |
+          $runtime = Join-Path $env:MSYS2_ROOT 'ucrt64/bin'
+          $env:PATH = "$runtime;$env:PATH"
+          $env:VK_LAYER_PATH = $runtime
+          $env:SAIGE_CAPTURE_DIR = Join-Path $PWD 'captures'
+          New-Item -ItemType Directory -Force $env:SAIGE_CAPTURE_DIR | Out-Null
+          ctest --preset windows-release -V -R 'vulkan|win32_platform' | Tee-Object -FilePath captures/test-log.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Select-String -Path captures/test-log.txt -Pattern '\*\*\*Skipped|\*\*\*Not Run') {
+            throw 'A required test did not run with the software driver'
+          }
+          if (!(Test-Path captures/runtime_first.ppm) -or !(Test-Path captures/runtime_last.ppm)) {
+            throw 'The moving cube readback captures are missing'
+          }
+          & .\build\windows-release\Release\saige_desktop.exe --frames 16 --require-rendered --validate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload software rendering evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-win32-lavapipe-evidence
+          path: captures/
+          if-no-files-found: warn

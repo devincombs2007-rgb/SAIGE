@@ -66,7 +66,7 @@ public:
     void destroy(ShaderHandle handle) override;
     void destroy(PipelineHandle handle) override;
     [[nodiscard]] std::span<std::byte> map(BufferHandle handle) override;
-    [[nodiscard]] const TextureDesc* texture_desc(TextureHandle handle) const override;
+    [[nodiscard]] std::optional<TextureDesc> texture_desc(TextureHandle handle) const override;
 
     SwapchainHandle create_swapchain(const SwapchainDesc& desc) override;
     void resize_swapchain(SwapchainHandle handle, uint32_t width, uint32_t height) override;

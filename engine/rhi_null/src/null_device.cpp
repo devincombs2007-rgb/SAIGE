@@ -483,10 +483,10 @@ std::span<std::byte> NullDevice::map(BufferHandle handle)
     return b->storage;
 }
 
-const TextureDesc* NullDevice::texture_desc(TextureHandle handle) const
+std::optional<TextureDesc> NullDevice::texture_desc(TextureHandle handle) const
 {
     const NullTexture* t = impl_->textures.get(handle);
-    return t != nullptr ? &t->desc : nullptr;
+    return t != nullptr ? std::optional<TextureDesc>(t->desc) : std::nullopt;
 }
 
 SwapchainHandle NullDevice::create_swapchain(const SwapchainDesc& desc)

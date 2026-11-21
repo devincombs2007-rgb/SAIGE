@@ -243,7 +243,9 @@ public:
 
     /// Persistent CPU mapping of a CpuToGpu or GpuToCpu buffer. Empty span for GpuOnly buffers.
     [[nodiscard]] virtual std::span<std::byte> map(BufferHandle handle) = 0;
-    [[nodiscard]] virtual const TextureDesc* texture_desc(TextureHandle handle) const = 0;
+    /// Description of a live texture (by value: never a pointer into backend storage, which resource creation
+    /// may reallocate). nullopt for invalid or destroyed handles.
+    [[nodiscard]] virtual std::optional<TextureDesc> texture_desc(TextureHandle handle) const = 0;
 
     // Presentation
     virtual SwapchainHandle create_swapchain(const SwapchainDesc& desc) = 0;

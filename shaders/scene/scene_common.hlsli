@@ -16,7 +16,9 @@ struct DrawConstants {
 
 [[vk::push_constant]] ConstantBuffer<DrawConstants> pc;
 
-static const float3 sun_direction = float3(0.36, 0.48, 0.80); // toward the sun, normalized
+// Toward the sun: behind-left of the default camera (which looks along +X from -X,-Y), so the three faces it sees
+// are lit at distinct angles.
+static const float3 sun_direction = normalize(float3(-0.40, -0.55, 0.73));
 static const float3 sun_color = float3(1.00, 0.95, 0.85);
 
 float3 apply_lighting(float3 albedo, float3 normal)

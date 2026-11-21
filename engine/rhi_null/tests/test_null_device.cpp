@@ -179,7 +179,7 @@ TEST_CASE("NullDevice: destruction is deferred until the frame retires")
     CHECK(device.live_resource_count() == 1);
     device.destroy(t);
     CHECK(device.pending_destruction_count() == 1);
-    CHECK(device.texture_desc(t) != nullptr);  // still alive for in-flight frames
+    CHECK(device.texture_desc(t).has_value());  // still alive for in-flight frames
 
     (void)device.begin_frame();
     (void)device.end_frame();
@@ -187,7 +187,7 @@ TEST_CASE("NullDevice: destruction is deferred until the frame retires")
     (void)device.begin_frame();
     (void)device.end_frame();
     CHECK(device.live_resource_count() == 0);
-    CHECK(device.texture_desc(t) == nullptr);
+    CHECK_FALSE(device.texture_desc(t).has_value());
 
     device.destroy(t);  // double destroy
     CHECK(device.validation_error_count() == 1);
@@ -218,7 +218,7 @@ TEST_CASE("NullDevice: swapchain acquire, present, resize and out-of-date")
     (void)device.begin_frame();
     const AcquireResult a = device.acquire_next_image(sc);
     REQUIRE(a.status == AcquireStatus::Success);
-    REQUIRE(device.texture_desc(a.texture) != nullptr);
+    REQUIRE(device.texture_desc(a.texture).has_value());
     CHECK(device.texture_desc(a.texture)->width == 800);
     const FrameResult r = device.end_frame();
     CHECK(r.presented);

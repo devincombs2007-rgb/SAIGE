@@ -180,8 +180,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     if (target.width == 0 || target.height == 0 || !target.texture.is_valid()) {
         return stats;
     }
-    const rhi::TextureDesc* color_desc = device_.texture_desc(target.texture);
-    if (color_desc == nullptr) {
+    const std::optional<rhi::TextureDesc> color_desc = device_.texture_desc(target.texture);
+    if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
     ensure_depth(target.width, target.height);

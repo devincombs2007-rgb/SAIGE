@@ -1,6 +1,7 @@
 # SAIGE Rendering & Asset Systems — Design Proposal
 
-**Status:** Proposal / RFC — awaiting review by Core (ChatGPT/Codex) and approval by the project owner.
+**Status:** ✅ Architecture direction **approved by the project owner** (2026-11-21), subject to integration
+review with Core (ChatGPT/Codex) and testing.
 **Owner:** Rendering & Asset Systems (Claude)
 **Scope:** Graphics backend (RHI), Vulkan backend, renderer, shaders, materials, textures, graphics asset pipeline.
 
@@ -18,7 +19,7 @@
 | Core runtime source          | No     | No build system, platform layer, ECS, job system, or math library. |
 | Build system                 | No     | No CMake or other build files.                                |
 | Issues / PRs                 | None   | —                                                            |
-| `README.md`                  | Yes    | Two lines. Expands SAIGE as "**Spectacular** Artificial Intelligent Game Engine" (the owner brief says "Sensational"; the owner should pick one). |
+| `README.md`                  | Yes    | Two lines. Expanded SAIGE as "Spectacular…". **Resolved:** the owner standardized the name as **Sensational Artificial Intelligent Game Engine**. |
 
 **Conclusion:** Every interface the renderer depends on is still undefined: windowing, job system,
 memory, file system, math, ECS, asset registry and build conventions. As the owner instructed,
@@ -26,6 +27,15 @@ rendering will **not** implement dependent code yet. This directory documents:
 
 1. The interfaces Rendering needs from Core, with proposed shapes ([core-interface-requirements.md](core-interface-requirements.md)).
 2. The rendering architecture we intend to build on top of those interfaces.
+
+## 1a. Owner decisions (2026-11-21)
+
+| Decision | Outcome |
+|----------|---------|
+| Project name | **SAIGE = Sensational Artificial Intelligent Game Engine** (standardized project-wide) |
+| D-06 Coordinate system | **Right-handed, Z-up, meters**, as the engine-wide standard: [docs/standards/coordinate-system.md](../standards/coordinate-system.md) |
+| Animation ownership (D-19) | Animation is an independent engine subsystem. **Core (Codex)** owns its core interfaces and integration. **Rendering (Claude)** owns skeletal mesh rendering, GPU skinning, and graphics-related asset import (skeletons, skins, clips from glTF). Playback, blending, retargeting and IK use a separate modular architecture, with ownership to be agreed before implementation. |
+| Rendering architecture | Approved as the direction, subject to integration review and testing |
 
 ## 2. Documents
 
@@ -78,8 +88,8 @@ All paths and names will be adapted to Core's layout once D-04 is decided.
 | Phase | Deliverable | Blocked on |
 |-------|-------------|------------|
 | **0** | Design docs, interface requests, issues (this PR) | — |
-| **1** | RHI interface, null backend, Vulkan bring-up (device, swapchain, clear, triangle), `saige-shaderc`, unit tests | D-01…D-05, D-11, D-12, D-17 |
-| **2** | Render graph, forward PBR, glTF static meshes, KTX2/BCn textures, IBL, cascaded shadows | D-06, D-07, D-09, D-13, D-14, D-15 |
+| **1** | RHI interface, null backend, Vulkan bring-up (device, swapchain, clear, triangle), `saige-shaderc`, unit tests. **Backend-agnostic RHI foundation started (no Core dependency).** | D-01…D-05, D-11, D-12, D-17 |
+| **2** | Render graph, forward PBR, glTF static meshes, KTX2/BCn textures, IBL, cascaded shadows | D-07, D-09, D-13, D-14, D-15 (D-06 ✅) |
 | **3** | GPU-driven rendering: bindless, GPU culling, indirect draws, visibility buffer, clustered lights, TAA, HDR pipeline | Phase 2 |
 | **4** | Physically based sky, volumetric clouds and fog, terrain and vegetation rendering, texture streaming | Phase 3 |
 | **5** | Hardware ray tracing: RT shadows, reflections and GI, denoisers, upscaler integration | Phase 3 |

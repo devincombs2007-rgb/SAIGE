@@ -102,6 +102,20 @@ graph.addPass("GBuffer", QueueType::Graphics,
   is parameter values plus texture indices. Instances live in `MaterialData[]` and are indexed from
   the instance data. See [asset-pipeline.md §5](asset-pipeline.md#5-pbr-material-model).
 
+### 5a. Skeletal meshes & GPU skinning (owner decision D-19)
+
+- The animation runtime (a separate subsystem) produces per-instance skinning matrices
+  (`modelSpaceJoint × inverseBind`, as `float3x4`) and morph weights, and submits them through
+  `RenderScene::setSkinningPose` / `setMorphWeights` during extraction.
+- **Compute skinning:** one dispatch per frame skins all visible skinned instances (linear blend
+  skinning first, dual-quaternion as an option) and applies morph targets, writing to per-instance
+  output vertex buffers.
+- Downstream passes treat skinned output exactly like static geometry. The previous frame's skinned
+  positions are kept, so motion vectors are correct. Phase 5 refits each instance's BLAS from the
+  same output.
+- Skinning and morph work is culled on the GPU (bounds expanded by a per-skeleton maximum
+  displacement), and LOD can reduce joint influence counts.
+
 ## 6. Rendering pipeline evolution
 
 | Stage | Visibility | Lighting | Notes |

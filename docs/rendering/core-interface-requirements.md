@@ -64,10 +64,10 @@ Legend: 🔴 blocks Phase 1 · 🟡 blocks Phase 2 · 🟢 needed later
 
 ## 2. Runtime interfaces Rendering consumes
 
-### D-06 🟡 Coordinate system & units
-- **Need:** Must be fixed before any importer or camera code is written. Changing it later is expensive.
-- **Recommendation:** Right-handed, **Z-up**, 1 unit = 1 meter (matches open-world and DCC
-  conventions; the glTF importer converts from glTF's Y-up). Core and gameplay pick the forward axis.
+### D-06 ✅ Coordinate system & units — **DECIDED (owner, 2026-11-21)**
+- **Decision:** Right-handed, **Z-up**, 1 unit = 1 meter, as the **engine-wide standard**. See
+  [docs/standards/coordinate-system.md](../standards/coordinate-system.md).
+- **Still open (Core):** the forward axis. Recommended: +X forward, +Y left.
 - **Renderer-internal (no Core decision needed):** reverse-Z depth (`D32_SFLOAT`, near = 1, far = 0,
   infinite far plane), and Vulkan's Y-down clip space handled with a negative-height viewport.
 
@@ -230,6 +230,27 @@ Legend: 🔴 blocks Phase 1 · 🟡 blocks Phase 2 · 🟢 needed later
   }
   ```
   Required init order: platform → jobs → filesystem/assets → renderer. Shutdown is the reverse.
+
+### D-19 🟡 Animation subsystem boundaries — **OWNERSHIP DECIDED (owner, 2026-11-21)**, contract open
+- **Decision:** Animation is an **independent engine subsystem**.
+  - **Core (Codex):** animation core interfaces and engine integration.
+  - **Rendering (Claude):** skeletal mesh rendering, GPU skinning, graphics-related asset import
+    (skeletons, skins, animation clips, morph targets from glTF).
+  - **Playback, blending, retargeting and IK:** a separate modular architecture. Ownership must be
+    agreed **before** implementation (tracked in its own issue).
+- **Proposed data contract (for agreement with Codex):**
+  ```cpp
+  // Produced by Rendering's importers, consumed by the animation runtime
+  struct SkeletonAsset  { /* joint names, parent indices, bind pose (local TRS), inverse bind matrices */ };
+  struct AnimClipAsset  { /* per-joint TRS tracks (compressed), duration, sample rate, root motion flags */ };
+
+  // Produced by the animation runtime each frame, consumed by the renderer through RenderScene
+  void RenderScene::setSkinningPose(InstanceHandle, std::span<const float3x4> jointSkinningMatrices);
+  // jointSkinningMatrices[i] = modelSpaceJoint[i] * inverseBind[i] (model space, in the D-06 convention)
+  void RenderScene::setMorphWeights(InstanceHandle, std::span<const float> weights);
+  ```
+- **Rendering's side:** compute-shader skinning into per-instance output vertex buffers. That one path
+  serves raster, previous-frame positions for motion vectors, and BLAS refits for ray tracing.
 
 ---
 

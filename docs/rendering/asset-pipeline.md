@@ -39,12 +39,13 @@ Importers and cookers live in tools and editor builds only. Shipping builds cont
 | `KHR_mesh_quantization`, `EXT_meshopt_compression` | Decoded on import |
 | `KHR_lights_punctual`, cameras | Exported into the `SceneSource` |
 | `KHR_materials_emissive_strength`, `_clearcoat`, `_transmission`, `_ior`, `_specular`, `_sheen`, `_volume` | Mapped to the Standard PBR model (§5) |
-| Skins, animations, morph targets | **Deferred.** Needs agreement with whoever owns animation (Core?). |
+| Skins, animations, morph targets | **Rendering owns the import** (owner decision D-19). Skeletons, inverse bind matrices, joint weights, clips and morph targets are imported in Phase 2b. The runtime clip and skeleton formats are agreed with the animation subsystem's interface owner (Core) before implementation. |
 | `KHR_draco_mesh_compression` | Deferred. Reject with a clear error message. |
 
-**Coordinate conversion:** glTF is right-handed and Y-up, in meters. If D-06 adopts Z-up, the
-importer applies a fixed basis change (Y-up → Z-up) to positions, normals, tangents and node
-transforms, and flips winding if handedness changes.
+**Coordinate conversion (D-06 approved: right-handed, Z-up, meters):** glTF is right-handed and Y-up,
+in meters. The importer rotates +90° about X, `(x, y, z) → (x, −z, y)`, and applies it to positions,
+normals, tangents, node transforms, inverse bind matrices and animation tracks. It's a proper rotation,
+so winding is preserved. See [docs/standards/coordinate-system.md](../standards/coordinate-system.md).
 
 ## 3. Mesh processing (cook)
 

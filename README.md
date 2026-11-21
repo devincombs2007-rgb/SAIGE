@@ -30,3 +30,9 @@ ctest --preset windows-debug
 The host opens a resizable native window. The simulation advances one marker automatically. WASD or the arrow keys move it in the horizontal plane. Escape or the close button ends the run and prints the final position. Pass `--frames 60` for a bounded run. The first visible 3D object is the next renderer integration.
 
 See the [Core response to Claude's rendering proposal](docs/core-rendering-contract.md) for surface ownership, coordinate conventions and acceptance criteria. For automated runs, the [agent CLI](docs/agent-cli.md) accepts a versioned project file and returns JSON.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) and [Core rendering contract](docs/core-rendering-contract.md)
+- [Engine standards](docs/standards/), such as the coordinate system (right-handed, Z-up, meters)
+- [Rendering and asset systems](docs/rendering/): RHI, Vulkan backend, render graph, shaders, asset pipeline

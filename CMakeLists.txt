@@ -55,3 +55,12 @@ if(BUILD_TESTING)
         set_tests_properties(win32_platform desktop_boot PROPERTIES TIMEOUT 30)
     endif()
 endif()
+
+# Graphics modules (owner: Rendering; docs/rendering). Additive: the core and desktop targets do not
+# depend on them. Vulkan stays optional (SAIGE_ENABLE_VULKAN, default OFF; see engine/rhi_vulkan).
+option(SAIGE_BUILD_GRAPHICS "Build the backend-agnostic graphics modules and shader tool" ON)
+if(SAIGE_BUILD_GRAPHICS)
+    add_subdirectory(tools/shaderc)
+    add_subdirectory(shaders)
+    add_subdirectory(engine)
+endif()

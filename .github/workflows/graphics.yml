@@ -1,0 +1,78 @@
+# Graphics CI (owner: Rendering). Complements Core's build.yml, which already builds the graphics modules with the
+# default options. This workflow adds the strict and GPU-related configurations:
+#   - linux-vulkan-lavapipe: Vulkan backend on Mesa lavapipe (CPU Vulkan) with validation layers, under Xvfb so the
+#     Xlib swapchain test runs; shaders recompiled with glslang and checked with spirv-val; warnings as errors.
+#   - linux-gcc-asan: whole tree with AddressSanitizer + UndefinedBehaviorSanitizer (no Vulkan).
+#   - windows-msvc-vulkan: MSVC /W4 /WX with the Vulkan backend compiled against fetched Khronos headers. GitHub's
+#     Windows runners have no Vulkan driver, so GPU tests report "skipped" (exit 77) there.
+name: Graphics
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graphics-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  linux-vulkan-lavapipe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan (lavapipe), validation layers, glslang, Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
+            vulkan-tools glslang-tools spirv-tools xvfb libx11-dev
+          vulkaninfo --summary | grep -E "apiVersion|deviceName" || true
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test (Xvfb)
+        run: |
+          mkdir -p captures
+          SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure
+      - name: Upload rendered frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-lavapipe-captures
+          path: captures/
+          if-no-files-found: ignore
+
+  linux-gcc-asan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+          -DSAIGE_GFX_SANITIZERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows-msvc-vulkan:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure

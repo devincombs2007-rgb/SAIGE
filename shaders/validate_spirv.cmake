@@ -1,0 +1,12 @@
+# Runs spirv-val on every .spv in DIR (used by CTest).
+file(GLOB _modules "${DIR}/*.spv")
+if(NOT _modules)
+    message(FATAL_ERROR "No SPIR-V modules in ${DIR}")
+endif()
+foreach(m IN LISTS _modules)
+    execute_process(COMMAND ${SPIRV_VAL} --target-env vulkan1.3 ${m} RESULT_VARIABLE rc OUTPUT_VARIABLE out ERROR_VARIABLE out)
+    if(NOT rc EQUAL 0)
+        message(FATAL_ERROR "spirv-val failed for ${m}:\n${out}")
+    endif()
+    message(STATUS "spirv-val OK: ${m}")
+endforeach()

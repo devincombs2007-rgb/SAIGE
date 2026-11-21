@@ -62,19 +62,31 @@ struct MovingMarker final : saige::IGame {
     float x = 0;
 };
 
-/// Best-effort capture of what the window shows. Software WSI presents through GDI, so BitBlt from the window DC
-/// can see it on an interactive desktop; hosted runners may return black. Logged, never asserted.
-void capture_window(HWND hwnd, const char* name)
+/// What a window capture showed. `cube_pixels` counts orange pixels (the marker cube's albedo), which a blank (white
+/// or black) window or stale contents cannot produce, so it distinguishes "the renderer's output is on screen" from
+/// "some pixels exist".
+struct WindowCapture {
+    bool ok = false;
+    int width = 0;
+    int height = 0;
+    size_t cube_pixels = 0;
+    size_t sky_pixels = 0;
+};
+
+/// Reads the window's client area back with GDI. Software WSI presents through GDI, and the runner has an interactive
+/// console session, so BitBlt from the window DC sees what was presented. Optionally saved as PPM.
+WindowCapture capture_window(HWND hwnd, const char* name)
 {
+    WindowCapture result;
     const char* dir = std::getenv("SAIGE_CAPTURE_DIR");
     RECT rc{};
-    if (dir == nullptr || !GetClientRect(hwnd, &rc)) {
-        return;
+    if (!GetClientRect(hwnd, &rc)) {
+        return result;
     }
     const int w = rc.right - rc.left;
     const int h = rc.bottom - rc.top;
     if (w <= 0 || h <= 0) {
-        return;
+        return result;
     }
     HDC window_dc = GetDC(hwnd);
     HDC mem_dc = CreateCompatibleDC(window_dc);
@@ -89,23 +101,35 @@ void capture_window(HWND hwnd, const char* name)
     HBITMAP bitmap = CreateDIBSection(window_dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
     HGDIOBJ old = SelectObject(mem_dc, bitmap);
     const BOOL ok = BitBlt(mem_dc, 0, 0, w, h, window_dc, 0, 0, SRCCOPY);
-    size_t nonblack = 0;
+    result.width = w;
+    result.height = h;
     if (ok != FALSE && bits != nullptr) {
+        result.ok = true;
         const auto* px = static_cast<const uint8_t*>(bits);
-        std::ofstream out(std::string(dir) + "\\" + name + ".ppm", std::ios::binary);
-        out << "P6\n" << w << " " << h << "\n255\n";
+        std::ofstream out;
+        if (dir != nullptr) {
+            out.open(std::string(dir) + "\\" + name + ".ppm", std::ios::binary);
+            out << "P6\n" << w << " " << h << "\n255\n";
+        }
         for (size_t i = 0; i < size_t(w) * size_t(h); ++i) {
-            const uint8_t rgb[3] = {px[i * 4 + 2], px[i * 4 + 1], px[i * 4 + 0]};  // BGRA -> RGB
-            out.write(reinterpret_cast<const char*>(rgb), 3);
-            nonblack += (rgb[0] | rgb[1] | rgb[2]) != 0 ? 1 : 0;
+            const int b = px[i * 4 + 0];
+            const int g = px[i * 4 + 1];
+            const int r = px[i * 4 + 2];
+            if (out.is_open()) {
+                const uint8_t rgb[3] = {static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+                out.write(reinterpret_cast<const char*>(rgb), 3);
+            }
+            result.cube_pixels += (r > 80 && r > g + 40 && r > b + 60) ? 1u : 0u;
+            result.sky_pixels += (b > r + 30 && b > 120) ? 1u : 0u;
         }
     }
-    std::printf("  window capture '%s': %dx%d, BitBlt %s, %zu non-black pixels\n", name, w, h,
-                ok != FALSE ? "ok" : "failed", nonblack);
+    std::printf("  window capture '%s': %dx%d, BitBlt %s, cube pixels %zu, sky-like pixels %zu\n", name, w, h,
+                ok != FALSE ? "ok" : "failed", result.cube_pixels, result.sky_pixels);
     SelectObject(mem_dc, old);
     DeleteObject(bitmap);
     DeleteDC(mem_dc);
     ReleaseDC(hwnd, window_dc);
+    return result;
 }
 
 void pump_frames(saige::World& world, saige::Win32Platform& platform, saige::IGame& game, saige::IFrameSink& sink,
@@ -154,7 +178,10 @@ TEST_CASE("Win32 Vulkan: real HWND presents, resizes, minimizes, restores and sh
         // 1. Steady presentation.
         pump_frames(world, platform, game, *sink, 20);
         CHECK(sink->stats().frames_rendered == 20);
-        capture_window(hwnd, "win32_window_initial");
+        const WindowCapture initial_capture = capture_window(hwnd, "win32_window_initial");
+        REQUIRE(initial_capture.ok);
+        CHECK(initial_capture.cube_pixels > 300);  // the presented frame, not a blank window, is on screen
+        CHECK(initial_capture.sky_pixels > 300);
 
         // 2. Resize: the new surface revision recreates the swapchain at the new extent.
         REQUIRE(SetWindowPos(hwnd, nullptr, 0, 0, 900, 560, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE);
@@ -166,7 +193,10 @@ TEST_CASE("Win32 Vulkan: real HWND presents, resizes, minimizes, restores and sh
         CHECK(sink->width() == resized.width_px);
         CHECK(sink->height() == resized.height_px);
         CHECK(sink->stats().frames_rendered == 30);
-        capture_window(hwnd, "win32_window_resized");
+        const WindowCapture resized_capture = capture_window(hwnd, "win32_window_resized");
+        CHECK(resized_capture.ok);
+        CHECK(resized_capture.width == static_cast<int>(resized.width_px));
+        CHECK(resized_capture.cube_pixels > 300);  // re-presented at the new size
 
         // 3. Minimize: zero extent means the sink must skip acquire/present (contract), and keep running.
         ShowWindow(hwnd, SW_SHOWMINNOACTIVE);
@@ -181,7 +211,9 @@ TEST_CASE("Win32 Vulkan: real HWND presents, resizes, minimizes, restores and sh
         pump_frames(world, platform, game, *sink, 12);
         CHECK(!platform.surface().minimized);
         CHECK(sink->stats().frames_rendered > rendered_before_min);
-        capture_window(hwnd, "win32_window_restored");
+        const WindowCapture restored_capture = capture_window(hwnd, "win32_window_restored");
+        CHECK(restored_capture.ok);
+        CHECK(restored_capture.cube_pixels > 300);
 
         // 5. Close request latches quit; the HWND stays valid until the platform is destroyed.
         PostMessageW(hwnd, WM_CLOSE, 0, 0);

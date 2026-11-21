@@ -84,7 +84,12 @@ transfer-and-barrier submission that waits for completion. `data` is tightly pac
 array layer, then rows (the order `compute_texture_data_size` already sums), and must match that size exactly. The
 texture needs `Sampled | TransferDst`, one sample and a 2D dimension. Afterwards the texture is in
 `sampled_texture_state`, so an immutable uploaded texture never needs another barrier before it is sampled.
-Uploading is not allowed between `begin_frame()` and `end_frame()` (it throws `std::logic_error`). It blocks the
+Only color formats are uploadable: depth/stencil textures need per-aspect copy regions and layouts, which 0.2 does not
+need, so `validate_texture_upload` rejects them (shared by every backend). Re-uploading a texture that earlier, possibly
+still-executing frames read is supported: the upload's first transition is an execution dependency on all prior work
+(write-after-read), verified with the validation layer's synchronization validation, which reports
+`SYNC-HAZARD-WRITE-AFTER-READ` if that dependency is removed. Uploading is not allowed between `begin_frame()` and
+`end_frame()` (it throws `std::logic_error`). It blocks the
 calling thread by design: 0.2 loads synchronously on one thread, and an asynchronous transfer-queue path is added only
 after upload cost is measured.
 
@@ -115,6 +120,10 @@ pixel stages.
   retire.
 - **Null backend.** Records `BindGroup` commands and reports a validation error for a draw without a compatible group at
   every declared set, a layout mismatch, or an undeclared set.
+
+Tests that want hazard detection set `DeviceDesc::enable_synchronization_validation`. The Vulkan backend then enables the
+layer's synchronization validation through `VK_EXT_validation_features` in code (environment variables are ignored by
+elevated Windows processes) and reports the outcome in `DeviceInfo::synchronization_validation_enabled`.
 
 ## 6. Pipelines
 

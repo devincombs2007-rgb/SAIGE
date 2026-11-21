@@ -137,6 +137,10 @@ struct TextureDesc {
     return desc.mip_levels == full_mip_chain ? max_mip_levels(desc.width, desc.height, depth) : desc.mip_levels;
 }
 
+/// The rules every backend applies to `Device::upload_texture(texture, data)`: Sampled | TransferDst usage, a single
+/// sample, 2D, a color (not depth/stencil) format, and `data_size` equal to `compute_texture_data_size`.
+[[nodiscard]] ValidationResult validate_texture_upload(const TextureDesc& desc, uint64_t data_size) noexcept;
+
 /// Total tightly packed size of every mip, layer and slice. Used for staging and memory budgeting
 /// (GPU allocations add alignment and padding on top of this).
 [[nodiscard]] uint64_t compute_texture_data_size(const TextureDesc& desc) noexcept;

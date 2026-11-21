@@ -595,6 +595,29 @@ void VulkanDevice::create_instance()
     app.engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
     app.apiVersion = VK_API_VERSION_1_3;
 
+    // Optional synchronization validation, enabled in code (environment variables are ignored by elevated Windows
+    // processes). The extension is provided by the validation layer itself.
+    VkValidationFeatureEnableEXT sync_feature = VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+    VkValidationFeaturesEXT validation_features{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+    validation_features.enabledValidationFeatureCount = 1;
+    validation_features.pEnabledValidationFeatures = &sync_feature;
+    if (info_.validation_enabled && desc_.enable_synchronization_validation) {
+        uint32_t layer_ext_count = 0;
+        vk_.vkEnumerateInstanceExtensionProperties(validation_layer, &layer_ext_count, nullptr);
+        std::vector<VkExtensionProperties> layer_exts(layer_ext_count);
+        vk_.vkEnumerateInstanceExtensionProperties(validation_layer, &layer_ext_count, layer_exts.data());
+        const bool has_features_ext = std::any_of(layer_exts.begin(), layer_exts.end(), [](const VkExtensionProperties& e) {
+            return std::strcmp(e.extensionName, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME) == 0;
+        });
+        if (has_features_ext) {
+            extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+            info_.synchronization_validation_enabled = true;
+        } else {
+            std::cerr << "[saige.vulkan] warning: synchronization validation requested but "
+                         "VK_EXT_validation_features is unavailable; continuing without it\n";
+        }
+    }
+
     VkDebugUtilsMessengerCreateInfoEXT messenger_info{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
     messenger_info.messageSeverity =
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
@@ -611,7 +634,14 @@ void VulkanDevice::create_instance()
     ci.enabledLayerCount = static_cast<uint32_t>(layers.size());
     ci.ppEnabledLayerNames = layers.data();
     if (info_.validation_enabled) {
-        ci.pNext = &messenger_info;  // also validates instance creation/destruction
+        // The messenger struct on the instance chain also validates instance creation/destruction. The features
+        // struct goes first on that chain; the messenger's own pNext stays null because the same struct is reused for
+        // vkCreateDebugUtilsMessengerEXT, which forbids a pNext chain.
+        ci.pNext = &messenger_info;
+        if (info_.synchronization_validation_enabled) {
+            validation_features.pNext = &messenger_info;
+            ci.pNext = &validation_features;
+        }
     }
     check(vk_.vkCreateInstance(&ci, nullptr, &instance_), "vkCreateInstance");
 
@@ -1105,16 +1135,8 @@ void VulkanDevice::upload_texture(TextureHandle texture, std::span<const std::by
         throw std::logic_error("upload_texture: not allowed between begin_frame() and end_frame()");
     }
     const TextureDesc& d = t->desc;
-    if (d.dimension != TextureDimension::Texture2D || d.sample_count != 1) {
-        throw std::invalid_argument("upload_texture: only single-sample 2D textures can be uploaded");
-    }
-    if (!has_all(d.usage, TextureUsage::Sampled | TextureUsage::TransferDst)) {
-        throw std::invalid_argument("upload_texture: the texture needs Sampled | TransferDst usage");
-    }
-    const uint64_t expected = compute_texture_data_size(d);
-    if (data.size() != expected) {
-        throw std::invalid_argument("upload_texture: data size does not match the texture (expected " +
-                                    std::to_string(expected) + " bytes, got " + std::to_string(data.size()) + ")");
+    if (const ValidationResult v = validate_texture_upload(d, data.size()); !v) {
+        throw std::invalid_argument(v.error);
     }
 
     // Copy regions: mip level outermost, then array layer, rows tightly packed (matches compute_texture_data_size).
@@ -1165,8 +1187,12 @@ void VulkanDevice::upload_texture(TextureHandle texture, std::span<const std::by
                 di.pImageMemoryBarriers = &b;
                 vk_.vkCmdPipelineBarrier2(cmd, &di);
             };
-            transition(VK_PIPELINE_STAGE_2_NONE, 0, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            // A re-upload overwrites a texture that earlier frames may still be sampling. Those frames are already
+            // submitted and may still be executing (the host only waits for *this* submission), so the transition
+            // needs an execution dependency on all prior work: write-after-read. ALL_COMMANDS with no source access
+            // is exactly that (reads need no availability operation); a fresh texture pays nothing for it.
+            transition(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_COPY_BIT,
+                       VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             vk_.vkCmdCopyBufferToImage(cmd, src, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                        static_cast<uint32_t>(regions.size()), regions.data());
             transition(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,

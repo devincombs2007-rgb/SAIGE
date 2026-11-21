@@ -57,6 +57,23 @@ uint64_t compute_texture_data_size(const TextureDesc& desc) noexcept
     return total * layers * desc.sample_count;
 }
 
+ValidationResult validate_texture_upload(const TextureDesc& desc, uint64_t data_size) noexcept
+{
+    if (desc.dimension != TextureDimension::Texture2D || desc.sample_count != 1) {
+        return {"upload_texture: only single-sample 2D textures can be uploaded"};
+    }
+    if (is_depth_or_stencil(desc.format)) {
+        return {"upload_texture: depth/stencil textures cannot be uploaded (color formats only)"};
+    }
+    if (!has_all(desc.usage, TextureUsage::Sampled | TextureUsage::TransferDst)) {
+        return {"upload_texture: the texture needs Sampled | TransferDst usage"};
+    }
+    if (data_size != compute_texture_data_size(desc)) {
+        return {"upload_texture: data size does not match the texture"};
+    }
+    return {};
+}
+
 ValidationResult validate(const TextureDesc& desc) noexcept
 {
     const FormatInfo& fmt = get_format_info(desc.format);

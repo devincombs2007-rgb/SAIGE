@@ -461,16 +461,8 @@ void NullDevice::upload_texture(TextureHandle texture, std::span<const std::byte
     if (impl_->in_frame) {
         throw std::logic_error("upload_texture: not allowed between begin_frame() and end_frame()");
     }
-    if (t->desc.dimension != TextureDimension::Texture2D || t->desc.sample_count != 1) {
-        throw std::invalid_argument("upload_texture: only single-sample 2D textures can be uploaded");
-    }
-    if (!has_all(t->desc.usage, TextureUsage::Sampled | TextureUsage::TransferDst)) {
-        throw std::invalid_argument("upload_texture: the texture needs Sampled | TransferDst usage");
-    }
-    if (data.size() != compute_texture_data_size(t->desc)) {
-        throw std::invalid_argument("upload_texture: data size does not match the texture (expected " +
-                                    std::to_string(compute_texture_data_size(t->desc)) + " bytes, got " +
-                                    std::to_string(data.size()) + ")");
+    if (const ValidationResult v = validate_texture_upload(t->desc, data.size()); !v) {
+        throw std::invalid_argument(v.error);
     }
     t->uploaded_bytes = data.size();
 }

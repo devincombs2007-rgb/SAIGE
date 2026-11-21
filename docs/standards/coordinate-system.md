@@ -10,7 +10,7 @@
 | Handedness | **Right-handed** |
 | Up axis | **+Z** |
 | Length unit | **1 unit = 1 meter** |
-| Forward / right axes | **Open, Core to confirm.** Recommended: **+X forward, +Y left, +Z up** (see §5) |
+| Forward / left axes | **+X forward, +Y left, +Z up** (accepted by Core in #2, see §5) |
 
 ```
         +Z (up)
@@ -58,16 +58,15 @@ Recommended convention, to be confirmed by Core when the math library lands:
 - Column-major storage, so matrices upload to HLSL `column_major` without transposing.
 - Quaternions stored as `(x, y, z, w)`.
 
-## 5. Recommended forward axis (open item)
+## 5. Forward axis (decided)
 
-**Recommendation:** +X forward, +Y left, +Z up.
+**Decision:** +X forward, +Y left, +Z up. Core accepted this in issue #2 and `docs/core-rendering-contract.md`.
 - It's right-handed with `forward × left = up`, which matches the robotics (REP-103) and several
   game-engine conventions.
 - Yaw is a positive rotation about +Z, measured from +X toward +Y, so it equals `atan2(y, x)`. That
   makes heading math straightforward for vehicles, AI navigation and gameplay.
 
-The forward axis affects gameplay, animation and physics more than rendering, so **Core and gameplay
-own the final decision**. Until then, importers apply only the Y-up → Z-up rotation.
+Importers apply the Y-up → Z-up rotation and then a yaw that maps the source asset's front onto +X.
 
 ## 6. Rendering-internal conventions (not engine-wide)
 

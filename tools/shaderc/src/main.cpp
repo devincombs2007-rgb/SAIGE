@@ -1,9 +1,9 @@
 // saige-shaderc — offline shader tool (annotation validation, permutation listing, dependency scanning).
 // Compilation through DXC is added once the third-party policy (issue #2, D-03) is settled.
 
-#include "saige/shaderc/annotations.h"
-#include "saige/shaderc/includes.h"
-#include "saige/shaderc/permutations.h"
+#include "saige/shaderc/annotations.hpp"
+#include "saige/shaderc/includes.hpp"
+#include "saige/shaderc/permutations.hpp"
 
 #include <cstdio>
 #include <fstream>
@@ -13,9 +13,9 @@
 
 namespace {
 
-constexpr const char* kVersion = "0.1.0";
+constexpr const char* version = "0.1.0";
 
-std::optional<std::string> readFile(const std::filesystem::path& path)
+std::optional<std::string> read_file(const std::filesystem::path& path)
 {
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -38,14 +38,14 @@ int usage()
     return 2;
 }
 
-bool loadDecl(const std::filesystem::path& file, saige::shaderc::ShaderDecl& out)
+bool load_decl(const std::filesystem::path& file, saige::shaderc::ShaderDecl& out)
 {
-    const std::optional<std::string> source = readFile(file);
+    const std::optional<std::string> source = read_file(file);
     if (!source) {
         std::fprintf(stderr, "error: cannot read '%s'\n", file.generic_string().c_str());
         return false;
     }
-    saige::shaderc::ParseResult parsed = saige::shaderc::parseAnnotations(*source);
+    saige::shaderc::ParseResult parsed = saige::shaderc::parse_annotations(*source);
     for (const auto& d : parsed.errors) {
         std::fprintf(stderr, "%s:%d: error: %s\n", file.generic_string().c_str(), d.line, d.message.c_str());
     }
@@ -61,7 +61,7 @@ bool loadDecl(const std::filesystem::path& file, saige::shaderc::ShaderDecl& out
 int main(int argc, char** argv)
 {
     if (argc >= 2 && std::string(argv[1]) == "--version") {
-        std::printf("saige-shaderc %s\n", kVersion);
+        std::printf("saige-shaderc %s\n", version);
         return 0;
     }
     if (argc < 3) {
@@ -69,20 +69,20 @@ int main(int argc, char** argv)
     }
     const std::string command = argv[1];
     const std::filesystem::path file = argv[2];
-    std::vector<std::filesystem::path> includeDirs;
+    std::vector<std::filesystem::path> include_dirs;
     for (int i = 3; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "-I" && i + 1 < argc) {
-            includeDirs.emplace_back(argv[++i]);
+            include_dirs.emplace_back(argv[++i]);
         } else if (arg.rfind("-I", 0) == 0 && arg.size() > 2) {
-            includeDirs.emplace_back(arg.substr(2));
+            include_dirs.emplace_back(arg.substr(2));
         } else {
             return usage();
         }
     }
 
     if (command == "deps") {
-        const auto scan = saige::shaderc::scanIncludes(file, includeDirs, readFile);
+        const auto scan = saige::shaderc::scan_includes(file, include_dirs, read_file);
         for (const auto& dep : scan.dependencies) {
             std::printf("%s\n", dep.generic_string().c_str());
         }
@@ -93,10 +93,10 @@ int main(int argc, char** argv)
     }
 
     saige::shaderc::ShaderDecl decl;
-    if (!loadDecl(file, decl)) {
+    if (!load_decl(file, decl)) {
         return 1;
     }
-    const saige::shaderc::ExpandResult expanded = saige::shaderc::expandPermutations(decl);
+    const saige::shaderc::ExpandResult expanded = saige::shaderc::expand_permutations(decl);
     for (const auto& e : expanded.errors) {
         std::fprintf(stderr, "%s: error: %s\n", file.generic_string().c_str(), e.c_str());
     }
@@ -105,14 +105,14 @@ int main(int argc, char** argv)
         if (expanded.ok()) {
             std::printf("%s: OK (%zu entries, %zu options, %zu permutations, %llu excluded, budget %u)\n",
                         decl.name.c_str(), decl.entries.size(), decl.options.size(), expanded.permutations.size(),
-                        static_cast<unsigned long long>(expanded.excludedCount), decl.budget);
+                        static_cast<unsigned long long>(expanded.excluded_count), decl.budget);
         }
         return expanded.ok() ? 0 : 1;
     }
     if (command == "permutations") {
         for (const auto& p : expanded.permutations) {
             std::printf("0x%016llx", static_cast<unsigned long long>(p.key));
-            for (const auto& [name, value] : saige::shaderc::definesFor(decl, p)) {
+            for (const auto& [name, value] : saige::shaderc::defines_for(decl, p)) {
                 std::printf(" -D%s=%s", name.c_str(), value.c_str());
             }
             std::printf("\n");

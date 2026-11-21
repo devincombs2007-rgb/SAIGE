@@ -1,62 +1,62 @@
-#include "saige/rhi/bindless_allocator.h"
+#include "saige/rhi/bindless_allocator.hpp"
 
-#include "saige/rhi/config.h"
+#include "saige/rhi/config.hpp"
 
 namespace saige::rhi {
 
-BindlessIndexAllocator::BindlessIndexAllocator(uint32_t capacity, uint32_t reservedCount)
-    : m_capacity(capacity)
-    , m_reservedCount(reservedCount < capacity ? reservedCount : capacity)
-    , m_nextUnused(m_reservedCount)
-    , m_states(capacity, State::Free)
+BindlessIndexAllocator::BindlessIndexAllocator(uint32_t capacity, uint32_t reserved_count)
+    : capacity_(capacity)
+    , reserved_count_(reserved_count < capacity ? reserved_count : capacity)
+    , next_unused_(reserved_count_)
+    , states_(capacity, State::Free)
 {
-    SAIGE_RHI_ASSERT(capacity < kInvalidIndex, "Bindless capacity must be below kInvalidIndex");
-    for (uint32_t i = 0; i < m_reservedCount; ++i) {
-        m_states[i] = State::Reserved;
+    SAIGE_RHI_ASSERT(capacity < invalid_index, "Bindless capacity must be below invalid_index");
+    for (uint32_t i = 0; i < reserved_count_; ++i) {
+        states_[i] = State::Reserved;
     }
 }
 
 uint32_t BindlessIndexAllocator::allocate()
 {
-    uint32_t index = kInvalidIndex;
-    if (!m_freeList.empty()) {
-        index = m_freeList.front();
-        m_freeList.pop_front();
-    } else if (m_nextUnused < m_capacity) {
-        index = m_nextUnused++;
+    uint32_t index = invalid_index;
+    if (!free_list_.empty()) {
+        index = free_list_.front();
+        free_list_.pop_front();
+    } else if (next_unused_ < capacity_) {
+        index = next_unused_++;
     } else {
-        return kInvalidIndex;
+        return invalid_index;
     }
-    SAIGE_RHI_ASSERT(m_states[index] == State::Free, "Bindless free list corrupted");
-    m_states[index] = State::Allocated;
-    ++m_allocatedCount;
+    SAIGE_RHI_ASSERT(states_[index] == State::Free, "Bindless free list corrupted");
+    states_[index] = State::Allocated;
+    ++allocated_count_;
     return index;
 }
 
-bool BindlessIndexAllocator::release(uint32_t index, uint64_t retireAfter)
+bool BindlessIndexAllocator::release(uint32_t index, uint64_t retire_after)
 {
-    if (index >= m_capacity || m_states[index] != State::Allocated) {
+    if (index >= capacity_ || states_[index] != State::Allocated) {
         return false;
     }
-    m_states[index] = State::PendingRelease;
-    --m_allocatedCount;
-    m_pending.enqueue(index, retireAfter);
+    states_[index] = State::PendingRelease;
+    --allocated_count_;
+    pending_.enqueue(index, retire_after);
     return true;
 }
 
-uint32_t BindlessIndexAllocator::reclaim(uint64_t completedValue)
+uint32_t BindlessIndexAllocator::reclaim(uint64_t completed_value)
 {
-    const std::size_t n = m_pending.collect(completedValue, [this](uint32_t index) {
-        SAIGE_RHI_ASSERT(m_states[index] == State::PendingRelease, "Bindless pending state corrupted");
-        m_states[index] = State::Free;
-        m_freeList.push_back(index);
+    const std::size_t n = pending_.collect(completed_value, [this](uint32_t index) {
+        SAIGE_RHI_ASSERT(states_[index] == State::PendingRelease, "Bindless pending state corrupted");
+        states_[index] = State::Free;
+        free_list_.push_back(index);
     });
     return static_cast<uint32_t>(n);
 }
 
-bool BindlessIndexAllocator::isAllocated(uint32_t index) const noexcept
+bool BindlessIndexAllocator::is_allocated(uint32_t index) const noexcept
 {
-    return index < m_capacity && m_states[index] == State::Allocated;
+    return index < capacity_ && states_[index] == State::Allocated;
 }
 
 } // namespace saige::rhi

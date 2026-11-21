@@ -10,7 +10,7 @@ namespace saige::rhi {
 
 /// Texture and vertex formats. Names follow `<channels><bits>_<type>`. Channel order is memory order
 /// (RGBA8 = R in byte 0). Backends map these to native formats (VkFormat, DXGI_FORMAT).
-/// The order must match `kFormatTable` (checked at compile time).
+/// The order must match `format_table` (checked at compile time).
 enum class Format : uint8_t {
     Unknown,
 
@@ -49,7 +49,7 @@ enum class Format : uint8_t {
     Count
 };
 
-inline constexpr std::size_t kFormatCount = static_cast<std::size_t>(Format::Count);
+inline constexpr std::size_t format_count = static_cast<std::size_t>(Format::Count);
 
 /// Numeric interpretation of a format's channels.
 enum class FormatType : uint8_t {
@@ -66,23 +66,23 @@ enum class FormatType : uint8_t {
 struct FormatInfo {
     Format format;
     std::string_view name;
-    uint8_t bytesPerBlock;  ///< Bytes per texel for uncompressed formats, per block for compressed ones.
-    uint8_t blockWidth;     ///< 1 for uncompressed formats.
-    uint8_t blockHeight;    ///< 1 for uncompressed formats.
-    uint8_t componentCount;
+    uint8_t bytes_per_block;  ///< Bytes per texel for uncompressed formats, per block for compressed ones.
+    uint8_t block_width;     ///< 1 for uncompressed formats.
+    uint8_t block_height;    ///< 1 for uncompressed formats.
+    uint8_t component_count;
     FormatType type;
-    bool hasDepth;
-    bool hasStencil;
+    bool has_depth;
+    bool has_stencil;
     bool compressed;
 
-    [[nodiscard]] constexpr bool isSrgb() const noexcept { return type == FormatType::UnormSrgb; }
-    [[nodiscard]] constexpr bool isDepthOrStencil() const noexcept { return hasDepth || hasStencil; }
+    [[nodiscard]] constexpr bool is_srgb() const noexcept { return type == FormatType::UnormSrgb; }
+    [[nodiscard]] constexpr bool is_depth_or_stencil() const noexcept { return has_depth || has_stencil; }
 };
 
 namespace detail {
 // clang-format off
 using FT = FormatType;
-inline constexpr std::array<FormatInfo, kFormatCount> kFormatTable = {{
+inline constexpr std::array<FormatInfo, format_count> format_table = {{
     //  format                       name                  B  bw bh  c  type          depth  stencil compressed
     { Format::Unknown,           "Unknown",            0, 0, 0, 0, FT::Unknown,   false, false, false },
 
@@ -158,33 +158,33 @@ inline constexpr std::array<FormatInfo, kFormatCount> kFormatTable = {{
 }};
 // clang-format on
 
-[[nodiscard]] consteval bool formatTableMatchesEnum()
+[[nodiscard]] consteval bool format_table_matches_enum()
 {
-    for (std::size_t i = 0; i < kFormatCount; ++i) {
-        if (static_cast<std::size_t>(kFormatTable[i].format) != i) {
+    for (std::size_t i = 0; i < format_count; ++i) {
+        if (static_cast<std::size_t>(format_table[i].format) != i) {
             return false;
         }
     }
     return true;
 }
-static_assert(formatTableMatchesEnum(), "kFormatTable order must match enum Format");
+static_assert(format_table_matches_enum(), "format_table order must match enum Format");
 } // namespace detail
 
-[[nodiscard]] constexpr const FormatInfo& getFormatInfo(Format format) noexcept
+[[nodiscard]] constexpr const FormatInfo& get_format_info(Format format) noexcept
 {
     const auto i = static_cast<std::size_t>(format);
-    return detail::kFormatTable[i < kFormatCount ? i : 0];
+    return detail::format_table[i < format_count ? i : 0];
 }
 
-[[nodiscard]] constexpr std::string_view formatName(Format f) noexcept { return getFormatInfo(f).name; }
-[[nodiscard]] constexpr bool isCompressed(Format f) noexcept { return getFormatInfo(f).compressed; }
-[[nodiscard]] constexpr bool isSrgb(Format f) noexcept { return getFormatInfo(f).isSrgb(); }
-[[nodiscard]] constexpr bool hasDepth(Format f) noexcept { return getFormatInfo(f).hasDepth; }
-[[nodiscard]] constexpr bool hasStencil(Format f) noexcept { return getFormatInfo(f).hasStencil; }
-[[nodiscard]] constexpr bool isDepthOrStencil(Format f) noexcept { return getFormatInfo(f).isDepthOrStencil(); }
+[[nodiscard]] constexpr std::string_view format_name(Format f) noexcept { return get_format_info(f).name; }
+[[nodiscard]] constexpr bool is_compressed(Format f) noexcept { return get_format_info(f).compressed; }
+[[nodiscard]] constexpr bool is_srgb(Format f) noexcept { return get_format_info(f).is_srgb(); }
+[[nodiscard]] constexpr bool has_depth(Format f) noexcept { return get_format_info(f).has_depth; }
+[[nodiscard]] constexpr bool has_stencil(Format f) noexcept { return get_format_info(f).has_stencil; }
+[[nodiscard]] constexpr bool is_depth_or_stencil(Format f) noexcept { return get_format_info(f).is_depth_or_stencil(); }
 
-/// Returns the sRGB variant of a UNORM color format, or `f` unchanged if there isn't one.
-[[nodiscard]] constexpr Format toSrgb(Format f) noexcept
+/// Returns the s_rgb variant of a UNORM color format, or `f` unchanged if there isn't one.
+[[nodiscard]] constexpr Format to_srgb(Format f) noexcept
 {
     switch (f) {
     case Format::RGBA8_UNORM: return Format::RGBA8_SRGB;
@@ -197,8 +197,8 @@ static_assert(formatTableMatchesEnum(), "kFormatTable order must match enum Form
     }
 }
 
-/// Returns the linear (UNORM) variant of an sRGB format, or `f` unchanged if it isn't sRGB.
-[[nodiscard]] constexpr Format toLinear(Format f) noexcept
+/// Returns the linear (UNORM) variant of an s_rgb format, or `f` unchanged if it isn't s_rgb.
+[[nodiscard]] constexpr Format to_linear(Format f) noexcept
 {
     switch (f) {
     case Format::RGBA8_SRGB: return Format::RGBA8_UNORM;
@@ -213,25 +213,25 @@ static_assert(formatTableMatchesEnum(), "kFormatTable order must match enum Form
 
 /// Memory layout of one 2D surface (a single mip level of a single array layer or depth slice).
 struct SurfaceLayout {
-    uint32_t blocksWide = 0;
-    uint32_t blocksHigh = 0;
-    uint64_t rowPitch = 0;    ///< Bytes per row of blocks, tightly packed.
-    uint64_t slicePitch = 0;  ///< Bytes per 2D surface, tightly packed.
+    uint32_t blocks_wide = 0;
+    uint32_t blocks_high = 0;
+    uint64_t row_pitch = 0;    ///< Bytes per row of blocks, tightly packed.
+    uint64_t slice_pitch = 0;  ///< Bytes per 2D surface, tightly packed.
 };
 
 /// Tightly packed layout of a `width` x `height` surface. Block-compressed formats round partial blocks
 /// up (a 1x1 BC7 mip still occupies one 16-byte block).
-[[nodiscard]] constexpr SurfaceLayout computeSurfaceLayout(Format format, uint32_t width, uint32_t height) noexcept
+[[nodiscard]] constexpr SurfaceLayout compute_surface_layout(Format format, uint32_t width, uint32_t height) noexcept
 {
-    const FormatInfo& info = getFormatInfo(format);
-    if (info.bytesPerBlock == 0 || width == 0 || height == 0) {
+    const FormatInfo& info = get_format_info(format);
+    if (info.bytes_per_block == 0 || width == 0 || height == 0) {
         return {};
     }
     SurfaceLayout layout;
-    layout.blocksWide = (width + info.blockWidth - 1u) / info.blockWidth;
-    layout.blocksHigh = (height + info.blockHeight - 1u) / info.blockHeight;
-    layout.rowPitch = uint64_t{layout.blocksWide} * info.bytesPerBlock;
-    layout.slicePitch = layout.rowPitch * layout.blocksHigh;
+    layout.blocks_wide = (width + info.block_width - 1u) / info.block_width;
+    layout.blocks_high = (height + info.block_height - 1u) / info.block_height;
+    layout.row_pitch = uint64_t{layout.blocks_wide} * info.bytes_per_block;
+    layout.slice_pitch = layout.row_pitch * layout.blocks_high;
     return layout;
 }
 

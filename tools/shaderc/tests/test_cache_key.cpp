@@ -1,6 +1,6 @@
-#include "saige/gfx_test/saige_test.h"
+#include "saige/gfx_test/saige_test.hpp"
 
-#include "saige/shaderc/cache_key.h"
+#include "saige/shaderc/cache_key.hpp"
 
 #include <set>
 #include <string>
@@ -20,14 +20,14 @@ struct Fixture {
     {
         CompileRequest r;
         r.source = source;
-        r.includeContents = includes;
-        r.entryPoint = "main";
+        r.include_contents = includes;
+        r.entry_point = "main";
         r.stage = ShaderStage::Pixel;
         r.defines = defines;
         r.target = "spirv-vk13";
-        r.compilerVersion = "dxc 1.8";
-        r.toolVersion = "0.1.0";
-        r.extraArgs = args;
+        r.compiler_version = "dxc 1.8";
+        r.tool_version = "0.1.0";
+        r.extra_args = args;
         return r;
     }
 };
@@ -37,8 +37,8 @@ struct Fixture {
 TEST_CASE("CacheKey: deterministic and 32 hex characters")
 {
     const Fixture f;
-    const std::string a = computeCacheKey(f.request());
-    const std::string b = computeCacheKey(f.request());
+    const std::string a = compute_cache_key(f.request());
+    const std::string b = compute_cache_key(f.request());
     CHECK(a == b);
     CHECK(a.size() == 32);
     CHECK(a.find_first_not_of("0123456789abcdef") == std::string::npos);
@@ -47,23 +47,23 @@ TEST_CASE("CacheKey: deterministic and 32 hex characters")
 TEST_CASE("CacheKey: every input field changes the key")
 {
     const Fixture base;
-    std::set<std::string> keys{computeCacheKey(base.request())};
+    std::set<std::string> keys{compute_cache_key(base.request())};
     auto variant = [&](auto mutate) {
         Fixture f = base;
         CompileRequest r = f.request();
         mutate(f, r);
-        keys.insert(computeCacheKey(r));
+        keys.insert(compute_cache_key(r));
     };
     variant([](Fixture& f, CompileRequest& r) { f.source += " "; r.source = f.source; });
-    variant([](Fixture& f, CompileRequest& r) { f.includes[0] = "#define X 2"; r.includeContents = f.includes; });
-    variant([](Fixture&, CompileRequest& r) { r.entryPoint = "main2"; });
+    variant([](Fixture& f, CompileRequest& r) { f.includes[0] = "#define X 2"; r.include_contents = f.includes; });
+    variant([](Fixture&, CompileRequest& r) { r.entry_point = "main2"; });
     variant([](Fixture&, CompileRequest& r) { r.stage = ShaderStage::Compute; });
     variant([](Fixture& f, CompileRequest& r) { f.defines[0].second = "0"; r.defines = f.defines; });
     variant([](Fixture&, CompileRequest& r) { r.target = "dxil-sm66"; });
-    variant([](Fixture&, CompileRequest& r) { r.compilerVersion = "dxc 1.9"; });
-    variant([](Fixture&, CompileRequest& r) { r.toolVersion = "0.2.0"; });
-    variant([](Fixture& f, CompileRequest& r) { f.args[0] = "-O0"; r.extraArgs = f.args; });
-    variant([](Fixture&, CompileRequest& r) { r.includeContents = {}; });
+    variant([](Fixture&, CompileRequest& r) { r.compiler_version = "dxc 1.9"; });
+    variant([](Fixture&, CompileRequest& r) { r.tool_version = "0.2.0"; });
+    variant([](Fixture& f, CompileRequest& r) { f.args[0] = "-O0"; r.extra_args = f.args; });
+    variant([](Fixture&, CompileRequest& r) { r.include_contents = {}; });
     CHECK(keys.size() == 11);
 }
 
@@ -78,7 +78,7 @@ TEST_CASE("CacheKey: field boundaries are unambiguous")
     CacheKeyBuilder c;
     c.add("define", "A=1");
     CacheKeyBuilder d;
-    d.add("defin", "eA=1");
+    d.add("defin", "e_a=1");
     CHECK(c.hex() != d.hex());
 }
 

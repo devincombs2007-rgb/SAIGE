@@ -1,4 +1,4 @@
-#include "saige/shaderc/includes.h"
+#include "saige/shaderc/includes.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 namespace {
 
 /// Removes comments while preserving line structure and string literals.
-std::string stripComments(std::string_view src)
+std::string strip_comments(std::string_view src)
 {
     std::string out;
     out.reserve(src.size());
@@ -65,10 +65,10 @@ std::string stripComments(std::string_view src)
 
 } // namespace
 
-std::vector<std::pair<std::string, bool>> extractIncludes(std::string_view source)
+std::vector<std::pair<std::string, bool>> extract_includes(std::string_view source)
 {
     std::vector<std::pair<std::string, bool>> result;
-    const std::string clean = stripComments(source);
+    const std::string clean = strip_comments(source);
     std::size_t pos = 0;
     while (pos < clean.size()) {
         std::size_t end = clean.find('\n', pos);
@@ -78,22 +78,22 @@ std::vector<std::pair<std::string, bool>> extractIncludes(std::string_view sourc
         std::string_view line(clean.data() + pos, end - pos);
         pos = end + 1;
 
-        auto skipSpace = [&line] {
+        auto skip_space = [&line] {
             while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front())) != 0) {
                 line.remove_prefix(1);
             }
         };
-        skipSpace();
+        skip_space();
         if (line.empty() || line.front() != '#') {
             continue;
         }
         line.remove_prefix(1);
-        skipSpace();
+        skip_space();
         if (!line.starts_with("include")) {
             continue;
         }
         line.remove_prefix(7);
-        skipSpace();
+        skip_space();
         if (line.empty()) {
             continue;
         }
@@ -102,45 +102,45 @@ std::vector<std::pair<std::string, bool>> extractIncludes(std::string_view sourc
         if (close == '\0') {
             continue;  // macro-expanded include: not supported in shaders
         }
-        const std::size_t closePos = line.find(close, 1);
-        if (closePos == std::string_view::npos) {
+        const std::size_t close_pos = line.find(close, 1);
+        if (close_pos == std::string_view::npos) {
             continue;
         }
-        result.emplace_back(std::string(line.substr(1, closePos - 1)), open == '<');
+        result.emplace_back(std::string(line.substr(1, close_pos - 1)), open == '<');
     }
     return result;
 }
 
-IncludeScanResult scanIncludes(const fs::path& root, std::span<const fs::path> includeDirs, const FileReader& readFile)
+IncludeScanResult scan_includes(const fs::path& root, std::span<const fs::path> include_dirs, const FileReader& read_file)
 {
     IncludeScanResult result;
-    const fs::path rootNorm = root.lexically_normal();
-    std::vector<fs::path> visited{rootNorm};
-    std::deque<fs::path> queue{rootNorm};
+    const fs::path root_norm = root.lexically_normal();
+    std::vector<fs::path> visited{root_norm};
+    std::deque<fs::path> queue{root_norm};
 
     while (!queue.empty()) {
         const fs::path current = queue.front();
         queue.pop_front();
-        const std::optional<std::string> text = readFile(current);
+        const std::optional<std::string> text = read_file(current);
         if (!text) {
-            if (current == rootNorm) {
+            if (current == root_norm) {
                 result.errors.push_back("cannot read '" + current.generic_string() + "'");
             }
             continue;  // missing includes are reported at the include site below
         }
 
-        for (const auto& [target, angle] : extractIncludes(*text)) {
+        for (const auto& [target, angle] : extract_includes(*text)) {
             std::vector<fs::path> candidates;
             if (!angle) {
                 candidates.push_back((current.parent_path() / target).lexically_normal());
             }
-            for (const fs::path& dir : includeDirs) {
+            for (const fs::path& dir : include_dirs) {
                 candidates.push_back((dir / target).lexically_normal());
             }
 
             std::optional<fs::path> resolved;
             for (const fs::path& c : candidates) {
-                if (std::find(visited.begin(), visited.end(), c) != visited.end() || readFile(c).has_value()) {
+                if (std::find(visited.begin(), visited.end(), c) != visited.end() || read_file(c).has_value()) {
                     resolved = c;
                     break;
                 }

@@ -1,4 +1,4 @@
-#include "saige/shaderc/cache_key.h"
+#include "saige/shaderc/cache_key.hpp"
 
 #include <cstdio>
 
@@ -6,7 +6,7 @@ namespace saige::shaderc {
 
 namespace {
 
-constexpr uint64_t kFnvPrime = 1099511628211ull;
+constexpr uint64_t fnv_prime = 1099511628211ull;
 
 constexpr uint64_t avalanche(uint64_t x) noexcept
 {
@@ -22,52 +22,52 @@ constexpr uint64_t avalanche(uint64_t x) noexcept
 } // namespace
 
 CacheKeyBuilder::CacheKeyBuilder()
-    : m_a(14695981039346656037ull)
-    , m_b(0x6c62272e07bb0142ull)
+    : a_(14695981039346656037ull)
+    , b_(0x6c62272e07bb0142ull)
 {
-    mixU64(kCacheKeyVersion);
+    mix_u64(cache_key_version);
 }
 
-void CacheKeyBuilder::mixBytes(std::string_view bytes)
+void CacheKeyBuilder::mix_bytes(std::string_view bytes)
 {
     for (const char c : bytes) {
         const auto byte = static_cast<uint64_t>(static_cast<unsigned char>(c));
-        m_a = (m_a ^ byte) * kFnvPrime;
-        m_b = (m_b ^ (byte + 0x9eu)) * 0x100000001b3ull;
-        m_b ^= m_b >> 29;
+        a_ = (a_ ^ byte) * fnv_prime;
+        b_ = (b_ ^ (byte + 0x9eu)) * 0x100000001b3ull;
+        b_ ^= b_ >> 29;
     }
 }
 
-void CacheKeyBuilder::mixU64(uint64_t v)
+void CacheKeyBuilder::mix_u64(uint64_t v)
 {
     char bytes[8];
     for (int i = 0; i < 8; ++i) {
         bytes[i] = static_cast<char>((v >> (i * 8)) & 0xFFu);
     }
-    mixBytes(std::string_view(bytes, sizeof(bytes)));
+    mix_bytes(std::string_view(bytes, sizeof(bytes)));
 }
 
 CacheKeyBuilder& CacheKeyBuilder::add(std::string_view field, std::string_view value)
 {
-    mixU64(field.size());
-    mixBytes(field);
-    mixU64(value.size());
-    mixBytes(value);
+    mix_u64(field.size());
+    mix_bytes(field);
+    mix_u64(value.size());
+    mix_bytes(value);
     return *this;
 }
 
 CacheKeyBuilder& CacheKeyBuilder::add(std::string_view field, uint64_t value)
 {
-    mixU64(field.size());
-    mixBytes(field);
-    mixU64(8);
-    mixU64(value);
+    mix_u64(field.size());
+    mix_bytes(field);
+    mix_u64(8);
+    mix_u64(value);
     return *this;
 }
 
 std::pair<uint64_t, uint64_t> CacheKeyBuilder::value() const
 {
-    return {avalanche(m_a ^ (m_b >> 7)), avalanche(m_b ^ (m_a << 9))};
+    return {avalanche(a_ ^ (b_ >> 7)), avalanche(b_ ^ (a_ << 9))};
 }
 
 std::string CacheKeyBuilder::hex() const
@@ -79,26 +79,26 @@ std::string CacheKeyBuilder::hex() const
     return std::string(buf, 32);
 }
 
-std::string computeCacheKey(const CompileRequest& r)
+std::string compute_cache_key(const CompileRequest& r)
 {
     CacheKeyBuilder k;
     k.add("source", r.source);
-    k.add("include.count", r.includeContents.size());
-    for (const std::string& inc : r.includeContents) {
+    k.add("include.count", r.include_contents.size());
+    for (const std::string& inc : r.include_contents) {
         k.add("include", inc);
     }
-    k.add("entry", r.entryPoint);
-    k.add("stage", stageName(r.stage));
+    k.add("entry", r.entry_point);
+    k.add("stage", stage_name(r.stage));
     k.add("define.count", r.defines.size());
     for (const auto& [name, value] : r.defines) {
         k.add("define.name", name);
         k.add("define.value", value);
     }
     k.add("target", r.target);
-    k.add("compiler", r.compilerVersion);
-    k.add("tool", r.toolVersion);
-    k.add("args.count", r.extraArgs.size());
-    for (const std::string& a : r.extraArgs) {
+    k.add("compiler", r.compiler_version);
+    k.add("tool", r.tool_version);
+    k.add("args.count", r.extra_args.size());
+    for (const std::string& a : r.extra_args) {
         k.add("arg", a);
     }
     return k.hex();

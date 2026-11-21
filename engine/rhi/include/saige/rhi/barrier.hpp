@@ -2,8 +2,8 @@
 // enhanced barriers).
 #pragma once
 
-#include "saige/rhi/flags.h"
-#include "saige/rhi/handle.h"
+#include "saige/rhi/flags.hpp"
+#include "saige/rhi/handle.hpp"
 
 #include <cstdint>
 
@@ -54,12 +54,12 @@ enum class Access : uint32_t {
 };
 SAIGE_RHI_ENUM_FLAGS(Access)
 
-inline constexpr Access kWriteAccessMask = Access::ShaderStorageWrite | Access::ColorAttachmentWrite |
+inline constexpr Access write_access_mask = Access::ShaderStorageWrite | Access::ColorAttachmentWrite |
                                            Access::DepthStencilWrite | Access::TransferWrite |
                                            Access::AccelerationStructureWrite | Access::HostWrite;
 
-[[nodiscard]] constexpr bool isWriteAccess(Access a) noexcept { return hasAny(a, kWriteAccessMask); }
-[[nodiscard]] constexpr Access writeAccessOnly(Access a) noexcept { return a & kWriteAccessMask; }
+[[nodiscard]] constexpr bool is_write_access(Access a) noexcept { return has_any(a, write_access_mask); }
+[[nodiscard]] constexpr Access write_access_only(Access a) noexcept { return a & write_access_mask; }
 
 /// Image layouts (ignored for buffers).
 enum class TextureLayout : uint8_t {
@@ -80,18 +80,18 @@ struct ResourceState {
     Access access = Access::None;
     TextureLayout layout = TextureLayout::Undefined;
 
-    [[nodiscard]] constexpr bool writes() const noexcept { return isWriteAccess(access); }
+    [[nodiscard]] constexpr bool writes() const noexcept { return is_write_access(access); }
     friend constexpr bool operator==(const ResourceState&, const ResourceState&) noexcept = default;
 };
 
-inline constexpr uint32_t kAllMips = 0xFFFFFFFFu;
-inline constexpr uint32_t kAllLayers = 0xFFFFFFFFu;
+inline constexpr uint32_t all_mips = 0xFFFFFFFFu;
+inline constexpr uint32_t all_layers = 0xFFFFFFFFu;
 
 struct TextureSubresourceRange {
-    uint32_t baseMip = 0;
-    uint32_t mipCount = kAllMips;
-    uint32_t baseLayer = 0;
-    uint32_t layerCount = kAllLayers;
+    uint32_t base_mip = 0;
+    uint32_t mip_count = all_mips;
+    uint32_t base_layer = 0;
+    uint32_t layer_count = all_layers;
 };
 
 /// A texture memory dependency plus optional layout transition.

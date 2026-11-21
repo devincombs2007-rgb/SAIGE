@@ -32,20 +32,20 @@ struct Registrar {
 /// Thrown by REQUIRE to abort the current test case. Test code only; runtime modules never throw.
 struct RequireFailure {};
 
-inline int& currentFailures()
+inline int& current_failures()
 {
     static int failures = 0;
     return failures;
 }
 
-inline void reportFailure(const char* macro, const char* expr, const char* file, int line)
+inline void report_failure(const char* macro, const char* expr, const char* file, int line)
 {
-    ++currentFailures();
+    ++current_failures();
     std::fprintf(stderr, "  %s:%d: %s(%s) failed\n", file, line, macro, expr);
 }
 
 /// Runs all registered tests. An optional argv[1] filters tests by substring.
-inline int runAll(int argc, char** argv)
+inline int run_all(int argc, char** argv)
 {
     const char* filter = argc > 1 ? argv[1] : nullptr;
     int passed = 0;
@@ -54,22 +54,22 @@ inline int runAll(int argc, char** argv)
         if (filter != nullptr && std::strstr(tc.name, filter) == nullptr) {
             continue;
         }
-        currentFailures() = 0;
+        current_failures() = 0;
         try {
             tc.fn();
         } catch (const RequireFailure&) {
             // already reported
         } catch (const std::exception& e) {
-            reportFailure("EXCEPTION", e.what(), tc.file, tc.line);
+            report_failure("EXCEPTION", e.what(), tc.file, tc.line);
         } catch (...) {
-            reportFailure("EXCEPTION", "unknown exception", tc.file, tc.line);
+            report_failure("EXCEPTION", "unknown exception", tc.file, tc.line);
         }
-        if (currentFailures() == 0) {
+        if (current_failures() == 0) {
             ++passed;
             std::printf("[  PASS  ] %s\n", tc.name);
         } else {
             ++failed;
-            std::printf("[  FAIL  ] %s (%d failure(s))\n", tc.name, currentFailures());
+            std::printf("[  FAIL  ] %s (%d failure(s))\n", tc.name, current_failures());
         }
     }
     std::printf("\n%d passed, %d failed\n", passed, failed);
@@ -89,16 +89,16 @@ inline int runAll(int argc, char** argv)
 #define TEST_CASE(name) SAIGE_TEST_CASE_IMPL(name, SAIGE_TEST_CAT(saige_test_case_, __COUNTER__))
 
 #define CHECK(...)                                                                                                     \
-    ((__VA_ARGS__) ? static_cast<void>(0) : ::saige::test::reportFailure("CHECK", #__VA_ARGS__, __FILE__, __LINE__))
+    ((__VA_ARGS__) ? static_cast<void>(0) : ::saige::test::report_failure("CHECK", #__VA_ARGS__, __FILE__, __LINE__))
 
 #define CHECK_FALSE(...)                                                                                               \
     (!(__VA_ARGS__) ? static_cast<void>(0)                                                                             \
-                    : ::saige::test::reportFailure("CHECK_FALSE", #__VA_ARGS__, __FILE__, __LINE__))
+                    : ::saige::test::report_failure("CHECK_FALSE", #__VA_ARGS__, __FILE__, __LINE__))
 
 #define REQUIRE(...)                                                                                                   \
     do {                                                                                                               \
         if (!(__VA_ARGS__)) {                                                                                          \
-            ::saige::test::reportFailure("REQUIRE", #__VA_ARGS__, __FILE__, __LINE__);                                 \
+            ::saige::test::report_failure("REQUIRE", #__VA_ARGS__, __FILE__, __LINE__);                                 \
             throw ::saige::test::RequireFailure{};                                                                     \
         }                                                                                                              \
     } while (false)

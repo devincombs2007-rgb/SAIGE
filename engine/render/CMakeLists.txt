@@ -3,7 +3,7 @@
 # Builds standalone (`cmake -S engine/render -B build/render`, which pulls in engine/rhi) or via
 # add_subdirectory from Core's root CMakeLists (issue #2, D-02).
 
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.21)
 
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     project(saige_render LANGUAGES CXX)
@@ -12,7 +12,12 @@ else()
     set(SAIGE_RENDER_STANDALONE OFF)
 endif()
 
-option(SAIGE_RENDER_BUILD_TESTS "Build saige::render unit tests" ${SAIGE_RENDER_STANDALONE})
+if(SAIGE_RENDER_STANDALONE)
+    set(_saige_tests_default ON)
+else()
+    set(_saige_tests_default ${BUILD_TESTING})
+endif()
+option(SAIGE_RENDER_BUILD_TESTS "Build saige::render unit tests" ${_saige_tests_default})
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 
@@ -29,7 +34,7 @@ target_include_directories(saige_render PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 target_link_libraries(saige_render PUBLIC saige::rhi)
-saige_gfx_configure_target(saige_render RUNTIME)
+saige_gfx_configure_target(saige_render)
 
 if(SAIGE_RENDER_BUILD_TESTS)
     enable_testing()

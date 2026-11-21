@@ -1,6 +1,6 @@
-#include "saige/gfx_test/saige_test.h"
+#include "saige/gfx_test/saige_test.hpp"
 
-#include "saige/shaderc/annotations.h"
+#include "saige/shaderc/annotations.hpp"
 
 #include <string>
 #include <vector>
@@ -9,7 +9,7 @@ using namespace saige::shaderc;
 
 namespace {
 
-const char* kValid = R"(// Deferred GBuffer pass
+const char* valid = R"(// Deferred GBuffer pass
 //
 // @shader   GBufferPass
 // @entry    VSMain vs
@@ -24,7 +24,7 @@ const char* kValid = R"(// Deferred GBuffer pass
 // @option NOT_PARSED {0, 1}   <- after the header block, ignored
 )";
 
-bool hasErrorContaining(const ParseResult& r, const std::string& needle)
+bool has_error_containing(const ParseResult& r, const std::string& needle)
 {
     for (const Diagnostic& d : r.errors) {
         if (d.message.find(needle) != std::string::npos) {
@@ -38,7 +38,7 @@ bool hasErrorContaining(const ParseResult& r, const std::string& needle)
 
 TEST_CASE("Annotations: parses a complete header block")
 {
-    const ParseResult r = parseAnnotations(kValid);
+    const ParseResult r = parse_annotations(valid);
     REQUIRE(r.ok());
     const ShaderDecl& d = *r.decl;
     CHECK(d.name == "GBufferPass");
@@ -54,38 +54,38 @@ TEST_CASE("Annotations: parses a complete header block")
 
 TEST_CASE("Annotations: permutation key layout packs value indices tightly")
 {
-    const ParseResult r = parseAnnotations(kValid);
+    const ParseResult r = parse_annotations(valid);
     REQUIRE(r.ok());
     const ShaderDecl& d = *r.decl;
-    CHECK(d.options[0].bitOffset == 0);
-    CHECK(d.options[0].bitCount == 1);  // 2 values
-    CHECK(d.options[1].bitOffset == 1);
-    CHECK(d.options[1].bitCount == 2);  // 3 values
-    CHECK(d.options[2].bitOffset == 3);
-    CHECK(d.options[2].bitCount == 3);  // 5 values
-    CHECK(d.keyBits == 6);
+    CHECK(d.options[0].bit_offset == 0);
+    CHECK(d.options[0].bit_count == 1);  // 2 values
+    CHECK(d.options[1].bit_offset == 1);
+    CHECK(d.options[1].bit_count == 2);  // 3 values
+    CHECK(d.options[2].bit_offset == 3);
+    CHECK(d.options[2].bit_count == 3);  // 5 values
+    CHECK(d.key_bits == 6);
 }
 
 TEST_CASE("Annotations: shaders without options are valid")
 {
-    const ParseResult r = parseAnnotations("// @shader Blit\n// @entry CSMain cs\n");
+    const ParseResult r = parse_annotations("// @shader Blit\n// @entry CSMain cs\n");
     REQUIRE(r.ok());
     CHECK(r.decl->options.empty());
-    CHECK(r.decl->keyBits == 0);
+    CHECK(r.decl->key_bits == 0);
     CHECK(r.decl->budget == 64);
 }
 
 TEST_CASE("Annotations: reports missing @shader and @entry")
 {
-    const ParseResult r = parseAnnotations("// just a comment\nfloat4 main() : SV_Target { return 0; }\n");
+    const ParseResult r = parse_annotations("// just a comment\nfloat4 main() : SV_Target { return 0; }\n");
     CHECK_FALSE(r.ok());
-    CHECK(hasErrorContaining(r, "missing @shader"));
-    CHECK(hasErrorContaining(r, "@entry is required"));
+    CHECK(has_error_containing(r, "missing @shader"));
+    CHECK(has_error_containing(r, "@entry is required"));
 }
 
 TEST_CASE("Annotations: reports malformed directives with line numbers")
 {
-    const ParseResult r = parseAnnotations(
+    const ParseResult r = parse_annotations(
         "// @shader Bad\n"
         "// @entry Main gs\n"            // line 2: unknown stage
         "// @option A 0, 1\n"            // line 3: missing braces
@@ -97,31 +97,31 @@ TEST_CASE("Annotations: reports malformed directives with line numbers")
     CHECK_FALSE(r.ok());
     CHECK(r.errors.size() == 6);
     CHECK(r.errors[0].line == 2);
-    CHECK(hasErrorContaining(r, "unknown stage 'gs'"));
-    CHECK(hasErrorContaining(r, "values must be a list"));
-    CHECK(hasErrorContaining(r, "invalid value 'x'"));
-    CHECK(hasErrorContaining(r, "duplicate value 0"));
-    CHECK(hasErrorContaining(r, "unknown directive '@frobnicate'"));
-    CHECK(hasErrorContaining(r, "@budget"));
+    CHECK(has_error_containing(r, "unknown stage 'gs'"));
+    CHECK(has_error_containing(r, "values must be a list"));
+    CHECK(has_error_containing(r, "invalid value 'x'"));
+    CHECK(has_error_containing(r, "duplicate value 0"));
+    CHECK(has_error_containing(r, "unknown directive '@frobnicate'"));
+    CHECK(has_error_containing(r, "@budget"));
 }
 
 TEST_CASE("Annotations: duplicate names are rejected")
 {
-    const ParseResult r = parseAnnotations(
+    const ParseResult r = parse_annotations(
         "// @shader S\n// @shader T\n// @entry M vs\n// @entry M ps\n// @option O {0,1}\n// @option O {0,1}\n");
-    CHECK(hasErrorContaining(r, "duplicate @shader"));
-    CHECK(hasErrorContaining(r, "duplicate @entry 'M'"));
-    CHECK(hasErrorContaining(r, "duplicate @option 'O'"));
+    CHECK(has_error_containing(r, "duplicate @shader"));
+    CHECK(has_error_containing(r, "duplicate @entry 'M'"));
+    CHECK(has_error_containing(r, "duplicate @option 'O'"));
 }
 
 TEST_CASE("Annotations: @exclude may reference options declared later, but not unknown ones")
 {
-    const ParseResult ok = parseAnnotations("// @shader S\n// @entry M cs\n// @exclude A && B\n// @option A {0,1}\n"
+    const ParseResult ok = parse_annotations("// @shader S\n// @entry M cs\n// @exclude A && B\n// @option A {0,1}\n"
                                             "// @option B {0,1}\n");
     CHECK(ok.ok());
 
-    const ParseResult bad = parseAnnotations("// @shader S\n// @entry M cs\n// @option A {0,1}\n// @exclude A && Z\n");
-    CHECK(hasErrorContaining(bad, "unknown option 'Z'"));
+    const ParseResult bad = parse_annotations("// @shader S\n// @entry M cs\n// @option A {0,1}\n// @exclude A && Z\n");
+    CHECK(has_error_containing(bad, "unknown option 'Z'"));
     CHECK(bad.errors[0].line == 4);
 }
 
@@ -131,8 +131,8 @@ TEST_CASE("Annotations: key layout over 64 bits is an error")
     for (int i = 0; i < 33; ++i) {
         src += "// @option O" + std::to_string(i) + " {0, 1, 2}\n";  // 2 bits each = 66 bits
     }
-    const ParseResult r = parseAnnotations(src);
-    CHECK(hasErrorContaining(r, "key bits"));
+    const ParseResult r = parse_annotations(src);
+    CHECK(has_error_containing(r, "key bits"));
 }
 
 // ----------------------------------------------------------------------------------------------------- expressions
@@ -148,7 +148,7 @@ bool eval(const std::string& text, std::vector<int> values)
 {
     const auto opts = abc();
     std::string err;
-    const std::optional<Expression> e = parseExpression(text, opts, &err);
+    const std::optional<Expression> e = parse_expression(text, opts, &err);
     REQUIRE(e.has_value());
     return e->evaluate(values);
 }
@@ -183,25 +183,25 @@ TEST_CASE("Expression: syntax errors are reported")
 {
     const auto opts = abc();
     std::string err;
-    CHECK_FALSE(parseExpression("A &&", opts, &err).has_value());
+    CHECK_FALSE(parse_expression("A &&", opts, &err).has_value());
     CHECK(err.find("unexpected end") != std::string::npos);
-    CHECK_FALSE(parseExpression("(A || B", opts, &err).has_value());
+    CHECK_FALSE(parse_expression("(A || B", opts, &err).has_value());
     CHECK(err.find("')'") != std::string::npos);
-    CHECK_FALSE(parseExpression("Q == ", opts, &err).has_value());
-    CHECK_FALSE(parseExpression("A B", opts, &err).has_value());
-    CHECK_FALSE(parseExpression("A & B", opts, &err).has_value());
-    CHECK_FALSE(parseExpression("", opts, &err).has_value());
+    CHECK_FALSE(parse_expression("Q == ", opts, &err).has_value());
+    CHECK_FALSE(parse_expression("A B", opts, &err).has_value());
+    CHECK_FALSE(parse_expression("A & B", opts, &err).has_value());
+    CHECK_FALSE(parse_expression("", opts, &err).has_value());
 }
 
 TEST_CASE("Stages: names and DXC profiles")
 {
-    CHECK(parseStage("ms") == ShaderStage::Mesh);
-    CHECK(parseStage("lib") == ShaderStage::Library);
-    CHECK_FALSE(parseStage("gs").has_value());
-    CHECK(dxcProfile(ShaderStage::Pixel) == "ps_6_6");
-    CHECK(dxcProfile(ShaderStage::Library, 6, 8) == "lib_6_8");
+    CHECK(parse_stage("ms") == ShaderStage::Mesh);
+    CHECK(parse_stage("lib") == ShaderStage::Library);
+    CHECK_FALSE(parse_stage("gs").has_value());
+    CHECK(dxc_profile(ShaderStage::Pixel) == "ps_6_6");
+    CHECK(dxc_profile(ShaderStage::Library, 6, 8) == "lib_6_8");
     for (ShaderStage s : {ShaderStage::Vertex, ShaderStage::Pixel, ShaderStage::Compute, ShaderStage::Mesh,
                           ShaderStage::Amplification, ShaderStage::Library}) {
-        CHECK(parseStage(stageName(s)) == s);
+        CHECK(parse_stage(stage_name(s)) == s);
     }
 }

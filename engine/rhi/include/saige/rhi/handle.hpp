@@ -1,7 +1,7 @@
 // SAIGE RHI — 32-bit generational handles.
 #pragma once
 
-#include "saige/rhi/config.h"
+#include "saige/rhi/config.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,48 +21,48 @@ namespace saige::rhi {
 template <typename Tag>
 class Handle {
 public:
-    static constexpr uint32_t kIndexBits = 20;
-    static constexpr uint32_t kGenerationBits = 12;
-    static constexpr uint32_t kMaxIndex = (1u << kIndexBits) - 1u;
-    static constexpr uint32_t kMaxGeneration = (1u << kGenerationBits) - 1u;
-    static constexpr uint32_t kMaxSlots = kMaxIndex + 1u;
+    static constexpr uint32_t index_bits = 20;
+    static constexpr uint32_t generation_bits = 12;
+    static constexpr uint32_t max_index = (1u << index_bits) - 1u;
+    static constexpr uint32_t max_generation = (1u << generation_bits) - 1u;
+    static constexpr uint32_t max_slots = max_index + 1u;
 
     constexpr Handle() noexcept = default;
 
-    [[nodiscard]] static constexpr Handle fromParts(uint32_t index, uint32_t generation) noexcept
+    [[nodiscard]] static constexpr Handle from_parts(uint32_t index, uint32_t generation) noexcept
     {
-        SAIGE_RHI_ASSERT(index <= kMaxIndex, "Handle index out of range");
-        SAIGE_RHI_ASSERT(generation <= kMaxGeneration, "Handle generation out of range");
+        SAIGE_RHI_ASSERT(index <= max_index, "Handle index out of range");
+        SAIGE_RHI_ASSERT(generation <= max_generation, "Handle generation out of range");
         Handle h;
-        h.m_value = (generation << kIndexBits) | (index & kMaxIndex);
+        h.value_ = (generation << index_bits) | (index & max_index);
         return h;
     }
 
-    [[nodiscard]] static constexpr Handle fromRaw(uint32_t raw) noexcept
+    [[nodiscard]] static constexpr Handle from_raw(uint32_t raw) noexcept
     {
         Handle h;
-        h.m_value = raw;
+        h.value_ = raw;
         return h;
     }
 
-    [[nodiscard]] constexpr uint32_t index() const noexcept { return m_value & kMaxIndex; }
-    [[nodiscard]] constexpr uint32_t generation() const noexcept { return m_value >> kIndexBits; }
-    [[nodiscard]] constexpr uint32_t raw() const noexcept { return m_value; }
+    [[nodiscard]] constexpr uint32_t index() const noexcept { return value_ & max_index; }
+    [[nodiscard]] constexpr uint32_t generation() const noexcept { return value_ >> index_bits; }
+    [[nodiscard]] constexpr uint32_t raw() const noexcept { return value_; }
 
     /// True if the handle was produced by a pool. It may still be stale; ask the pool to be sure.
-    [[nodiscard]] constexpr bool isValid() const noexcept { return generation() != 0; }
-    constexpr explicit operator bool() const noexcept { return isValid(); }
+    [[nodiscard]] constexpr bool is_valid() const noexcept { return generation() != 0; }
+    constexpr explicit operator bool() const noexcept { return is_valid(); }
 
     friend constexpr bool operator==(Handle, Handle) noexcept = default;
 
     /// Next generation after `g`, skipping the reserved value 0.
-    [[nodiscard]] static constexpr uint32_t nextGeneration(uint32_t g) noexcept
+    [[nodiscard]] static constexpr uint32_t next_generation(uint32_t g) noexcept
     {
-        return g >= kMaxGeneration ? 1u : g + 1u;
+        return g >= max_generation ? 1u : g + 1u;
     }
 
 private:
-    uint32_t m_value = 0;
+    uint32_t value_ = 0;
 };
 
 // Canonical handle types. The tags are incomplete types used only for type distinction.

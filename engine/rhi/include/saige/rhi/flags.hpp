@@ -35,7 +35,7 @@ namespace saige::rhi {
 /// True if any bit of `bits` is set in `value`.
 template <typename E>
     requires std::is_enum_v<E>
-[[nodiscard]] constexpr bool hasAny(E value, E bits) noexcept
+[[nodiscard]] constexpr bool has_any(E value, E bits) noexcept
 {
     using U = std::underlying_type_t<E>;
     return (static_cast<U>(value) & static_cast<U>(bits)) != 0;
@@ -44,7 +44,7 @@ template <typename E>
 /// True if every bit of `bits` is set in `value`.
 template <typename E>
     requires std::is_enum_v<E>
-[[nodiscard]] constexpr bool hasAll(E value, E bits) noexcept
+[[nodiscard]] constexpr bool has_all(E value, E bits) noexcept
 {
     using U = std::underlying_type_t<E>;
     return (static_cast<U>(value) & static_cast<U>(bits)) == static_cast<U>(bits);

@@ -19,52 +19,52 @@ namespace saige::rhi {
 template <typename T>
 class DeferredReleaseQueue {
 public:
-    /// `retireAfter`: the item may be released once the completed timeline value >= retireAfter.
-    void enqueue(T item, uint64_t retireAfter) { m_entries.push_back({std::move(item), retireAfter}); }
+    /// `retire_after`: the item may be released once the completed timeline value >= retire_after.
+    void enqueue(T item, uint64_t retire_after) { entries_.push_back({std::move(item), retire_after}); }
 
-    /// Calls `onRelease(T&&)` for every item whose retire value <= `completedValue`, in enqueue order.
+    /// Calls `on_release(T&&)` for every item whose retire value <= `completed_value`, in enqueue order.
     /// Returns the number of items released.
     template <typename Fn>
-    std::size_t collect(uint64_t completedValue, Fn&& onRelease)
+    std::size_t collect(uint64_t completed_value, Fn&& on_release)
     {
         std::size_t kept = 0;
         std::size_t released = 0;
-        for (std::size_t i = 0; i < m_entries.size(); ++i) {
-            if (m_entries[i].retireAfter <= completedValue) {
-                onRelease(std::move(m_entries[i].item));
+        for (std::size_t i = 0; i < entries_.size(); ++i) {
+            if (entries_[i].retire_after <= completed_value) {
+                on_release(std::move(entries_[i].item));
                 ++released;
             } else {
                 if (kept != i) {
-                    m_entries[kept] = std::move(m_entries[i]);
+                    entries_[kept] = std::move(entries_[i]);
                 }
                 ++kept;
             }
         }
-        m_entries.resize(kept);
+        entries_.resize(kept);
         return released;
     }
 
     /// Releases everything regardless of timeline value (device shutdown after a wait-idle).
     template <typename Fn>
-    std::size_t drainAll(Fn&& onRelease)
+    std::size_t drain_all(Fn&& on_release)
     {
-        const std::size_t n = m_entries.size();
-        for (Entry& e : m_entries) {
-            onRelease(std::move(e.item));
+        const std::size_t n = entries_.size();
+        for (Entry& e : entries_) {
+            on_release(std::move(e.item));
         }
-        m_entries.clear();
+        entries_.clear();
         return n;
     }
 
-    [[nodiscard]] std::size_t size() const noexcept { return m_entries.size(); }
-    [[nodiscard]] bool empty() const noexcept { return m_entries.empty(); }
+    [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+    [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
 
 private:
     struct Entry {
         T item;
-        uint64_t retireAfter;
+        uint64_t retire_after;
     };
-    std::vector<Entry> m_entries;
+    std::vector<Entry> entries_;
 };
 
 } // namespace saige::rhi

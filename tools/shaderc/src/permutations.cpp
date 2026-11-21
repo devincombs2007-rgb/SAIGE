@@ -1,36 +1,36 @@
-#include "saige/shaderc/permutations.h"
+#include "saige/shaderc/permutations.hpp"
 
 namespace saige::shaderc {
 
-std::optional<uint64_t> encodeKey(const ShaderDecl& decl, std::span<const uint32_t> valueIndices)
+std::optional<uint64_t> encode_key(const ShaderDecl& decl, std::span<const uint32_t> value_indices)
 {
-    if (valueIndices.size() != decl.options.size() || decl.keyBits > 64) {
+    if (value_indices.size() != decl.options.size() || decl.key_bits > 64) {
         return std::nullopt;
     }
     uint64_t key = 0;
     for (std::size_t i = 0; i < decl.options.size(); ++i) {
         const PermutationOption& opt = decl.options[i];
-        if (valueIndices[i] >= opt.values.size()) {
+        if (value_indices[i] >= opt.values.size()) {
             return std::nullopt;
         }
-        key |= uint64_t{valueIndices[i]} << opt.bitOffset;
+        key |= uint64_t{value_indices[i]} << opt.bit_offset;
     }
     return key;
 }
 
-std::optional<std::vector<int>> decodeKey(const ShaderDecl& decl, uint64_t key)
+std::optional<std::vector<int>> decode_key(const ShaderDecl& decl, uint64_t key)
 {
-    if (decl.keyBits > 64) {
+    if (decl.key_bits > 64) {
         return std::nullopt;
     }
-    if (decl.keyBits < 64 && (key >> decl.keyBits) != 0) {
+    if (decl.key_bits < 64 && (key >> decl.key_bits) != 0) {
         return std::nullopt;  // bits set beyond the declared layout
     }
     std::vector<int> values;
     values.reserve(decl.options.size());
     for (const PermutationOption& opt : decl.options) {
-        const uint64_t mask = opt.bitCount == 0 ? 0 : ((uint64_t{1} << opt.bitCount) - 1u);
-        const uint64_t index = (key >> opt.bitOffset) & mask;
+        const uint64_t mask = opt.bit_count == 0 ? 0 : ((uint64_t{1} << opt.bit_count) - 1u);
+        const uint64_t index = (key >> opt.bit_offset) & mask;
         if (index >= opt.values.size()) {
             return std::nullopt;
         }
@@ -39,10 +39,10 @@ std::optional<std::vector<int>> decodeKey(const ShaderDecl& decl, uint64_t key)
     return values;
 }
 
-ExpandResult expandPermutations(const ShaderDecl& decl)
+ExpandResult expand_permutations(const ShaderDecl& decl)
 {
     ExpandResult result;
-    if (decl.keyBits > 64) {
+    if (decl.key_bits > 64) {
         result.errors.push_back("permutation key exceeds 64 bits");
         return result;
     }
@@ -54,8 +54,8 @@ ExpandResult expandPermutations(const ShaderDecl& decl)
             return result;
         }
         raw *= opt.values.size();
-        if (raw > kMaxRawPermutations) {
-            result.errors.push_back("shader '" + decl.name + "' has more than " + std::to_string(kMaxRawPermutations) +
+        if (raw > max_raw_permutations) {
+            result.errors.push_back("shader '" + decl.name + "' has more than " + std::to_string(max_raw_permutations) +
                                     " raw permutations; split it or convert options to dynamic branches");
             return result;
         }
@@ -77,10 +77,10 @@ ExpandResult expandPermutations(const ShaderDecl& decl)
             }
         }
         if (excluded) {
-            ++result.excludedCount;
+            ++result.excluded_count;
         } else {
             Permutation p;
-            p.key = *encodeKey(decl, indices);
+            p.key = *encode_key(decl, indices);
             p.values = values;
             result.permutations.push_back(std::move(p));
         }
@@ -101,7 +101,7 @@ ExpandResult expandPermutations(const ShaderDecl& decl)
     return result;
 }
 
-std::vector<std::pair<std::string, std::string>> definesFor(const ShaderDecl& decl, const Permutation& permutation)
+std::vector<std::pair<std::string, std::string>> defines_for(const ShaderDecl& decl, const Permutation& permutation)
 {
     std::vector<std::pair<std::string, std::string>> defines;
     defines.reserve(decl.options.size());

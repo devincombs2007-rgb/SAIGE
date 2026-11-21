@@ -1,4 +1,4 @@
-#include "saige/shaderc/annotations.h"
+#include "saige/shaderc/annotations.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -9,12 +9,12 @@ namespace saige::shaderc {
 
 namespace {
 
-constexpr bool isIdentStart(char c) noexcept
+constexpr bool is_ident_start(char c) noexcept
 {
     return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_';
 }
 
-constexpr bool isIdentChar(char c) noexcept
+constexpr bool is_ident_char(char c) noexcept
 {
     return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
 }
@@ -30,15 +30,15 @@ std::string_view trim(std::string_view s) noexcept
     return s;
 }
 
-bool isValidIdentifier(std::string_view s) noexcept
+bool is_valid_identifier(std::string_view s) noexcept
 {
-    if (s.empty() || !isIdentStart(s.front())) {
+    if (s.empty() || !is_ident_start(s.front())) {
         return false;
     }
-    return std::all_of(s.begin(), s.end(), isIdentChar);
+    return std::all_of(s.begin(), s.end(), is_ident_char);
 }
 
-std::optional<int> parseInt(std::string_view s) noexcept
+std::optional<int> parse_int(std::string_view s) noexcept
 {
     s = trim(s);
     int value = 0;
@@ -51,7 +51,7 @@ std::optional<int> parseInt(std::string_view s) noexcept
 }
 
 /// Splits off the first whitespace-delimited word.
-std::pair<std::string_view, std::string_view> splitWord(std::string_view s) noexcept
+std::pair<std::string_view, std::string_view> split_word(std::string_view s) noexcept
 {
     s = trim(s);
     std::size_t i = 0;
@@ -66,89 +66,89 @@ std::pair<std::string_view, std::string_view> splitWord(std::string_view s) noex
 struct Token {
     enum Kind : uint8_t { Ident, Int, AndAnd, OrOr, Not, LParen, RParen, Cmp, End, Bad } kind = End;
     std::string_view text;
-    int intValue = 0;
+    int int_value = 0;
     Expression::Op cmp = Expression::Op::Eq;
 };
 
 class Lexer {
 public:
-    explicit Lexer(std::string_view s) : m_s(s) {}
+    explicit Lexer(std::string_view s) : s_(s) {}
 
     Token next()
     {
-        while (m_i < m_s.size() && std::isspace(static_cast<unsigned char>(m_s[m_i])) != 0) {
-            ++m_i;
+        while (i_ < s_.size() && std::isspace(static_cast<unsigned char>(s_[i_])) != 0) {
+            ++i_;
         }
-        if (m_i >= m_s.size()) {
+        if (i_ >= s_.size()) {
             return {Token::End, {}};
         }
-        const std::size_t start = m_i;
-        const char c = m_s[m_i];
-        auto two = [&](char second) { return m_i + 1 < m_s.size() && m_s[m_i + 1] == second; };
+        const std::size_t start = i_;
+        const char c = s_[i_];
+        auto two = [&](char second) { return i_ + 1 < s_.size() && s_[i_ + 1] == second; };
 
-        if (isIdentStart(c)) {
-            while (m_i < m_s.size() && isIdentChar(m_s[m_i])) {
-                ++m_i;
+        if (is_ident_start(c)) {
+            while (i_ < s_.size() && is_ident_char(s_[i_])) {
+                ++i_;
             }
-            return {Token::Ident, m_s.substr(start, m_i - start)};
+            return {Token::Ident, s_.substr(start, i_ - start)};
         }
         if (std::isdigit(static_cast<unsigned char>(c)) != 0 ||
-            (c == '-' && m_i + 1 < m_s.size() && std::isdigit(static_cast<unsigned char>(m_s[m_i + 1])) != 0)) {
-            ++m_i;
-            while (m_i < m_s.size() && std::isdigit(static_cast<unsigned char>(m_s[m_i])) != 0) {
-                ++m_i;
+            (c == '-' && i_ + 1 < s_.size() && std::isdigit(static_cast<unsigned char>(s_[i_ + 1])) != 0)) {
+            ++i_;
+            while (i_ < s_.size() && std::isdigit(static_cast<unsigned char>(s_[i_])) != 0) {
+                ++i_;
             }
-            Token t{Token::Int, m_s.substr(start, m_i - start)};
-            const std::optional<int> v = parseInt(t.text);
+            Token t{Token::Int, s_.substr(start, i_ - start)};
+            const std::optional<int> v = parse_int(t.text);
             if (!v) {
                 t.kind = Token::Bad;
             } else {
-                t.intValue = *v;
+                t.int_value = *v;
             }
             return t;
         }
         if (c == '&' && two('&')) {
-            m_i += 2;
-            return {Token::AndAnd, m_s.substr(start, 2)};
+            i_ += 2;
+            return {Token::AndAnd, s_.substr(start, 2)};
         }
         if (c == '|' && two('|')) {
-            m_i += 2;
-            return {Token::OrOr, m_s.substr(start, 2)};
+            i_ += 2;
+            return {Token::OrOr, s_.substr(start, 2)};
         }
         if (c == '(') {
-            ++m_i;
-            return {Token::LParen, m_s.substr(start, 1)};
+            ++i_;
+            return {Token::LParen, s_.substr(start, 1)};
         }
         if (c == ')') {
-            ++m_i;
-            return {Token::RParen, m_s.substr(start, 1)};
+            ++i_;
+            return {Token::RParen, s_.substr(start, 1)};
         }
         if (c == '!' && two('=')) {
-            m_i += 2;
-            return {Token::Cmp, m_s.substr(start, 2), 0, Expression::Op::Ne};
+            i_ += 2;
+            return {Token::Cmp, s_.substr(start, 2), 0, Expression::Op::Ne};
         }
         if (c == '!') {
-            ++m_i;
-            return {Token::Not, m_s.substr(start, 1)};
+            ++i_;
+            return {Token::Not, s_.substr(start, 1)};
         }
         if (c == '=') {
-            m_i += two('=') ? 2u : 1u;
-            return {Token::Cmp, m_s.substr(start, m_i - start), 0, Expression::Op::Eq};
+            i_ += two('=') ? 2u : 1u;
+            return {Token::Cmp, s_.substr(start, i_ - start), 0, Expression::Op::Eq};
         }
         if (c == '<' || c == '>') {
-            const bool orEqual = two('=');
-            m_i += orEqual ? 2u : 1u;
-            const Expression::Op op = c == '<' ? (orEqual ? Expression::Op::Le : Expression::Op::Lt)
-                                               : (orEqual ? Expression::Op::Ge : Expression::Op::Gt);
-            return {Token::Cmp, m_s.substr(start, m_i - start), 0, op};
+            const bool or_equal = two('=');
+            i_ += or_equal ? 2u : 1u;
+            const Expression::Op op = c == '<' ? (or_equal ? Expression::Op::Le : Expression::Op::Lt)
+                                               : (or_equal ? Expression::Op::Ge : Expression::Op::Gt);
+            return {Token::Cmp, s_.substr(start, i_ - start), 0, op};
         }
-        ++m_i;
-        return {Token::Bad, m_s.substr(start, 1)};
+        ++i_;
+        return {Token::Bad, s_.substr(start, 1)};
     }
 
 private:
-    std::string_view m_s;
-    std::size_t m_i = 0;
+    std::string_view s_;
+    std::size_t i_ = 0;
 };
 
 } // namespace
@@ -157,7 +157,7 @@ private:
 // Stages
 // =====================================================================================================================
 
-std::optional<ShaderStage> parseStage(std::string_view name)
+std::optional<ShaderStage> parse_stage(std::string_view name)
 {
     if (name == "vs") return ShaderStage::Vertex;
     if (name == "ps") return ShaderStage::Pixel;
@@ -168,7 +168,7 @@ std::optional<ShaderStage> parseStage(std::string_view name)
     return std::nullopt;
 }
 
-std::string_view stageName(ShaderStage stage)
+std::string_view stage_name(ShaderStage stage)
 {
     switch (stage) {
     case ShaderStage::Vertex: return "vs";
@@ -181,23 +181,23 @@ std::string_view stageName(ShaderStage stage)
     return "?";
 }
 
-std::string dxcProfile(ShaderStage stage, int smMajor, int smMinor)
+std::string dxc_profile(ShaderStage stage, int sm_major, int sm_minor)
 {
-    return std::string(stageName(stage)) + "_" + std::to_string(smMajor) + "_" + std::to_string(smMinor);
+    return std::string(stage_name(stage)) + "_" + std::to_string(sm_major) + "_" + std::to_string(sm_minor);
 }
 
 // =====================================================================================================================
 // Expressions
 // =====================================================================================================================
 
-bool Expression::evaluate(std::span<const int> optionValues) const
+bool Expression::evaluate(std::span<const int> option_values) const
 {
-    return m_root >= 0 && eval(m_root, optionValues);
+    return root_ >= 0 && eval(root_, option_values);
 }
 
 bool Expression::eval(int node, std::span<const int> values) const
 {
-    const Node& n = m_nodes[static_cast<std::size_t>(node)];
+    const Node& n = nodes_[static_cast<std::size_t>(node)];
     switch (n.op) {
     case Op::Or: return eval(n.lhs, values) || eval(n.rhs, values);
     case Op::And: return eval(n.lhs, values) && eval(n.rhs, values);
@@ -216,18 +216,18 @@ bool Expression::eval(int node, std::span<const int> values) const
     }
 }
 
-std::optional<Expression> parseExpression(std::string_view text, std::span<const PermutationOption> options,
+std::optional<Expression> parse_expression(std::string_view text, std::span<const PermutationOption> options,
                                           std::string* error)
 {
     Expression expr;
-    expr.m_source = std::string(trim(text));
+    expr.source_ = std::string(trim(text));
     Lexer lexer(text);
     Token tok = lexer.next();
     std::string err;
 
-    auto addNode = [&](Expression::Node n) {
-        expr.m_nodes.push_back(n);
-        return static_cast<int>(expr.m_nodes.size() - 1);
+    auto add_node = [&](Expression::Node n) {
+        expr.nodes_.push_back(n);
+        return static_cast<int>(expr.nodes_.size() - 1);
     };
 
     // Recursive descent with explicit lambdas (std::function avoided; recursion via a small struct).
@@ -236,15 +236,15 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
         Token& tok;
         std::string& err;
         std::span<const PermutationOption> options;
-        decltype(addNode)& add;
+        decltype(add_node)& add;
         int depth = 0;
 
-        int parseOr()
+        int parse_or()
         {
-            int lhs = parseAnd();
+            int lhs = parse_and();
             while (lhs >= 0 && tok.kind == Token::OrOr) {
                 tok = lexer.next();
-                const int rhs = parseAnd();
+                const int rhs = parse_and();
                 if (rhs < 0) {
                     return -1;
                 }
@@ -253,12 +253,12 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
             return lhs;
         }
 
-        int parseAnd()
+        int parse_and()
         {
-            int lhs = parseUnary();
+            int lhs = parse_unary();
             while (lhs >= 0 && tok.kind == Token::AndAnd) {
                 tok = lexer.next();
-                const int rhs = parseUnary();
+                const int rhs = parse_unary();
                 if (rhs < 0) {
                     return -1;
                 }
@@ -267,7 +267,7 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
             return lhs;
         }
 
-        int parseUnary()
+        int parse_unary()
         {
             if (++depth > 64) {
                 err = "expression nested too deeply";
@@ -276,11 +276,11 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
             int result = -1;
             if (tok.kind == Token::Not) {
                 tok = lexer.next();
-                const int operand = parseUnary();
+                const int operand = parse_unary();
                 result = operand < 0 ? -1 : add({Expression::Op::Not, operand, -1, 0, 0});
             } else if (tok.kind == Token::LParen) {
                 tok = lexer.next();
-                const int inner = parseOr();
+                const int inner = parse_or();
                 if (inner >= 0 && tok.kind != Token::RParen) {
                     err = "expected ')'";
                 } else if (inner >= 0) {
@@ -294,7 +294,7 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
                 if (it == options.end()) {
                     err = "unknown option '" + std::string(name) + "'";
                 } else {
-                    const auto optionIndex = static_cast<uint32_t>(it - options.begin());
+                    const auto option_index = static_cast<uint32_t>(it - options.begin());
                     tok = lexer.next();
                     if (tok.kind == Token::Cmp) {
                         const Expression::Op op = tok.cmp;
@@ -302,11 +302,11 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
                         if (tok.kind != Token::Int) {
                             err = "expected an integer after comparison";
                         } else {
-                            result = add({op, -1, -1, optionIndex, tok.intValue});
+                            result = add({op, -1, -1, option_index, tok.int_value});
                             tok = lexer.next();
                         }
                     } else {
-                        result = add({Expression::Op::Ne, -1, -1, optionIndex, 0});  // bare NAME => NAME != 0
+                        result = add({Expression::Op::Ne, -1, -1, option_index, 0});  // bare NAME => NAME != 0
                     }
                 }
             } else {
@@ -318,13 +318,13 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
         }
     };
 
-    Parser parser{lexer, tok, err, options, addNode};
-    expr.m_root = parser.parseOr();
-    if (expr.m_root >= 0 && tok.kind != Token::End) {
+    Parser parser{lexer, tok, err, options, add_node};
+    expr.root_ = parser.parse_or();
+    if (expr.root_ >= 0 && tok.kind != Token::End) {
         err = "unexpected token '" + std::string(tok.text) + "'";
-        expr.m_root = -1;
+        expr.root_ = -1;
     }
-    if (expr.m_root < 0) {
+    if (expr.root_ < 0) {
         if (error != nullptr) {
             *error = err.empty() ? "invalid expression" : err;
         }
@@ -337,22 +337,22 @@ std::optional<Expression> parseExpression(std::string_view text, std::span<const
 // Annotation block
 // =====================================================================================================================
 
-ParseResult parseAnnotations(std::string_view source)
+ParseResult parse_annotations(std::string_view source)
 {
     ParseResult result;
     ShaderDecl decl;
-    bool haveShader = false;
-    std::vector<std::pair<int, std::string>> pendingExcludes;  // parsed after all options are known
+    bool have_shader = false;
+    std::vector<std::pair<int, std::string>> pending_excludes;  // parsed after all options are known
 
     auto error = [&](int line, std::string msg) { result.errors.push_back({line, std::move(msg)}); };
 
-    int lineNo = 0;
+    int line_no = 0;
     std::size_t pos = 0;
     while (pos <= source.size()) {
         const std::size_t nl = source.find('\n', pos);
         std::string_view line = source.substr(pos, nl == std::string_view::npos ? std::string_view::npos : nl - pos);
         pos = nl == std::string_view::npos ? source.size() + 1 : nl + 1;
-        ++lineNo;
+        ++line_no;
 
         line = trim(line);
         if (line.empty()) {
@@ -366,58 +366,58 @@ ParseResult parseAnnotations(std::string_view source)
             continue;  // ordinary comment
         }
 
-        const auto [directive, rest] = splitWord(line.substr(1));
+        const auto [directive, rest] = split_word(line.substr(1));
         if (directive == "shader") {
-            if (haveShader) {
-                error(lineNo, "duplicate @shader");
-            } else if (!isValidIdentifier(rest)) {
-                error(lineNo, "@shader requires an identifier name");
+            if (have_shader) {
+                error(line_no, "duplicate @shader");
+            } else if (!is_valid_identifier(rest)) {
+                error(line_no, "@shader requires an identifier name");
             } else {
                 decl.name = std::string(rest);
-                haveShader = true;
+                have_shader = true;
             }
         } else if (directive == "entry") {
-            const auto [name, stageText] = splitWord(rest);
-            const std::optional<ShaderStage> stage = parseStage(stageText);
-            if (!isValidIdentifier(name)) {
-                error(lineNo, "@entry requires a function name");
+            const auto [name, stage_text] = split_word(rest);
+            const std::optional<ShaderStage> stage = parse_stage(stage_text);
+            if (!is_valid_identifier(name)) {
+                error(line_no, "@entry requires a function name");
             } else if (!stage) {
-                error(lineNo, "@entry '" + std::string(name) + "': unknown stage '" + std::string(stageText) +
+                error(line_no, "@entry '" + std::string(name) + "': unknown stage '" + std::string(stage_text) +
                                   "' (expected vs, ps, cs, ms, as or lib)");
             } else if (std::any_of(decl.entries.begin(), decl.entries.end(),
                                    [&](const EntryPoint& e) { return e.name == name; })) {
-                error(lineNo, "duplicate @entry '" + std::string(name) + "'");
+                error(line_no, "duplicate @entry '" + std::string(name) + "'");
             } else {
                 decl.entries.push_back({std::string(name), *stage});
             }
         } else if (directive == "option") {
-            const auto [name, valuesText] = splitWord(rest);
-            if (!isValidIdentifier(name)) {
-                error(lineNo, "@option requires an identifier name");
+            const auto [name, values_text] = split_word(rest);
+            if (!is_valid_identifier(name)) {
+                error(line_no, "@option requires an identifier name");
                 continue;
             }
             if (std::any_of(decl.options.begin(), decl.options.end(),
                             [&](const PermutationOption& o) { return o.name == name; })) {
-                error(lineNo, "duplicate @option '" + std::string(name) + "'");
+                error(line_no, "duplicate @option '" + std::string(name) + "'");
                 continue;
             }
-            if (!valuesText.starts_with("{") || !valuesText.ends_with("}")) {
-                error(lineNo, "@option '" + std::string(name) + "': values must be a list like {0, 1}");
+            if (!values_text.starts_with("{") || !values_text.ends_with("}")) {
+                error(line_no, "@option '" + std::string(name) + "': values must be a list like {0, 1}");
                 continue;
             }
             PermutationOption opt;
             opt.name = std::string(name);
-            std::string_view list = valuesText.substr(1, valuesText.size() - 2);
+            std::string_view list = values_text.substr(1, values_text.size() - 2);
             bool bad = false;
             while (!bad) {
                 const std::size_t comma = list.find(',');
                 const std::string_view item = list.substr(0, comma);
-                const std::optional<int> v = parseInt(item);
+                const std::optional<int> v = parse_int(item);
                 if (!v) {
-                    error(lineNo, "@option '" + opt.name + "': invalid value '" + std::string(trim(item)) + "'");
+                    error(line_no, "@option '" + opt.name + "': invalid value '" + std::string(trim(item)) + "'");
                     bad = true;
                 } else if (std::find(opt.values.begin(), opt.values.end(), *v) != opt.values.end()) {
-                    error(lineNo, "@option '" + opt.name + "': duplicate value " + std::to_string(*v));
+                    error(line_no, "@option '" + opt.name + "': duplicate value " + std::to_string(*v));
                     bad = true;
                 } else {
                     opt.values.push_back(*v);
@@ -431,16 +431,16 @@ ParseResult parseAnnotations(std::string_view source)
                 decl.options.push_back(std::move(opt));
             }
         } else if (directive == "exclude") {
-            pendingExcludes.emplace_back(lineNo, std::string(rest));
+            pending_excludes.emplace_back(line_no, std::string(rest));
         } else if (directive == "budget") {
-            const std::optional<int> b = parseInt(rest);
+            const std::optional<int> b = parse_int(rest);
             if (!b || *b < 1) {
-                error(lineNo, "@budget requires a positive integer");
+                error(line_no, "@budget requires a positive integer");
             } else {
                 decl.budget = static_cast<uint32_t>(*b);
             }
         } else {
-            error(lineNo, "unknown directive '@" + std::string(directive) + "'");
+            error(line_no, "unknown directive '@" + std::string(directive) + "'");
         }
     }
 
@@ -448,18 +448,18 @@ ParseResult parseAnnotations(std::string_view source)
     uint32_t offset = 0;
     for (PermutationOption& opt : decl.options) {
         const auto count = static_cast<uint32_t>(opt.values.size());
-        opt.bitOffset = offset;
-        opt.bitCount = count <= 1 ? 0u : static_cast<uint32_t>(std::bit_width(count - 1u));
-        offset += opt.bitCount;
+        opt.bit_offset = offset;
+        opt.bit_count = count <= 1 ? 0u : static_cast<uint32_t>(std::bit_width(count - 1u));
+        offset += opt.bit_count;
     }
-    decl.keyBits = offset;
+    decl.key_bits = offset;
     if (offset > 64) {
         error(0, "permutation options need " + std::to_string(offset) + " key bits (maximum 64)");
     }
 
-    for (const auto& [line, text] : pendingExcludes) {
+    for (const auto& [line, text] : pending_excludes) {
         std::string err;
-        std::optional<Expression> e = parseExpression(text, decl.options, &err);
+        std::optional<Expression> e = parse_expression(text, decl.options, &err);
         if (!e) {
             error(line, "@exclude: " + err);
         } else {
@@ -467,7 +467,7 @@ ParseResult parseAnnotations(std::string_view source)
         }
     }
 
-    if (!haveShader) {
+    if (!have_shader) {
         error(0, "missing @shader declaration");
     }
     if (decl.entries.empty()) {

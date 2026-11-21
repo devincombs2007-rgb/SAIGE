@@ -1,7 +1,7 @@
-#include "saige/gfx_test/saige_test.h"
+#include "saige/gfx_test/saige_test.hpp"
 
-#include "saige/rhi/handle.h"
-#include "saige/rhi/handle_pool.h"
+#include "saige/rhi/handle.hpp"
+#include "saige/rhi/handle_pool.hpp"
 
 #include <memory>
 #include <string>
@@ -17,27 +17,27 @@ struct TestTag;
 // Compile-time properties
 static_assert(std::is_trivially_copyable_v<TextureHandle>);
 static_assert(!std::is_convertible_v<TextureHandle, BufferHandle>, "Handle types must not interconvert");
-static_assert(!TextureHandle{}.isValid());
-static_assert(TextureHandle::fromParts(5, 3).index() == 5);
-static_assert(TextureHandle::fromParts(5, 3).generation() == 3);
-static_assert(TextureHandle::nextGeneration(TextureHandle::kMaxGeneration) == 1, "Generation must skip 0 on wrap");
+static_assert(!TextureHandle{}.is_valid());
+static_assert(TextureHandle::from_parts(5, 3).index() == 5);
+static_assert(TextureHandle::from_parts(5, 3).generation() == 3);
+static_assert(TextureHandle::next_generation(TextureHandle::max_generation) == 1, "Generation must skip 0 on wrap");
 
 TEST_CASE("Handle: packs index and generation, round-trips through raw")
 {
-    const auto h = BufferHandle::fromParts(BufferHandle::kMaxIndex, BufferHandle::kMaxGeneration);
-    CHECK(h.index() == BufferHandle::kMaxIndex);
-    CHECK(h.generation() == BufferHandle::kMaxGeneration);
-    CHECK(BufferHandle::fromRaw(h.raw()) == h);
-    CHECK(h.isValid());
+    const auto h = BufferHandle::from_parts(BufferHandle::max_index, BufferHandle::max_generation);
+    CHECK(h.index() == BufferHandle::max_index);
+    CHECK(h.generation() == BufferHandle::max_generation);
+    CHECK(BufferHandle::from_raw(h.raw()) == h);
+    CHECK(h.is_valid());
     CHECK(static_cast<bool>(h));
 }
 
 TEST_CASE("Handle: hashable and usable in unordered containers")
 {
     std::unordered_set<SamplerHandle> set;
-    set.insert(SamplerHandle::fromParts(1, 1));
-    set.insert(SamplerHandle::fromParts(1, 2));
-    set.insert(SamplerHandle::fromParts(1, 1));
+    set.insert(SamplerHandle::from_parts(1, 1));
+    set.insert(SamplerHandle::from_parts(1, 2));
+    set.insert(SamplerHandle::from_parts(1, 1));
     CHECK(set.size() == 2);
 }
 
@@ -46,8 +46,8 @@ TEST_CASE("HandlePool: emplace, get and release")
     HandlePool<std::string, TestTag> pool;
     const auto a = pool.emplace("alpha");
     const auto b = pool.emplace("beta");
-    REQUIRE(a.isValid());
-    REQUIRE(b.isValid());
+    REQUIRE(a.is_valid());
+    REQUIRE(b.is_valid());
     CHECK(a != b);
     CHECK(pool.size() == 2);
 
@@ -82,7 +82,7 @@ TEST_CASE("HandlePool: invalid and out-of-range handles are rejected")
 {
     HandlePool<int, TestTag> pool;
     CHECK(pool.get({}) == nullptr);
-    CHECK(pool.get(Handle<TestTag>::fromParts(1000, 1)) == nullptr);
+    CHECK(pool.get(Handle<TestTag>::from_parts(1000, 1)) == nullptr);
     CHECK_FALSE(pool.release({}).has_value());
 }
 
@@ -97,15 +97,15 @@ TEST_CASE("HandlePool: freed slots are reused FIFO")
     CHECK(pool.emplace(3).index() == b.index());
     CHECK(pool.emplace(4).index() == a.index());
     CHECK(pool.emplace(5).index() == c.index() + 1);
-    CHECK(pool.slotCount() == 4);
+    CHECK(pool.slot_count() == 4);
 }
 
-TEST_CASE("HandlePool: respects maxSlots")
+TEST_CASE("HandlePool: respects max_slots")
 {
     HandlePool<int, TestTag> pool(2);
-    CHECK(pool.emplace(0).isValid());
-    CHECK(pool.emplace(1).isValid());
-    CHECK_FALSE(pool.emplace(2).isValid());
+    CHECK(pool.emplace(0).is_valid());
+    CHECK(pool.emplace(1).is_valid());
+    CHECK_FALSE(pool.emplace(2).is_valid());
 }
 
 TEST_CASE("HandlePool: clear invalidates all handles and supports move-only types")
@@ -123,7 +123,7 @@ TEST_CASE("HandlePool: clear invalidates all handles and supports move-only type
     CHECK(**pool.get(c) == 9);
 }
 
-TEST_CASE("HandlePool: forEach visits live objects with valid handles")
+TEST_CASE("HandlePool: for_each visits live objects with valid handles")
 {
     HandlePool<int, TestTag> pool;
     const auto a = pool.emplace(10);
@@ -133,7 +133,7 @@ TEST_CASE("HandlePool: forEach visits live objects with valid handles")
 
     int sum = 0;
     int visits = 0;
-    pool.forEach([&](auto handle, int& value) {
+    pool.for_each([&](auto handle, int& value) {
         CHECK(pool.contains(handle));
         sum += value;
         ++visits;
@@ -148,11 +148,11 @@ TEST_CASE("HandlePool: generation wraps without producing generation 0")
 {
     HandlePool<int, TestTag> pool;
     auto h = pool.emplace(0);
-    for (uint32_t i = 0; i < Handle<TestTag>::kMaxGeneration + 5; ++i) {
+    for (uint32_t i = 0; i < Handle<TestTag>::max_generation + 5; ++i) {
         pool.release(h);
         h = pool.emplace(static_cast<int>(i));
-        REQUIRE(h.isValid());
+        REQUIRE(h.is_valid());
         REQUIRE(h.generation() != 0);
     }
-    CHECK(pool.slotCount() == 1);
+    CHECK(pool.slot_count() == 1);
 }

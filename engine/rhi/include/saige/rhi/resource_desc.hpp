@@ -1,8 +1,8 @@
 // SAIGE RHI — resource descriptions (buffers, textures, samplers) and their validation.
 #pragma once
 
-#include "saige/rhi/flags.h"
-#include "saige/rhi/format.h"
+#include "saige/rhi/flags.hpp"
+#include "saige/rhi/format.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -63,8 +63,8 @@ struct BufferDesc {
     uint64_t size = 0;
     BufferUsage usage = BufferUsage::None;
     MemoryLocation memory = MemoryLocation::GpuOnly;
-    uint32_t structureStride = 0;  ///< Element stride for structured views (0 = raw/byte-address).
-    const char* debugName = nullptr;
+    uint32_t structure_stride = 0;  ///< Element stride for structured views (0 = raw/byte-address).
+    const char* debug_name = nullptr;
 };
 
 [[nodiscard]] ValidationResult validate(const BufferDesc& desc) noexcept;
@@ -86,8 +86,8 @@ enum class TextureUsage : uint32_t {
 };
 SAIGE_RHI_ENUM_FLAGS(TextureUsage)
 
-/// Pass as `TextureDesc::mipLevels` to request a full mip chain down to 1x1(x1).
-inline constexpr uint32_t kFullMipChain = 0;
+/// Pass as `TextureDesc::mip_levels` to request a full mip chain down to 1x1(x1).
+inline constexpr uint32_t full_mip_chain = 0;
 
 struct TextureDesc {
     TextureDimension dimension = TextureDimension::Texture2D;
@@ -95,17 +95,17 @@ struct TextureDesc {
     uint32_t width = 1;
     uint32_t height = 1;
     uint32_t depth = 1;        ///< Texture3D only.
-    uint32_t arrayLayers = 1;  ///< For cubes: number of faces (a multiple of 6).
-    uint32_t mipLevels = 1;    ///< `kFullMipChain` for a complete chain.
-    uint32_t sampleCount = 1;
+    uint32_t array_layers = 1;  ///< For cubes: number of faces (a multiple of 6).
+    uint32_t mip_levels = 1;    ///< `full_mip_chain` for a complete chain.
+    uint32_t sample_count = 1;
     TextureUsage usage = TextureUsage::None;
-    const char* debugName = nullptr;
+    const char* debug_name = nullptr;
 
     [[nodiscard]] constexpr Extent3D extent() const noexcept { return {width, height, depth}; }
 };
 
 /// Number of mips in a full chain for the given base extent: floor(log2(max(w, h, d))) + 1.
-[[nodiscard]] constexpr uint32_t maxMipLevels(uint32_t width, uint32_t height = 1, uint32_t depth = 1) noexcept
+[[nodiscard]] constexpr uint32_t max_mip_levels(uint32_t width, uint32_t height = 1, uint32_t depth = 1) noexcept
 {
     uint32_t largest = width > height ? width : height;
     largest = largest > depth ? largest : depth;
@@ -113,7 +113,7 @@ struct TextureDesc {
 }
 
 /// Extent of `level`, clamped to at least 1 in each dimension.
-[[nodiscard]] constexpr Extent3D mipExtent(Extent3D base, uint32_t level) noexcept
+[[nodiscard]] constexpr Extent3D mip_extent(Extent3D base, uint32_t level) noexcept
 {
     auto shrink = [level](uint32_t v) -> uint32_t {
         if (level >= 32u) {
@@ -125,16 +125,16 @@ struct TextureDesc {
     return {shrink(base.width), shrink(base.height), shrink(base.depth)};
 }
 
-/// Resolves `kFullMipChain` to a concrete count.
-[[nodiscard]] constexpr uint32_t resolveMipLevels(const TextureDesc& desc) noexcept
+/// Resolves `full_mip_chain` to a concrete count.
+[[nodiscard]] constexpr uint32_t resolve_mip_levels(const TextureDesc& desc) noexcept
 {
     const uint32_t depth = desc.dimension == TextureDimension::Texture3D ? desc.depth : 1u;
-    return desc.mipLevels == kFullMipChain ? maxMipLevels(desc.width, desc.height, depth) : desc.mipLevels;
+    return desc.mip_levels == full_mip_chain ? max_mip_levels(desc.width, desc.height, depth) : desc.mip_levels;
 }
 
 /// Total tightly packed size of every mip, layer and slice. Used for staging and memory budgeting
 /// (GPU allocations add alignment and padding on top of this).
-[[nodiscard]] uint64_t computeTextureDataSize(const TextureDesc& desc) noexcept;
+[[nodiscard]] uint64_t compute_texture_data_size(const TextureDesc& desc) noexcept;
 
 /// Validates a texture description against backend-independent rules (dimension/extent consistency,
 /// mip and sample counts, format/usage compatibility).
@@ -150,23 +150,23 @@ enum class AddressMode : uint8_t { Repeat, MirroredRepeat, ClampToEdge, ClampToB
 enum class CompareOp : uint8_t { Never, Less, Equal, LessOrEqual, Greater, NotEqual, GreaterOrEqual, Always };
 enum class BorderColor : uint8_t { TransparentBlack, OpaqueBlack, OpaqueWhite };
 
-/// Pass as `SamplerDesc::maxLod` to leave the LOD unclamped.
-inline constexpr float kLodClampNone = 1000.0f;
+/// Pass as `SamplerDesc::max_lod` to leave the LOD unclamped.
+inline constexpr float lod_clamp_none = 1000.0f;
 
 struct SamplerDesc {
-    Filter minFilter = Filter::Linear;
-    Filter magFilter = Filter::Linear;
-    MipmapMode mipmapMode = MipmapMode::Linear;
-    AddressMode addressU = AddressMode::Repeat;
-    AddressMode addressV = AddressMode::Repeat;
-    AddressMode addressW = AddressMode::Repeat;
-    float mipLodBias = 0.0f;
-    float maxAnisotropy = 1.0f;  ///< 1 = anisotropic filtering off. Valid range [1, 16].
-    bool compareEnable = false;  ///< Shadow-map comparison sampling.
-    CompareOp compareOp = CompareOp::Never;
-    float minLod = 0.0f;
-    float maxLod = kLodClampNone;
-    BorderColor borderColor = BorderColor::TransparentBlack;
+    Filter min_filter = Filter::Linear;
+    Filter mag_filter = Filter::Linear;
+    MipmapMode mipmap_mode = MipmapMode::Linear;
+    AddressMode address_u = AddressMode::Repeat;
+    AddressMode address_v = AddressMode::Repeat;
+    AddressMode address_w = AddressMode::Repeat;
+    float mip_lod_bias = 0.0f;
+    float max_anisotropy = 1.0f;  ///< 1 = anisotropic filtering off. Valid range [1, 16].
+    bool compare_enable = false;  ///< Shadow-map comparison sampling.
+    CompareOp compare_op = CompareOp::Never;
+    float min_lod = 0.0f;
+    float max_lod = lod_clamp_none;
+    BorderColor border_color = BorderColor::TransparentBlack;
 
     friend bool operator==(const SamplerDesc&, const SamplerDesc&) noexcept = default;
 };
@@ -174,6 +174,6 @@ struct SamplerDesc {
 [[nodiscard]] ValidationResult validate(const SamplerDesc& desc) noexcept;
 
 /// Stable hash for sampler deduplication (the bindless sampler table is small and shared).
-[[nodiscard]] std::size_t hashSamplerDesc(const SamplerDesc& desc) noexcept;
+[[nodiscard]] std::size_t hash_sampler_desc(const SamplerDesc& desc) noexcept;
 
 } // namespace saige::rhi

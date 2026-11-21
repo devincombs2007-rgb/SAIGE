@@ -24,14 +24,14 @@ struct IncludeScanResult {
 };
 
 /// Scans `root` and everything it includes. `#include "x"` resolves relative to the including file first,
-/// then `includeDirs`. `#include <x>` searches `includeDirs` only. Includes inside `#if` blocks are always
+/// then `include_dirs`. `#include <x>` searches `include_dirs` only. Includes inside `#if` blocks are always
 /// followed, an over-approximation that is correct for dependency tracking. Include cycles are tolerated
 /// (each file is visited once).
-[[nodiscard]] IncludeScanResult scanIncludes(const std::filesystem::path& root,
-                                             std::span<const std::filesystem::path> includeDirs,
-                                             const FileReader& readFile);
+[[nodiscard]] IncludeScanResult scan_includes(const std::filesystem::path& root,
+                                             std::span<const std::filesystem::path> include_dirs,
+                                             const FileReader& read_file);
 
-/// Extracts include directives from one source text: {target, isAngleBracket}. Ignores `//` and `/* */` comments.
-[[nodiscard]] std::vector<std::pair<std::string, bool>> extractIncludes(std::string_view source);
+/// Extracts include directives from one source text: {target, is_angle_bracket}. Ignores `//` and `/* */` comments.
+[[nodiscard]] std::vector<std::pair<std::string, bool>> extract_includes(std::string_view source);
 
 } // namespace saige::shaderc

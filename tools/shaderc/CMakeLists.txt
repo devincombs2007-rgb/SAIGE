@@ -4,7 +4,7 @@
 #                     (no external dependencies).
 # saige-shaderc:      CLI. DXC compilation is added once the third-party policy (issue #2, D-03) is decided.
 
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.21)
 
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     project(saige_shaderc LANGUAGES CXX)
@@ -13,7 +13,12 @@ else()
     set(SAIGE_SHADERC_STANDALONE OFF)
 endif()
 
-option(SAIGE_SHADERC_BUILD_TESTS "Build saige-shaderc tests" ${SAIGE_SHADERC_STANDALONE})
+if(SAIGE_SHADERC_STANDALONE)
+    set(_saige_tests_default ON)
+else()
+    set(_saige_tests_default ${BUILD_TESTING})
+endif()
+option(SAIGE_SHADERC_BUILD_TESTS "Build saige-shaderc tests" ${_saige_tests_default})
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 

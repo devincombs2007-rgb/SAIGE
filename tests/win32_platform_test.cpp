@@ -89,7 +89,8 @@ int main() {
         require(!IsWindow(handle), "Native window survived platform destruction");
 
         {
-            saige::Win32Platform platform(L"SAIGE Escape test", 320, 240);
+            saige::Win32Platform platform(L"SAIGE Escape test", 320, 240,
+                                          saige::DesktopPresentation::renderer_paced);
             handle = reinterpret_cast<HWND>(platform.native_window().window);
             ShowWindow(handle, SW_HIDE);
             require(platform.poll_events(), "New platform inherited an earlier quit request");

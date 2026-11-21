@@ -244,6 +244,11 @@ ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const Bin
             if (found->size == 0 || (found->size != ~uint64_t{0} && found->size > available)) {
                 return {"A buffer binding range is empty or extends past the end of the buffer"};
             }
+            const uint64_t range = found->size == ~uint64_t{0} ? available : found->size;
+            const uint64_t limit = expected.type == BindingType::UniformBuffer ? max_uniform_binding_range : max_storage_binding_range;
+            if (range > limit) {
+                return {"A buffer binding range exceeds the portable per-binding limit (16 KiB uniform, 128 MiB storage)"};
+            }
         }
     }
     return {};

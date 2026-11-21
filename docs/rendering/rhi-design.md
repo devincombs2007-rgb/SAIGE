@@ -114,7 +114,13 @@ pixel stages.
   push constants today and an instance buffer next; there is no dynamic-offset or update-after-bind path yet.
 - **One rule set.** `validate(layout, entries, resolver)` in `saige::rhi` is shared by every backend: exactly one entry
   per binding, live resources, `Sampled` usage and one sample for textures, `Uniform` / `Storage` usage for buffers,
-  256-byte aligned offsets and a non-empty range inside the buffer. Violations throw `std::invalid_argument` at creation.
+  256-byte aligned offsets, and a non-empty range inside the buffer that fits the portable per-binding limits (16 KiB
+  uniform, 128 MiB storage: the minimums every Vulkan device guarantees; a whole-buffer binding of a larger buffer is
+  rejected and needs an explicit size). Violations throw `std::invalid_argument` at creation.
+- **Bind and draw misuse is rejected by the backend, not left to the validation layer.** `bind_group` requires a bound
+  pipeline, a set the pipeline declares, a live group, and a group created from that pipeline's layout for the set; a
+  draw with a pipeline that declares sets requires a compatible group at every one of them. Each check throws
+  `std::invalid_argument` before any Vulkan call is made (the null backend reports the same cases as validation errors).
 - **Lifetimes.** A group does not own what it references. Destruction of groups, layouts and the resources they point at
   is deferred until in-flight submissions retire, so they can be destroyed in any order right after a frame is
   submitted (tested on Vulkan with validation). A group must not outlive the device. Leaked groups are reported at

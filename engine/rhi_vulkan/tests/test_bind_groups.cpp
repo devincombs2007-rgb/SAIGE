@@ -424,3 +424,116 @@ TEST_CASE("Vulkan bind groups: a texture re-uploaded while draws that sampled it
     }
     CHECK(device->validation_error_count() == 0);
 }
+
+namespace {
+
+/// True if `fn` throws std::invalid_argument; used for misuse the backend must reject before calling Vulkan.
+template <typename Fn>
+bool rejected(Fn&& fn)
+{
+    return throws_invalid(std::forward<Fn>(fn));
+}
+
+} // namespace
+
+TEST_CASE("Vulkan bind groups: bind and draw misuse is rejected by the backend, and the device stays usable")
+{
+    const auto device = make_validated_device("bind_group_misuse");
+    {
+        Fixture f(*device);
+        const rhi::TextureHandle tex = device->create_texture(sampled(1));
+        device->upload_texture(tex, pattern(kSize, kSize));
+        const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+        const rhi::BindGroupHandle group = f.make_group(tex, sampler);
+
+        // A second, structurally identical layout: its groups are not compatible with the pipeline's layout.
+        rhi::BindGroupLayoutDesc ld;
+        ld.entries = {{0, rhi::BindingType::SampledTexture}, {1, rhi::BindingType::Sampler}, {2, rhi::BindingType::UniformBuffer}};
+        const rhi::BindGroupLayoutHandle other_layout = device->create_bind_group_layout(ld);
+        rhi::BindGroupEntry entries[3];
+        entries[0].binding = 0;
+        entries[0].texture = tex;
+        entries[1].binding = 1;
+        entries[1].sampler = sampler;
+        entries[2].binding = 2;
+        entries[2].buffer = f.tint;
+        entries[2].size = 16;
+        const rhi::BindGroupHandle other_group = device->create_bind_group(other_layout, entries);
+        const rhi::BindGroupHandle dead_group = device->create_bind_group(f.layout, entries);
+        device->destroy(dead_group);
+
+        rhi::CommandList& cmd = device->begin_frame();
+        const rhi::TextureBarrier to_attachment{
+            f.target, {rhi::PipelineStage::AllCommands, rhi::Access::None, rhi::TextureLayout::Undefined},
+            {rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::ColorAttachment}, {}};
+        cmd.barrier(std::span(&to_attachment, 1));
+        rhi::RenderingDesc rd;
+        rhi::ColorAttachment ca;
+        ca.texture = f.target;
+        rd.colors.push_back(ca);
+        rd.area = {0, 0, kSize, kSize};
+        cmd.begin_rendering(rd);
+        cmd.set_viewport({0.0f, 0.0f, static_cast<float>(kSize), static_cast<float>(kSize), 0.0f, 1.0f});
+        cmd.set_scissor({0, 0, kSize, kSize});
+
+        CHECK(rejected([&] { cmd.bind_group(0, group); }));  // no pipeline bound yet
+        CHECK(rejected([&] { cmd.draw(3); }));               // no pipeline bound yet
+        cmd.bind_pipeline(f.pipeline);
+        CHECK(rejected([&] { cmd.draw(3); }));               // the pipeline declares set 0 but nothing is bound
+        CHECK(rejected([&] { cmd.bind_group(1, group); }));  // the pipeline has no set 1
+        CHECK(rejected([&] { cmd.bind_group(0, rhi::BindGroupHandle{}); }));
+        CHECK(rejected([&] { cmd.bind_group(0, dead_group); }));
+        CHECK(rejected([&] { cmd.bind_group(0, other_group); }));  // wrong layout for set 0
+        CHECK(rejected([&] { cmd.draw(3); }));                     // all of the above bound nothing
+        cmd.bind_group(0, group);
+        cmd.draw(3);  // now valid
+        cmd.end_rendering();
+        (void)device->end_frame();
+        device->wait_idle();
+
+        device->destroy(other_group);
+        device->destroy(other_layout);
+        device->destroy(group);
+        device->destroy(sampler);
+        device->destroy(tex);
+    }
+    CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("Vulkan bind groups: per-binding buffer ranges follow the portable limits")
+{
+    const auto device = make_validated_device("bind_group_ranges");
+    {
+        Fixture f(*device);
+        const rhi::TextureHandle tex = device->create_texture(sampled(1));
+        device->upload_texture(tex, pattern(kSize, kSize));
+        const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+
+        rhi::BufferDesc big;
+        big.size = 32768;  // twice the portable uniform range
+        big.usage = rhi::BufferUsage::Uniform;
+        big.memory = rhi::MemoryLocation::CpuToGpu;
+        const rhi::BufferHandle big_uniform = device->create_buffer(big);
+
+        auto entries = [&](rhi::BufferHandle buffer, uint64_t size) {
+            std::vector<rhi::BindGroupEntry> e(3);
+            e[0].binding = 0;
+            e[0].texture = tex;
+            e[1].binding = 1;
+            e[1].sampler = sampler;
+            e[2].binding = 2;
+            e[2].buffer = buffer;
+            e[2].size = size;
+            return e;
+        };
+        CHECK(rejected([&] { (void)device->create_bind_group(f.layout, entries(big_uniform, ~uint64_t{0})); }));  // whole 32 KiB
+        CHECK(rejected([&] { (void)device->create_bind_group(f.layout, entries(big_uniform, 16385)); }));
+        const rhi::BindGroupHandle ok = device->create_bind_group(f.layout, entries(big_uniform, 16384));  // explicit, at the limit
+        CHECK(ok.is_valid());
+        device->destroy(ok);
+        device->destroy(big_uniform);
+        device->destroy(sampler);
+        device->destroy(tex);
+    }
+    CHECK(device->validation_error_count() == 0);
+}

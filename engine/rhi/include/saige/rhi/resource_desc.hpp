@@ -198,6 +198,10 @@ inline constexpr uint32_t max_bindings_per_group = 16;
 inline constexpr uint32_t max_bind_groups_per_pipeline = 4;  ///< Vulkan guarantees at least 4 descriptor sets.
 /// Buffer offsets in a bind group must be a multiple of this (the portable worst case of uniform/storage alignment).
 inline constexpr uint64_t bind_group_buffer_alignment = 256;
+/// Largest buffer range one binding may cover: the portable minimums every Vulkan device guarantees
+/// (maxUniformBufferRange, maxStorageBufferRange). Larger data belongs in a storage buffer or several bindings.
+inline constexpr uint64_t max_uniform_binding_range = 16384;
+inline constexpr uint64_t max_storage_binding_range = uint64_t{128} << 20;
 
 struct BindGroupLayoutEntry {
     uint32_t binding = 0;
@@ -237,7 +241,8 @@ struct BindGroupResolver {
 /// Checks `entries` against `layout`: exactly one entry per layout entry (no extras, no repeats), each holding live
 /// resources of the right kind (SampledTexture: a texture with `Sampled` usage and one sample; Sampler: a live sampler;
 /// buffers: `Uniform` / `Storage` usage, offset aligned to `bind_group_buffer_alignment`, non-empty range inside the
-/// buffer).
+/// buffer and within `max_uniform_binding_range` / `max_storage_binding_range`; a whole-buffer binding of a larger
+/// buffer is therefore rejected, and the caller must give an explicit size).
 [[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const BindGroupEntry> entries,
                                         const BindGroupResolver& resolver);
 

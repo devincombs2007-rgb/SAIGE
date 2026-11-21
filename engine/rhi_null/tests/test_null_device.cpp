@@ -555,3 +555,21 @@ TEST_CASE("NullDevice: depth/stencil textures cannot be uploaded")
         CHECK(device.uploaded_bytes(t) == 0);
     }
 }
+
+TEST_CASE("NullDevice: per-binding buffer ranges follow the portable limits")
+{
+    BindFixture f;
+    BufferDesc big;
+    big.size = 32768;  // twice the portable uniform range
+    big.usage = BufferUsage::Uniform;
+    big.memory = MemoryLocation::CpuToGpu;
+    const BufferHandle big_uniform = f.device.create_buffer(big);
+    auto entries = f.entries();
+    entries[2].buffer = big_uniform;
+    entries[2].size = ~uint64_t{0};  // whole buffer: 32 KiB
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, entries); }));
+    entries[2].size = max_uniform_binding_range + 1;
+    CHECK(throws_invalid([&] { (void)f.device.create_bind_group(f.layout, entries); }));
+    entries[2].size = max_uniform_binding_range;
+    CHECK(f.device.create_bind_group(f.layout, entries).is_valid());
+}

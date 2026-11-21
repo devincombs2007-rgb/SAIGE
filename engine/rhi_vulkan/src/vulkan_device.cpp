@@ -297,6 +297,7 @@ struct VkPipelineRes {
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     uint32_t push_constant_size = 0;
+    std::vector<BindGroupLayoutHandle> bind_group_layouts;  ///< set index = position
 };
 
 struct VkSwapchainRes {
@@ -338,6 +339,8 @@ public:
         cmd_ = cmd;
         bound_layout_ = VK_NULL_HANDLE;
         bound_push_size_ = 0;
+        bound_pipeline_ = {};
+        bound_groups_.fill({});
     }
 
     void barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) override;
@@ -358,10 +361,14 @@ public:
     void end_debug_label() override;
 
 private:
+    void check_draw_state(const char* what) const;
+
     VulkanDevice& device_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
     VkPipelineLayout bound_layout_ = VK_NULL_HANDLE;
     uint32_t bound_push_size_ = 0;
+    PipelineHandle bound_pipeline_;
+    std::array<BindGroupHandle, max_bind_groups_per_pipeline> bound_groups_{};
 };
 
 class VulkanDevice final : public Device {
@@ -1434,6 +1441,7 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
 
     VkPipelineRes res;
     res.push_constant_size = desc.push_constant_size;
+    res.bind_group_layouts = desc.bind_group_layouts;
     VkPushConstantRange range{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, desc.push_constant_size};
     if (desc.bind_group_layouts.size() > max_bind_groups_per_pipeline) {
         throw std::invalid_argument("create_graphics_pipeline: too many bind group layouts");
@@ -2116,20 +2124,46 @@ void VulkanCommandList::bind_pipeline(PipelineHandle pipeline)
         throw std::invalid_argument("bind_pipeline: invalid pipeline");
     }
     device_.vk_.vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
+    bound_pipeline_ = pipeline;
     bound_layout_ = p->layout;
     bound_push_size_ = p->push_constant_size;
 }
 
 void VulkanCommandList::bind_group(uint32_t set, BindGroupHandle group)
 {
+    // Every misuse is rejected here, before a Vulkan call is made (the validation layer is a safety net, not the contract).
+    const VkPipelineRes* p = device_.pipelines_.get(bound_pipeline_);
+    if (p == nullptr || bound_layout_ == VK_NULL_HANDLE) {
+        throw std::invalid_argument("bind_group: no pipeline bound");
+    }
+    if (set >= p->bind_group_layouts.size()) {
+        throw std::invalid_argument("bind_group: the bound pipeline has no descriptor set " + std::to_string(set));
+    }
     const VkBindGroupRes* g = device_.bind_groups_.get(group);
     if (g == nullptr) {
         throw std::invalid_argument("bind_group: invalid bind group");
     }
-    if (bound_layout_ == VK_NULL_HANDLE) {
-        throw std::invalid_argument("bind_group: no pipeline bound");
+    if (g->layout_handle != p->bind_group_layouts[set]) {
+        throw std::invalid_argument("bind_group: the group's layout differs from the pipeline's layout for set " +
+                                    std::to_string(set));
     }
+    bound_groups_[set] = group;
     device_.vk_.vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, bound_layout_, set, 1, &g->set, 0, nullptr);
+}
+
+/// A pipeline that declares descriptor sets can only draw once a compatible group is bound at every one of them.
+void VulkanCommandList::check_draw_state(const char* what) const
+{
+    const VkPipelineRes* p = device_.pipelines_.get(bound_pipeline_);
+    if (p == nullptr) {
+        throw std::invalid_argument(std::string(what) + ": no pipeline bound");
+    }
+    for (std::size_t set = 0; set < p->bind_group_layouts.size(); ++set) {
+        const VkBindGroupRes* g = device_.bind_groups_.get(bound_groups_[set]);
+        if (g == nullptr || g->layout_handle != p->bind_group_layouts[set]) {
+            throw std::invalid_argument(std::string(what) + ": no compatible bind group at set " + std::to_string(set));
+        }
+    }
 }
 
 void VulkanCommandList::push_constants(std::span<const std::byte> data, uint32_t offset)
@@ -2164,12 +2198,14 @@ void VulkanCommandList::bind_index_buffer(BufferHandle buffer, IndexType type, u
 void VulkanCommandList::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex,
                              uint32_t first_instance)
 {
+    check_draw_state("draw");
     device_.vk_.vkCmdDraw(cmd_, vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void VulkanCommandList::draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index,
                                      int32_t vertex_offset, uint32_t first_instance)
 {
+    check_draw_state("draw_indexed");
     device_.vk_.vkCmdDrawIndexed(cmd_, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 

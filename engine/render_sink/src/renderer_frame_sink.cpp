@@ -1,8 +1,10 @@
 #include "saige/render_sink/renderer_frame_sink.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <stdexcept>
+#include <thread>
 
 namespace saige::render {
 
@@ -169,6 +171,9 @@ void RendererFrameSink::submit_windowed(const SceneFrame& frame)
         (void)device_->end_frame();
         recreate_pending_ = image.status == rhi::AcquireStatus::OutOfDate;
         ++stats_.frames_skipped;
+        // With a renderer-paced host (Core #12) nothing else sleeps while the window is drawable, so yield briefly
+        // instead of spinning while the swapchain recovers.
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
         return;
     }
     RenderTarget target;

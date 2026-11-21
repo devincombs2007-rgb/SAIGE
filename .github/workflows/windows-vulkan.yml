@@ -26,8 +26,9 @@ concurrency:
 
 env:
   MESA_VERSION: '26.3.0'
-  # SHA-256 of mesa3d-<version>-release-msvc.7z. Empty = print the hash and warn (used only to pin a new version).
-  MESA_SHA256: ''
+  # SHA-256 of mesa3d-<version>-release-msvc.7z, recorded from the first verified download (trust on first use).
+  # To update: set MESA_VERSION, leave this empty for one run, read the hash from the log, and pin it here.
+  MESA_SHA256: 'c505fcc77e8f63a09d7ddac086591d2f542c0698d37fc9e3094685a34d0d9991'
 
 jobs:
   windows-lavapipe:
@@ -46,8 +47,6 @@ jobs:
           $layer = Get-ChildItem C:\msys64\mingw64 -Recurse -Filter 'VkLayer_khronos_validation.json' | Select-Object -First 1
           if (-not $layer) { throw "validation layer manifest not found" }
           Write-Host "layer manifest: $($layer.FullName)"; Get-Content $layer.FullName
-          # The loader (vulkan-1.dll) is found through PATH (appended, so MSYS2 never shadows the runner's tools).
-          "PATH=$env:PATH;$bin" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           # Explicit layers are registered in the registry: elevated processes ignore VK_LAYER_PATH.
           reg add "HKLM\SOFTWARE\Khronos\Vulkan\ExplicitLayers" /v $layer.FullName /t REG_DWORD /d 0 /f
 
@@ -82,6 +81,10 @@ jobs:
         env:
           SAIGE_REQUIRE_VALIDATION: '1'
         run: |
+          # MSYS2's runtime must win over the runner's older C:\mingw64 (a layer DLL loaded against the wrong
+          # libstdc++ fails with error 127). Scoped to this step: the build above never sees it.
+          $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+          Write-Host "vulkan-1.dll resolves to: $((Get-Command vulkan-1.dll -ErrorAction SilentlyContinue).Source)"
           New-Item -ItemType Directory -Force captures | Out-Null
           $env:SAIGE_CAPTURE_DIR = "$PWD\captures"
           $suites = @(

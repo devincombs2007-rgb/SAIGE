@@ -376,3 +376,18 @@ TEST_CASE("NullDevice: samplers are validated, counted as live, and retire after
     device.destroy(s);  // a stale handle is a reported validation error, not a crash
     CHECK(device.validation_error_count() == 1);
 }
+
+TEST_CASE("NullDevice: depth/stencil textures cannot be uploaded")
+{
+    NullDevice device;
+    for (const Format format : {Format::D16_UNORM, Format::D24_UNORM_S8_UINT, Format::D32_FLOAT, Format::D32_FLOAT_S8_UINT}) {
+        TextureDesc td;
+        td.format = format;
+        td.width = td.height = 4;
+        td.usage = TextureUsage::Sampled | TextureUsage::TransferDst | TextureUsage::DepthStencilAttachment;
+        const TextureHandle t = device.create_texture(td);
+        const std::vector<std::byte> data(compute_texture_data_size(td));
+        CHECK(throws_invalid([&] { device.upload_texture(t, data); }));
+        CHECK(device.uploaded_bytes(t) == 0);
+    }
+}

@@ -6,6 +6,8 @@
 
 #include "vulkan_test_util.hpp"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
@@ -68,6 +70,19 @@ std::vector<std::byte> read_back(rhi::Device& device, rhi::TextureHandle texture
     std::vector<std::byte> out(mapped.begin(), mapped.begin() + static_cast<std::ptrdiff_t>(bd.size));
     device.destroy(readback);
     return out;
+}
+
+/// Records and submits a frame that reads `texture` (a transfer copy to `readback`) and does NOT wait for it, so the
+/// GPU may still be executing when the caller overwrites the texture.
+void submit_read_without_waiting(rhi::Device& device, rhi::TextureHandle texture, rhi::BufferHandle readback)
+{
+    rhi::CommandList& cmd = device.begin_frame();
+    const rhi::TextureBarrier to_transfer{
+        texture, rhi::sampled_texture_state,
+        {rhi::PipelineStage::Transfer, rhi::Access::TransferRead, rhi::TextureLayout::TransferSrc}, {}};
+    cmd.barrier(std::span(&to_transfer, 1));
+    cmd.copy_texture_to_buffer(texture, readback);
+    (void)device.end_frame();
 }
 
 template <typename Fn>
@@ -200,5 +215,65 @@ TEST_CASE("Vulkan: samplers cover every filter, address mode and border color an
     (void)device->begin_frame();
     (void)device->end_frame();
     device->wait_idle();
+    CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("Vulkan: depth/stencil textures cannot be uploaded")
+{
+    const auto device = make_validated_device("upload_depth");
+    for (const rhi::Format format : {rhi::Format::D16_UNORM, rhi::Format::D24_UNORM_S8_UINT, rhi::Format::D32_FLOAT,
+                                     rhi::Format::D32_FLOAT_S8_UINT}) {
+        rhi::TextureDesc td;
+        td.format = format;
+        td.width = td.height = 4;
+        td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst | rhi::TextureUsage::DepthStencilAttachment;
+        rhi::TextureHandle tex;
+        try {
+            tex = device->create_texture(td);  // a backend may refuse the usage combination: also acceptable
+        } catch (const std::exception&) {
+            continue;
+        }
+        const std::vector<std::byte> data(rhi::compute_texture_data_size(td));
+        CHECK(throws_invalid([&] { device->upload_texture(tex, data); }));
+        device->destroy(tex);
+    }
+    CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("Vulkan: re-uploading a texture that an in-flight frame is reading is synchronized")
+{
+    const auto device = make_validated_device("upload_resync", /*synchronization=*/true);
+    if (!device->info().synchronization_validation_enabled) {
+        const char* require = std::getenv("SAIGE_REQUIRE_VALIDATION");
+        const bool required = require != nullptr && require[0] != '\0' && require[0] != '0';
+        std::printf("  synchronization validation is unavailable here%s\n", required ? " (REQUIRED: failing)" : " (skipping the hazard check)");
+        CHECK_FALSE(required);
+        return;
+    }
+    const rhi::TextureHandle tex = device->create_texture(sampled_desc(16, 16, 1));
+    rhi::BufferDesc bd;
+    bd.size = 16u * 16u * 4u;
+    bd.usage = rhi::BufferUsage::TransferDst;
+    bd.memory = rhi::MemoryLocation::GpuToCpu;
+    // One readback buffer per round: reusing a single buffer would be a real write-after-write hazard of the test's own.
+    std::vector<rhi::BufferHandle> readbacks;
+    for (int i = 0; i < 6; ++i) {
+        readbacks.push_back(device->create_buffer(bd));
+    }
+
+    device->upload_texture(tex, pattern(16, 16, 0));
+    for (uint32_t round = 1; round <= 6; ++round) {
+        submit_read_without_waiting(*device, tex, readbacks[round - 1]);
+        // The frame above is submitted but not waited for: this write must be ordered after its read.
+        device->upload_texture(tex, pattern(16, 16, round * 20));
+    }
+    device->wait_idle();
+    const auto got = read_back(*device, tex, 16, 16);
+    const auto want = pattern(16, 16, 6 * 20);
+    CHECK(std::memcmp(got.data(), want.data(), want.size()) == 0);
+    for (const rhi::BufferHandle r : readbacks) {
+        device->destroy(r);
+    }
+    device->destroy(tex);
     CHECK(device->validation_error_count() == 0);
 }

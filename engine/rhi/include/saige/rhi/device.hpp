@@ -197,6 +197,10 @@ struct AcquireResult {
 struct DeviceDesc {
     bool enable_validation = false;   ///< Request API validation (Vulkan: VK_LAYER_KHRONOS_validation).
     bool require_validation = false;  ///< Fail creation instead of continuing when validation is unavailable.
+    /// With validation on, also enable the layer's synchronization validation (read/write hazards between commands).
+    /// Used by tests; it is slow. Silently unavailable without VK_EXT_validation_features: check
+    /// `DeviceInfo::synchronization_validation_enabled`. Ignored by the null backend.
+    bool enable_synchronization_validation = false;
     bool require_presentation = false;  ///< Fail creation if swapchains are unsupported.
     uint32_t frames_in_flight = 2;
     std::string application_name = "SAIGE";
@@ -209,6 +213,7 @@ struct DeviceInfo {
     uint32_t api_version_major = 0;
     uint32_t api_version_minor = 0;
     bool validation_enabled = false;
+    bool synchronization_validation_enabled = false;
     bool presentation_supported = false;
     bool software_device = false;  ///< CPU implementation (e.g. lavapipe).
 };
@@ -237,8 +242,10 @@ public:
     virtual TextureHandle create_texture(const TextureDesc& desc) = 0;
     /// Synchronously uploads the full contents of `texture` (every mip and layer) and leaves it in
     /// `sampled_texture_state`. `data` is tightly packed, mip level outermost, then array layer, then rows, and must
-    /// be exactly `compute_texture_data_size(desc)` bytes. The texture needs `Sampled | TransferDst` usage, one sample
-    /// and a 2D dimension; anything else throws std::invalid_argument. Must not be called between begin_frame() and
+    /// be exactly `compute_texture_data_size(desc)` bytes. The texture needs `Sampled | TransferDst` usage, one sample,
+    /// a 2D dimension and a color format (depth/stencil uploads are not supported); anything else throws
+    /// std::invalid_argument. Re-uploading a texture that earlier frames sampled is allowed: the upload waits for those
+    /// frames' accesses (an execution dependency on all prior work) before it overwrites the contents. Must not be called between begin_frame() and
     /// end_frame(). Intended for load time (0.2 loads synchronously; a streaming path comes with measurements).
     virtual void upload_texture(TextureHandle texture, std::span<const std::byte> data) = 0;
     /// Samplers are immutable and cheap to share; callers may deduplicate with `hash_sampler_desc`.

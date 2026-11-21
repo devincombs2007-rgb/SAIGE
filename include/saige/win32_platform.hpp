@@ -6,10 +6,16 @@
 
 namespace saige {
 
+enum class DesktopPresentation {
+    host_paced,       // The pump limits frame rate and Windows erases the background.
+    renderer_paced,   // The consumer paces drawable frames and owns the client area.
+};
+
 // Owns one top-level Win32 window. Construct, poll, and destroy on the UI thread.
 class Win32Platform final : public IDesktopPlatform {
 public:
-    explicit Win32Platform(const wchar_t* title = L"SAIGE", int width = 960, int height = 540);
+    explicit Win32Platform(const wchar_t* title = L"SAIGE", int width = 960, int height = 540,
+                           DesktopPresentation presentation = DesktopPresentation::host_paced);
     ~Win32Platform() override;
     Win32Platform(const Win32Platform&) = delete;
     Win32Platform& operator=(const Win32Platform&) = delete;

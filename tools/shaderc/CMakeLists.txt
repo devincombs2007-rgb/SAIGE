@@ -25,6 +25,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 add_library(saige_shaderc_core STATIC
     src/annotations.cpp
     src/cache_key.cpp
+    src/compile.cpp
     src/includes.cpp
     src/permutations.cpp
 )
@@ -42,6 +43,7 @@ if(SAIGE_SHADERC_BUILD_TESTS)
         SOURCES
             tests/test_annotations.cpp
             tests/test_cache_key.cpp
+            tests/test_compile.cpp
             tests/test_includes.cpp
             tests/test_permutations.cpp
         LINK saige::shaderc_core

@@ -1,0 +1,103 @@
+// SAIGE RHI null backend: a CPU-only Device that validates usage and records commands.
+//
+// Uses: unit and integration tests without a GPU, headless CI, and engine runs where no GPU is wanted.
+// API misuse (drawing outside rendering, missing pipeline, push constants out of range, protocol errors) is
+// counted as a validation error, mirroring what the Vulkan validation layer reports for real backends.
+#pragma once
+
+#include "saige/rhi/device.hpp"
+
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace saige::rhi {
+
+class NullCommandList;
+
+enum class CommandType : uint8_t {
+    Barrier,
+    BeginRendering,
+    EndRendering,
+    SetViewport,
+    SetScissor,
+    BindPipeline,
+    PushConstants,
+    BindVertexBuffer,
+    BindIndexBuffer,
+    Draw,
+    DrawIndexed,
+    CopyTextureToBuffer,
+    BeginDebugLabel,
+    EndDebugLabel,
+};
+
+/// One recorded command. Only the fields relevant to `type` are set.
+struct RecordedCommand {
+    CommandType type = CommandType::Draw;
+    PipelineHandle pipeline;
+    BufferHandle buffer;
+    TextureHandle texture;
+    RenderingDesc rendering;
+    Viewport viewport;
+    Rect2D scissor;
+    std::vector<TextureBarrier> texture_barriers;
+    std::vector<BufferBarrier> buffer_barriers;
+    std::vector<std::byte> push_data;
+    uint32_t push_offset = 0;
+    uint32_t count = 0;           ///< vertex/index count
+    uint32_t instance_count = 0;
+    std::string label;
+};
+
+class NullDevice final : public Device {
+public:
+    explicit NullDevice(const DeviceDesc& desc = {});
+    ~NullDevice() override;
+
+    [[nodiscard]] const DeviceInfo& info() const noexcept override;
+
+    BufferHandle create_buffer(const BufferDesc& desc, std::span<const std::byte> initial_data = {}) override;
+    TextureHandle create_texture(const TextureDesc& desc) override;
+    ShaderHandle create_shader(const ShaderDesc& desc) override;
+    PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
+    void destroy(BufferHandle handle) override;
+    void destroy(TextureHandle handle) override;
+    void destroy(ShaderHandle handle) override;
+    void destroy(PipelineHandle handle) override;
+    [[nodiscard]] std::span<std::byte> map(BufferHandle handle) override;
+    [[nodiscard]] const TextureDesc* texture_desc(TextureHandle handle) const override;
+
+    SwapchainHandle create_swapchain(const SwapchainDesc& desc) override;
+    void resize_swapchain(SwapchainHandle handle, uint32_t width, uint32_t height) override;
+    void destroy(SwapchainHandle handle) override;
+    [[nodiscard]] Format swapchain_format(SwapchainHandle handle) const override;
+
+    CommandList& begin_frame() override;
+    AcquireResult acquire_next_image(SwapchainHandle handle) override;
+    FrameResult end_frame() override;
+    void wait_idle() override;
+    [[nodiscard]] uint64_t frame_number() const noexcept override;
+    [[nodiscard]] uint32_t validation_error_count() const noexcept override;
+
+    // ----- Test inspection ------------------------------------------------------------------------------
+    /// Commands recorded in the most recently ended frame.
+    [[nodiscard]] const std::vector<RecordedCommand>& last_frame_commands() const noexcept;
+    [[nodiscard]] const std::vector<std::string>& validation_messages() const noexcept;
+    /// Live (not yet destroyed) buffers + textures + shaders + pipelines, excluding swapchain images.
+    [[nodiscard]] uint32_t live_resource_count() const noexcept;
+    /// Objects destroyed by the caller but still waiting for their frame to retire.
+    [[nodiscard]] uint32_t pending_destruction_count() const noexcept;
+    [[nodiscard]] Extent3D swapchain_extent(SwapchainHandle handle) const;
+    [[nodiscard]] uint32_t swapchain_recreate_count(SwapchainHandle handle) const;
+    [[nodiscard]] uint32_t present_count() const noexcept;
+    /// The next acquire on `handle` reports OutOfDate (simulates a window-system resize race).
+    void force_out_of_date(SwapchainHandle handle);
+
+private:
+    friend class NullCommandList;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace saige::rhi

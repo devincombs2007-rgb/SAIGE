@@ -60,6 +60,7 @@ endif()
 # depend on them. Vulkan stays optional (SAIGE_ENABLE_VULKAN, default OFF; see engine/rhi_vulkan).
 option(SAIGE_BUILD_GRAPHICS "Build the backend-agnostic graphics modules and shader tool" ON)
 if(SAIGE_BUILD_GRAPHICS)
-    add_subdirectory(engine)
     add_subdirectory(tools/shaderc)
+    add_subdirectory(shaders)
+    add_subdirectory(engine)
 endif()

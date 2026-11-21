@@ -1,0 +1,65 @@
+name: Publish reviewed preview
+on:
+  push:
+    branches: [release/0.1.0-preview.1]
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: saige-0.1.0-preview.1
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_COMMIT: b5ffac9b8f23a217925e74823cfbe2406232cbbe
+      TAG: v0.1.0-preview.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify artifact provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 44947724503 44947724457 44947724431; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" |
+              jq -e --arg sha "$RELEASE_COMMIT" '.head_sha == $sha and .head_branch == "main" and .conclusion == "success"'
+          done
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 44947724503
+          name: saige-windows-x64
+          path: staging/windows-x64
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 44947724457
+          name: saige-win32-lavapipe-evidence
+          path: staging/windows-lavapipe-evidence
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 44947724431
+          name: saige-lavapipe-captures
+          path: staging/linux-lavapipe-evidence
+      - name: Package and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s staging/windows-x64/saige_desktop.exe
+          test -s staging/windows-x64/saige_headless.exe
+          test -s staging/windows-lavapipe-evidence/desktop-log.txt
+          test -s staging/windows-lavapipe-evidence/runtime_last.ppm
+          test -s staging/linux-lavapipe-evidence/runtime_last.ppm
+          mkdir -p dist
+          cp docs/releases/0.1.0-preview.1.md dist/build-and-test.md
+          for package in windows-x64 windows-lavapipe-evidence linux-lavapipe-evidence; do
+            (cd "staging/$package" && zip -q -r "../../dist/saige-${TAG#v}-$package.zip" .)
+          done
+          (cd dist && sha256sum *.zip build-and-test.md > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+          gh release create "$TAG" dist/* --target "$RELEASE_COMMIT" --title 'SAIGE 0.1.0 Preview 1' \
+            --notes-file dist/build-and-test.md --prerelease --latest=false

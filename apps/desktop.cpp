@@ -64,6 +64,7 @@ public:
         try {
             saige::rhi::DeviceDesc desc;
             desc.enable_validation = validate;
+            desc.require_validation = validate;
             desc.require_presentation = true;
             renderer_ = std::make_unique<saige::render::RendererFrameSink>(saige::rhi::create_vulkan_device(desc),
                                                                            platform);
@@ -81,8 +82,12 @@ public:
         }
     }
 
-    [[nodiscard]] std::uint32_t validation_errors() const {
-        return renderer_ ? renderer_->device().validation_error_count() : 0;
+    [[nodiscard]] std::uint32_t validation_errors() {
+        if (!renderer_) {
+            return 0;
+        }
+        renderer_->device().wait_idle();
+        return renderer_->device().validation_error_count();
     }
 
     [[nodiscard]] std::uint64_t rendered() const {

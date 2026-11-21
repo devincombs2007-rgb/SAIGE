@@ -97,37 +97,45 @@ All paths and names will be adapted to Core's layout once D-04 is decided.
 
 See [render-architecture.md §7](render-architecture.md#7-feature-roadmap-toward-aaa-targets) for details.
 
-## 6. Implementation status
+## 6. Implementation status (branch `claude/rendering-first-frame`)
 
-Built so far: only components with **no dependency on unresolved Core interfaces**. Everything builds
-standalone today and joins Core's build with a single `add_subdirectory` once D-02 lands.
+| Component | Location | Status | Verified by |
+|-----------|----------|--------|-------------|
+| RHI types: handles, formats, descs, bindless allocator, barriers | `engine/rhi` | ✅ | `saige_rhi_tests` |
+| RHI `Device` / `CommandList` interfaces | `engine/rhi/include/saige/rhi/device.hpp` | ✅ 0.1 scope | null + Vulkan suites |
+| Null backend (validating, command recording) | `engine/rhi_null` | ✅ | `saige_rhi_null_tests` |
+| Vulkan 1.3 backend | `engine/rhi_vulkan` (`SAIGE_ENABLE_VULKAN=ON`) | ✅ offscreen + Xlib swapchain on lavapipe; Win32 swapchain **compiled, not yet run on Windows** | `saige_rhi_vulkan_tests` (validation on, pixel checks) |
+| Render graph v1 | `engine/render` | ✅ | `saige_render_tests` |
+| Scene renderer (checker ground + lit cubes, follow/fixed camera) | `engine/render` | ✅ | null device + Vulkan pixel tests |
+| HLSL scene shaders + embedded SPIR-V | `shaders/` | ✅ | stale-header, compile and `spirv-val` CTests |
+| `saige-shaderc` (annotations, permutations, deps, compile, embed, verify) | `tools/shaderc` | ✅ glslang; DXC command line implemented, untested here | `saige_shaderc_tests` |
+| Core adapter: `RendererFrameSink : saige::IFrameSink` | `engine/render_sink` | ✅ | null device, `saige::run()` and Vulkan end-to-end tests |
+| Desktop wiring (`apps/desktop.cpp`) | Core-owned | ⏳ separate integration PR | — |
 
-| Component | Location | Status | Tests |
-|-----------|----------|--------|-------|
-| Generational handles + `HandlePool` | `engine/rhi/include/saige/rhi/handle*.h` | ✅ | `engine/rhi/tests/test_handle.cpp` |
-| Format table (64 formats, constexpr metadata, surface layout) | `engine/rhi/include/saige/rhi/format.h` | ✅ | `test_format.cpp` |
-| Buffer/texture/sampler descriptions + validation | `engine/rhi/include/saige/rhi/resource_desc.h` | ✅ | `test_resource_desc.cpp` |
-| Bindless index allocator + GPU-timeline deferred release | `engine/rhi/include/saige/rhi/bindless_allocator.h` | ✅ | `test_bindless_allocator.cpp` |
-| Sync2-style barrier model | `engine/rhi/include/saige/rhi/barrier.h` | ✅ | `test_barrier.cpp` |
-| **Render graph**: culling, barrier generation, usage inference, transient aliasing, Graphviz | `engine/render/` | ✅ v1 | `engine/render/tests/test_render_graph.cpp` |
-| `Device` / `CommandList` interfaces, null backend | `engine/rhi`, `engine/rhi_null` | ⏳ Next | — |
-| Vulkan backend | `engine/rhi_vulkan` | ⛔ Blocked on D-01…D-05, D-12 (and Vulkan SDK in CI) | — |
-| `saige-shaderc` core: annotations, `@exclude` expressions, permutation keys/expansion/budgets, `#include` scanning, cache keys, CLI (`check`/`permutations`/`deps`) | `tools/shaderc` | ✅ (DXC compile step ⛔ waits on D-03) | `tools/shaderc/tests/` + CLI smoke tests |
-
-### Building and testing (until Core's build exists)
+### Building and testing
 
 ```bash
-# Requires CMake ≥ 3.25 and a C++20 compiler (GCC 13+, Clang 16+, MSVC 2022).
-cmake -S engine/render -B build/render -G Ninja -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON   # also builds engine/rhi
-cmake --build build/render && ctest --test-dir build/render --output-on-failure
-cmake -S engine/rhi -B build/rhi -G Ninja && cmake --build build/rhi && ctest --test-dir build/rhi
-cmake -S tools/shaderc -B build/shaderc -G Ninja && cmake --build build/shaderc && ctest --test-dir build/shaderc
-# Optional: -DSAIGE_GFX_SANITIZERS=ON (ASan + UBSan, GCC/Clang)
+# Core + graphics (null backend). No GPU or SDK needed.
+cmake -S . -B build -DBUILD_TESTING=ON && cmake --build build && ctest --test-dir build --output-on-failure
+
+# With the Vulkan backend (Linux: apt install libvulkan-dev mesa-vulkan-drivers vulkan-validationlayers).
+cmake -S . -B build-vk -DBUILD_TESTING=ON -DSAIGE_ENABLE_VULKAN=ON
+cmake --build build-vk && xvfb-run -a ctest --test-dir build-vk --output-on-failure
+
+# Windows without the Vulkan SDK: fetch the Khronos headers (the driver supplies vulkan-1.dll at runtime).
+cmake --preset windows-debug -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON
+
+# After editing HLSL (needs glslangValidator or dxc):
+cmake --build build --target saige_regenerate_shaders
 ```
 
-CI: `.github/workflows/graphics.yml` runs Linux GCC (Debug + ASan/UBSan), Linux Clang (Release) and
-Windows MSVC (Release), all with warnings as errors. It is limited to graphics paths.
+Set `SAIGE_CAPTURE_DIR=<dir>` when running the Vulkan tests to save rendered frames (PPM).
 
-**Temporary local conventions** (replaced when Core decides D-05, D-11 and D-17): `SAIGE_RHI_ASSERT`
-routes to Core's `SAIGE_ASSERT` if that is defined. Tests use a doctest-compatible mini harness
-(`engine/gfx_test_support`). Shared build flags are in `cmake/SaigeGraphics.cmake`.
+### Known limits (0.1)
+- **Windows presentation is untested by me.** The Win32 surface path compiles in CI, but GitHub's Windows runners
+  have no Vulkan driver. The owner's Windows run is the acceptance test (#9).
+- **Interim shader compiler:** shaders are compiled with glslang because DXC isn't installable in my environment.
+  glslang quirk: `[[vk::push_constant]]` must be applied to `ConstantBuffer<T>`; on a plain struct variable glslang
+  silently emits a uniform buffer. The CTest suite would catch a regression through pipeline creation.
+- No MSAA/TAA yet (edges alias), one draw per cube via push constants (bindless instancing comes next),
+  swapchain resize waits for the device to go idle, and `VMA` isn't used yet (one allocation per resource).

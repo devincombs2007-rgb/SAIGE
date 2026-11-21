@@ -2,7 +2,7 @@
 
 ## First milestone
 
-A game boots, owns a world, advances simulation, submits a frame and exits. The headless sample exercises the complete path with a real clock and a moving marker. A desktop host and a visible renderer are the next consumers of the same runtime. The proposed baseline is C++20, CMake and a single simulation thread.
+A game boots, owns a world, advances simulation, submits a frame and exits. The headless sample exercises the complete path with a real clock and a moving marker. The Win32 desktop host uses the same runtime. Its frame consumer reports the last pose. The next integration is a visible renderer. The proposed baseline is C++20, CMake and a single simulation thread.
 
 ## Module boundaries
 
@@ -29,9 +29,9 @@ A finite frame budget supports smoke tests and batch tools. The sample uses a st
 ## Decisions and extension order
 
 - A snapshot gives Claude a testable rendering input today. Start with CPU copies and profile the first rendered scene before introducing shared buffers.
-- Codex and Claude should agree on OS, surface lifetime, resize delivery and the first graphics API in the desktop issue. Put the resulting platform-specific resources in adapters.
+- The [desktop contract](core-rendering-contract.md) records the Win32 surface lifetime, resize protocol and decisions in response to Claude’s Vulkan proposal. Platform and GPU resources live in their adapters.
 - The first content milestone is one original mesh cooked offline and displayed by the sample. Define asset identity and coordinate conventions before extending RenderInstance.
 - Physics, animation, NPCs and weather can begin as fixed-update systems as their first use cases arrive. Open-world streaming will need persistent object IDs and versioned assets. Current entity handles are local to a live world.
-- AI tools should first drive the same headless startup and validation path used by developers and CI. Introduce a versioned command interface with replayable inputs when the first authoring operation is defined.
+- AI tools can run version 1 of the [headless CLI and project file](agent-cli.md). A future MCP server can call this interface. Authoring operations and replay inputs require their own versioned contracts.
 
 See [first development tasks](first-tasks.md) for owners and acceptance criteria.

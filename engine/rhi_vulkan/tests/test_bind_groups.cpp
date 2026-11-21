@@ -135,13 +135,18 @@ struct Fixture {
         return device.create_bind_group(layout, entries);
     }
 
-    /// Records one frame that draws the full-screen triangle with `group`, then returns the target pixels.
+    /// Records one frame that draws the full-screen triangle with `group`. With `wait` it also copies the target to the
+    /// readback buffer, waits, and returns the pixels. Without it nothing is read back and the frame is left running, so
+    /// the GPU may still be sampling the group's texture when the caller touches it again.
     std::vector<uint8_t> draw(rhi::BindGroupHandle group, bool wait = true)
     {
         rhi::CommandList& cmd = device.begin_frame();
+        // Discard the previous contents, ordered after everything earlier (an earlier unwaited frame may still run).
         const rhi::TextureBarrier to_attachment{
-            target, {},
-            {rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::ColorAttachment}, {}};
+            target,
+            {rhi::PipelineStage::AllCommands, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::Undefined},
+            {rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::ColorAttachment},
+            {}};
         cmd.barrier(std::span(&to_attachment, 1));
         rhi::RenderingDesc rd;
         rhi::ColorAttachment ca;
@@ -156,11 +161,13 @@ struct Fixture {
         cmd.bind_group(0, group);
         cmd.draw(3);
         cmd.end_rendering();
-        const rhi::TextureBarrier to_transfer{
-            target, to_attachment.after,
-            {rhi::PipelineStage::Transfer, rhi::Access::TransferRead, rhi::TextureLayout::TransferSrc}, {}};
-        cmd.barrier(std::span(&to_transfer, 1));
-        cmd.copy_texture_to_buffer(target, readback);
+        if (wait) {
+            const rhi::TextureBarrier to_transfer{
+                target, to_attachment.after,
+                {rhi::PipelineStage::Transfer, rhi::Access::TransferRead, rhi::TextureLayout::TransferSrc}, {}};
+            cmd.barrier(std::span(&to_transfer, 1));
+            cmd.copy_texture_to_buffer(target, readback);
+        }
         (void)device.end_frame();
         if (!wait) {
             return {};
@@ -382,5 +389,38 @@ TEST_CASE("Vulkan bind groups: invalid layouts and groups are rejected")
     device->destroy(group);
     device->destroy(sampler);
     device->destroy(tex);
+    CHECK(device->validation_error_count() == 0);
+}
+
+// End-to-end check that a texture re-uploaded while draws that sampled it may still be running shows the new contents
+// and stays validation-clean (synchronization validation is on, which already caught a hazard in this test's own
+// fixture). It does NOT prove the upload's ordering against *shader* reads: the Khronos validation layer shipped with
+// Vulkan SDK 1.3.275 does not track descriptor reads, and this test still passes if the upload's first barrier loses its
+// execution dependency. That ordering is proved by "re-uploading a texture that an in-flight frame is reading is
+// synchronized" in test_texture_upload.cpp, which uses a transfer read the layer does track; the barrier is the same
+// whichever operation read the texture.
+TEST_CASE("Vulkan bind groups: a texture re-uploaded while draws that sampled it are in flight shows the new contents")
+{
+    const auto device = make_validated_device("bind_group_reupload", /*synchronization=*/true);
+    {
+        Fixture f(*device);
+        const rhi::TextureHandle tex = device->create_texture(sampled(1));
+        device->upload_texture(tex, solid(kSize, kSize, 10, 20, 30));
+        const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+        const rhi::BindGroupHandle group = f.make_group(tex, sampler);
+        for (uint32_t round = 1; round <= 6; ++round) {
+            (void)f.draw(group, /*wait=*/false);  // a fragment shader samples the texture; the frame is not waited for
+            device->upload_texture(tex, solid(kSize, kSize, 10 + round * 30, 20, 30));
+        }
+        const std::vector<uint8_t> got = f.draw(group);
+        size_t wrong = 0;
+        for (size_t p = 0; p < size_t{kSize} * kSize; ++p) {
+            wrong += (got[p * 4 + 0] != 190 || got[p * 4 + 1] != 20 || got[p * 4 + 2] != 30) ? 1u : 0u;  // 10 + 6 * 30
+        }
+        CHECK(wrong == 0);
+        device->destroy(group);
+        device->destroy(sampler);
+        device->destroy(tex);
+    }
     CHECK(device->validation_error_count() == 0);
 }

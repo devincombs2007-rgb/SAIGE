@@ -59,17 +59,18 @@ public:
 // Feeds each frame to the probe (for the summary line) and, when a GPU is available, to the Vulkan renderer.
 class DesktopFrameSink final : public saige::IFrameSink {
 public:
-    DesktopFrameSink(DesktopFrameProbe& probe, const saige::IDesktopPlatform& platform) : probe_(probe) {
+    DesktopFrameSink(DesktopFrameProbe& probe, const saige::IDesktopPlatform& platform,
+                     bool require_rendered, bool validate) : probe_(probe) {
         try {
             saige::rhi::DeviceDesc desc;
-#ifndef NDEBUG
-            desc.enable_validation = true;
-#endif
+            desc.enable_validation = validate;
+            desc.require_validation = validate;
             desc.require_presentation = true;
             renderer_ = std::make_unique<saige::render::RendererFrameSink>(saige::rhi::create_vulkan_device(desc),
                                                                            platform);
             std::clog << "SAIGE desktop renderer: Vulkan on " << renderer_->device().info().device_name << '\n';
         } catch (const std::exception& error) {
+            if (require_rendered) throw;
             std::cerr << "SAIGE desktop renderer unavailable, running without graphics: " << error.what() << '\n';
         }
     }
@@ -81,8 +82,16 @@ public:
         }
     }
 
-    [[nodiscard]] std::uint32_t validation_errors() const {
-        return renderer_ ? renderer_->device().validation_error_count() : 0;
+    [[nodiscard]] std::uint32_t validation_errors() {
+        if (!renderer_) {
+            return 0;
+        }
+        renderer_->device().wait_idle();
+        return renderer_->device().validation_error_count();
+    }
+
+    [[nodiscard]] std::uint64_t rendered() const {
+        return renderer_ ? renderer_->stats().frames_rendered : 0;
     }
 
 private:
@@ -95,12 +104,31 @@ private:
 
 int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
-    if (argc != 1) {
-        if (argc != 3 || std::string_view(argv[1]) != "--frames") {
-            std::cerr << "Usage: saige_desktop [--frames COUNT]\n";
+#if defined(SAIGE_DESKTOP_VULKAN)
+    bool require_rendered = false;
+    bool validate = false;
+#endif
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view argument(argv[i]);
+#if defined(SAIGE_DESKTOP_VULKAN)
+        if (argument == "--require-rendered" && !require_rendered) {
+            require_rendered = true;
+            continue;
+        }
+        if (argument == "--validate" && !validate) {
+            validate = true;
+            continue;
+        }
+#endif
+        if (argument != "--frames" || frames || ++i == argc) {
+            std::cerr << "Usage: saige_desktop [--frames COUNT]"
+#if defined(SAIGE_DESKTOP_VULKAN)
+                      << " [--require-rendered] [--validate]"
+#endif
+                      << '\n';
             return 2;
         }
-        const std::string_view value(argv[2]);
+        const std::string_view value(argv[i]);
         std::uint64_t count{};
         const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), count);
         if (error != std::errc{} || end != value.data() + value.size()) {
@@ -111,25 +139,29 @@ int main(int argc, char** argv) {
     }
 
     try {
+        constexpr auto title = L"SAIGE | WASD to move | Esc to quit";
 #if defined(SAIGE_DESKTOP_VULKAN)
-        // A presenting renderer paces frames through vsync (Core #12). Without a usable Vulkan device the sample
-        // falls back to the console probe, which needs host pacing to avoid spinning.
-        const bool gpu_available = saige::rhi::vulkan_device_available();
-        saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit", 960, 540,
-                                      gpu_available ? saige::DesktopPresentation::renderer_paced
-                                                    : saige::DesktopPresentation::host_paced);
+        const bool strict = require_rendered || validate;
+        saige::Win32Platform platform(title, 960, 540, strict ? saige::DesktopPresentation::renderer_paced
+                                                            : saige::DesktopPresentation::host_paced);
 #else
-        saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
+        saige::Win32Platform platform(title);
 #endif
         saige::World world;
         DesktopGame game(world, platform);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
         // Declared after the platform: the renderer releases its swapchain and surface before the HWND goes away.
-        DesktopFrameSink sink(probe, platform);
+        DesktopFrameSink sink(probe, platform, strict, validate);
         const auto stats = saige::run(world, platform, game, sink, frames);
+        std::cout << "SAIGE Vulkan rendered=" << sink.rendered() << '\n';
         if (sink.validation_errors() != 0) {
             std::cerr << "SAIGE desktop renderer: " << sink.validation_errors() << " Vulkan validation error(s)\n";
+            return 1;
+        }
+        if (strict && sink.rendered() == 0) {
+            std::cerr << "SAIGE Vulkan did not render a frame\n";
+            return 1;
         }
 #else
         const auto stats = saige::run(world, platform, game, probe, frames);

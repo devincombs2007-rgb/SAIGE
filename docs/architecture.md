@@ -28,7 +28,7 @@ A finite frame budget supports smoke tests and batch tools. The sample uses a st
 
 ## Decisions and extension order
 
-- A snapshot gives Claude a testable rendering input today. Start with CPU copies and profile the first rendered scene before introducing shared buffers.
+- A snapshot gives Claude a testable rendering input today. The runtime reuses one CPU snapshot buffer within each run. The span is valid only during submit. Capacity tracks the high-water mark during a run. The snapshot still scans world slots and copies live instances. Profile those costs in a representative scene before changing storage.
 - The [desktop contract](core-rendering-contract.md) records the Win32 surface lifetime, resize protocol and decisions in response to Claude’s Vulkan proposal. Platform and GPU resources live in their adapters.
 - The first content milestone is one original mesh cooked offline and displayed by the sample. Define asset identity and coordinate conventions before extending RenderInstance.
 - Physics, animation, NPCs and weather can begin as fixed-update systems as their first use cases arrive. Open-world streaming will need persistent object IDs and versioned assets. Current entity handles are local to a live world.

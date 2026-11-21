@@ -32,6 +32,9 @@ public:
     // Returns an owning copy in ascending slot order.
     [[nodiscard]] std::vector<RenderInstance> snapshot() const;
 
+    // Replaces the contents with an owning copy, retaining the caller's capacity.
+    void snapshot_into(std::vector<RenderInstance>& instances) const;
+
 private:
     struct Slot {
         Vec3 position{};

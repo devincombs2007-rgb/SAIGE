@@ -1,0 +1,120 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "SAIGE fixture script (original geometry)"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "Fixture",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Obelisk",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "ObeliskMesh",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "Stone",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.62,
+     0.6,
+     0.55,
+     1.0
+    ],
+    "metallicFactor": 0.0,
+    "roughnessFactor": 0.8
+   }
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 32,
+   "type": "VEC3",
+   "min": [
+    -0.25,
+    0,
+    -0.25
+   ],
+   "max": [
+    0.25,
+    2.5,
+    0.25
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 32,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 32,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 42,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 384,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 384,
+   "byteLength": 384,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 768,
+   "byteLength": 256,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 1024,
+   "byteLength": 84,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 1108,
+   "uri": "data:application/octet-stream;base64,AACAvgAAAAAAAIA+AACAPgAAAAAAAIA+AACAPgAAAEAAAIA+AACAvgAAAEAAAIA+AACAPgAAAAAAAIA+AACAPgAAAAAAAIC+AACAPgAAAEAAAIC+AACAPgAAAEAAAIA+AACAPgAAAAAAAIC+AACAvgAAAAAAAIC+AACAvgAAAEAAAIC+AACAPgAAAEAAAIC+AACAvgAAAAAAAIC+AACAvgAAAAAAAIA+AACAvgAAAEAAAIA+AACAvgAAAEAAAIC+AACAvgAAAEAAAIA+AACAPgAAAEAAAIA+AAAAAAAAIEAAAAAAAACAPgAAAEAAAIA+AACAPgAAAEAAAIC+AAAAAAAAIEAAAAAAAACAPgAAAEAAAIC+AACAvgAAAEAAAIC+AAAAAAAAIEAAAAAAAACAvgAAAEAAAIC+AACAvgAAAEAAAIA+AAAAAAAAIEAAAAAAAACAvgAAAAAAAIC+AACAPgAAAAAAAIC+AACAPgAAAAAAAIA+AACAvgAAAAAAAIA+AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAAAAgC755D4u+WQ/AAAAgC755D4u+WQ/AAAAgC755D4u+WQ/LvlkPy755D4AAAAALvlkPy755D4AAAAALvlkPy755D4AAAAAAAAAAC755D4u+WS/AAAAAC755D4u+WS/AAAAAC755D4u+WS/Lvlkvy755D4AAAAALvlkvy755D4AAAAALvlkvy755D4AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPwAAgD8AAIA/AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AACAPwAAgD8AAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAPwAAgD8AAAAAAACAPwAAgD8AAIA/AACAPwAAAAAAAAAAAAAAAAAAAQACAAAAAgADAAQABQAGAAQABgAHAAgACQAKAAgACgALAAwADQAOAAwADgAPABAAEQASABMAFAAVABYAFwAYABkAGgAbABwAHQAeABwAHgAfAA=="
+  }
+ ]
+}

@@ -2,7 +2,7 @@ name: Windows software Vulkan
 
 on:
   push:
-    branches: [core/windows-software-vulkan]
+    branches: [main, core/windows-software-vulkan]
   workflow_dispatch:
 
 permissions:
@@ -77,7 +77,7 @@ jobs:
           if (!(Test-Path captures/runtime_first.ppm) -or !(Test-Path captures/runtime_last.ppm)) {
             throw 'The moving cube readback captures are missing'
           }
-          & .\build\windows-release\Release\saige_desktop.exe --frames 16 --require-rendered --validate
+          & .\build\windows-release\Release\saige_desktop.exe --frames 16 --require-rendered --validate 2>&1 | Tee-Object -FilePath captures/desktop-log.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload software rendering evidence
         if: always()

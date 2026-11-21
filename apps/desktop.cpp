@@ -5,7 +5,6 @@
 #include "saige/rhi_vulkan/vulkan_device.hpp"
 
 #include <memory>
-#include <thread>
 #endif
 
 #include <charconv>
@@ -61,7 +60,7 @@ public:
 class DesktopFrameSink final : public saige::IFrameSink {
 public:
     DesktopFrameSink(DesktopFrameProbe& probe, const saige::IDesktopPlatform& platform,
-                     bool require_rendered, bool validate) : probe_(probe), platform_(platform) {
+                     bool require_rendered, bool validate) : probe_(probe) {
         try {
             saige::rhi::DeviceDesc desc;
             desc.enable_validation = validate;
@@ -78,11 +77,7 @@ public:
     void submit(const saige::FrameView& frame) override {
         probe_.submit(frame);
         if (renderer_) {
-            const auto skipped = renderer_->stats().frames_skipped;
             renderer_->submit(frame);
-            if (renderer_->stats().frames_skipped > skipped && !platform_.surface().minimized) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(8));
-            }
         }
     }
 
@@ -96,7 +91,6 @@ public:
 
 private:
     DesktopFrameProbe& probe_;
-    const saige::IDesktopPlatform& platform_;
     std::unique_ptr<saige::render::RendererFrameSink> renderer_;
 };
 #endif

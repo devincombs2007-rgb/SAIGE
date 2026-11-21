@@ -28,7 +28,11 @@ jobs:
             preset: windows-release
     steps:
       - uses: actions/checkout@v4
+      - name: Configure Windows Release with Vulkan
+        if: matrix.preset == 'windows-release'
+        run: cmake --preset windows-release -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DVULKAN_HEADERS_ENABLE_MODULE=OFF
       - name: Configure
+        if: matrix.preset != 'windows-release'
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} --parallel

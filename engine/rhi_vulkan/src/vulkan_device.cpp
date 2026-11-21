@@ -1160,11 +1160,13 @@ void VulkanDevice::upload_texture(TextureHandle texture, std::span<const std::by
                 di.pImageMemoryBarriers = &b;
                 vk_.vkCmdPipelineBarrier2(cmd, &di);
             };
-            // A re-upload overwrites a texture that earlier frames may still be sampling. Those frames are already
-            // submitted and may still be executing (the host only waits for *this* submission), so the transition
-            // needs an execution dependency on all prior work: write-after-read. ALL_COMMANDS with no source access
-            // is exactly that (reads need no availability operation); a fresh texture pays nothing for it.
-            transition(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, 0, VK_PIPELINE_STAGE_2_COPY_BIT,
+            // A re-upload overwrites a texture that earlier frames may still be reading or writing. Those frames are
+            // already submitted and may still be executing (the host only waits for *this* submission), so the first
+            // transition is a full dependency on all prior work. Write-after-read needs only the execution dependency
+            // (ALL_COMMANDS); write-after-write also needs the earlier writes (a previous upload's copy, or rendering
+            // into a texture that also has attachment usage) made available, hence MEMORY_WRITE as the source access.
+            // A fresh texture has no prior work, so this costs it nothing.
+            transition(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT,
                        VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
             vk_.vkCmdCopyBufferToImage(cmd, src, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                        static_cast<uint32_t>(regions.size()), regions.data());

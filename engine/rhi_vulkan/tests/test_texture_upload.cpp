@@ -277,3 +277,50 @@ TEST_CASE("Vulkan: re-uploading a texture that an in-flight frame is reading is 
     device->destroy(tex);
     CHECK(device->validation_error_count() == 0);
 }
+
+TEST_CASE("Vulkan: overwriting a texture after earlier writes is synchronized (write-after-write)")
+{
+    const auto device = make_validated_device("upload_waw", /*synchronization=*/true);
+    if (!device->info().synchronization_validation_enabled) {
+        const char* require = std::getenv("SAIGE_REQUIRE_VALIDATION");
+        const bool required = require != nullptr && require[0] != '\0' && require[0] != '0';
+        std::printf("  synchronization validation is unavailable here%s\n", required ? " (REQUIRED: failing)" : " (skipping the hazard check)");
+        CHECK_FALSE(required);
+        return;
+    }
+    // Usage covers every earlier writer an upload can follow: a previous upload (transfer write) and rendering into
+    // the texture (color attachment write).
+    rhi::TextureDesc td = sampled_desc(16, 16, 1);
+    td.usage = td.usage | rhi::TextureUsage::ColorAttachment;
+    const rhi::TextureHandle tex = device->create_texture(td);
+
+    // Upload after upload, back to back: the first copy's write must be ordered before the second's.
+    for (uint32_t round = 0; round < 6; ++round) {
+        device->upload_texture(tex, pattern(16, 16, round * 11));
+    }
+
+    // Upload after a render into the texture, with the frame not waited for.
+    for (uint32_t round = 0; round < 3; ++round) {
+        rhi::CommandList& cmd = device->begin_frame();
+        const rhi::TextureBarrier to_attachment{
+            tex, {rhi::PipelineStage::AllCommands, rhi::Access::TransferWrite, rhi::TextureLayout::Undefined},
+            {rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::ColorAttachment}, {}};
+        cmd.barrier(std::span(&to_attachment, 1));
+        rhi::RenderingDesc rd;
+        rhi::ColorAttachment ca;
+        ca.texture = tex;
+        ca.clear = {0.2f, 0.4f, 0.6f, 1.0f};
+        rd.colors.push_back(ca);
+        rd.area = {0, 0, 16, 16};
+        cmd.begin_rendering(rd);
+        cmd.end_rendering();
+        (void)device->end_frame();
+        device->upload_texture(tex, pattern(16, 16, 100 + round));  // overwrites what the frame just wrote
+    }
+    device->wait_idle();
+    const auto got = read_back(*device, tex, 16, 16);
+    const auto want = pattern(16, 16, 102);
+    CHECK(std::memcmp(got.data(), want.data(), want.size()) == 0);
+    device->destroy(tex);
+    CHECK(device->validation_error_count() == 0);
+}

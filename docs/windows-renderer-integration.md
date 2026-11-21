@@ -28,3 +28,27 @@ ctest --preset windows-release
 ```
 
 A Vulkan 1.3 driver and loader are required at runtime. Without the strict flag the app can fall back to the console probe when the GPU is unavailable. With the Vulkan validation layer installed, add `--validate` and capture stderr. Use `--frames 240` for a bounded smoke run. It reports render and skip counts on exit and fails if no frame was rendered. A native acceptance run should still observe the displayed cube and exercise the window and input transitions listed above. CI can compile and package the executable even if the Windows runner has no Vulkan driver. The Linux graphics workflow provides separate offscreen and X11 presentation evidence.
+
+## Windows software verification
+
+The [Windows Lavapipe job](https://github.com/devincombs2007-rgb/SAIGE/actions/workflows/windows-software-vulkan.yml) runs on the standard public Windows runner. It installs the Vulkan loader and validation layer through MSYS2 and verifies the checksum of the Mesa ICD before using it. The runner is disposable. Its Vulkan manifests are registered for that job because elevated processes can ignore the environment overrides. The runtime installer and ICD are test dependencies and are not included in the SAIGE executable archive.
+
+The job records the selected CPU device and requires Vulkan validation. It checks that the moving cube changes position in offscreen readback and uploads first and last frames. A separate native Win32 test exercises surface creation, presentation, resize, minimize/restore, keyboard messages and shutdown. The job also boots the product executable in strict mode. The captures are offscreen readbacks. The Win32 test exercises swapchain presentation but does not capture the displayed window.
+
+## Physical GPU verification
+
+A physical-driver acceptance run requires an interactive Windows x64 session with a Vulkan 1.3 hardware driver and the Khronos validation layer. A trusted volunteer can use their existing hardware and post results directly in issue #9. For automated testing, configure with `-DSAIGE_TEST_WIN32_VULKAN=ON`, run `ctest --preset windows-release -V -R "vulkan|win32_platform"`, and retain a log that shows the real adapter and `software=false`. Then run `saige_desktop.exe --require-rendered --validate` and record a native window capture showing motion and resize. Include the GPU and driver version, clean shutdown, and validation output. Do not use the Lavapipe override on this run.
+
+| Option | Fit |
+| --- | --- |
+| Standard public GitHub Windows runner with Lavapipe | Free software and Win32 presentation coverage. This is the automated default. |
+| SwiftShader | An alternate Windows CPU Vulkan 1.3 implementation if Lavapipe becomes unavailable. It still requires checking SAIGE's required features, Win32 surface support, and validation compatibility. [Upstream](https://swiftshader.googlesource.com/SwiftShader.git/) |
+| GitHub Windows GPU larger runner | Windows Tesla T4 is available on eligible plans, but larger runner time is billed even for public repositories. [Runner types](https://docs.github.com/en/actions/reference/runners/larger-runners) and [pricing](https://docs.github.com/en/billing/reference/actions-runner-pricing) |
+| GitLab hosted GPU runners | GPU instances are Linux only. The standard Windows VM is no substitute for the Win32 hardware gate. [GitLab documentation](https://docs.gitlab.com/ci/runners/hosted_runners/gpu_enabled/) |
+| Azure GPU Windows VM | An NVadsA10 v5 virtual workstation with the supported driver is a candidate after approval. The free Windows B1s VM is not a GPU tier. Confirm quota, cost and interactive Vulkan presentation before provisioning. [GPU VM](https://learn.microsoft.com/en-us/azure/virtual-machines/nva10v5-series) and [free tier](https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/create-free-services) |
+
+No free hosted Windows hardware runner has been verified for this repository. Keep the GPU gate open until there is a qualifying run.
+
+## Release gate
+
+After review and the Windows hardware run, build from the release commit, rerun the core, sanitizer, software and hardware checks, and tag `v0.1.0`. Attach the native Windows x64 executables, SHA-256 checksums, capture and CI links, build instructions, and the limitations above. Preview artifacts can be used before this gate. Ship the Vulkan test driver separately from the application by leaving it in CI.

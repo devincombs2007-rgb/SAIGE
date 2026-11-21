@@ -174,7 +174,9 @@ TEST_CASE("NullDevice: API misuse is reported as validation errors")
 
 TEST_CASE("NullDevice: destruction is deferred until the frame retires")
 {
-    NullDevice device(DeviceDesc{false, false, 2, "test"});
+    DeviceDesc dd;
+    dd.frames_in_flight = 2;
+    NullDevice device(dd);
     const TextureHandle t = device.create_texture(color_target());
     CHECK(device.live_resource_count() == 1);
     device.destroy(t);

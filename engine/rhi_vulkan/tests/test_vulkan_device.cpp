@@ -174,6 +174,18 @@ TEST_CASE("Vulkan: device creation reports a Vulkan 1.3 device")
     CHECK(device->validation_error_count() == 0);
 }
 
+TEST_CASE("Vulkan: require_validation creates a validated device or fails loudly")
+{
+    rhi::DeviceDesc desc;
+    desc.require_validation = true;
+    try {
+        const auto device = rhi::create_vulkan_device(desc);
+        CHECK(device->info().validation_enabled);  // never silently unvalidated
+    } catch (const std::runtime_error& e) {
+        CHECK(std::string(e.what()).find("validation required") != std::string::npos);
+    }
+}
+
 TEST_CASE("Vulkan: offscreen clear reads back the exact color")
 {
     const auto device = make_device();

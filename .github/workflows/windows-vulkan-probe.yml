@@ -1,0 +1,38 @@
+# TEMPORARY probe (claude/windows-vulkan-ci): what does a free hosted Windows runner offer for Vulkan, and can a
+# software ICD be installed there? Results guide the real windows-vulkan workflow. Deleted before merge.
+name: Windows Vulkan probe
+on:
+  push:
+    branches: ['claude/windows-vulkan-ci']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-2022
+    steps:
+      - name: Runner facts
+        shell: pwsh
+        run: |
+          Write-Host "== env"; Get-ChildItem Env: | Where-Object { $_.Name -match 'VULKAN|VK_' } | Format-Table -AutoSize
+          Write-Host "== loader"; Get-ChildItem C:\Windows\System32\vulkan-1.dll -ErrorAction SilentlyContinue | Format-List FullName, Length, VersionInfo
+          Write-Host "== SDK dirs"; Get-ChildItem C:\VulkanSDK -ErrorAction SilentlyContinue
+          Write-Host "== registry drivers"; reg query HKLM\SOFTWARE\Khronos\Vulkan\Drivers 2>&1
+          Write-Host "== tools"; Get-Command vulkaninfo, glslangValidator, spirv-val, dxc -ErrorAction SilentlyContinue | Format-Table Name, Source
+          Write-Host "== GPUs"; Get-CimInstance Win32_VideoController | Format-Table Name, DriverVersion
+          Write-Host "== msys2"; Test-Path C:\msys64\usr\bin\pacman.exe
+          Write-Host "== session"; query session 2>&1; whoami
+      - name: Try MSYS2 vulkan-swrast (signed packages)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $env:MSYSTEM = 'MINGW64'
+          & C:\msys64\usr\bin\bash.exe -lc "pacman -Sy --noconfirm; pacman -Ss swrast; pacman -Ss vulkan-loader | head -5; pacman -Si mingw-w64-x86_64-vulkan-swrast 2>&1 | head -20"
+      - name: Try Mesa for Windows (pal1000/mesa-dist-win)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rel = gh api repos/pal1000/mesa-dist-win/releases/latest | ConvertFrom-Json
+          Write-Host "latest: $($rel.tag_name)"; $rel.assets | ForEach-Object { Write-Host "  $($_.name)  $($_.size)" }

@@ -40,7 +40,7 @@ jobs:
       - name: Test (Xvfb)
         run: |
           mkdir -p captures
-          SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure
+          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure
       - name: Upload rendered frames
         if: always()
         uses: actions/upload-artifact@v4

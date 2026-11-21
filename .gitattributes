@@ -1,0 +1,2 @@
+# Golden images are binary: never convert line endings (a CRLF checkout would corrupt the pixel data).
+*.ppm binary

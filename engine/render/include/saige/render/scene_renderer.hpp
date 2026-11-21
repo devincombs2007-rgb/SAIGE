@@ -4,6 +4,7 @@
 // sink adapter (engine/render_sink) feeds it from Core's FrameView.
 #pragma once
 
+#include "saige/render/camera.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/render_graph.hpp"
 #include "saige/rhi/device.hpp"
@@ -66,12 +67,15 @@ struct SceneInstance {
     Float3 position;  ///< base of the cube (world meters)
     Float3 color{0.85f, 0.30f, 0.10f};  ///< linear albedo
     float yaw_offset = 0.0f;
+    float scale = 1.0f;  ///< uniform; multiplies RendererSettings::cube_edge. Full TRS arrives with the instance buffer.
 };
 
 struct SceneFrame {
     uint64_t tick = 0;
     double alpha = 0.0;
     std::span<const SceneInstance> instances;
+    /// When set, replaces the settings-driven camera (follow/fixed) for this frame. Not retained after render().
+    const Camera* camera = nullptr;
 };
 
 /// Where a frame is rendered. The renderer leaves `texture` in `final_state` (or its last-use state).

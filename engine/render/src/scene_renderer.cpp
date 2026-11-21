@@ -145,6 +145,9 @@ void SceneRenderer::ensure_depth(uint32_t width, uint32_t height)
 
 Float3 SceneRenderer::camera_target(const SceneFrame& frame) const
 {
+    if (frame.camera != nullptr) {
+        return frame.camera->position;  // the ground plane is centered under the camera
+    }
     if (settings_.camera_mode == CameraMode::Fixed) {
         return settings_.fixed_target;
     }
@@ -154,6 +157,9 @@ Float3 SceneRenderer::camera_target(const SceneFrame& frame) const
 
 Float3 SceneRenderer::camera_eye(const SceneFrame& frame) const
 {
+    if (frame.camera != nullptr) {
+        return frame.camera->position;
+    }
     if (settings_.camera_mode == CameraMode::Fixed) {
         return settings_.fixed_eye;
     }
@@ -162,6 +168,9 @@ Float3 SceneRenderer::camera_eye(const SceneFrame& frame) const
 
 Mat4 SceneRenderer::view_projection(const SceneFrame& frame, float aspect) const
 {
+    if (frame.camera != nullptr) {
+        return view_projection_matrix(*frame.camera, aspect);
+    }
     const Mat4 view = look_at(camera_eye(frame), camera_target(frame));
     const Mat4 proj = perspective_reverse_z(settings_.fov_y_radians, aspect, settings_.near_plane);
     return proj * view;
@@ -242,7 +251,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 c.bind_index_buffer(cube_indices_, rhi::IndexType::Uint16);
                 for (const SceneInstance& inst : frame.instances) {
                     fill4(dc.position_yaw, inst.position.x, inst.position.y, inst.position.z, instance_yaw(frame, inst));
-                    fill4(dc.color_scale, inst.color.x, inst.color.y, inst.color.z, settings_.cube_edge);
+                    fill4(dc.color_scale, inst.color.x, inst.color.y, inst.color.z, settings_.cube_edge * inst.scale);
                     c.push_constant_struct(dc);
                     c.draw_indexed(36);
                     ++stats.draw_calls;

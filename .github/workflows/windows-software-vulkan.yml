@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Vulkan loader and validation layer
         id: msys
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@3c51bf698df1e37b2261f53cb67797b97761185c # v2
         with:
           msystem: UCRT64
           install: >-
@@ -50,6 +50,15 @@ jobs:
           $runtime = Join-Path $env:MSYS2_ROOT 'ucrt64/bin'
           $env:PATH = "$runtime;$env:PATH"
           $env:VK_LAYER_PATH = $runtime
+          $env:VK_LOADER_DEBUG = 'error,warn,driver,layer'
+          Get-Content $env:VK_DRIVER_FILES
+          if (!(Test-Path (Join-Path $runtime 'vulkan-1.dll'))) { throw 'Vulkan loader missing' }
+          # The Windows Vulkan loader can ignore environment overrides in elevated processes.
+          # Register the one pinned ICD for this ephemeral runner. The loader still honors VK_DRIVER_FILES
+          # when overrides are available.
+          $driverKey = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'
+          New-Item -Path $driverKey -Force | Out-Null
+          New-ItemProperty -Path $driverKey -Name $env:VK_DRIVER_FILES -Value 0 -PropertyType DWord -Force | Out-Null
           $env:SAIGE_CAPTURE_DIR = Join-Path $PWD 'captures'
           New-Item -ItemType Directory -Force $env:SAIGE_CAPTURE_DIR | Out-Null
           ctest --preset windows-release -V -R 'vulkan|win32_platform' | Tee-Object -FilePath captures/test-log.txt

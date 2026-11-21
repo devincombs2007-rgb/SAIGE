@@ -77,9 +77,11 @@ struct Win32Platform::Impl {
     SurfaceState surface;
     std::array<bool, static_cast<std::size_t>(Key::escape) + 1> keys{};
     bool closing{};
+    DesktopPresentation presentation;
     std::chrono::steady_clock::time_point next_frame{};
 
-    Impl(const wchar_t* title, int width, int height) {
+    Impl(const wchar_t* title, int width, int height, DesktopPresentation mode)
+        : presentation(mode) {
         constexpr int size_limit = std::numeric_limits<int>::max() / 2;
         if (!title || width <= 0 || width > size_limit || height <= 0 || height > size_limit) {
             throw std::invalid_argument("Win32Platform requires a title and positive client dimensions");
@@ -140,6 +142,11 @@ struct Win32Platform::Impl {
             self->window = nullptr;
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             break;
+        case WM_ERASEBKGND:
+            if (self->presentation == DesktopPresentation::renderer_paced) {
+                return 1;
+            }
+            break;
         case WM_SIZE:
             self->update_surface(hwnd, wp == SIZE_MINIMIZED, GetDpiForWindow(hwnd));
             return 0;
@@ -171,8 +178,8 @@ struct Win32Platform::Impl {
     }
 };
 
-Win32Platform::Win32Platform(const wchar_t* title, int width, int height)
-    : impl_(std::make_unique<Impl>(title, width, height)) {}
+Win32Platform::Win32Platform(const wchar_t* title, int width, int height, DesktopPresentation presentation)
+    : impl_(std::make_unique<Impl>(title, width, height, presentation)) {}
 Win32Platform::~Win32Platform() = default;
 
 std::chrono::steady_clock::time_point Win32Platform::now() {
@@ -183,8 +190,14 @@ bool Win32Platform::poll_events() {
     if (impl_->closing) {
         return false;
     }
-    std::this_thread::sleep_until(impl_->next_frame);
-    impl_->next_frame = now() + std::chrono::nanoseconds(16'666'667);
+    const auto& surface = impl_->surface;
+    if (impl_->presentation == DesktopPresentation::host_paced ||
+        surface.minimized || surface.width_px == 0 || surface.height_px == 0) {
+        std::this_thread::sleep_until(impl_->next_frame);
+        impl_->next_frame = now() + std::chrono::nanoseconds(16'666'667);
+    } else {
+        impl_->next_frame = {};
+    }
     MSG message{};
     // Bound work per frame so an input flood cannot indefinitely starve simulation.
     for (unsigned i = 0; i < 256 && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE); ++i) {

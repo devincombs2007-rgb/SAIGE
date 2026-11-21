@@ -61,10 +61,18 @@ jobs:
           New-ItemProperty -Path $driverKey -Name $env:VK_DRIVER_FILES -Value 0 -PropertyType DWord -Force | Out-Null
           $env:SAIGE_CAPTURE_DIR = Join-Path $PWD 'captures'
           New-Item -ItemType Directory -Force $env:SAIGE_CAPTURE_DIR | Out-Null
+          $layerKey = 'HKLM:\SOFTWARE\Khronos\Vulkan\ExplicitLayers'
+          $layerManifest = Join-Path $runtime 'VkLayer_khronos_validation.json'
+          if (!(Test-Path $layerManifest)) { throw 'Validation manifest missing' }
+          New-Item -Path $layerKey -Force | Out-Null
+          New-ItemProperty -Path $layerKey -Name $layerManifest -Value 0 -PropertyType DWord -Force | Out-Null
           ctest --preset windows-release -V -R 'vulkan|win32_platform' | Tee-Object -FilePath captures/test-log.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path captures/test-log.txt -Pattern '\*\*\*Skipped|\*\*\*Not Run') {
             throw 'A required test did not run with the software driver'
+          }
+          if (!(Select-String -Path captures/test-log.txt -Pattern 'llvmpipe.*software=true validation=true')) {
+            throw 'A validated Lavapipe device was not confirmed by the Win32 test'
           }
           if (!(Test-Path captures/runtime_first.ppm) -or !(Test-Path captures/runtime_last.ppm)) {
             throw 'The moving cube readback captures are missing'

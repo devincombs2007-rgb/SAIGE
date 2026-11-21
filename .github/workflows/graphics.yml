@@ -9,6 +9,7 @@ on:
       - "engine/rhi/**"
       - "engine/render/**"
       - "engine/gfx_test_support/**"
+      - "tools/shaderc/**"
       - "cmake/SaigeGraphics.cmake"
       - ".github/workflows/graphics.yml"
   pull_request:
@@ -16,6 +17,7 @@ on:
       - "engine/rhi/**"
       - "engine/render/**"
       - "engine/gfx_test_support/**"
+      - "tools/shaderc/**"
       - "cmake/SaigeGraphics.cmake"
       - ".github/workflows/graphics.yml"
 
@@ -43,14 +45,14 @@ jobs:
       - name: Build and test
         run: |
           set -euo pipefail
-          for mod in rhi render; do
-            cmake -S engine/$mod -B build/$mod -G Ninja \
+          for mod in engine/rhi engine/render tools/shaderc; do
+            cmake -S $mod -B build/$(basename $mod) -G Ninja \
               -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
               -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
               -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON \
               -DSAIGE_GFX_SANITIZERS=${{ matrix.sanitizers }}
-            cmake --build build/$mod --parallel
-            ctest --test-dir build/$mod --output-on-failure
+            cmake --build build/$(basename $mod) --parallel
+            ctest --test-dir build/$(basename $mod) --output-on-failure
           done
 
   windows:
@@ -61,11 +63,12 @@ jobs:
       - name: Build and test
         shell: pwsh
         run: |
-          foreach ($mod in 'rhi', 'render') {
-            cmake -S engine/$mod -B build/$mod -G "Visual Studio 17 2022" -A x64 -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+          foreach ($mod in 'engine/rhi', 'engine/render', 'tools/shaderc') {
+            $name = Split-Path $mod -Leaf
+            cmake -S $mod -B build/$name -G "Visual Studio 17 2022" -A x64 -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
             if ($LASTEXITCODE -ne 0) { exit 1 }
-            cmake --build build/$mod --config Release --parallel
+            cmake --build build/$name --config Release --parallel
             if ($LASTEXITCODE -ne 0) { exit 1 }
-            ctest --test-dir build/$mod -C Release --output-on-failure
+            ctest --test-dir build/$name -C Release --output-on-failure
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }

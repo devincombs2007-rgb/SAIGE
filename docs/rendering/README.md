@@ -112,7 +112,7 @@ standalone today and joins Core's build with a single `add_subdirectory` once D-
 | **Render graph**: culling, barrier generation, usage inference, transient aliasing, Graphviz | `engine/render/` | ✅ v1 | `engine/render/tests/test_render_graph.cpp` |
 | `Device` / `CommandList` interfaces, null backend | `engine/rhi`, `engine/rhi_null` | ⏳ Next | — |
 | Vulkan backend | `engine/rhi_vulkan` | ⛔ Blocked on D-01…D-05, D-12 (and Vulkan SDK in CI) | — |
-| `saige-shaderc` | `tools/shaderc` | ⏳ Next (independent) | — |
+| `saige-shaderc` core: annotations, `@exclude` expressions, permutation keys/expansion/budgets, `#include` scanning, cache keys, CLI (`check`/`permutations`/`deps`) | `tools/shaderc` | ✅ (DXC compile step ⛔ waits on D-03) | `tools/shaderc/tests/` + CLI smoke tests |
 
 ### Building and testing (until Core's build exists)
 
@@ -121,6 +121,7 @@ standalone today and joins Core's build with a single `add_subdirectory` once D-
 cmake -S engine/render -B build/render -G Ninja -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON   # also builds engine/rhi
 cmake --build build/render && ctest --test-dir build/render --output-on-failure
 cmake -S engine/rhi -B build/rhi -G Ninja && cmake --build build/rhi && ctest --test-dir build/rhi
+cmake -S tools/shaderc -B build/shaderc -G Ninja && cmake --build build/shaderc && ctest --test-dir build/shaderc
 # Optional: -DSAIGE_GFX_SANITIZERS=ON (ASan + UBSan, GCC/Clang)
 ```
 

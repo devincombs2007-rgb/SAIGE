@@ -26,3 +26,10 @@ if(BUILD_TESTING)
         set_tests_properties(saige_render_sink_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
     endif()
 endif()
+
+# Desktop wiring (integration with Core's apps/desktop.cpp): when the Win32 desktop sample and the Vulkan backend are
+# both built, the sample renders through RendererFrameSink. Without a Vulkan device it falls back to its probe.
+if(TARGET saige_desktop AND TARGET saige::rhi_vulkan)
+    target_link_libraries(saige_desktop PRIVATE saige::render_sink saige::rhi_vulkan)
+    target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_VULKAN)
+endif()

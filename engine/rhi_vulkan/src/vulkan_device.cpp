@@ -511,7 +511,7 @@ void VulkanDevice::create_instance()
     }
 
     std::vector<const char*> layers;
-    if (desc_.enable_validation) {
+    if (desc_.enable_validation || desc_.require_validation) {
         vk_.vkEnumerateInstanceLayerProperties(&count, nullptr);
         std::vector<VkLayerProperties> layer_props(count);
         vk_.vkEnumerateInstanceLayerProperties(&count, layer_props.data());
@@ -521,6 +521,9 @@ void VulkanDevice::create_instance()
         if (found && debug_utils_) {
             layers.push_back(validation_layer);
             info_.validation_enabled = true;
+        } else if (desc_.require_validation) {
+            throw std::runtime_error(std::string("Vulkan: validation required but ") + validation_layer +
+                                     " (or VK_EXT_debug_utils) is not installed");
         } else {
             std::cerr << "[saige.vulkan] warning: validation requested but " << validation_layer
                       << " is not installed; continuing without validation\n";

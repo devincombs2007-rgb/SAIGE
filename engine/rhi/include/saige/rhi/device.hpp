@@ -196,6 +196,7 @@ struct AcquireResult {
 
 struct DeviceDesc {
     bool enable_validation = false;   ///< Request API validation (Vulkan: VK_LAYER_KHRONOS_validation).
+    bool require_validation = false;  ///< Fail creation instead of continuing when validation is unavailable.
     bool require_presentation = false;  ///< Fail creation if swapchains are unsupported.
     uint32_t frames_in_flight = 2;
     std::string application_name = "SAIGE";

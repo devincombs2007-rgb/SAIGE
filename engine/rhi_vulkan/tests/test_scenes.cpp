@@ -134,9 +134,9 @@ TEST_CASE("Vulkan scenes: intersecting cubes show a correct intersection in ever
         const Camera camera = high_camera();
         const std::vector<SceneInstance> base = intersecting_scene();
         const Image reference = target.render(renderer, base, camera);
-        write_ppm(std::string(std::getenv("SAIGE_CAPTURE_DIR") != nullptr ? std::getenv("SAIGE_CAPTURE_DIR") : ".") +
-                      "/intersecting_cubes.ppm",
-                  reference);
+        if (const char* capture = std::getenv("SAIGE_CAPTURE_DIR")) {  // only when asked: never litter the cwd
+            write_ppm(std::string(capture) + "/intersecting_cubes.ppm", reference);
+        }
 
         // All six permutations of three instances must give a byte-identical image.
         std::vector<int> order{0, 1, 2};

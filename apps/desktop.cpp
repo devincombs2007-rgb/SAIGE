@@ -111,7 +111,16 @@ int main(int argc, char** argv) {
     }
 
     try {
+#if defined(SAIGE_DESKTOP_VULKAN)
+        // A presenting renderer paces frames through vsync (Core #12). Without a usable Vulkan device the sample
+        // falls back to the console probe, which needs host pacing to avoid spinning.
+        const bool gpu_available = saige::rhi::vulkan_device_available();
+        saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit", 960, 540,
+                                      gpu_available ? saige::DesktopPresentation::renderer_paced
+                                                    : saige::DesktopPresentation::host_paced);
+#else
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
+#endif
         saige::World world;
         DesktopGame game(world, platform);
         DesktopFrameProbe probe;

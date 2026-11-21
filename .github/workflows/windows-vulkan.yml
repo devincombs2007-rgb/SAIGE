@@ -102,6 +102,23 @@ jobs:
           }
           if ($failed.Count -gt 0) { throw "failed: $($failed -join ', ')" }
 
+      - name: SAIGE desktop acceptance on lavapipe (the 0.1 milestone binary, strict mode)
+        shell: pwsh
+        run: |
+          # Codex's --require-rendered fails on fallback or zero rendered frames; --validate enables validation and
+          # fails on any validation error. 240 frames is a bounded run that ends and shuts down on its own.
+          $env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+          $output = & build\Release\saige_desktop.exe --require-rendered --validate --frames 240 2>&1 | Out-String
+          $rc = $LASTEXITCODE
+          Write-Host $output
+          if ($rc -ne 0) { throw "saige_desktop exited with code $rc" }
+          if ($output -notmatch 'SAIGE Vulkan rendered=(\d+)') { throw "no 'SAIGE Vulkan rendered=' summary in the output" }
+          $rendered = [int]$Matches[1]
+          Write-Host "rendered frames: $rendered"
+          if ($rendered -lt 200) { throw "only $rendered of 240 frames rendered" }
+          if ($output -match 'validation error') { throw "Vulkan validation errors were reported" }
+          if ($output -notmatch 'Vulkan on llvmpipe') { Write-Host "::warning::unexpected device in output (expected llvmpipe)" }
+
       - name: Remaining CTest suites
         run: ctest --test-dir build -C Release --output-on-failure -E "vulkan"
 

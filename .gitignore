@@ -2,3 +2,5 @@
 /build-*/
 /out/
 /CMakeUserPresets.json
+# Visual regression failure artifacts (actual / expected / diff images)
+**/goldens/_failures/

@@ -2,9 +2,13 @@ name: Engine build and tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'core/**']
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: engine-build-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -15,12 +19,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-24.04
+            preset: linux-debug
+          - os: windows-2022
+            preset: windows-debug
+          - os: windows-2022
+            preset: windows-release
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+        run: cmake --preset ${{ matrix.preset }}
       - name: Build
-        run: cmake --build build --config Debug --parallel
+        run: cmake --build --preset ${{ matrix.preset }} --parallel
       - name: Test
-        run: ctest --test-dir build -C Debug --output-on-failure
+        run: ctest --preset ${{ matrix.preset }}
+      - name: Upload Windows executables
+        if: matrix.preset == 'windows-release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-windows-x64
+          path: |
+            build/windows-release/Release/saige_desktop.exe
+            build/windows-release/Release/saige_headless.exe
+          if-no-files-found: error

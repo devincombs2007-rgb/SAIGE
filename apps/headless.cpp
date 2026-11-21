@@ -60,21 +60,45 @@ public:
     float marker_x{};
 };
 
-std::optional<std::uint64_t> parse_frames(int argc, char** argv) {
-    if (argc == 1) return 60;
-    if (argc != 3 || std::string_view(argv[1]) != "--frames") return {};
-    const std::string_view value(argv[2]);
-    std::uint64_t count{};
-    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), count);
-    if (error != std::errc{} || end != value.data() + value.size()) return {};
-    return count;
+constexpr std::string_view usage =
+    "Usage: saige_headless [--frames COUNT] [--json]\n"
+    "Run the moving-marker sample for COUNT frames (default 60).\n"
+    "--json emits a versioned summary on standard output.\n";
+
+struct Options {
+    std::uint64_t frames = 60;
+    bool json = false;
+};
+
+std::optional<Options> parse_options(int argc, char** argv) {
+    Options options;
+    bool has_frames = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg(argv[i]);
+        if (arg == "--json" && !options.json) {
+            options.json = true;
+        } else if (arg == "--frames" && !has_frames && i + 1 < argc) {
+            has_frames = true;
+            const std::string_view value(argv[++i]);
+            const auto [end, error] = std::from_chars(
+                value.data(), value.data() + value.size(), options.frames);
+            if (error != std::errc{} || end != value.data() + value.size()) return {};
+        } else {
+            return {};
+        }
+    }
+    return options;
 }
 } // namespace
 
 int main(int argc, char** argv) {
-    const auto frames = parse_frames(argc, argv);
-    if (!frames) {
-        std::cerr << "Usage: saige_headless [--frames COUNT]\n";
+    if (argc == 2 && std::string_view(argv[1]) == "--help") {
+        std::cout << usage;
+        return 0;
+    }
+    const auto options = parse_options(argc, argv);
+    if (!options) {
+        std::cerr << usage;
         return 2;
     }
     try {
@@ -83,9 +107,15 @@ int main(int argc, char** argv) {
         saige::World world;
         MovingMarker game(world);
         FrameProbe probe;
-        const auto stats = saige::run(world, platform, game, probe, *frames, config);
-        std::cout << "SAIGE frames=" << stats.frames << " ticks=" << stats.ticks
-                  << " instances=" << probe.instances << " marker_x=" << probe.marker_x << '\n';
+        const auto stats = saige::run(world, platform, game, probe, options->frames, config);
+        if (options->json) {
+            std::cout << "{\"schema_version\":1,\"frames\":" << stats.frames
+                      << ",\"ticks\":" << stats.ticks << ",\"instances\":" << probe.instances
+                      << ",\"marker_x\":" << probe.marker_x << "}\n";
+        } else {
+            std::cout << "SAIGE frames=" << stats.frames << " ticks=" << stats.ticks
+                      << " instances=" << probe.instances << " marker_x=" << probe.marker_x << '\n';
+        }
     } catch (const std::exception& error) {
         std::cerr << "SAIGE startup or runtime error: " << error.what() << '\n';
         return 1;

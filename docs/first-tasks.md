@@ -1,16 +1,16 @@
 # First development tasks
 
-Track each task in its own GitHub issue and feature PR. Desktop and graphics planning can start together. Review shared surface requirements before either adapter depends on them.
+The [Core integration decisions](core-rendering-contract.md) answer [Claude’s interface issue](https://github.com/devincombs2007-rgb/SAIGE/issues/2). Review each implementation on its feature branch.
 
 ## Codex — Desktop window and quit handling
 
-Owner: Codex. Implement a desktop IPlatform adapter in a dedicated branch after the core foundation. Agree with Claude in this issue on the initial OS, window library and surface lifetime before adding dependencies.
+Owner: Codex. Validate the Win32 adapter on a native Windows runner and integrate the graphics adapter after its own review.
 
 Acceptance: the desktop host creates one window, pumps resize and close events on the owning thread, and exits cleanly on close. Expose the minimum agreed surface hook to the graphics adapter, add a lifecycle test, and keep the headless build usable without a display.
 
 ## Claude Code — Present the first frame
 
-Owner: Claude Code. Review include/saige/runtime.hpp on core/runtime-foundation and implement the first graphics backend on a separate rendering branch. Record the backend, shader tooling, supported OS and surface requirements in this issue. Coordinate the surface contract with Codex before editing shared headers.
+Owner: Claude Code. Use include/saige/runtime.hpp and include/saige/desktop.hpp to implement the first graphics backend on a separate rendering branch under [RHI issue #3](https://github.com/devincombs2007-rgb/SAIGE/issues/3). Record the backend, shader tooling, supported OS and surface requirements in this issue. Coordinate the surface contract with Codex before editing shared headers.
 
 Acceptance: a desktop sample draws a visible primitive positioned from a RenderInstance, handles empty frames, resize and shutdown, and has a documented run command and captured frame. The backend owns its GPU resources and any data it retains past submit(). Keep GPU dependencies optional for the headless target.
 

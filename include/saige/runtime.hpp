@@ -1,6 +1,6 @@
 #pragma once
 
-#include "saige/world.hpp"
+#include "saige/scene_hierarchy.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -17,10 +17,18 @@ public:
     virtual bool poll_events() = 0;
 };
 
+struct CameraView {
+    Vec3 position;
+    Quaternion rotation; // Local +X forward and +Z up.
+    float fov_y_radians{1.04719755F};
+    float near_plane{0.1F};
+};
+
 class IGame {
 public:
     virtual ~IGame() = default;
     virtual void fixed_update(World& world, std::chrono::nanoseconds step) = 0;
+    [[nodiscard]] virtual std::optional<CameraView> camera_view() const { return {}; }
 };
 
 // The most recently completed simulation tick, and the fraction toward the next.
@@ -29,6 +37,7 @@ struct FrameView {
     std::uint64_t tick;
     double alpha;
     std::span<const RenderInstance> instances;
+    std::optional<CameraView> camera{};
 };
 
 class IFrameSink {

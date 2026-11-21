@@ -7,6 +7,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <windowsx.h>
 
 #include <array>
 #include <limits>
@@ -14,6 +15,7 @@
 #include <stdexcept>
 #include <system_error>
 #include <thread>
+#include <utility>
 
 namespace saige {
 namespace {
@@ -77,6 +79,9 @@ struct Win32Platform::Impl {
     SurfaceState surface;
     std::array<bool, static_cast<std::size_t>(Key::escape) + 1> keys{};
     bool closing{};
+    bool looking{};
+    int mouse_x{}, mouse_y{};
+    LookDelta look_delta;
     DesktopPresentation presentation;
     std::chrono::steady_clock::time_point next_frame{};
 
@@ -157,8 +162,39 @@ struct Win32Platform::Impl {
             self->update_surface(hwnd, IsIconic(hwnd) != FALSE, LOWORD(wp));
             return 0;
         }
+        case WM_RBUTTONDOWN:
+            self->looking = true;
+            self->mouse_x = GET_X_LPARAM(lp);
+            self->mouse_y = GET_Y_LPARAM(lp);
+            SetCapture(hwnd);
+            return 0;
+        case WM_MOUSEMOVE:
+            if (self->looking) {
+                const int x = GET_X_LPARAM(lp);
+                const int y = GET_Y_LPARAM(lp);
+                self->look_delta.x_pixels += static_cast<float>(x - self->mouse_x);
+                self->look_delta.y_pixels += static_cast<float>(y - self->mouse_y);
+                self->mouse_x = x;
+                self->mouse_y = y;
+                return 0;
+            }
+            break;
+        case WM_RBUTTONUP:
+            self->looking = false;
+            if (GetCapture() == hwnd) ReleaseCapture();
+            return 0;
+        case WM_CANCELMODE:
         case WM_KILLFOCUS:
             self->keys.fill(false);
+            self->looking = false;
+            self->look_delta = {};
+            if (GetCapture() == hwnd) ReleaseCapture();
+            break;
+        case WM_CAPTURECHANGED:
+            if (self->looking) {
+                self->looking = false;
+                self->look_delta = {};
+            }
             break;
         case WM_KEYDOWN:
         case WM_KEYUP:
@@ -223,6 +259,10 @@ SurfaceState Win32Platform::surface() const noexcept { return impl_->surface; }
 bool Win32Platform::key_down(Key key) const noexcept {
     const auto index = static_cast<std::size_t>(key);
     return index < impl_->keys.size() && impl_->keys[index];
+}
+
+LookDelta Win32Platform::consume_look_delta() noexcept {
+    return std::exchange(impl_->look_delta, {});
 }
 
 } // namespace saige

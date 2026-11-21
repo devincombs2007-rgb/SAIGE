@@ -2,7 +2,6 @@
 
 #include "saige/world.hpp"
 
-#include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -24,9 +23,6 @@ struct SceneNode {
     LocalTransform local{};
     std::optional<std::size_t> parent{};
 };
-
-// Column-major matrix applied to column vectors. Translation is at indices 12–14.
-using WorldMatrix = std::array<float, 16>;
 
 // Resolve a flat scene into world matrices in input order. Invalid indices,
 // cycles, nonfinite poses and nonpositive scales throw std::invalid_argument.

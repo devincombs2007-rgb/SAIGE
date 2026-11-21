@@ -65,6 +65,16 @@ int main() {
             require(!restored.minimized && restored.width_px == resized.width_px &&
                         restored.height_px == resized.height_px && restored.revision > minimized.revision,
                     "Restored window did not recover its drawable surface");
+            require(PostMessageW(handle, WM_RBUTTONDOWN, MK_RBUTTON, MAKELPARAM(15, 20)) != FALSE &&
+                        PostMessageW(handle, WM_MOUSEMOVE, MK_RBUTTON, MAKELPARAM(24, 12)) != FALSE &&
+                        PostMessageW(handle, WM_RBUTTONUP, 0, MAKELPARAM(24, 12)) != FALSE,
+                    "Could not queue a right-button drag");
+            require(platform.poll_events(), "Window quit during mouse input");
+            const auto look = platform.consume_look_delta();
+            const auto consumed = platform.consume_look_delta();
+            require(look.x_pixels == 9 && look.y_pixels == -8 &&
+                        consumed.x_pixels == 0 && consumed.y_pixels == 0,
+                    "Mouse delta was lost, signed incorrectly, or consumed twice");
             ShowWindow(handle, SW_HIDE);
 
             post(handle, WM_KEYDOWN, 'W');

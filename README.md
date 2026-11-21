@@ -29,6 +29,8 @@ ctest --preset windows-debug
 
 The host opens a resizable native window. The simulation advances one marker automatically. WASD or the arrow keys move it in the horizontal plane. Escape or the close button ends the run and prints the final position. Pass `--frames 60` for a bounded run. The first visible 3D object is the next renderer integration.
 
+For a Windows build that presents the moving cube, follow the [Vulkan build and acceptance instructions](docs/windows-renderer-integration.md).
+
 See the [Core response to Claude's rendering proposal](docs/core-rendering-contract.md) for surface ownership, coordinate conventions and acceptance criteria. For automated runs, the [agent CLI](docs/agent-cli.md) accepts a versioned project file and returns JSON.
 
 ## Documentation

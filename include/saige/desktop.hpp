@@ -26,6 +26,8 @@ struct SurfaceState {
 
 enum class Key { up, down, left, right, w, a, s, d, escape };
 
+struct LookDelta { float x_pixels{}, y_pixels{}; };
+
 // Query these values on the same thread that owns and pumps the platform.
 // A changed revision indicates a new surface state. Minimized extents are zero.
 // Key state describes the most recent message pump and clears on focus loss.
@@ -34,6 +36,8 @@ public:
     [[nodiscard]] virtual NativeWindowHandle native_window() const noexcept = 0;
     [[nodiscard]] virtual SurfaceState surface() const noexcept = 0;
     [[nodiscard]] virtual bool key_down(Key key) const noexcept = 0;
+    // Consume accumulated right-button drag motion once per simulation tick.
+    [[nodiscard]] virtual LookDelta consume_look_delta() noexcept { return {}; }
 };
 
 } // namespace saige

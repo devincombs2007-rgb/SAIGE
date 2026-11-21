@@ -47,7 +47,7 @@ RunStats run(World& world, IPlatform& platform, IGame& game, IFrameSink& sink,
         world.snapshot_into(instances);
         const double phase = static_cast<double>(remainder.count()) /
                              static_cast<double>(config.fixed_step.count());
-        sink.submit(FrameView{stats.ticks, std::min(phase, std::nextafter(1.0, 0.0)), instances});
+        sink.submit(FrameView{stats.ticks, std::min(phase, std::nextafter(1.0, 0.0)), instances, game.camera_view()});
         ++stats.frames;
     }
     return stats;

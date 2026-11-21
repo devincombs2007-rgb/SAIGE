@@ -2,9 +2,13 @@ name: Engine build and tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'core/**']
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: engine-build-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

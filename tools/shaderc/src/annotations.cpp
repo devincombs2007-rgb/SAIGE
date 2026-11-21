@@ -9,12 +9,12 @@ namespace saige::shaderc {
 
 namespace {
 
-constexpr bool isIdentStart(char c) noexcept
+bool isIdentStart(char c) noexcept
 {
     return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_';
 }
 
-constexpr bool isIdentChar(char c) noexcept
+bool isIdentChar(char c) noexcept
 {
     return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_';
 }

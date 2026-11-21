@@ -29,8 +29,10 @@ if(NOT TARGET saige::rhi_null)
 endif()
 
 add_library(saige_render STATIC
+    src/camera.cpp
     src/render_graph.cpp
     src/scene_renderer.cpp
+    src/transform.cpp
 )
 add_library(saige::render ALIAS saige_render)
 
@@ -46,9 +48,11 @@ if(SAIGE_RENDER_BUILD_TESTS)
     enable_testing()
     saige_gfx_add_test(saige_render_tests
         SOURCES
+            tests/test_camera.cpp
             tests/test_math.cpp
             tests/test_render_graph.cpp
             tests/test_scene_renderer.cpp
+            tests/test_transform.cpp
         LINK saige::render saige::rhi_null
     )
 endif()

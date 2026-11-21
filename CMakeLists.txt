@@ -6,6 +6,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_library(saige_core STATIC
     src/asset_id.cpp
     src/runtime.cpp
+    src/scene_hierarchy.cpp
     src/world.cpp
 )
 add_library(saige::core ALIAS saige_core)
@@ -27,7 +28,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime asset_id)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)

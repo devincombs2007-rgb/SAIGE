@@ -109,6 +109,7 @@ public:
     void reset()
     {
         commands_.clear();
+        written_timestamps_ = 0;
         in_rendering_ = false;
         bound_pipeline_ = {};
         vertex_bound_ = false;
@@ -218,6 +219,10 @@ public:
         check_frame("write_timestamp");
         if (index >= max_gpu_timestamps) {
             device_.error("write_timestamp(): index out of range");
+        } else if ((written_timestamps_ & (1u << index)) != 0) {
+            device_.error("write_timestamp(): index " + std::to_string(index) + " was already written in this frame");
+        } else {
+            written_timestamps_ |= 1u << index;
         }
         RecordedCommand c = make(CommandType::Timestamp);
         c.count = index;
@@ -358,6 +363,7 @@ private:
 
     NullDevice::Impl& device_;
     std::vector<RecordedCommand> commands_;
+    uint32_t written_timestamps_ = 0;
     bool in_rendering_ = false;
     PipelineHandle bound_pipeline_;
     bool vertex_bound_ = false;

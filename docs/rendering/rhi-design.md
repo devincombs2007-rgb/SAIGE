@@ -116,6 +116,11 @@ Where the graphics queue does not write timestamps (`DeviceInfo::gpu_timestamps`
 slot owns a block of queries; they are reset when the slot's frame is recorded and read back when the slot is reused, after
 its work has completed, with each query's availability checked, so a timestamp the frame did not write never appears as a
 measurement. `completed_timestamps()` therefore lags the latest submit by up to `frames_in_flight` frames.
+Each index may be written once per recording (a repeat throws `std::invalid_argument`, even where timestamps are
+unavailable, because Vulkan forbids re-using a query that was not reset). The sample carries the queue's `valid_bits`:
+the counter wraps modulo 2^valid_bits, so `milliseconds_between(begin, end)` takes the difference modulo that and an
+interval crossing one wrap is still correct; reversed indices, unwritten ones or an unknown width or period are
+unavailable.
 `GpuTimestamps::milliseconds_between` returns nothing for unwritten, reversed or out-of-range pairs. On a software
 rasterizer the interval is CPU time; `DeviceInfo::software_device` says so.
 

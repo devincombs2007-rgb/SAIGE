@@ -20,7 +20,8 @@ namespace saige::rhi {
 /// Probes for a usable Vulkan 1.3 device without keeping it. Returns false and a reason when unavailable.
 [[nodiscard]] bool vulkan_device_available(std::string* reason = nullptr);
 
-/// Test-only fault injection. Not for production use: it exists so tests can exercise the rollback of the backend's own
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+/// Test-only fault injection, compiled only into builds that build the tests (SAIGE_RHI_VULKAN_TESTING). Not for production use: it exists so tests can exercise the rollback of the backend's own
 /// bookkeeping, whose failure (an allocation of CPU memory) cannot otherwise be provoked deterministically.
 namespace testing {
 /// Makes the n-th (1-based) device-memory registration made after this call throw std::bad_alloc, as if the CPU-side ledger
@@ -30,5 +31,6 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept;
 /// it is being destroyed (leaked child objects), which no per-device counter can be read after.
 [[nodiscard]] uint32_t process_validation_error_count() noexcept;
 } // namespace testing
+#endif
 
 } // namespace saige::rhi

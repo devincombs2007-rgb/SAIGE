@@ -728,3 +728,52 @@ TEST_CASE("Vulkan bind groups: a group whose resources were destroyed cannot be 
     }
     CHECK(device->validation_error_count() == 0);
 }
+
+/// Does the active validation layer detect hazards on *shader* (descriptor) reads? Deliberately creates one on a throwaway
+/// device: a draw samples a texture, then a barrier overwrites the texture's layout with no source stage, which is exactly
+/// the barrier a broken re-upload would use. If the layer reports it, a test built on the same pattern is real evidence;
+/// if not (the layer shipped with SDK 1.3.275 does not), such a test proves only that the new contents appear.
+bool layer_detects_shader_read_hazards()
+{
+    const auto device = make_validated_device("probe_shader_read_hazard", /*synchronization=*/true);
+    if (!device->info().synchronization_validation_enabled) {
+        return false;
+    }
+    {
+        Fixture f(*device);
+        const rhi::TextureHandle tex = device->create_texture(sampled(1));
+        device->upload_texture(tex, solid(kSize, kSize, 10, 20, 30));
+        const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+        const rhi::BindGroupHandle group = f.make_group(tex, sampler);
+        {
+            FrameScope frame(f);
+            frame.cmd().bind_pipeline(f.pipeline);
+            frame.cmd().bind_group(0, group);
+            frame.cmd().draw(3);  // a fragment shader reads `tex`
+        }
+        // The hazard: write the texture's layout with no dependency on the fragment-shader read above (it ran in an earlier,
+        // already-submitted frame; a correct barrier would name ALL_COMMANDS / the fragment stage as its source).
+        rhi::CommandList& cmd = device->begin_frame();
+        const rhi::TextureBarrier hazard{tex, {rhi::PipelineStage::None, rhi::Access::None, rhi::TextureLayout::ShaderReadOnly},
+                                         {rhi::PipelineStage::Transfer, rhi::Access::TransferWrite, rhi::TextureLayout::TransferDst}, {}};
+        cmd.barrier(std::span(&hazard, 1));
+        const rhi::TextureBarrier restore{tex, hazard.after, rhi::sampled_texture_state, {}};
+        cmd.barrier(std::span(&restore, 1));
+        (void)device->end_frame();
+        device->wait_idle();
+        device->destroy(group);
+        device->destroy(sampler);
+        device->destroy(tex);
+    }
+    return device->validation_error_count() > 0;
+}
+
+TEST_CASE("Vulkan bind groups: report whether this validation layer can detect shader-read hazards")
+{
+    const bool detects = layer_detects_shader_read_hazards();
+    std::printf("  shader-read hazard detection by this validation layer: %s\n",
+                detects ? "YES (a missing barrier before a re-upload of a sampled texture is caught)"
+                        : "NO (descriptor reads are not tracked; ordering of uploads after shader reads is argued from the barrier "
+                          "and from the transfer-read test, not shown by a failing test)");
+    CHECK(true);  // informational: the capability differs per layer version and is reported, not required
+}

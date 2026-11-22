@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <new>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -75,6 +76,69 @@ TEST_CASE("Device memory: backend allocations are counted exactly and balance af
     }
     std::printf("  memory budget %s\n", after.budget_available ? "reported by the driver" : "not reported (unavailable)");
     CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("Device memory: a bookkeeping failure frees the driver allocation and counts nothing")
+{
+    const uint32_t errors_before = rhi::testing::process_validation_error_count();
+    auto device = make_validated_device("diag_memory_rollback");
+    idle_frame(*device);
+    const rhi::DeviceMemoryStats base = device->memory_stats();
+    const auto unchanged = [&](const char* what) {
+        const rhi::DeviceMemoryStats now = device->memory_stats();
+        CHECK(now.allocated_bytes == base.allocated_bytes);
+        CHECK(now.allocation_count == base.allocation_count);
+        if (now.allocated_bytes != base.allocated_bytes || now.allocation_count != base.allocation_count) {
+            std::printf("  ledger changed after a failed %s\n", what);
+        }
+    };
+    const auto fails = [&](uint32_t nth, auto&& create) {
+        rhi::testing::fail_memory_bookkeeping_after(nth);
+        bool threw = false;
+        try {
+            create();
+        } catch (const std::bad_alloc&) {
+            threw = true;
+        }
+        rhi::testing::fail_memory_bookkeeping_after(0);
+        return threw;
+    };
+
+    rhi::BufferDesc host;
+    host.size = 4096;
+    host.usage = rhi::BufferUsage::Uniform;
+    host.memory = rhi::MemoryLocation::CpuToGpu;
+    CHECK(fails(1, [&] { (void)device->create_buffer(host); }));
+    unchanged("host-visible buffer");
+
+    rhi::BufferDesc gpu_only;
+    gpu_only.size = 4096;
+    gpu_only.usage = rhi::BufferUsage::Vertex;
+    gpu_only.memory = rhi::MemoryLocation::GpuOnly;
+    const std::vector<std::byte> bytes(4096, std::byte{1});
+    CHECK(fails(1, [&] { (void)device->create_buffer(gpu_only, bytes); }));  // the buffer's own memory
+    unchanged("device buffer");
+    // The staged upload allocates twice: the buffer, then the staging buffer. Failing the second leaves a fully created
+    // destination with no handle, which must be released along with the staging buffer.
+    CHECK(fails(2, [&] { (void)device->create_buffer(gpu_only, bytes); }));
+    unchanged("staged buffer upload");
+
+    CHECK(fails(1, [&] { (void)device->create_texture(big_texture()); }));
+    unchanged("texture");
+
+    // The device is fully usable afterwards, and everything created now is accounted for and released exactly.
+    const rhi::BufferHandle b = device->create_buffer(gpu_only, bytes);
+    const rhi::TextureHandle tex = device->create_texture(big_texture());
+    CHECK(device->memory_stats().allocation_count == base.allocation_count + 2);
+    device->destroy(b);
+    device->destroy(tex);
+    idle_frame(*device);
+    unchanged("recovery");
+    CHECK(device->validation_error_count() == 0);
+    // The ledger cannot see an allocation the driver made and nobody recorded. The validation layer can: it reports any
+    // device memory still alive when the device is destroyed.
+    device.reset();
+    CHECK(rhi::testing::process_validation_error_count() == errors_before);
 }
 
 TEST_CASE("GPU timestamps: an index is written at most once per recording, supported device or not")

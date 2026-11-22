@@ -62,7 +62,7 @@ CubeMesh make_unit_cube()
 }
 
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
-    : device_(device), color_format_(color_format), settings_(settings)
+    : device_(device), color_format_(color_format), settings_(settings), registry_(device)
 {
     using namespace saige::shaders;
     cube_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_cube_vs_main), "VSMain", "SceneCube.VS"});
@@ -183,6 +183,17 @@ float SceneRenderer::instance_yaw(const SceneFrame& frame, const SceneInstance& 
     return static_cast<float>(yaw) + instance.yaw_offset;
 }
 
+ModelRenderer& SceneRenderer::model_renderer()
+{
+    if (!models_) {
+        ModelRenderSettings ms;
+        ms.sky = settings_.sky;
+        ms.fog_density = settings_.fog_density;
+        models_ = std::make_unique<ModelRenderer>(device_, registry_, color_format_, depth_format, ms);
+    }
+    return *models_;
+}
+
 FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame, const RenderTarget& target)
 {
     FrameStats stats;
@@ -256,6 +267,13 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                     c.draw_indexed(36);
                     ++stats.draw_calls;
                 }
+            }
+            if (!frame.models.empty()) {
+                ModelFrameStats model_stats;
+                model_renderer().draw(c, constants.view_proj, eye, frame.models, model_stats);
+                stats.draw_calls += model_stats.draw_calls;
+                stats.model_instances += model_stats.instances_drawn;
+                stats.model_instances_skipped += model_stats.instances_skipped;
             }
             c.end_rendering();
             c.end_debug_label();

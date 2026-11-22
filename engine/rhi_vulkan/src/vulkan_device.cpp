@@ -690,8 +690,10 @@ void VulkanDevice::pick_physical_device()
         VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         f2.pNext = &f12;
         vk_.vkGetPhysicalDeviceFeatures2(pd, &f2);
-        if (f13.dynamicRendering == VK_FALSE || f13.synchronization2 == VK_FALSE || f12.timelineSemaphore == VK_FALSE) {
-            rejected += " " + name + " (missing dynamicRendering/synchronization2/timelineSemaphore);";
+        // shaderDemoteToHelperInvocation is mandatory in Vulkan 1.3; HLSL `discard` (alpha-masked materials) compiles to it.
+        if (f13.dynamicRendering == VK_FALSE || f13.synchronization2 == VK_FALSE || f12.timelineSemaphore == VK_FALSE ||
+            f13.shaderDemoteToHelperInvocation == VK_FALSE) {
+            rejected += " " + name + " (missing dynamicRendering/synchronization2/timelineSemaphore/shaderDemoteToHelperInvocation);";
             continue;
         }
         uint32_t qcount = 0;
@@ -758,6 +760,7 @@ void VulkanDevice::create_logical_device()
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
+    f13.shaderDemoteToHelperInvocation = VK_TRUE;
     VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     f12.timelineSemaphore = VK_TRUE;
     f12.pNext = &f13;
@@ -1062,6 +1065,23 @@ BufferHandle VulkanDevice::create_buffer(const BufferDesc& desc, std::span<const
         immediate_submit([&](VkCommandBuffer cmd) {
             VkBufferCopy region{0, 0, size};
             vk_.vkCmdCopyBuffer(cmd, src, dst, 1, &region);
+            // Make the copy's writes available to everything that follows (vertex/index fetch, uniform and storage reads,
+            // later copies). Queue order alone does not make memory visible; synchronization validation reports this
+            // as READ_AFTER_WRITE without the barrier.
+            VkBufferMemoryBarrier2 bb{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+            bb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+            bb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            bb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            bb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+            bb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            bb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            bb.buffer = dst;
+            bb.offset = 0;
+            bb.size = VK_WHOLE_SIZE;
+            VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            di.bufferMemoryBarrierCount = 1;
+            di.pBufferMemoryBarriers = &bb;
+            vk_.vkCmdPipelineBarrier2(cmd, &di);
         });
         // The copy has completed (immediate_submit waits); later frames are ordered after it on the queue.
         if (std::optional<VkBufferRes> s = buffers_.release(staging)) {

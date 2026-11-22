@@ -349,6 +349,7 @@ public:
         bound_push_size_ = 0;
         bound_pipeline_ = {};
         bound_groups_.fill({});
+        written_timestamps_ = 0;
     }
 
     void barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) override;
@@ -374,6 +375,7 @@ private:
 
     VulkanDevice& device_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
+    uint32_t written_timestamps_ = 0;  // bit i: write_timestamp(i) was recorded in this frame (once per index)
     VkPipelineLayout bound_layout_ = VK_NULL_HANDLE;
     uint32_t bound_push_size_ = 0;
     PipelineHandle bound_pipeline_;
@@ -1955,6 +1957,7 @@ void VulkanDevice::collect_timestamps(FrameSlot& slot)
     GpuTimestamps t;
     t.frame_number = slot.frame_number;
     t.period_ns = static_cast<double>(timestamp_period_ns_);
+    t.valid_bits = std::min(timestamp_valid_bits_, 64u);
     const uint64_t mask = timestamp_valid_bits_ >= 64 ? ~uint64_t{0} : ((uint64_t{1} << timestamp_valid_bits_) - 1u);
     for (uint32_t i = 0; i < max_gpu_timestamps; ++i) {
         if (raw[i * 2 + 1] != 0) {
@@ -2316,6 +2319,10 @@ void VulkanCommandList::write_timestamp(uint32_t index)
     if (index >= max_gpu_timestamps) {
         throw std::invalid_argument("write_timestamp: index out of range");
     }
+    if ((written_timestamps_ & (1u << index)) != 0) {
+        throw std::invalid_argument("write_timestamp: index " + std::to_string(index) + " was already written in this frame");
+    }
+    written_timestamps_ |= 1u << index;
     if (!device_.timestamps_) {
         return;  // unavailable on this device: documented no-op (DeviceInfo::gpu_timestamps is false)
     }

@@ -138,6 +138,10 @@ public:
     virtual void set_scissor(const Rect2D& rect) = 0;
     /// Writes timestamp `index` (< max_gpu_timestamps) at the point all earlier commands finish. A no-op where the device
     /// has no timestamp support (DeviceInfo::gpu_timestamps is false). Results arrive via Device::completed_timestamps().
+    /// Each index may be written at most once per recording (between begin_frame and end_frame): a second write to the same
+    /// index would re-use a query that has not been reset, which Vulkan forbids, so it throws std::invalid_argument (the
+    /// null device counts a validation error) on every device, supported or not. Write indices in increasing order of
+    /// execution: a range is measured from the lower index to the higher one.
     virtual void write_timestamp(uint32_t index) = 0;
     virtual void bind_pipeline(PipelineHandle pipeline) = 0;
     /// Binds `group` to descriptor set `set` of the bound pipeline. Requires a bound pipeline with a layout at `set`
@@ -237,17 +241,25 @@ inline constexpr uint32_t max_gpu_timestamps = 8;
 struct GpuTimestamps {
     uint64_t frame_number = 0;    ///< the frame (Device::frame_number() when it was recorded) these belong to
     uint32_t available_mask = 0;  ///< bit i set: timestamp i was written by that frame
-    uint64_t ticks[max_gpu_timestamps] = {};
+    uint64_t ticks[max_gpu_timestamps] = {};  ///< raw counter values, already masked to `valid_bits`
     double period_ns = 0.0;       ///< nanoseconds per tick
+    /// How many low bits of the counter are valid (the queue family's timestampValidBits, 1..64). The counter wraps modulo
+    /// 2^valid_bits, so ticks are only comparable modulo that; 0 means unknown and every interval is then unavailable.
+    uint32_t valid_bits = 0;
 
-    /// Milliseconds from timestamp `begin` to `end`; nullopt if either was not written or the range is empty/reversed.
+    /// Milliseconds from timestamp `begin` to `end` (begin <= end by index; write them in that order). The difference is
+    /// taken modulo 2^valid_bits, so an interval that crosses one counter wrap is still correct; an interval longer than a
+    /// whole counter period cannot be told apart from a short one (2^36 ticks is over a minute at 1 ns). nullopt if either
+    /// timestamp was not written, the indices are out of range or reversed, or the counter width or period is unknown.
     [[nodiscard]] std::optional<double> milliseconds_between(uint32_t begin, uint32_t end) const noexcept
     {
-        if (begin >= max_gpu_timestamps || end >= max_gpu_timestamps || ((available_mask >> begin) & 1u) == 0 ||
-            ((available_mask >> end) & 1u) == 0 || ticks[end] < ticks[begin]) {
+        if (begin > end || end >= max_gpu_timestamps || ((available_mask >> begin) & 1u) == 0 ||
+            ((available_mask >> end) & 1u) == 0 || valid_bits == 0 || valid_bits > 64 || !(period_ns > 0.0)) {
             return std::nullopt;
         }
-        return static_cast<double>(ticks[end] - ticks[begin]) * period_ns * 1e-6;
+        const uint64_t mask = valid_bits == 64 ? ~uint64_t{0} : ((uint64_t{1} << valid_bits) - 1u);
+        const uint64_t delta = ((ticks[end] & mask) - (ticks[begin] & mask)) & mask;
+        return static_cast<double>(delta) * period_ns * 1e-6;
     }
 };
 

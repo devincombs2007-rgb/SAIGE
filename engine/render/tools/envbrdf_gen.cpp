@@ -1,20 +1,15 @@
 // Generates and verifies the embedded environment BRDF table (src/generated/env_brdf_table.inc).
 //
-//   saige_envbrdf_gen generate <path>   integrate the table (about 7 s at -O2) and write the include file
-//   saige_envbrdf_gen verify            check the embedded table: metadata, checksum, and a spot check recomputed from the code
+//   saige_envbrdf_gen generate <path>   integrate the table and write the include file
+//   saige_envbrdf_gen verify           check metadata, checksum, physical range, and every recomputed texel
 //
-// The table is data, so it can drift from the code that defines the BRDF. `verify` (a CTest test) recomputes 68 texels, the four
-// corners and a fixed stride over the grid, with the same integrator and step count, and requires them to match the embedded
-// values to within 2 units in the last place of binary16. The tolerance exists because libm trigonometry differs in the last bits
-// between toolchains; a changed integrand, clamp or parametrization moves the values by far more than that.
+// Verification allows two binary16 units in the last place because libm trigonometry can differ across toolchains.
 #include "saige/render/env_brdf.hpp"
 
-#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <string>
 
 using namespace saige::render;
 
@@ -69,25 +64,20 @@ int verify()
             if (!(v.scale >= 0.0f && v.bias >= 0.0f && v.scale + v.bias <= 1.002f)) return fail("a texel is outside the physical range");
         }
     }
-    std::string worst_info;
+    const EnvBrdfTable expected = make_env_brdf_table(a.size, a.steps);
     int worst = 0;
-    const auto check = [&](uint32_t i, uint32_t j) {
-        const EnvBrdfValue ref = integrate_env_brdf((static_cast<float>(i) + 0.5f) / static_cast<float>(a.size),
-                                                    (static_cast<float>(j) + 0.5f) / static_cast<float>(a.size), a.steps);
-        const std::size_t k = (static_cast<std::size_t>(j) * a.size + i) * 2;
-        const uint16_t expected[2] = {float_to_half(ref.scale), float_to_half(ref.bias)};
-        for (int c = 0; c < 2; ++c) {
-            const int d = std::abs(static_cast<int>(a.texels[k + static_cast<std::size_t>(c)]) - static_cast<int>(expected[c]));
-            worst = std::max(worst, d);
+    std::size_t worst_index = 0;
+    for (std::size_t i = 0; i < a.texel_count; ++i) {
+        const int difference = std::abs(static_cast<int>(a.texels[i]) - static_cast<int>(expected.texels[i]));
+        if (difference > worst) {
+            worst = difference;
+            worst_index = i;
         }
-    };
-    const uint32_t last = a.size - 1;
-    check(0, 0); check(last, 0); check(0, last); check(last, last);
-    for (uint32_t k = 0; k < 64; ++k) {
-        check((k * 37u + 5u) % a.size, (k * 11u + 3u) % a.size);
     }
-    std::printf("env BRDF table v%u: %ux%u, %d steps, checksum ok, spot-check worst difference %d half ulps\n", a.version, a.size,
-                a.size, a.steps, worst);
+    std::printf("env BRDF table v%u: %ux%u, %d steps, checksum ok, recomputed %zu values, "
+                "worst difference %d half ULPs at texel (%zu,%zu), component %zu\n",
+                a.version, a.size, a.size, a.steps, a.texel_count, worst, (worst_index / 2) % a.size,
+                (worst_index / 2) / a.size, worst_index % 2);
     return worst <= 2 ? 0 : fail("a recomputed texel differs from the embedded one by more than 2 half ulps");
 }
 

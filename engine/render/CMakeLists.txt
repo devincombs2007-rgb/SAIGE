@@ -60,6 +60,7 @@ add_custom_target(saige_regenerate_env_brdf
 
 if(SAIGE_RENDER_BUILD_TESTS)
     add_test(NAME saige_env_brdf_table_up_to_date COMMAND saige_envbrdf_gen verify)
+    set_tests_properties(saige_env_brdf_table_up_to_date PROPERTIES TIMEOUT 120)
     # The registry's fault-injection hook (render::testing) exists only in builds that build the tests.
     target_compile_definitions(saige_render PUBLIC SAIGE_RENDER_TESTING)
     enable_testing()

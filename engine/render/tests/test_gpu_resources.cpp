@@ -3,7 +3,10 @@
 #include "saige/render/gpu_resources.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <new>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -13,6 +16,46 @@
 
 using namespace saige::render;
 using namespace saige::rhi;
+
+// ---------------------------------------------------------------------------------------- allocation failure injection
+// The tests below arm a failure of the N-th heap allocation inside one registry call, for every N until the call succeeds,
+// and check that nothing leaked on the device or in the registry. Replacing the global allocation functions affects only
+// this executable; outside an armed region they forward to malloc/free.
+namespace alloc_probe {
+std::size_t count = 0;    // allocations since reset (counting only while `armed`)
+std::size_t fail_at = 0;  // 1-based allocation to fail; 0 = never fail
+bool armed = false;
+} // namespace alloc_probe
+
+void* operator new(std::size_t size)
+{
+    if (alloc_probe::armed) {
+        ++alloc_probe::count;
+        if (alloc_probe::fail_at != 0 && alloc_probe::count == alloc_probe::fail_at) {
+            throw std::bad_alloc();
+        }
+    }
+    if (void* p = std::malloc(size != 0 ? size : 1)) {
+        return p;
+    }
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t size) { return operator new(size); }
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept
+{
+    try {
+        return operator new(size);
+    } catch (...) {
+        return nullptr;
+    }
+}
+void* operator new[](std::size_t size, const std::nothrow_t& tag) noexcept { return operator new(size, tag); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* p, const std::nothrow_t&) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, const std::nothrow_t&) noexcept { std::free(p); }
 
 namespace {
 
@@ -384,4 +427,188 @@ TEST_CASE("Registry bind groups: a leak report names the group")
     CHECK(report.find("BindGroup 'leaky.material'") != std::string::npos);
     CHECK(report.find("Texture 'leaky.texture'") != std::string::npos);  // held by the group, reported too
     kept.reset();  // inert after teardown
+}
+
+namespace {
+
+/// Runs `op` with the N-th allocation failing, for N = 1, 2, ... until `op` completes. After every failed attempt `verify`
+/// must hold (nothing leaked). Returns how many allocations the successful run made.
+template <typename Op, typename Verify>
+std::size_t for_each_allocation_failure(Op&& op, Verify&& verify)
+{
+    for (std::size_t n = 1; n < 500; ++n) {
+        alloc_probe::count = 0;
+        alloc_probe::fail_at = n;
+        alloc_probe::armed = true;
+        bool failed = false;
+        try {
+            op();
+        } catch (const std::bad_alloc&) {
+            failed = true;
+        }
+        alloc_probe::armed = false;
+        alloc_probe::fail_at = 0;
+        if (!failed) {
+            return alloc_probe::count;
+        }
+        verify();  // a failed attempt must have changed nothing
+    }
+    return 0;
+}
+
+} // namespace
+
+TEST_CASE("Registry: an allocation failure during registration leaves the device and the registry untouched")
+{
+    const std::string long_name = "a debug name too long for the small-string buffer";
+    SamplerDesc unusual;
+    unusual.max_anisotropy = 4.0f;
+
+    // One phase: fail every allocation of `op` in turn; each failed attempt must leave device and registry as they were.
+    const auto phase = [&](NullDevice& device, GpuResourceRegistry& registry, auto&& op) {
+        device.wait_idle();
+        const uint32_t device_before = device.live_resource_count();
+        const uint32_t live_before = registry.live_count();
+        const std::size_t made = for_each_allocation_failure(op, [&] {
+            CHECK(device.live_resource_count() == device_before);
+            CHECK(registry.live_count() == live_before);
+            CHECK(device.validation_error_count() == 0);
+        });
+        CHECK(made > 0);  // the operation allocates, so there was something to inject into
+    };
+
+    // A fresh registry: the first registration has to allocate the slot tables, the hardest place to fail.
+    {
+        NullDevice device;
+        GpuResourceRegistry registry(device);
+        BufferRef buffer;
+        phase(device, registry, [&] { buffer = registry.create_buffer(vertex_buffer(256, long_name.c_str())); });
+        CHECK(buffer.valid());
+        CHECK(buffer.name() == long_name);
+    }
+    {
+        NullDevice device;
+        GpuResourceRegistry registry(device);
+        TextureRef texture;
+        phase(device, registry, [&] { texture = registry.create_texture(sampled_texture(4, 4, 1, long_name.c_str())); });
+        CHECK(texture.valid());
+    }
+    {
+        NullDevice device;
+        GpuResourceRegistry registry(device);
+        SamplerRef sampler;
+        phase(device, registry, [&] { sampler = registry.get_sampler(unusual); });
+        CHECK(sampler.valid());
+    }
+    // A churned registry: slots are reused and the free list is non-empty.
+    {
+        NullDevice device;
+        GpuResourceRegistry registry(device);
+        std::vector<BufferRef> keep;
+        for (int i = 0; i < 6; ++i) keep.push_back(registry.create_buffer(vertex_buffer(64)));
+        keep.erase(keep.begin() + 1);
+        keep.erase(keep.begin() + 2);
+        BufferRef buffer;
+        phase(device, registry, [&] { buffer = registry.create_buffer(vertex_buffer(256, long_name.c_str())); });
+        CHECK(buffer.valid());
+        SamplerRef sampler;
+        phase(device, registry, [&] { sampler = registry.get_sampler(unusual); });
+        CHECK(sampler.valid());
+    }
+}
+
+TEST_CASE("Registry: releasing references allocates nothing beyond the device's own destruction")
+{
+    constexpr int count = 40;
+    const auto arm = [] {
+        alloc_probe::count = 0;
+        alloc_probe::fail_at = 0;
+        alloc_probe::armed = true;
+    };
+
+    // Baseline: what the device itself allocates when the same resources are destroyed directly (its deferred queue).
+    std::size_t device_only = 0;
+    {
+        NullDevice device;
+        std::vector<BufferHandle> buffers;
+        std::vector<TextureHandle> textures;
+        for (int i = 0; i < count; ++i) {
+            buffers.push_back(device.create_buffer(vertex_buffer(64)));
+            textures.push_back(device.create_texture(sampled_texture(2, 2, 1)));
+        }
+        const SamplerHandle sampler = device.create_sampler(SamplerDesc{});
+        device.wait_idle();
+        arm();
+        for (const BufferHandle b : buffers) device.destroy(b);
+        for (const TextureHandle t : textures) device.destroy(t);
+        device.destroy(sampler);
+        device_only = alloc_probe::count;
+        alloc_probe::armed = false;
+    }
+
+    NullDevice device;
+    GpuResourceRegistry registry(device);
+    std::vector<BufferRef> buffers;
+    std::vector<TextureRef> textures;
+    for (int i = 0; i < count; ++i) {
+        buffers.push_back(registry.create_buffer(vertex_buffer(64)));
+        textures.push_back(registry.create_texture(sampled_texture(2, 2, 1)));
+    }
+    SamplerRef sampler = registry.get_sampler(SamplerDesc{});
+    std::vector<BufferRef> copies = buffers;  // shared references: only the last release destroys
+    device.wait_idle();
+
+    arm();
+    copies.clear();                          // not the last references: retains and releases only
+    for (BufferRef& b : buffers) b.reset();  // last references: device destruction and slot recycling
+    textures.clear();
+    sampler.reset();
+    const std::size_t through_registry = alloc_probe::count;
+    alloc_probe::armed = false;
+    CHECK(through_registry == device_only);  // the registry's own bookkeeping contributed no allocation
+    CHECK(registry.live_count() == 0);
+    CHECK(registry.total_stats().destroyed == 2 * count + 1);
+}
+
+TEST_CASE("Registry bind groups: an allocation failure during registration leaves no group and no extra references")
+{
+    const std::string long_name = "a bind group name too long for the small-string buffer";
+    // Vary how many resources are registered first, so that for some count the group is the registration that has to grow
+    // the slot tables (the hardest place to fail) without the test hard-coding the growth policy.
+    for (int fill = 0; fill <= 40; ++fill) {
+        GroupFixture f;
+        std::vector<BufferRef> filler;
+        for (int i = 0; i < fill; ++i) filler.push_back(f.uniform());
+        TextureRef texture = f.registry.create_texture(sampled_texture(4, 4, 1, "group.texture"));
+        SamplerRef sampler = f.registry.get_sampler(SamplerDesc{});
+        BufferRef buffer = f.uniform();
+        const std::vector<BindGroupBinding> bindings = f.bindings(texture, sampler, buffer);
+        f.device.wait_idle();
+
+        const uint32_t device_before = f.device.live_resource_count();
+        const uint32_t live_before = f.registry.live_count();
+        const uint32_t texture_refs = texture.use_count();
+        const uint32_t sampler_refs = sampler.use_count();
+        const uint32_t buffer_refs = buffer.use_count();
+
+        BindGroupRef group;
+        const std::size_t made = for_each_allocation_failure(
+            [&] { group = f.registry.create_bind_group(f.layout, bindings, long_name.c_str()); },
+            [&] {
+                CHECK(f.device.live_resource_count() == device_before);  // no group on the device
+                CHECK(f.registry.live_count() == live_before);           // none in the registry
+                CHECK(texture.use_count() == texture_refs);              // and nothing it would have retained is stuck
+                CHECK(sampler.use_count() == sampler_refs);
+                CHECK(buffer.use_count() == buffer_refs);
+                CHECK(f.device.validation_error_count() == 0);
+            });
+        CHECK(made > 0);
+        REQUIRE(group.valid());
+        CHECK(group.name() == long_name);
+        CHECK(texture.use_count() == texture_refs + 1);  // the successful group holds exactly one reference on each
+        group.reset();
+        CHECK(texture.use_count() == texture_refs);
+        CHECK(sampler.use_count() == sampler_refs);
+        CHECK(buffer.use_count() == buffer_refs);
+    }
 }

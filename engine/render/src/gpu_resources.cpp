@@ -33,9 +33,10 @@ struct Entry {
     std::string name;
 };
 
+#if defined(SAIGE_RENDER_TESTING)
 std::atomic<uint32_t> g_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
 
-/// A point where registration bookkeeping may fail for lack of memory. Production: free. Tests can make the n-th one throw.
+/// A point where registration bookkeeping may fail for lack of memory. Tests can make the n-th one throw.
 void fault_point()
 {
     uint32_t n = g_bookkeeping_fault.load(std::memory_order_relaxed);
@@ -48,6 +49,9 @@ void fault_point()
         }
     }
 }
+#else
+inline void fault_point() noexcept {}  // production builds carry no injection point
+#endif
 
 struct SamplerEntry {
     rhi::SamplerDesc desc;
@@ -368,12 +372,14 @@ SamplerRef GpuResourceRegistry::get_sampler(const rhi::SamplerDesc& desc)
     return SamplerRef(RefCore(state_, slot, generation), handle);
 }
 
+#if defined(SAIGE_RENDER_TESTING)
 namespace testing {
 void fail_registry_bookkeeping_after(uint32_t n) noexcept
 {
     detail::g_bookkeeping_fault.store(n, std::memory_order_relaxed);
 }
 } // namespace testing
+#endif
 
 ResourceStats GpuResourceRegistry::stats(ResourceKind kind) const noexcept
 {

@@ -95,6 +95,10 @@ struct RenderTarget {
     rhi::BufferHandle readback_buffer;
 };
 
+/// Timestamp slots the renderer writes (rhi::CommandList::write_timestamp); the span between them is the scene pass.
+inline constexpr uint32_t timestamp_scene_begin = 0;
+inline constexpr uint32_t timestamp_scene_end = 1;
+
 struct FrameStats {
     uint32_t draw_calls = 0;
     uint32_t barriers = 0;

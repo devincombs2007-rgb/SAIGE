@@ -232,6 +232,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         },
         [&](PassContext& ctx) {
             rhi::CommandList& c = *ctx.command_list();
+            c.write_timestamp(timestamp_scene_begin);
             rhi::RenderingDesc rd;
             rhi::ColorAttachment ca;
             ca.texture = target.texture;
@@ -276,6 +277,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instances_skipped += model_stats.instances_skipped;
             }
             c.end_rendering();
+            c.write_timestamp(timestamp_scene_end);
             c.end_debug_label();
         });
 

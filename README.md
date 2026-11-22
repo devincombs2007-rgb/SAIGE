@@ -38,3 +38,10 @@ See the [Core response to Claude's rendering proposal](docs/core-rendering-contr
 - [Architecture](docs/architecture.md) and [Core rendering contract](docs/core-rendering-contract.md)
 - [Engine standards](docs/standards/), such as the coordinate system (right-handed, Z-up, meters)
 - [Rendering and asset systems](docs/rendering/): RHI, Vulkan backend, render graph, shaders, asset pipeline
+
+
+### Character course
+
+Run `saige_desktop --character-course --require-rendered` from a Windows Vulkan build. Use WASD or the arrow keys to move,
+Shift to sprint, Space to jump, and R to reset. The prototype uses fixed-step movement and static box collision. Its marker
+and obstacles use the sample cube renderer. The course runs separately from saved scene projects.

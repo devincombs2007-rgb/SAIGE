@@ -1,4 +1,5 @@
 #include "saige/win32_platform.hpp"
+#include "saige/character_motor.hpp"
 
 #if defined(SAIGE_DESKTOP_VULKAN)
 #include "saige/render_sink/renderer_frame_sink.hpp"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #endif
 
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -26,8 +28,21 @@ namespace {
 
 class DesktopGame final : public saige::IGame {
 public:
-    DesktopGame(saige::World& world, const saige::IDesktopPlatform& platform)
-        : marker_(world.create()), platform_(platform) {}
+    DesktopGame(saige::World& world, const saige::IDesktopPlatform& platform, bool course)
+        : marker_(world.create()), platform_(platform) {
+        if (!course) return;
+        constexpr std::array geometry{
+            saige::StaticBox{{-32, -32, -1}, {32, 32, 0}},
+            saige::StaticBox{{2.5f, -0.5f, 0}, {3.5f, 0.5f, 1}},
+            saige::StaticBox{{4.5f, 0.5f, 0}, {5.5f, 1.5f, 1}},
+            saige::StaticBox{{5.5f, -1.5f, 0}, {6.5f, -0.5f, 1}},
+        };
+        motor_.emplace(saige::Vec3{}, geometry);
+        for (std::size_t i = 1; i < geometry.size(); ++i) {
+            const auto& box = geometry[i];
+            (void)world.create({(box.min.x + box.max.x) * 0.5f, (box.min.y + box.max.y) * 0.5f, box.min.z});
+        }
+    }
 
     void fixed_update(saige::World& world, std::chrono::nanoseconds step) override {
         using saige::Key;
@@ -35,6 +50,16 @@ public:
         const int left = platform_.key_down(Key::a) || platform_.key_down(Key::left);
         const int forward = platform_.key_down(Key::w) || platform_.key_down(Key::up);
         const int back = platform_.key_down(Key::s) || platform_.key_down(Key::down);
+        if (motor_) {
+            if (platform_.key_down(Key::r)) {
+                motor_->reset();
+            } else {
+                motor_->step({static_cast<float>(forward - back), static_cast<float>(left - right),
+                              platform_.key_down(Key::space), platform_.key_down(Key::shift)}, step);
+            }
+            world.set_position(marker_, motor_->state().feet);
+            return;
+        }
         const float seconds = std::chrono::duration<float>(step).count();
         // The marker drifts one world unit per second so unattended runs exercise simulation.
         position_.x += seconds * (1.0f + 4.0f * static_cast<float>(forward - back));
@@ -46,6 +71,7 @@ private:
     saige::Entity marker_;
     const saige::IDesktopPlatform& platform_;
     saige::Vec3 position_{};
+    std::optional<saige::CharacterMotor> motor_;
 };
 
 // The sample reports the submitted pose until a graphics adapter is selected.
@@ -67,14 +93,16 @@ public:
 class DesktopFrameSink final : public saige::IFrameSink {
 public:
     DesktopFrameSink(DesktopFrameProbe& probe, const saige::IDesktopPlatform& platform,
-                     bool require_rendered, bool validate) : probe_(probe) {
+                     bool require_rendered, bool validate, bool course) : probe_(probe) {
         try {
             saige::rhi::DeviceDesc desc;
             desc.enable_validation = validate;
             desc.require_validation = validate;
             desc.require_presentation = true;
+            saige::render::FrameSinkSettings settings;
+            if (course) settings.renderer.spin_radians_per_second = 0.0f;
             renderer_ = std::make_unique<saige::render::RendererFrameSink>(saige::rhi::create_vulkan_device(desc),
-                                                                           platform);
+                                                                           platform, settings);
             std::clog << "SAIGE desktop renderer: Vulkan on " << renderer_->device().info().device_name << '\n';
         } catch (const std::exception& error) {
             if (require_rendered) throw;
@@ -123,6 +151,7 @@ private:
 
 int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
+    bool course = false;
 #if defined(SAIGE_DESKTOP_VULKAN)
     bool require_rendered = false;
     bool validate = false;
@@ -132,6 +161,10 @@ int main(int argc, char** argv) {
 #endif
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
+        if (argument == "--character-course" && !course) {
+            course = true;
+            continue;
+        }
 #if defined(SAIGE_DESKTOP_VULKAN)
         if (argument == "--require-rendered" && !require_rendered) {
             require_rendered = true;
@@ -149,7 +182,7 @@ int main(int argc, char** argv) {
         }
 #endif
         if (argument != "--frames" || frames || ++i == argc) {
-            std::cerr << "Usage: saige_desktop [--frames COUNT]"
+            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course]"
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
 #endif
@@ -174,12 +207,17 @@ int main(int argc, char** argv) {
         // Validate the saved project and its CPU assets before opening a window.
         std::optional<saige::PreparedScene> prepared;
         if (scene_path) {
+            if (course) {
+                std::cerr << "--character-course and --scene select different applications\n";
+                return 2;
+            }
             prepared.emplace(*scene_path);
             require_rendered = true;
         }
 #endif
 #if defined(SAIGE_DESKTOP_VULKAN)
-        constexpr auto title = L"SAIGE | WASD to move | Right drag to look | Esc to quit";
+        const auto title = course ? L"SAIGE course | WASD | Shift sprint | Space jump | R reset"
+                                  : L"SAIGE | WASD to move | Right drag to look | Esc to quit";
         const bool strict = require_rendered || validate;
         saige::Win32Platform platform(title, 960, 540, strict ? saige::DesktopPresentation::renderer_paced
                                                             : saige::DesktopPresentation::host_paced);
@@ -187,11 +225,11 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
-        DesktopGame game(world, platform);
+        DesktopGame game(world, platform, course);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
         // The sink releases its swapchain and surface before the HWND goes away.
-        DesktopFrameSink sink(probe, platform, strict, validate);
+        DesktopFrameSink sink(probe, platform, strict, validate, course);
 #if defined(SAIGE_DESKTOP_SCENE)
         if (prepared) {
             sink.show(*prepared);

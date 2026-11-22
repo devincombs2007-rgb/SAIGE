@@ -4,6 +4,7 @@
 #include "saige/rhi_null/null_device.hpp"
 
 #include <cstddef>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <new>
@@ -16,6 +17,7 @@
 using namespace saige::render;
 using namespace saige::rhi;
 
+#if !defined(_MSC_VER)
 // ------------------------------------------------------------------------------------------------ allocation counting
 // Counts heap allocations while `armed`, to show that releasing a reference allocates nothing in the registry. It never makes
 // an allocation fail: failure injection goes through the registry's own test hook, because failing allocations inside the
@@ -53,6 +55,7 @@ void operator delete(void* p, const std::nothrow_t&) noexcept { std::free(p); }
 void operator delete[](void* p) noexcept { std::free(p); }
 void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 void operator delete[](void* p, const std::nothrow_t&) noexcept { std::free(p); }
+#endif  // !_MSC_VER
 
 namespace {
 
@@ -369,6 +372,7 @@ TEST_CASE("Registry: a bookkeeping failure during registration leaves the device
     }
 }
 
+#if !defined(_MSC_VER)
 TEST_CASE("Registry: releasing references allocates nothing beyond the device's own destruction")
 {
     constexpr int count = 40;
@@ -420,3 +424,12 @@ TEST_CASE("Registry: releasing references allocates nothing beyond the device's 
     CHECK(registry.live_count() == 0);
     CHECK(registry.total_stats().destroyed == 2 * count + 1);
 }
+#else
+TEST_CASE("Registry: releasing references allocates nothing beyond the device's own destruction (not run on MSVC)")
+{
+    // Counting needs a replacement of the global allocation functions. MSVC's checked iterators allocate container proxies in
+    // places the standard does not, and the debug CRT keeps its own heap bookkeeping, so the count is not a property of the
+    // registry there. The check runs on the Linux sanitizer and Vulkan lanes; this line keeps its absence visible here.
+    std::printf("  skipped on MSVC: allocation counting (covered by the other platforms)\n");
+}
+#endif

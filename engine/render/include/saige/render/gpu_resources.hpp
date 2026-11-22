@@ -143,12 +143,14 @@ private:
     std::shared_ptr<detail::RegistryState> state_;
 };
 
-/// Test-only fault injection. Makes the n-th (1-based) registration bookkeeping step after this call throw std::bad_alloc, as
+#if defined(SAIGE_RENDER_TESTING)
+/// Test-only fault injection, compiled only into builds that build the tests (SAIGE_RENDER_TESTING). Makes the n-th (1-based) registration bookkeeping step after this call throw std::bad_alloc, as
 /// if the registry's own tables could not grow; 0 cancels. Process-wide; consumed by the step it fails. It exists because a real
 /// allocation failure inside the registry cannot be provoked deterministically (and injecting one into the allocator also
 /// reaches the device and the STL, whose behavior on failure is not the registry's contract).
 namespace testing {
 void fail_registry_bookkeeping_after(uint32_t n) noexcept;
 } // namespace testing
+#endif
 
 } // namespace saige::render

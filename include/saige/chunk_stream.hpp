@@ -35,7 +35,7 @@ public:
     ChunkStream(const ChunkStream&) = delete;
     ChunkStream& operator=(const ChunkStream&) = delete;
 
-    // Replace the pending set. Reuse active chunks with the same coordinate and path.
+    // Replace the pending set. Reuse active or already staged chunks with the same coordinate and path.
     void request(std::span<const ChunkSource> chunks);
     // Stage at most one chunk, in coordinate order. An import failure abandons the pending set and throws.
     bool stage_next();

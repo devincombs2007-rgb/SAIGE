@@ -21,6 +21,11 @@ void ChunkStream::request(std::span<const ChunkSource> chunks) {
         std::shared_ptr<const PreparedScene> scene;
         if (active != active_.end() && active->second.project == source.project) {
             scene = active->second.scene;
+        } else if (pending_) {
+            const auto staged = pending_->find(source.coord);
+            if (staged != pending_->end() && staged->second.project == source.project) {
+                scene = staged->second.scene;
+            }
         }
         if (!candidate.emplace(source.coord, Chunk{source.project, std::move(scene)}).second) {
             throw std::invalid_argument("Duplicate chunk coordinates");

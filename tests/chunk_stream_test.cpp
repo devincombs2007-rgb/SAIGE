@@ -1,7 +1,10 @@
-#include "saige/chunk_stream.hpp"
+#include "saige/chunk_manifest.hpp"
 
 #include <array>
 #include <filesystem>
+#include <fstream>
+#include <limits>
+#include <random>
 #include <iostream>
 #include <stdexcept>
 #include <string_view>
@@ -88,12 +91,80 @@ void test_stream(const std::filesystem::path& fixture) {
     require(stream.commit_frame() && stream.active_count() == 0 && stream.retained_asset_bytes() == 0, "empty desired set unloads all chunks");
 }
 
+void test_manifest(const std::filesystem::path& fixture) {
+    namespace fs = std::filesystem;
+    struct Workspace {
+        fs::path root = fs::temp_directory_path() / ("saige-chunk-manifest-" + std::to_string(std::random_device{}()));
+        Workspace() { require(fs::create_directory(root), "create manifest workspace"); }
+        ~Workspace() {
+            std::error_code ignored;
+            fs::remove_all(root, ignored);
+        }
+    } workspace;
+    const auto scene_dir = workspace.root / "scenes";
+    fs::copy(fixture.parent_path(), scene_dir, fs::copy_options::recursive);
+    const auto manifest_path = workspace.root / "world.json";
+    const auto write_manifest = [&](std::string_view text) {
+        std::ofstream data(manifest_path, std::ios::binary | std::ios::trunc);
+        data << text;
+        data.close();
+        require(data.good(), "write manifest");
+    };
+    write_manifest(R"({"schema_version":1,"chunks":[
+        {"coord":[1,0],"project":"scenes/saige.scene.json"},
+        {"coord":[-1,0],"project":"scenes/missing.scene.json"},
+        {"coord":[0,0],"project":"scenes/saige.scene.json"}
+    ]})");
+    const auto manifest = saige::load_chunk_manifest(manifest_path);
+    require(manifest.size() == 3 && manifest[0].coord == ChunkCoord{-1, 0} &&
+            manifest[1].coord == ChunkCoord{0, 0} && manifest[2].coord == ChunkCoord{1, 0}, "sort manifest coordinates");
+    const auto mesh = saige::PreparedScene(fixture).assets().front().id;
+    ChunkStream stream;
+    for (const int x : {0, 1, 0}) {
+        const ChunkCoord view{x, 0};
+        stream.request(saige::select_chunks(manifest, view, 0));
+        require(stream.stage_next() && stream.commit_frame(), "cross or revisit a manifest chunk");
+        require(stream.active_count() == 1 && stream.active_chunk(view)->find_asset(mesh), "revisit preserves the saved mesh ID");
+    }
+    const auto* west = stream.active_chunk({0, 0});
+    stream.request(saige::select_chunks(manifest, {-1, 0}, 0));
+    bool missing = false;
+    try {
+        (void)stream.stage_next();
+    } catch (const std::exception&) {
+        missing = true;
+    }
+    require(missing && !stream.commit_frame() && stream.active_chunk({0, 0}) == west, "missing project retains current residency");
+    require(saige::select_chunks(manifest, {0, 0}, 1).size() == 3, "radius includes both neighboring cells");
+    require(saige::select_chunks(manifest, {std::numeric_limits<std::int32_t>::min(), 0}, 1).empty(),
+            "extreme coordinates do not overflow");
+
+    for (const auto malformed : {
+        R"({"schema_version":2,"chunks":[]})",
+        R"({"schema_version":1,"chunks":[[[[[[[[[[]]]]]]]]]]})",
+        R"({"schema_version":1,"chunks":[{"coord":[0,1.0],"project":"a"}]})",
+        R"({"schema_version":1,"chunks":[{"coord":[4294967295,0],"project":"a"}]})",
+        R"({"schema_version":1,"chunks":[{"coord":[0,0],"project":"../a"}]})",
+        R"({"schema_version":1,"chunks":[{"coord":[0,0],"project":"a"},{"coord":[0,0],"project":"b"}]})"
+    }) {
+        write_manifest(malformed);
+        bool rejected = false;
+        try {
+            (void)saige::load_chunk_manifest(manifest_path);
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+        require(rejected, "invalid manifest was accepted");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     try {
         test_stream(argv[1]);
+        test_manifest(argv[1]);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

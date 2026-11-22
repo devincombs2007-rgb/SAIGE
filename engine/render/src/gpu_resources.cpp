@@ -16,6 +16,7 @@ const char* to_string(ResourceKind kind) noexcept
     case ResourceKind::Buffer: return "Buffer";
     case ResourceKind::Texture: return "Texture";
     case ResourceKind::Sampler: return "Sampler";
+    case ResourceKind::BindGroup: return "BindGroup";
     }
     return "Unknown";
 }
@@ -31,6 +32,10 @@ struct Entry {
     uint64_t bytes = 0;
     uint32_t raw = 0;  ///< the device handle's raw value; the typed handle is rebuilt from it on destruction
     std::string name;
+    /// References this entry holds on other entries (a bind group's textures, samplers and buffers): (slot, generation).
+    /// Kept as raw slots, not RefCore objects, so the state does not own a shared_ptr to itself. Filled while the slot is
+    /// claimed (the fallible phase); read, never reallocated, when the entry dies.
+    std::vector<std::pair<uint32_t, uint32_t>> deps;
 };
 
 #if defined(SAIGE_RENDER_TESTING)
@@ -84,7 +89,7 @@ struct RegistryState {
     /// reserves room in the free list for every slot that will ever exist (so recycling a slot never allocates), picks a slot,
     /// and copies `name` into it. Throws with the registry unchanged (an unused slot may remain, free). On success the slot is
     /// `claimed`: invisible to lookups and reports until `commit`, or released again by `unclaim`.
-    uint32_t claim(std::string_view name)
+    uint32_t claim(std::string_view name, std::span<const std::pair<uint32_t, uint32_t>> deps = {})
     {
         fault_point();
         if (free_slots.capacity() < entries.size() + 1) {
@@ -104,9 +109,14 @@ struct RegistryState {
         try {
             fault_point();
             e.name.assign(name.data(), name.size());
+            fault_point();
+            e.deps.assign(deps.begin(), deps.end());
         } catch (...) {
             if (fresh) {
                 entries.pop_back();
+            } else {
+                e.name.clear();
+                e.deps.clear();
             }
             throw;
         }
@@ -123,6 +133,7 @@ struct RegistryState {
         Entry& e = entries[slot];
         e.claimed = false;
         e.name.clear();
+        e.deps.clear();
         if (free_slots.size() < free_slots.capacity()) {
             free_slots.push_back(slot);
         }
@@ -159,6 +170,7 @@ struct RegistryState {
             case ResourceKind::Buffer: device->destroy(rhi::BufferHandle::from_raw(e.raw)); break;
             case ResourceKind::Texture: device->destroy(rhi::TextureHandle::from_raw(e.raw)); break;
             case ResourceKind::Sampler: device->destroy(rhi::SamplerHandle::from_raw(e.raw)); break;
+            case ResourceKind::BindGroup: device->destroy(rhi::BindGroupHandle::from_raw(e.raw)); break;
             }
         } catch (...) {
             // Releasing a reference must never throw; the device reports its own misuse.
@@ -201,6 +213,14 @@ struct RegistryState {
         if (free_slots.size() < free_slots.capacity()) {
             free_slots.push_back(slot);
         }
+        // The group is gone first; now let go of what it bound (which may in turn be destroyed). The list is read in place
+        // (a move would construct a container, which can allocate under checked iterators) and cleared afterwards, which
+        // keeps its capacity for the slot's next use.
+        for (std::size_t i = 0; i < e->deps.size(); ++i) {
+            const std::pair<uint32_t, uint32_t> dep = e->deps[i];
+            release(dep.first, dep.second);
+        }
+        e->deps.clear();
     }
 };
 
@@ -370,6 +390,55 @@ SamplerRef GpuResourceRegistry::get_sampler(const rhi::SamplerDesc& desc)
     const uint32_t generation = state_->commit(slot, ResourceKind::Sampler, handle.raw(), 0);
     state_->samplers.push_back({desc, slot, generation});
     return SamplerRef(RefCore(state_, slot, generation), handle);
+}
+
+BindGroupRef GpuResourceRegistry::create_bind_group(rhi::BindGroupLayoutHandle layout, std::span<const BindGroupBinding> bindings,
+                                                    const char* name)
+{
+    std::vector<rhi::BindGroupEntry> entries;
+    std::vector<std::pair<uint32_t, uint32_t>> deps;
+    entries.reserve(bindings.size());
+    auto own = [&](const RefCore& core) {
+        if (core.state.get() != state_.get()) {
+            throw std::invalid_argument("create_bind_group: a bound resource does not belong to this registry");
+        }
+        deps.emplace_back(core.slot, core.generation);
+    };
+    for (const BindGroupBinding& b : bindings) {
+        rhi::BindGroupEntry e;
+        e.binding = b.binding;
+        if (b.texture.valid()) {
+            own(b.texture.core_);
+            e.texture = b.texture.handle();
+        }
+        if (b.sampler.valid()) {
+            own(b.sampler.core_);
+            e.sampler = b.sampler.handle();
+        }
+        if (b.buffer.valid()) {
+            own(b.buffer.core_);
+            e.buffer = b.buffer.handle();
+            e.offset = b.offset;
+            e.size = b.size;
+        }
+        entries.push_back(e);
+    }
+    // Transactional (see the header): claim (name and dependency list copied into the slot) before the device creates the
+    // group; then the retains and the commit, which are scalar writes and cannot throw. No window exists in which the group has
+    // no owner or the dependencies hold references nobody will release.
+    const uint32_t slot = state_->claim(name != nullptr ? name : "", deps);
+    rhi::BindGroupHandle handle;
+    try {
+        handle = device_.create_bind_group(layout, entries);
+    } catch (...) {
+        state_->unclaim(slot);
+        throw;
+    }
+    for (const auto& [dep_slot, dep_generation] : deps) {
+        state_->retain(dep_slot, dep_generation);  // the group's own hold on each resource (noexcept)
+    }
+    const uint32_t generation = state_->commit(slot, ResourceKind::BindGroup, handle.raw(), 0);
+    return BindGroupRef(RefCore(state_, slot, generation), handle);
 }
 
 #if defined(SAIGE_RENDER_TESTING)

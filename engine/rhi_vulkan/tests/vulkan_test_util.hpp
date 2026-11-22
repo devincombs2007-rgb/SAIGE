@@ -7,6 +7,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace saige::test {
@@ -53,19 +54,24 @@ public:
 
     /// Renders one frame and returns it. Animation is derived from `tick`, so a fixed tick is deterministic.
     Image render(render::SceneRenderer& renderer, const std::vector<render::SceneInstance>& instances,
-                 const render::Camera& camera, uint64_t tick = 0)
+                 const render::Camera& camera, uint64_t tick = 0, std::span<const render::ModelDraw> models = {},
+                 render::FrameStats* stats_out = nullptr)
     {
         render::SceneFrame frame;
         frame.tick = tick;
         frame.instances = instances;
         frame.camera = &camera;
+        frame.models = models;
         render::RenderTarget target;
         target.texture = color_;
         target.width = width_;
         target.height = height_;
         target.readback_buffer = readback_;
         rhi::CommandList& cmd = device_.begin_frame();
-        (void)renderer.render(cmd, frame, target);
+        const render::FrameStats stats = renderer.render(cmd, frame, target);
+        if (stats_out != nullptr) {
+            *stats_out = stats;
+        }
         (void)device_.end_frame();
         device_.wait_idle();
         const auto bytes = device_.map(readback_);

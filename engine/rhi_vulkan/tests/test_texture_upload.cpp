@@ -6,9 +6,12 @@
 
 #include "vulkan_test_util.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <stdexcept>
 #include <vector>
 

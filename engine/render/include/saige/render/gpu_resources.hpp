@@ -29,12 +29,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace saige::render {
 
-enum class ResourceKind : uint8_t { Buffer, Texture, Sampler };
-inline constexpr std::size_t resource_kind_count = 3;
+enum class ResourceKind : uint8_t { Buffer, Texture, Sampler, BindGroup };
+inline constexpr std::size_t resource_kind_count = 4;
 [[nodiscard]] const char* to_string(ResourceKind kind) noexcept;
 
 namespace detail {
@@ -95,6 +96,19 @@ private:
 using BufferRef = GpuRef<rhi::BufferHandle>;
 using TextureRef = GpuRef<rhi::TextureHandle>;
 using SamplerRef = GpuRef<rhi::SamplerHandle>;
+using BindGroupRef = GpuRef<rhi::BindGroupHandle>;
+
+/// One resource of a bind group, held by reference: the group keeps it alive for as long as the group exists, so a group
+/// can never outlive what it binds. Set `texture` for a SampledTexture binding, `sampler` for a Sampler binding, `buffer`
+/// (and optionally a byte range) for buffer bindings.
+struct BindGroupBinding {
+    uint32_t binding = 0;
+    TextureRef texture;
+    SamplerRef sampler;
+    BufferRef buffer;
+    uint64_t offset = 0;
+    uint64_t size = ~uint64_t{0};
+};
 
 struct ResourceStats {
     uint32_t live = 0;          ///< resources with at least one reference
@@ -126,6 +140,12 @@ public:
     [[nodiscard]] TextureRef create_texture(const rhi::TextureDesc& desc, std::span<const std::byte> data = {});
     /// Samplers are immutable and shared: the same description returns a reference to the same sampler.
     [[nodiscard]] SamplerRef get_sampler(const rhi::SamplerDesc& desc);
+    /// Creates an immutable bind group (`Device::create_bind_group`) that retains every resource it binds. The references
+    /// must come from this registry. Throws what the device throws; nothing is registered on failure. When the last
+    /// reference to the group goes, the group is released first and then its resources, so the device sees the group
+    /// destroyed before the textures it bound.
+    [[nodiscard]] BindGroupRef create_bind_group(rhi::BindGroupLayoutHandle layout, std::span<const BindGroupBinding> bindings,
+                                                 const char* name = "");
 
     [[nodiscard]] ResourceStats stats(ResourceKind kind) const noexcept;
     [[nodiscard]] ResourceStats total_stats() const noexcept;

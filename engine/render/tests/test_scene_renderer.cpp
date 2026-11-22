@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <new>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -283,4 +284,50 @@ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == baseline);
     CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("SceneRenderer: device allocation failures during an HDR resize leak nothing and the retry succeeds")
+{
+    // Unlike the fault point above (which fires inside SceneRenderer), this fails the device itself, including inside the
+    // tone mapper's own bind-group creation, and checks the device's books.
+    const auto resized_frame = [](rhi::NullDevice& device, SceneRenderer& renderer, const RenderTarget& target) {
+        bool threw = false;
+        rhi::CommandList& cmd = device.begin_frame();
+        try {
+            (void)renderer.render(cmd, SceneFrame{}, target);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        (void)device.end_frame();
+        return threw;
+    };
+    RendererSettings settings;
+    settings.hdr = true;
+    uint32_t clean_count = 0;
+    {
+        Offscreen o;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        REQUIRE_FALSE(resized_frame(o.device, renderer, o.target(320, 180)));
+        REQUIRE_FALSE(resized_frame(o.device, renderer, o.target(160, 90)));
+        o.device.wait_idle();
+        clean_count = o.device.live_resource_count();
+    }
+    bool threw_at_least_once = false;
+    for (uint32_t failing = 1; failing <= 6; ++failing) {
+        Offscreen o;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        REQUIRE_FALSE(resized_frame(o.device, renderer, o.target(320, 180)));
+        o.device.wait_idle();
+        o.device.fail_creation_after(failing);
+        threw_at_least_once |= resized_frame(o.device, renderer, o.target(160, 90));
+        o.device.fail_creation_after(0);
+        CHECK_FALSE(resized_frame(o.device, renderer, o.target(320, 180)));  // old size still works
+        CHECK_FALSE(resized_frame(o.device, renderer, o.target(160, 90)));   // the retried resize succeeds
+        CHECK_FALSE(resized_frame(o.device, renderer, o.target(320, 180)));
+        CHECK_FALSE(resized_frame(o.device, renderer, o.target(160, 90)));
+        o.device.wait_idle();
+        CHECK(o.device.validation_error_count() == 0);
+        CHECK(o.device.live_resource_count() == clean_count);
+    }
+    CHECK(threw_at_least_once);
 }

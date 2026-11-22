@@ -62,9 +62,16 @@ CubeMesh make_unit_cube()
 }
 
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
-    : device_(device), color_format_(color_format), settings_(settings), registry_(device)
+    : device_(device),
+      color_format_(color_format),
+      scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
+      settings_(settings),
+      registry_(device)
 {
     using namespace saige::shaders;
+    if (settings_.hdr) {
+        tone_mapper_ = std::make_unique<ToneMapper>(device_, color_format_);
+    }
     cube_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_cube_vs_main), "VSMain", "SceneCube.VS"});
     cube_ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_cube_ps_main), "PSMain", "SceneCube.PS"});
     ground_vs_ =
@@ -81,7 +88,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     cube.cull_mode = rhi::CullMode::Back;
     cube.front_face = rhi::FrontFace::CounterClockwise;
     cube.depth = {true, true, rhi::CompareOp::Greater};
-    cube.color_formats = {color_format_};
+    cube.color_formats = {scene_format_};
     cube.depth_format = depth_format;
     cube.push_constant_size = sizeof(DrawConstants);
     cube.debug_name = "SceneCube";
@@ -110,6 +117,12 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
 
 SceneRenderer::~SceneRenderer()
 {
+    if (hdr_input_.is_valid()) {
+        device_.destroy(hdr_input_);
+    }
+    if (hdr_.is_valid()) {
+        device_.destroy(hdr_);
+    }
     if (depth_.is_valid()) {
         device_.destroy(depth_);
     }
@@ -141,6 +154,31 @@ void SceneRenderer::ensure_depth(uint32_t width, uint32_t height)
     depth_width_ = width;
     depth_height_ = height;
     depth_state_ = {};  // new image: undefined contents
+}
+
+void SceneRenderer::ensure_hdr(uint32_t width, uint32_t height)
+{
+    if (hdr_.is_valid() && hdr_width_ == width && hdr_height_ == height) {
+        return;
+    }
+    if (hdr_input_.is_valid()) {
+        device_.destroy(hdr_input_);  // retired on the device's completion timeline: frames still using it finish first
+        hdr_input_ = {};
+    }
+    if (hdr_.is_valid()) {
+        device_.destroy(hdr_);
+    }
+    rhi::TextureDesc d;
+    d.format = rhi::Format::RGBA16_FLOAT;
+    d.width = width;
+    d.height = height;
+    d.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+    d.debug_name = "SceneHdr";
+    hdr_ = device_.create_texture(d);
+    hdr_input_ = tone_mapper_->create_input(hdr_);
+    hdr_width_ = width;
+    hdr_height_ = height;
+    hdr_state_ = {};  // new image: undefined contents
 }
 
 Float3 SceneRenderer::camera_target(const SceneFrame& frame) const
@@ -189,7 +227,8 @@ ModelRenderer& SceneRenderer::model_renderer()
         ModelRenderSettings ms;
         ms.sky = settings_.sky;
         ms.fog_density = settings_.fog_density;
-        models_ = std::make_unique<ModelRenderer>(device_, registry_, color_format_, depth_format, ms);
+        ms.shading = settings_.model_shading;
+        models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
 }
@@ -205,6 +244,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
     ensure_depth(target.width, target.height);
+    if (settings_.hdr) {
+        ensure_hdr(target.width, target.height);
+    }
 
     const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
     DrawConstants constants{};
@@ -216,6 +258,18 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     graph_.reset();
     const RGTexture color = graph_.import_texture("SceneColor", *color_desc, target.texture, target.initial_state,
                                                   target.final_state);
+    // The texture the Scene pass draws into: the output itself, or the HDR target that the tone-map pass resolves to it.
+    rhi::TextureHandle scene_texture = target.texture;
+    RGTexture scene_color = color;
+    if (settings_.hdr) {
+        rhi::TextureDesc hdr_desc;
+        hdr_desc.format = rhi::Format::RGBA16_FLOAT;
+        hdr_desc.width = target.width;
+        hdr_desc.height = target.height;
+        hdr_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+        scene_texture = hdr_;
+        scene_color = graph_.import_texture("SceneHdr", hdr_desc, hdr_, hdr_state_, rhi::sampled_texture_state);
+    }
     rhi::TextureDesc depth_desc;
     depth_desc.format = depth_format;
     depth_desc.width = target.width;
@@ -227,7 +281,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     graph_.add_pass(
         "Scene", rhi::QueueType::Graphics,
         [&](PassBuilder& b) {
-            b.write_color(color, LoadOp::Clear);
+            b.write_color(scene_color, LoadOp::Clear);
             b.write_depth(depth, LoadOp::Clear);
         },
         [&](PassContext& ctx) {
@@ -235,7 +289,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
             c.write_timestamp(timestamp_scene_begin);
             rhi::RenderingDesc rd;
             rhi::ColorAttachment ca;
-            ca.texture = target.texture;
+            ca.texture = scene_texture;
             ca.load = rhi::AttachmentLoadOp::Clear;
             ca.store = rhi::AttachmentStoreOp::Store;
             ca.clear = settings_.sky;
@@ -281,6 +335,33 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
             c.end_debug_label();
         });
 
+    if (settings_.hdr) {
+        graph_.add_pass(
+            "ToneMap", rhi::QueueType::Graphics,
+            [&](PassBuilder& b) {
+                b.sample(scene_color, rhi::PipelineStage::PixelShader);
+                b.write_color(color, LoadOp::DontCare);  // the full-screen triangle covers every pixel
+            },
+            [&](PassContext& ctx) {
+                rhi::CommandList& c = *ctx.command_list();
+                rhi::RenderingDesc rd;
+                rhi::ColorAttachment ca;
+                ca.texture = target.texture;
+                ca.load = rhi::AttachmentLoadOp::DontCare;
+                ca.store = rhi::AttachmentStoreOp::Store;
+                rd.colors.push_back(ca);
+                rd.area = {0, 0, target.width, target.height};
+                c.begin_debug_label("ToneMap");
+                c.begin_rendering(rd);
+                c.set_viewport({0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f});
+                c.set_scissor({0, 0, target.width, target.height});
+                tone_mapper_->draw(c, hdr_input_, settings_.tone_map);
+                ++stats.draw_calls;
+                c.end_rendering();
+                c.end_debug_label();
+            });
+    }
+
     if (target.readback_buffer.is_valid()) {
         graph_.add_pass(
             "Readback", rhi::QueueType::Graphics,
@@ -310,6 +391,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     };
     graph_.execute(ec);
     depth_state_ = depth_attachment_state;
+    if (settings_.hdr) {
+        hdr_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
+    }
     return stats;
 }
 

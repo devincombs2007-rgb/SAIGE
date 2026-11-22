@@ -5,6 +5,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(saige_core STATIC
     src/asset_id.cpp
+    src/free_camera.cpp
     src/runtime.cpp
     src/scene_hierarchy.cpp
     src/world.cpp
@@ -28,7 +29,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)
@@ -76,4 +77,47 @@ if(SAIGE_TEST_WIN32_VULKAN)
     target_link_libraries(win32_vulkan_test PRIVATE saige::desktop saige::rhi_vulkan saige::render_sink user32)
     add_test(NAME win32_vulkan_lifecycle COMMAND win32_vulkan_test)
     set_tests_properties(win32_vulkan_lifecycle PROPERTIES TIMEOUT 60)
+endif()
+
+option(SAIGE_BUILD_PROJECTS "Build the project format and tools" ON)
+if(SAIGE_BUILD_PROJECTS)
+    include(FetchContent)
+    set(JSON_BuildTests OFF CACHE INTERNAL "")
+    set(JSON_Install OFF CACHE INTERNAL "")
+    if(POLICY CMP0135)
+        cmake_policy(SET CMP0135 NEW)
+    endif()
+    FetchContent_Declare(saige_json
+        URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+        URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa)
+    FetchContent_MakeAvailable(saige_json)
+    add_library(saige_project STATIC src/project.cpp src/project_session.cpp)
+    add_library(saige::project ALIAS saige_project)
+    target_link_libraries(saige_project PUBLIC saige::core PRIVATE nlohmann_json::nlohmann_json)
+    add_executable(saige_scene_trace apps/scene_trace.cpp)
+    target_link_libraries(saige_scene_trace PRIVATE saige::project)
+    add_executable(saige_project_tool apps/project_tool.cpp)
+    target_link_libraries(saige_project_tool PRIVATE saige::project)
+    if(BUILD_TESTING)
+        add_executable(project_test tests/project_test.cpp)
+        target_link_libraries(project_test PRIVATE saige::project)
+        add_test(NAME project_round_trip COMMAND project_test)
+        add_executable(project_session_test tests/project_session_test.cpp)
+        target_link_libraries(project_session_test PRIVATE saige::project)
+        add_test(NAME project_runtime_session COMMAND project_session_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
+    endif()
+endif()
+
+if(TARGET saige::project AND TARGET saige::gfx_assets)
+    add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
+    target_link_libraries(saige_scene_asset_tool PRIVATE saige::project saige::gfx_assets)
+    if(BUILD_TESTING)
+        find_package(Python3 COMPONENTS Interpreter)
+        if(Python3_Interpreter_FOUND)
+            add_test(NAME scene_asset_preflight COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/scene_asset_preflight_test.py"
+                $<TARGET_FILE:saige_scene_asset_tool> $<TARGET_FILE:saige_scene_trace>)
+        endif()
+    endif()
 endif()

@@ -1,6 +1,10 @@
 #pragma once
 
+#include "saige/asset_id.hpp"
+
+#include <array>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace saige {
@@ -17,9 +21,14 @@ struct Vec3 {
     bool operator==(const Vec3&) const = default;
 };
 
+// Column-major affine matrix. Translation is stored at indices 12–14.
+using WorldMatrix = std::array<float, 16>;
+
 struct RenderInstance {
     Entity entity;
     Vec3 position;
+    std::optional<WorldMatrix> world_matrix{};
+    AssetId mesh{};
 };
 
 class World {
@@ -28,6 +37,8 @@ public:
     bool destroy(Entity entity);
     [[nodiscard]] bool alive(Entity entity) const;
     bool set_position(Entity entity, Vec3 position);
+    // Returns false for an expired entity or a nonfinite/non-affine matrix.
+    bool set_render_pose(Entity entity, const WorldMatrix& world_matrix, AssetId mesh);
 
     // Returns an owning copy in ascending slot order.
     [[nodiscard]] std::vector<RenderInstance> snapshot() const;
@@ -38,6 +49,8 @@ public:
 private:
     struct Slot {
         Vec3 position{};
+        std::optional<WorldMatrix> world_matrix;
+        AssetId mesh;
         std::uint32_t generation{1};
         bool occupied{};
     };

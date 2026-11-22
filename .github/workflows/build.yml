@@ -47,3 +47,21 @@ jobs:
             build/windows-release/Release/saige_desktop.exe
             build/windows-release/Release/saige_headless.exe
           if-no-files-found: error
+      - name: Package Windows project and glTF tools
+        if: matrix.preset == 'windows-release'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force project-preflight | Out-Null
+          Copy-Item build/windows-release/Release/saige_project_tool.exe project-preflight/
+          Copy-Item build/windows-release/Release/saige_scene_trace.exe project-preflight/
+          Copy-Item build/windows-release/Release/saige_scene_asset_tool.exe project-preflight/
+          Copy-Item -Recurse examples/textured-scene project-preflight/
+          Copy-Item docs/project-format-0.2.md project-preflight/
+          Copy-Item build/windows-release/_deps/saige_json-src/LICENSE.MIT project-preflight/nlohmann-json-LICENSE.MIT
+      - name: Upload project and glTF preflight
+        if: matrix.preset == 'windows-release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-project-preflight-x64
+          path: project-preflight/
+          if-no-files-found: error

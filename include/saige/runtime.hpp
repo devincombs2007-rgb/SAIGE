@@ -1,8 +1,9 @@
 #pragma once
 
-#include "saige/world.hpp"
+#include "saige/scene_hierarchy.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -17,10 +18,18 @@ public:
     virtual bool poll_events() = 0;
 };
 
+struct CameraView {
+    Vec3 position;
+    Quaternion rotation; // Local +X forward and +Z up.
+    float fov_y_radians{1.04719755F};
+    float near_plane{0.1F};
+};
+
 class IGame {
 public:
     virtual ~IGame() = default;
     virtual void fixed_update(World& world, std::chrono::nanoseconds step) = 0;
+    [[nodiscard]] virtual std::optional<CameraView> camera_view() const { return {}; }
 };
 
 // The most recently completed simulation tick, and the fraction toward the next.
@@ -29,6 +38,7 @@ struct FrameView {
     std::uint64_t tick;
     double alpha;
     std::span<const RenderInstance> instances;
+    std::optional<CameraView> camera{};
 };
 
 class IFrameSink {
@@ -47,10 +57,27 @@ struct RunStats {
     std::uint64_t ticks{};
 };
 
+struct CpuFrameMetrics {
+    std::uint64_t frame;
+    std::uint64_t ticks;
+    std::size_t instance_count;
+    std::chrono::nanoseconds input;
+    std::chrono::nanoseconds simulation;
+    std::chrono::nanoseconds extraction;
+    std::chrono::nanoseconds submission;
+    std::chrono::nanoseconds total;
+};
+
+class ICpuFrameObserver {
+public:
+    virtual ~ICpuFrameObserver() = default;
+    virtual void record(const CpuFrameMetrics& frame) = 0;
+};
+
 // The caller owns the world and adapters. Tick and frame counts start at zero
 // for each run. A zero frame budget skips polling, simulation, and submission.
 RunStats run(World& world, IPlatform& platform, IGame& game, IFrameSink& sink,
              std::optional<std::uint64_t> frame_budget = std::nullopt,
-             RuntimeConfig config = {});
+             RuntimeConfig config = {}, ICpuFrameObserver* observer = nullptr);
 
 } // namespace saige

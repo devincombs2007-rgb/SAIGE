@@ -3,6 +3,7 @@
 #include "saige/scene_hierarchy.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -56,10 +57,27 @@ struct RunStats {
     std::uint64_t ticks{};
 };
 
+struct CpuFrameMetrics {
+    std::uint64_t frame;
+    std::uint64_t ticks;
+    std::size_t instance_count;
+    std::chrono::nanoseconds input;
+    std::chrono::nanoseconds simulation;
+    std::chrono::nanoseconds extraction;
+    std::chrono::nanoseconds submission;
+    std::chrono::nanoseconds total;
+};
+
+class ICpuFrameObserver {
+public:
+    virtual ~ICpuFrameObserver() = default;
+    virtual void record(const CpuFrameMetrics& frame) = 0;
+};
+
 // The caller owns the world and adapters. Tick and frame counts start at zero
 // for each run. A zero frame budget skips polling, simulation, and submission.
 RunStats run(World& world, IPlatform& platform, IGame& game, IFrameSink& sink,
              std::optional<std::uint64_t> frame_budget = std::nullopt,
-             RuntimeConfig config = {});
+             RuntimeConfig config = {}, ICpuFrameObserver* observer = nullptr);
 
 } // namespace saige

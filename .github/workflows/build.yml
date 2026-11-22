@@ -53,6 +53,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force project-preflight | Out-Null
           Copy-Item build/windows-release/Release/saige_project_tool.exe project-preflight/
+          Copy-Item build/windows-release/Release/saige_scene_trace.exe project-preflight/
           Copy-Item build/windows-release/Release/saige_scene_asset_tool.exe project-preflight/
           Copy-Item -Recurse examples/textured-scene project-preflight/
           Copy-Item docs/project-format-0.2.md project-preflight/

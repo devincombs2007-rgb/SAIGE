@@ -19,6 +19,7 @@ add_library(saige_gfx_assets STATIC
     src/gltf.cpp
     src/json.cpp
     src/resource_uri.cpp
+    src/tangents.cpp
 )
 
 # PNG/JPEG decoding with stb_image, pinned by upstream commit and SHA-256 (docs/third-party/stb_image.md). Offline builds
@@ -50,6 +51,7 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
             tests/test_gltf.cpp
             tests/test_json.cpp
             tests/test_resource_uri.cpp
+            tests/test_tangents.cpp
         LINK saige::gfx_assets)
     if(SAIGE_GFX_IMAGE_DECODE)
         target_sources(saige_gfx_assets_tests PRIVATE tests/test_image.cpp)

@@ -57,8 +57,9 @@ struct Rig {
     RendererSettings settings;
     Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
 
-    Rig(const char* name, Mode mode, uint32_t w = kW, uint32_t h = kH) : settings(settings_for(mode))
+    Rig(const char* name, Mode mode, uint32_t w = kW, uint32_t h = kH, bool alpha_blending = true) : settings(settings_for(mode))
     {
+        settings.alpha_blending = alpha_blending;  // off is the default of the renderer; these tests are about it being on
         device = make_validated_device(name, /*synchronization=*/true);
         renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, settings);
         target = std::make_unique<OffscreenTarget>(*device, w, h);
@@ -489,4 +490,29 @@ TEST_CASE("Blend (model): many blended primitives sort deterministically; the CP
         std::printf("  recording 1000 primitives on the CPU: blended (sorted) %.3f ms, opaque %.3f ms\n", blended_ms, opaque_ms);
     }
     CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Blend (model): with alpha blending off, the default, a saved 0.2 BLEND scene draws exactly as 0.2 did")
+{
+    for (const Mode mode : {Mode::LdrLegacy, Mode::HdrLegacy}) {
+        Rig rig("blend_model_compat", mode, kW, kH, /*alpha_blending=*/false);
+        {
+            const Float3 back_c = is_hdr(mode) ? Float3{3.0f, 1.0f, 0.5f} : Float3{0.7f, 0.4f, 0.2f};
+            const Float3 glass_c = is_hdr(mode) ? Float3{0.5f, 2.5f, 4.0f} : Float3{0.1f, 0.6f, 0.9f};
+            const GpuModel back = rig.quad(rig.emissive(back_c, 1.0f, false), 2.0f);
+            // A BLEND material with alpha 0.3, and the same material as plain opaque: in 0.2 the alpha mode was ignored, so they are identical.
+            const GpuModel as_blend = rig.quad(rig.emissive(glass_c, 0.3f, /*blend=*/true), 0.0f);
+            const GpuModel as_opaque = rig.quad(rig.emissive(glass_c, 0.3f, /*blend=*/false), 0.0f);
+            const ModelDraw with_blend[2] = {{&as_blend, Mat4::identity()}, {&back, Mat4::identity()}};
+            const ModelDraw with_opaque[2] = {{&as_opaque, Mat4::identity()}, {&back, Mat4::identity()}};
+            FrameStats stats;
+            const test::Image a = rig.render(with_blend, &stats);
+            const test::Image b = rig.render(with_opaque);
+            CHECK(a.rgba == b.rgba);
+            CHECK(stats.model_blended_primitives == 0);
+            CHECK(near(rig.center_pixel(a), rig.displayed(glass_c, mode), tolerance_for(mode)));  // opaque: the glass color, not a blend
+            CHECK_FALSE(rig.renderer->model_renderer().blending_enabled());
+        }
+        CHECK(rig.device->validation_error_count() == 0);
+    }
 }

@@ -165,8 +165,10 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             // shader does for 0 (no test); the shader discards only alpha < cutoff.
             data.alpha_cutoff = m.alpha_cutoff;
         } else if (m.alpha_mode == AlphaMode::Blend) {
-            data.alpha_blend = true;  // drawn source-over in the sorted phase; opaque only if the scene format cannot blend
-            if (!models.blending_supported()) {
+            data.alpha_blend = true;  // the renderer decides: sorted blending only if it was asked for and the scene format can blend
+            if (!models.alpha_blending()) {
+                warn_once(report, "alpha blending is off (RendererSettings::alpha_blending): Blend materials draw as opaque, as in 0.2");
+            } else if (!models.blending_supported()) {
                 warn_once(report, "the scene's color format cannot blend: Blend materials draw as opaque");
             }
         }

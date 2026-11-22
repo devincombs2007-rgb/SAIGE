@@ -52,7 +52,7 @@ resolves outside it, so a symlink cannot escape either.
 |---|---|
 | `pbrMetallicRoughness`: `baseColorFactor`/`Texture`, `metallicFactor`, `roughnessFactor`, `metallicRoughnessTexture` | ✅ with spec defaults (metallic 1, roughness 1) |
 | `normalTexture` (+`scale`), `occlusionTexture` (+`strength`), `emissiveFactor`/`Texture` | ✅ |
-| `alphaMode` (`OPAQUE`/`MASK`/`BLEND`), `alphaCutoff`, `doubleSided` | ✅ `BLEND` is composited with sorted source-over alpha blending ([alpha-blending.md](alpha-blending.md)); with a scene format that cannot blend it draws opaque, with a stage warning |
+| `alphaMode` (`OPAQUE`/`MASK`/`BLEND`), `alphaCutoff`, `doubleSided` | ✅ `BLEND` draws opaque (the 0.2 behavior) unless the renderer is created with `alpha_blending`, which composites it with sorted source-over alpha blending ([alpha-blending.md](alpha-blending.md)); a scene format that cannot blend also draws it opaque; staging warns which |
 | `KHR_materials_emissive_strength` | ✅ (folded into the emissive factor) |
 | Textures: `source`, `sampler` (filters, wrap modes); images from relative URI, `data:` URI or `bufferView` | ✅ kept as **encoded bytes plus MIME type**. PNG/JPEG decoding is a separate, bounded step: `decode_image` and `generate_mips` in `saige/gfx_assets/image.hpp` (pinned stb_image, see `docs/third-party/stb_image.md`) |
 | `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0` |

@@ -142,6 +142,7 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     pd.bind_group_layouts = {material_layout_, constants_layout_};
     pipeline_template_ = pd;
     blending_supported_ = rhi::is_blendable_color_format(color_format);
+    alpha_blending_ = settings.alpha_blending;
     static const char* const names[4] = {"SceneModel.CCW.Back", "SceneModel.CCW.None", "SceneModel.CW.Back", "SceneModel.CW.None"};
     for (int mirrored = 0; mirrored < 2; ++mirrored) {
         for (int two_sided = 0; two_sided < 2; ++two_sided) {
@@ -263,7 +264,7 @@ GpuMaterial ModelRenderer::create_material(const MaterialData& data, const Mater
     block.metallic_roughness_normal_occlusion[2] = data.normal_scale;
     block.metallic_roughness_normal_occlusion[3] = data.occlusion_strength;
     block.flags[0] = textures[MaterialSlot::Normal].texture.valid() ? 1.0f : 0.0f;
-    const bool blend = data.alpha_blend && blending_supported_;
+    const bool blend = data.alpha_blend && blending_enabled();
     block.flags[1] = blend ? 1.0f : 0.0f;
     if (blend) {
         ensure_blend_pipelines();  // outside any rendering, so a device failure surfaces as a failed material, not a failed frame

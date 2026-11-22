@@ -228,6 +228,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.sky = settings_.sky;
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
+        ms.alpha_blending = settings_.alpha_blending;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;

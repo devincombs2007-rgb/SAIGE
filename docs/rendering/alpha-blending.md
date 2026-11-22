@@ -1,12 +1,15 @@
 # Sorted alpha blending
 
 glTF `alphaMode: BLEND` materials are composited source-over with straight (non-premultiplied) alpha in a phase after all opaque
-and masked draws. Built on the RHI blend state (`saige/rhi/blend.hpp`, docs/rendering/rhi-design.md section 6.1). Owner approval:
+and masked draws, **when the host asks for it**: `RendererSettings::alpha_blending` (`ModelRenderSettings::alpha_blending`) is off by
+default, and with it off a BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did (review of #59). Turning
+it on is an owner decision about defaults. Built on the RHI blend state (`saige/rhi/blend.hpp`, docs/rendering/rhi-design.md section 6.1). Owner approval:
 0.3 review (sort key, two-pass double-sided, documented limits, tests before integration).
 
 ## Behavior
 
-- `MaterialData::alpha_blend` (set by `stage_model` for `BLEND` materials) makes `ModelRenderer::create_material` mark the
+- `MaterialData::alpha_blend` (set by `stage_model` for `BLEND` materials) makes `ModelRenderer::create_material`, when alpha blending is
+  enabled, mark the
   `GpuMaterial` as blended and create the four blend pipelines on first use (mirrored x back-face-culled and front-face-culled
   variants; never for scenes that have no blended material).
 - A blended pipeline is the model pipeline plus `BlendState::source_over()` and depth state *test on, write off* (reverse-Z
@@ -26,8 +29,8 @@ and masked draws. Built on the RHI blend state (`saige/rhi/blend.hpp`, docs/rend
   clockwise-winding variants, so the same faces are chosen.
 - Frame statistics: `FrameStats::model_blended_primitives`, `ModelFrameStats::blended_primitives` and `blended_draws` (two per
   double-sided primitive).
-- Fallback: if the scene format is not in the portable blend subset (for example 32-bit float), blended materials draw opaque and
-  staging warns once. UNORM, sRGB and 16-bit float formats, which includes both the output formats and the HDR target, blend.
+- Fallback: with `alpha_blending` off (the default), or if the scene format is not in the portable blend subset (for example 32-bit
+  float), blended materials draw opaque and staging warns once, saying which. UNORM, sRGB and 16-bit float formats, which includes both the output formats and the HDR target, blend.
 
 ## Limitations (by design, stated plainly)
 

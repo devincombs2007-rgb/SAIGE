@@ -17,9 +17,18 @@ using namespace saige::gfx;
 
 namespace {
 
+render::RendererSettings blending_settings(bool alpha_blending)
+{
+    render::RendererSettings s;
+    s.alpha_blending = alpha_blending;
+    return s;
+}
+
 struct Rig {
     rhi::NullDevice device;
-    render::SceneRenderer renderer{device, rhi::Format::RGBA8_SRGB};
+    render::SceneRenderer renderer;
+    /// Alpha blending is off by default everywhere (the 0.2 behavior); tests of sorted blending opt in.
+    explicit Rig(bool alpha_blending = false) : renderer(device, rhi::Format::RGBA8_SRGB, blending_settings(alpha_blending)) {}
 };
 
 GltfAsset load_fixture()
@@ -215,16 +224,25 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     REQUIRE(model.materials.size() == 4);
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
-    CHECK(report.warnings.empty());  // a blending scene format needs no warning
+    // The default renderer has alpha blending off: BLEND draws opaque exactly as in 0.2, with a warning saying so.
+    CHECK(has_warning(report, "alpha blending is off"));
     CHECK_FALSE(model.materials[0].blend);
     CHECK_FALSE(model.materials[1].blend);  // the mask material
-    CHECK(model.materials[2].blend);        // "glass": glTF BLEND
-    // Every primitive carries a bounding sphere for sorting blended draws.
+    CHECK_FALSE(model.materials[2].blend);  // "glass": glTF BLEND, but blending was not asked for
+    // Every primitive carries a bounding sphere for sorting blended draws (used only when blending is on).
     for (const auto& primitives : model.meshes) {
         for (const render::GpuPrimitive& prim : primitives) {
             CHECK(prim.bounds_radius > 0.0f);
         }
     }
+    // With alpha blending asked for, the same asset blends the BLEND material and needs no warning.
+    Rig blending_rig(/*alpha_blending=*/true);
+    StageReport blending_report;
+    const render::GpuModel blending_model = stage_model(blending_rig.renderer, asset, "materials", {}, &blending_report);
+    CHECK_FALSE(has_warning(blending_report, "alpha blending"));
+    CHECK_FALSE(blending_model.materials[0].blend);
+    CHECK_FALSE(blending_model.materials[1].blend);
+    CHECK(blending_model.materials[2].blend);
 }
 
 TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")

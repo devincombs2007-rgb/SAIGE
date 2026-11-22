@@ -130,6 +130,14 @@ namespace saige::rhi::vk {
     X(vkCmdWriteTimestamp2)                                                                                            \
     X(vkGetQueryPoolResults)                                                                                           \
     X(vkCreateSampler)                                                                                                 \
+    X(vkCreateDescriptorSetLayout)                                                                                     \
+    X(vkDestroyDescriptorSetLayout)                                                                                    \
+    X(vkCreateDescriptorPool)                                                                                          \
+    X(vkDestroyDescriptorPool)                                                                                         \
+    X(vkAllocateDescriptorSets)                                                                                        \
+    X(vkFreeDescriptorSets)                                                                                            \
+    X(vkUpdateDescriptorSets)                                                                                          \
+    X(vkCmdBindDescriptorSets)                                                                                         \
     X(vkDestroySampler)                                                                                                \
     X(vkCmdCopyImageToBuffer)
 

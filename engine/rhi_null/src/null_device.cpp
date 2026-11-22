@@ -3,6 +3,7 @@
 #include "saige/rhi/deferred_release_queue.hpp"
 #include "saige/rhi/handle_pool.hpp"
 
+#include <array>
 #include <cstring>
 #include <functional>
 #include <iostream>
@@ -26,6 +27,18 @@ struct NullTexture {
 
 struct NullSampler {
     SamplerDesc desc;
+};
+
+struct NullBindGroupLayout {
+    BindGroupLayoutDesc desc;
+};
+
+struct NullBindGroup {
+    BindGroupLayoutHandle layout;
+    // Only the resources the layout actually binds (extraneous handles in an entry are ignored, as in validation).
+    std::vector<TextureHandle> textures;
+    std::vector<SamplerHandle> samplers;
+    std::vector<BufferHandle> buffers;
 };
 
 struct NullShader {
@@ -58,6 +71,8 @@ struct NullDevice::Impl {
     HandlePool<NullBuffer, BufferTag> buffers;
     HandlePool<NullTexture, TextureTag> textures;
     HandlePool<NullSampler, SamplerTag> samplers;
+    HandlePool<NullBindGroupLayout, BindGroupLayoutTag> bind_group_layouts;
+    HandlePool<NullBindGroup, BindGroupTag> bind_groups;
     HandlePool<NullShader, ShaderTag> shaders;
     HandlePool<NullPipeline, PipelineTag> pipelines;
     HandlePool<NullSwapchain, SwapchainTag> swapchains;
@@ -70,6 +85,21 @@ struct NullDevice::Impl {
     std::vector<SwapchainHandle> acquired_this_frame;
     std::unique_ptr<NullCommandList> cmd;
     std::vector<RecordedCommand> last_commands;
+
+    /// A group does not own what it references. Binding one whose resources were destroyed is an error.
+    bool group_resources_alive(const NullBindGroup& g) const
+    {
+        for (const TextureHandle t : g.textures) {
+            if (!textures.contains(t)) return false;
+        }
+        for (const SamplerHandle s : g.samplers) {
+            if (!samplers.contains(s)) return false;
+        }
+        for (const BufferHandle b : g.buffers) {
+            if (!buffers.contains(b)) return false;
+        }
+        return true;
+    }
 
     void error(std::string message)
     {
@@ -112,6 +142,7 @@ public:
         written_timestamps_ = 0;
         in_rendering_ = false;
         bound_pipeline_ = {};
+        bound_groups_.fill({});
         vertex_bound_ = false;
         index_bound_ = false;
     }
@@ -208,6 +239,11 @@ public:
         if (!device_.pipelines.contains(pipeline)) {
             device_.error("bind_pipeline(): invalid pipeline");
         }
+        if (pipeline != bound_pipeline_) {
+            // Descriptor compatibility also depends on push constant ranges and every lower set, so a different
+            // pipeline starts with nothing bound: the caller rebinds its groups (same-handle rebinds keep them).
+            bound_groups_.fill({});
+        }
         bound_pipeline_ = pipeline;
         RecordedCommand c = make(CommandType::BindPipeline);
         c.pipeline = pipeline;
@@ -226,6 +262,35 @@ public:
         }
         RecordedCommand c = make(CommandType::Timestamp);
         c.count = index;
+        commands_.push_back(std::move(c));
+    }
+
+    void bind_group(uint32_t set, BindGroupHandle group) override
+    {
+        check_frame("bind_group");
+        const NullPipeline* p = device_.pipelines.get(bound_pipeline_);
+        const NullBindGroup* g = device_.bind_groups.get(group);
+        // Like the Vulkan backend, an invalid bind changes nothing: the previously bound group (if any) stays.
+        bool valid = false;
+        if (p == nullptr) {
+            device_.error("bind_group() without a bound pipeline");
+        } else if (set >= p->desc.bind_group_layouts.size()) {
+            device_.error("bind_group(): the bound pipeline has no descriptor set " + std::to_string(set));
+        } else if (g == nullptr) {
+            device_.error("bind_group(): invalid bind group");
+        } else if (g->layout != p->desc.bind_group_layouts[set]) {
+            device_.error("bind_group(): the group's layout differs from the pipeline's layout for set " + std::to_string(set));
+        } else if (!device_.group_resources_alive(*g)) {
+            device_.error("bind_group(): the group refers to a resource that has been destroyed; rebuild the group");
+        } else {
+            valid = true;
+        }
+        if (valid) {
+            bound_groups_[set] = group;
+        }
+        RecordedCommand c = make(CommandType::BindGroup);
+        c.group = group;
+        c.count = set;
         commands_.push_back(std::move(c));
     }
 
@@ -356,8 +421,16 @@ private:
         const NullPipeline* p = device_.pipelines.get(bound_pipeline_);
         if (p == nullptr) {
             device_.error(std::string(what) + "() without a bound pipeline");
-        } else if (!p->desc.vertex_layout.attributes.empty() && !vertex_bound_) {
-            device_.error(std::string(what) + "() without a vertex buffer for a pipeline with vertex input");
+        } else {
+            if (!p->desc.vertex_layout.attributes.empty() && !vertex_bound_) {
+                device_.error(std::string(what) + "() without a vertex buffer for a pipeline with vertex input");
+            }
+            for (std::size_t set = 0; set < p->desc.bind_group_layouts.size(); ++set) {
+                const NullBindGroup* g = device_.bind_groups.get(bound_groups_[set]);
+                if (g == nullptr || g->layout != p->desc.bind_group_layouts[set]) {
+                    device_.error(std::string(what) + "() without a compatible bind group at set " + std::to_string(set));
+                }
+            }
         }
     }
 
@@ -368,6 +441,7 @@ private:
     PipelineHandle bound_pipeline_;
     bool vertex_bound_ = false;
     bool index_bound_ = false;
+    std::array<BindGroupHandle, max_bind_groups_per_pipeline> bound_groups_{};
 };
 
 // =====================================================================================================================
@@ -447,6 +521,73 @@ SamplerHandle NullDevice::create_sampler(const SamplerDesc& desc)
     return impl_->samplers.emplace(NullSampler{desc});
 }
 
+BindGroupLayoutHandle NullDevice::create_bind_group_layout(const BindGroupLayoutDesc& desc)
+{
+    if (const ValidationResult v = validate(desc); !v) {
+        throw std::invalid_argument(std::string("create_bind_group_layout: ") + v.error);
+    }
+    NullBindGroupLayout layout{desc};
+    layout.desc.debug_name = nullptr;
+    return impl_->bind_group_layouts.emplace(std::move(layout));
+}
+
+BindGroupHandle NullDevice::create_bind_group(BindGroupLayoutHandle layout, std::span<const BindGroupEntry> entries)
+{
+    const NullBindGroupLayout* l = impl_->bind_group_layouts.get(layout);
+    if (l == nullptr) {
+        throw std::invalid_argument("create_bind_group: invalid layout");
+    }
+    BindGroupResolver resolver;
+    resolver.texture = [this](TextureHandle h) -> std::optional<TextureDesc> {
+        const NullTexture* t = impl_->textures.get(h);
+        return t != nullptr ? std::optional<TextureDesc>(t->desc) : std::nullopt;
+    };
+    resolver.sampler_exists = [this](SamplerHandle h) { return impl_->samplers.contains(h); };
+    resolver.buffer = [this](BufferHandle h) -> std::optional<BufferDesc> {
+        const NullBuffer* b = impl_->buffers.get(h);
+        return b != nullptr ? std::optional<BufferDesc>(b->desc) : std::nullopt;
+    };
+    if (const ValidationResult v = validate(l->desc, entries, resolver); !v) {
+        throw std::invalid_argument(std::string("create_bind_group: ") + v.error);
+    }
+    NullBindGroup group;
+    group.layout = layout;
+    for (const BindGroupLayoutEntry& expected : l->desc.entries) {
+        for (const BindGroupEntry& e : entries) {
+            if (e.binding != expected.binding) {
+                continue;
+            }
+            if (expected.type == BindingType::SampledTexture) {
+                group.textures.push_back(e.texture);
+            } else if (expected.type == BindingType::Sampler) {
+                group.samplers.push_back(e.sampler);
+            } else {
+                group.buffers.push_back(e.buffer);
+            }
+        }
+    }
+    return impl_->bind_groups.emplace(std::move(group));
+}
+
+void NullDevice::destroy(BindGroupLayoutHandle handle)
+{
+    if (!impl_->bind_group_layouts.contains(handle)) {
+        impl_->error("destroy(): invalid bind group layout handle");
+        return;
+    }
+    impl_->pending.enqueue([this, handle] { impl_->bind_group_layouts.release(handle); },
+                           impl_->frame + impl_->desc.frames_in_flight);
+}
+
+void NullDevice::destroy(BindGroupHandle handle)
+{
+    if (!impl_->bind_groups.contains(handle)) {
+        impl_->error("destroy(): invalid bind group handle");
+        return;
+    }
+    impl_->pending.enqueue([this, handle] { impl_->bind_groups.release(handle); }, impl_->frame + impl_->desc.frames_in_flight);
+}
+
 void NullDevice::destroy(SamplerHandle handle)
 {
     if (!impl_->samplers.contains(handle)) {
@@ -493,6 +634,20 @@ PipelineHandle NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& 
     }
     if ((desc.depth.test || desc.depth.write) && !has_depth(desc.depth_format)) {
         throw std::invalid_argument("create_graphics_pipeline: depth state without a depth format");
+    }
+    if (desc.bind_group_layouts.size() > max_bind_groups_per_pipeline) {
+        throw std::invalid_argument("create_graphics_pipeline: too many bind group layouts");
+    }
+    std::vector<const BindGroupLayoutDesc*> layout_descs;
+    for (const BindGroupLayoutHandle layout : desc.bind_group_layouts) {
+        const NullBindGroupLayout* l = impl_->bind_group_layouts.get(layout);
+        if (l == nullptr) {
+            throw std::invalid_argument("create_graphics_pipeline: invalid bind group layout");
+        }
+        layout_descs.push_back(&l->desc);
+    }
+    if (const ValidationResult v = validate_pipeline_bindings(layout_descs); !v) {
+        throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
     }
     return impl_->pipelines.emplace(NullPipeline{desc});
 }
@@ -712,7 +867,8 @@ uint32_t NullDevice::live_resource_count() const noexcept
         swapchain_images += static_cast<uint32_t>(sc.images.size());
     });
     return impl_->buffers.size() + impl_->textures.size() - swapchain_images + impl_->samplers.size() +
-           impl_->shaders.size() + impl_->pipelines.size();
+           impl_->bind_group_layouts.size() + impl_->bind_groups.size() + impl_->shaders.size() +
+           impl_->pipelines.size();
 }
 
 uint32_t NullDevice::pending_destruction_count() const noexcept

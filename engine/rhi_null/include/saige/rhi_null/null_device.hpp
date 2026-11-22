@@ -23,6 +23,7 @@ enum class CommandType : uint8_t {
     SetScissor,
     BindPipeline,
     Timestamp,  ///< index in `count`
+    BindGroup,
     PushConstants,
     BindVertexBuffer,
     BindIndexBuffer,
@@ -39,6 +40,7 @@ struct RecordedCommand {
     PipelineHandle pipeline;
     BufferHandle buffer;
     TextureHandle texture;
+    BindGroupHandle group;        ///< BindGroup (set index in `count`)
     RenderingDesc rendering;
     Viewport viewport;
     Rect2D scissor;
@@ -62,6 +64,10 @@ public:
     TextureHandle create_texture(const TextureDesc& desc) override;
     void upload_texture(TextureHandle texture, std::span<const std::byte> data) override;
     SamplerHandle create_sampler(const SamplerDesc& desc) override;
+    BindGroupLayoutHandle create_bind_group_layout(const BindGroupLayoutDesc& desc) override;
+    BindGroupHandle create_bind_group(BindGroupLayoutHandle layout, std::span<const BindGroupEntry> entries) override;
+    void destroy(BindGroupLayoutHandle handle) override;
+    void destroy(BindGroupHandle handle) override;
     ShaderHandle create_shader(const ShaderDesc& desc) override;
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
     void destroy(BufferHandle handle) override;

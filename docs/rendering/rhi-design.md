@@ -101,8 +101,51 @@ anisotropy degrades to trilinear on devices without `samplerAnisotropy` instead 
 samplers and textures is deferred until in-flight frames retire, like every other resource. A texture whose usage allows
 no shader or attachment access (transfer only) has no image view.
 
-Binding textures and samplers to draws (bind groups, one descriptor set per material first, bindless optional later)
-is the next RHI step and is specified separately before it lands.
+### 4.2 Bind groups (0.2)
+
+Bind groups are plain descriptor sets: no bindless, no extensions, so the software lanes stay representative. A
+`BindGroupLayout` lists bindings of type `SampledTexture`, `Sampler`, `UniformBuffer` or `StorageBuffer`. Textures and
+samplers are separate bindings, which is HLSL's model (`Texture2D` + `SamplerState`) and what both glslang and DXC emit;
+it also lets materials share one sampler. Pipelines list their layouts (position = descriptor set index, at most 4), and
+`CommandList::bind_group(set, group)` binds a group made from the same layout. All bindings are visible to the vertex and
+pixel stages.
+
+- **Immutable and load-time.** `create_bind_group` writes the descriptors once. Per-draw or per-frame data goes through
+  push constants today and an instance buffer next; there is no dynamic-offset or update-after-bind path yet.
+- **One rule set.** `validate(layout, entries, resolver)` in `saige::rhi` is shared by every backend: exactly one entry
+  per binding, live resources, `Sampled` usage and one sample for textures, `Uniform` / `Storage` usage for buffers,
+  256-byte aligned offsets, and a non-empty range inside the buffer that fits the portable per-binding limits (16 KiB
+  uniform, 128 MiB storage: the minimums every Vulkan device guarantees; a whole-buffer binding of a larger buffer is
+  rejected and needs an explicit size). Violations throw `std::invalid_argument` at creation.
+- **Bind and draw misuse is rejected by the backend, not left to the validation layer.** `bind_group` requires a bound
+  pipeline, a set the pipeline declares, a live group, and a group created from that pipeline's layout for the set; a
+  draw with a pipeline that declares sets requires a compatible group at every one of them. Each check throws
+  `std::invalid_argument` before any Vulkan call is made (the null backend reports the same cases as validation errors).
+- **Lifetimes.** A group does not own what it references. Destruction of groups, layouts and the resources they point at
+  is deferred until in-flight submissions retire, so they can be destroyed in any order right after a frame is
+  submitted (tested on Vulkan with validation). A group must not outlive the device. Leaked groups are reported at
+  device teardown like other resources.
+- **Pipeline switches.** Descriptor compatibility on Vulkan depends on the push constant ranges and every lower set's
+  layout, not only the layout at one slot. The 0.2 contract is therefore simple: binding a *different* pipeline handle
+  clears every bound group and the caller rebinds; re-binding the same handle keeps them. Both backends do this, and a
+  draw after a switch without rebinding is rejected.
+- **Aggregate limits.** Every binding is visible to both the vertex and the pixel stage, so a pipeline's layouts are
+  checked in total, not only one range or one group at a time: at most 16 sampled textures, 16 samplers, 12 uniform
+  buffers and 4 storage buffers across all of its layouts. These are the Vulkan minimums for the per-stage limits, so a
+  pipeline inside them is valid on every conforming device. Creation throws before `vkCreatePipelineLayout`. Raising them
+  per device is a capability decision for later, not an implicit one.
+- **Groups are immutable and non-owning (the stale-resource boundary).** A group never keeps its textures, samplers or
+  buffers alive. Using a group after any of them was destroyed is invalid; to replace a resource, build a new group and
+  retire the old one. `bind_group` enforces this: it validates that every resource the group binds is still alive and
+  throws (null: reports) otherwise, so a later frame cannot reuse a group over freed descriptors. Destroying a resource
+  *after* binding the group in the same frame is safe, because destruction is deferred until that frame's submission
+  retires. The resource registry (next) destroys a material's group before its textures, so ordinary code never reaches
+  the error.
+- **Pooling.** The Vulkan backend allocates sets from growing pools of 256 sets and frees them individually when they
+  retire. Allocation only tries the newest pool, so capacity freed in older pools is not reused until the process
+  restarts. That is tracked debt: it will be addressed if scene reloads are measured to grow pool count.
+- **Null backend.** Records `BindGroup` commands and reports a validation error for a draw without a compatible group at
+  every declared set, a layout mismatch, or an undeclared set.
 
 Tests that want hazard detection set `DeviceDesc::enable_synchronization_validation`. The Vulkan backend then enables the
 layer's synchronization validation through `VK_EXT_validation_features` in code (environment variables are ignored by

@@ -16,13 +16,14 @@
 using namespace saige::render;
 using namespace saige::rhi;
 
-// ---------------------------------------------------------------------------------------- allocation failure injection
-// The tests below arm a failure of the N-th heap allocation inside one registry call, for every N until the call succeeds,
-// and check that nothing leaked on the device or in the registry. Replacing the global allocation functions affects only
-// this executable; outside an armed region they forward to malloc/free.
+// ------------------------------------------------------------------------------------------------ allocation counting
+// Counts heap allocations while `armed`, to show that releasing a reference allocates nothing in the registry. It never makes
+// an allocation fail: failure injection goes through the registry's own test hook, because failing allocations inside the
+// device and the STL (whose behavior on failure is outside the registry's contract, and which allocate even in operations
+// declared noexcept under MSVC's checked iterators) tests nothing about the registry. Replacing the global allocation
+// functions affects only this executable.
 namespace alloc_probe {
-std::size_t count = 0;    // allocations since reset (counting only while `armed`)
-std::size_t fail_at = 0;  // 1-based allocation to fail; 0 = never fail
+std::size_t count = 0;
 bool armed = false;
 } // namespace alloc_probe
 
@@ -30,9 +31,6 @@ void* operator new(std::size_t size)
 {
     if (alloc_probe::armed) {
         ++alloc_probe::count;
-        if (alloc_probe::fail_at != 0 && alloc_probe::count == alloc_probe::fail_at) {
-            throw std::bad_alloc();
-        }
     }
     if (void* p = std::malloc(size != 0 ? size : 1)) {
         return p;
@@ -288,50 +286,47 @@ TEST_CASE("Registry: a clean shutdown reports nothing")
 
 namespace {
 
-/// Runs `op` with the N-th allocation failing, for N = 1, 2, ... until `op` completes. After every failed attempt `verify`
-/// must hold (nothing leaked). Returns how many allocations the successful run made.
+/// Runs `op` with the n-th registry bookkeeping step failing, for n = 1, 2, ... until `op` completes. After every failed
+/// attempt `verify` must hold (nothing leaked, nothing half-registered). Returns how many steps the successful run passed.
 template <typename Op, typename Verify>
-std::size_t for_each_allocation_failure(Op&& op, Verify&& verify)
+std::size_t for_each_bookkeeping_failure(Op&& op, Verify&& verify)
 {
-    for (std::size_t n = 1; n < 500; ++n) {
-        alloc_probe::count = 0;
-        alloc_probe::fail_at = n;
-        alloc_probe::armed = true;
+    for (uint32_t n = 1; n < 64; ++n) {
+        saige::render::testing::fail_registry_bookkeeping_after(n);
         bool failed = false;
         try {
             op();
         } catch (const std::bad_alloc&) {
             failed = true;
         }
-        alloc_probe::armed = false;
-        alloc_probe::fail_at = 0;
+        saige::render::testing::fail_registry_bookkeeping_after(0);
         if (!failed) {
-            return alloc_probe::count;
+            return n - 1;
         }
-        verify();  // a failed attempt must have changed nothing
+        verify();
     }
     return 0;
 }
 
 } // namespace
 
-TEST_CASE("Registry: an allocation failure during registration leaves the device and the registry untouched")
+TEST_CASE("Registry: a bookkeeping failure during registration leaves the device and the registry untouched")
 {
     const std::string long_name = "a debug name too long for the small-string buffer";
     SamplerDesc unusual;
     unusual.max_anisotropy = 4.0f;
 
-    // One phase: fail every allocation of `op` in turn; each failed attempt must leave device and registry as they were.
+    // One phase: fail every bookkeeping step of `op` in turn; each failed attempt must leave device and registry as they were.
     const auto phase = [&](NullDevice& device, GpuResourceRegistry& registry, auto&& op) {
         device.wait_idle();
         const uint32_t device_before = device.live_resource_count();
         const uint32_t live_before = registry.live_count();
-        const std::size_t made = for_each_allocation_failure(op, [&] {
+        const std::size_t made = for_each_bookkeeping_failure(op, [&] {
             CHECK(device.live_resource_count() == device_before);
             CHECK(registry.live_count() == live_before);
             CHECK(device.validation_error_count() == 0);
         });
-        CHECK(made > 0);  // the operation allocates, so there was something to inject into
+        CHECK(made > 0);  // the operation has bookkeeping steps, so there was something to inject into
     };
 
     // A fresh registry: the first registration has to allocate the slot tables, the hardest place to fail.
@@ -379,7 +374,6 @@ TEST_CASE("Registry: releasing references allocates nothing beyond the device's 
     constexpr int count = 40;
     const auto arm = [] {
         alloc_probe::count = 0;
-        alloc_probe::fail_at = 0;
         alloc_probe::armed = true;
     };
 

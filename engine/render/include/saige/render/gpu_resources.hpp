@@ -8,8 +8,9 @@
 // what the device does not know: who still holds what, how much is live, and what leaked.
 //
 // Exception safety: create_* is transactional. Everything that can fail for lack of memory (bookkeeping capacity, the
-// name copy) happens before the device resource is created, and registering it afterwards cannot fail, so an exception
-// leaves the device and the registry exactly as they were. Releasing a reference never allocates or throws.
+// name copy) happens in a claim step before the device resource is created, and registering it afterwards is scalar writes
+// only (no STL object is constructed, moved or assigned), so an exception leaves the device and the registry exactly as they
+// were. Releasing a reference never allocates or throws.
 //
 // Threading: single-threaded, like rhi::Device (0.1 contract D-08). References are not safe to copy or release from
 // two threads.
@@ -141,5 +142,13 @@ private:
     rhi::Device& device_;
     std::shared_ptr<detail::RegistryState> state_;
 };
+
+/// Test-only fault injection. Makes the n-th (1-based) registration bookkeeping step after this call throw std::bad_alloc, as
+/// if the registry's own tables could not grow; 0 cancels. Process-wide; consumed by the step it fails. It exists because a real
+/// allocation failure inside the registry cannot be provoked deterministically (and injecting one into the allocator also
+/// reaches the device and the STL, whose behavior on failure is not the registry's contract).
+namespace testing {
+void fail_registry_bookkeeping_after(uint32_t n) noexcept;
+} // namespace testing
 
 } // namespace saige::render

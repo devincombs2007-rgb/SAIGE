@@ -42,7 +42,7 @@ Vulkan** (Mesa llvmpipe on Linux, lavapipe on Windows); none of it is physical-G
 | #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned 64x64 env BRDF table (draft) | #51 | green incl. MSVC reproducibility check |
 | #56 | `docs-0.3-handoff` (this branch) | energy and table notes, MikkTSpace evaluation, alpha plan, this file, analysis tools (draft) | #49 | docs |
 | #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | green (Linux, ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan) |
-| #59 | `sorted-alpha-blending` (85a454f) | sorted source-over alpha blending in the model renderer (draft); base branch `blend-base` = #57 + the M1 to M4 stack, a review convenience, not to merge | #57, #50 to #53 | check (pending when written) |
+| #59 | `sorted-alpha-blending` (85a454f) | sorted source-over alpha blending in the model renderer (draft); base branch `blend-base` = #57 + the M1 to M4 stack, a review convenience, not to merge | #57, #50 to #53 | green (Linux, ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan) |
 | #58 | `mikktspace-tangents` (041db3c) | `generate_tangents_mikktspace`, pinned reference fetched by hash, importer default unchanged (draft) | #46 | green (same set; includes MSVC building the isolated third-party C target) |
 
 Not part of 0.3 and untouched: #34 (draft combined 0.2 evidence PR, not to be merged), the 0.2 release candidate (branch
@@ -99,7 +99,7 @@ retarget the next PR to main and rebase; a clean rebase is expected apart from t
 | Resource lifetime: replace a staged model with frames in flight | same test and `test_hdr.cpp`, synchronization validation on | pass, 0 validation errors |
 | Environment BRDF table reproducibility across toolchains | `saige_env_brdf_table_up_to_date` on #55 | pass on Linux, ASan and Windows MSVC |
 | Blend state | #57 pixel tests (UNORM, sRGB, float; every factor and operation) | pass locally and on hosted CI (Linux, ASan, Windows MSVC) |
-| Sorted alpha blending end to end (LDR/HDR, Legacy/metallic-roughness, ordering, depth, two-pass, mirrored, in flight) | #59 `test_blend_render.cpp`, `test_model_blend.cpp` | pass locally: 44 of 44, also under ASan + UBSan with warnings as errors and Vulkan enabled; 11 mutations caught; hosted CI check pending when written |
+| Sorted alpha blending end to end (LDR/HDR, Legacy/metallic-roughness, ordering, depth, two-pass, mirrored, in flight) | #59 `test_blend_render.cpp`, `test_model_blend.cpp` | pass locally: 44 of 44, also under ASan + UBSan with warnings as errors and Vulkan enabled; 11 mutations caught; hosted CI green on all jobs |
 | Shader and renderer mutations (about 30 across M1 to M4, the table and blend) | each against its PR's tests | all caught |
 
 Not covered, and honest limits: no physical GPU; the validation layer on these runners does not detect descriptor shader-read

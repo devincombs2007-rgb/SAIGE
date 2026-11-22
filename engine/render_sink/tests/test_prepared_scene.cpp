@@ -254,7 +254,7 @@ TEST_CASE("Native flow: a saved v1 project keeps BLEND opaque until the host opt
     const auto render_saved = [](const TempProject& project, bool blending) {
         Desktop desktop;
         desktop.forward = false;
-        const PreparedScene prepared(project.scene);
+        PreparedScene prepared(project.scene);
         FrameSinkSettings config = settings();
         if (blending) config.renderer.alpha_blending = true;
         RendererFrameSink sink(make_device("saved_transparency"), kW, kH, config);

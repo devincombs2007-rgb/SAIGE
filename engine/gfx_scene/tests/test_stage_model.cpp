@@ -218,6 +218,7 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     mask.alpha_cutoff = 0.0f;  // glTF: renders when alpha >= cutoff, so 0 passes everything (the shader's "no test")
     mask.double_sided = true;
     mask.name = "leaves";
+    mask.normal_texture.texture = 0;
     Material blend = asset.materials[0];
     blend.alpha_mode = AlphaMode::Blend;
     blend.name = "glass";
@@ -398,7 +399,7 @@ TEST_CASE("Stage: an undecodable or missing base color texture still fails the s
 
 TEST_CASE("Stage: tangents reach the vertices, and a normal map on a primitive without them is reported")
 {
-    Rig rig;
+    Rig rig(render::ModelShading::MetallicRoughness);
     GltfAsset asset = load_fixture();
     Primitive& primitive = asset.meshes[0].primitives[0];
     // The loader only generates tangents for primitives whose material has a normal texture, so generate them here.
@@ -460,6 +461,7 @@ TEST_CASE("Stage: glTF samplers map to RHI sampler descriptions")
     CHECK(to_sampler_desc(s, 1.0f).address_u == rhi::AddressMode::Repeat);
     CHECK(rhi::validate(to_sampler_desc(s, 16.0f)).error == nullptr);
 }
+
 TEST_CASE("Stage: a normal texture on TEXCOORD_1 is ignored with a warning, because only TEXCOORD_0 is sampled")
 {
     Rig rig(render::ModelShading::MetallicRoughness);

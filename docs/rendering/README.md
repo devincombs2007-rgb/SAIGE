@@ -47,6 +47,7 @@ rendering will **not** implement dependent code yet. This directory documents:
 | [shader-pipeline.md](shader-pipeline.md) | Shader language, offline compilation, permutations, bindless conventions, hot reload. |
 | [asset-pipeline.md](asset-pipeline.md) | glTF 2.0 import, PBR material model, texture and mesh cooking, runtime formats. |
 | [testing-strategy.md](testing-strategy.md) | Unit, null-backend, headless Vulkan, shader and golden-image tests, plus CI. |
+| [vulkan-1.4-and-pbr-evaluation.md](vulkan-1.4-and-pbr-evaluation.md) | Proposal: Vulkan 1.4 as a detected tier above the 1.3 floor, and the forward PBR + IBL milestone after 0.2. |
 
 ## 3. Ownership boundaries (proposed)
 

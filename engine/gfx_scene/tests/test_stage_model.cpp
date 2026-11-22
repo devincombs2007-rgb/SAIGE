@@ -17,9 +17,10 @@ using namespace saige::gfx;
 
 namespace {
 
-render::RendererSettings blending_settings(bool alpha_blending)
+render::RendererSettings shading_settings(render::ModelShading shading, bool alpha_blending)
 {
     render::RendererSettings s;
+    s.model_shading = shading;
     s.alpha_blending = alpha_blending;
     return s;
 }
@@ -27,8 +28,11 @@ render::RendererSettings blending_settings(bool alpha_blending)
 struct Rig {
     rhi::NullDevice device;
     render::SceneRenderer renderer;
-    /// Alpha blending is off by default everywhere (the 0.2 behavior); tests of sorted blending opt in.
-    explicit Rig(bool alpha_blending = false) : renderer(device, rhi::Format::RGBA8_SRGB, blending_settings(alpha_blending)) {}
+    /// Legacy is the default everywhere (the 0.2 behavior); tests of the extra material slots opt in to Extended.
+    explicit Rig(render::ModelShading shading = render::ModelShading::Legacy, bool alpha_blending = false)
+        : renderer(device, rhi::Format::RGBA8_SRGB, shading_settings(shading, alpha_blending))
+    {
+    }
 };
 
 GltfAsset load_fixture()
@@ -236,18 +240,20 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
         }
     }
     // With alpha blending asked for, the same asset blends the BLEND material and needs no warning.
-    Rig blending_rig(/*alpha_blending=*/true);
+    Rig blending_rig(render::ModelShading::Legacy, /*alpha_blending=*/true);
     StageReport blending_report;
     const render::GpuModel blending_model = stage_model(blending_rig.renderer, asset, "materials", {}, &blending_report);
     CHECK_FALSE(has_warning(blending_report, "alpha blending"));
     CHECK_FALSE(blending_model.materials[0].blend);
     CHECK_FALSE(blending_model.materials[1].blend);
     CHECK(blending_model.materials[2].blend);
+    CHECK(has_warning(report, "not sampled in 0.2"));
+    CHECK(report.warnings.size() == 2);
 }
 
 TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")
 {
-    Rig rig;
+    Rig rig(render::ModelShading::Extended);
     GltfAsset asset = load_fixture();
     REQUIRE(!asset.textures.empty());
     REQUIRE(!asset.images.empty());
@@ -279,15 +285,115 @@ TEST_CASE("Stage: every slot gets its own texture upload per color space and the
     CHECK(after.created - before.created == 2);
     // Two sampler descriptions across the five slots; the default one is the renderer's own and is shared, not created again.
     CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created - samplers_before.created == 1);
-    // An out-of-range slot texture is rejected with the slot named.
+    CHECK(has_warning(report, "not shaded yet"));      // normal is bound but not shaded
+    // An out-of-range texture index in an optional slot leaves that slot neutral, with a warning that names it (Extended only: Legacy
+    // never reads these slots). The same fault in the base color slot fails the staging (tested below).
     asset.materials[0].emissive_texture.texture = 99;
-    bool threw = false;
+    StageReport bad_slot;
+    bool staged = true;
     try {
-        (void)stage_model(rig.renderer, asset, "bad slot");
-    } catch (const std::runtime_error& e) {
-        threw = std::string(e.what()).find("emissive texture index is out of range") != std::string::npos;
+        (void)stage_model(rig.renderer, asset, "bad slot", {}, &bad_slot);
+    } catch (const std::runtime_error&) {
+        staged = false;
     }
-    CHECK(threw);
+    CHECK(staged);
+    CHECK(has_warning(bad_slot, "emissive texture index is out of range"));
+    CHECK(has_warning(bad_slot, "left neutral"));
+}
+
+// ----------------------------------------------------------------------------------------------- review finding on #50: 0.2 compatibility
+
+TEST_CASE("Stage (Legacy, the default): all five slots populated stage exactly what 0.2 staged, the base color texture alone")
+{
+    Rig rig;  // ModelShading::Legacy
+    GltfAsset asset = load_fixture();
+    Material& m = asset.materials[0];
+    m.metallic_roughness_texture.texture = 0;
+    m.normal_texture.texture = 0;
+    m.occlusion_texture.texture = 0;
+    m.emissive_texture.texture = 0;
+    StageReport report;
+    const render::GpuModel model = stage_model(rig.renderer, asset, "legacy", {}, &report);
+    CHECK(report.textures == 1);  // the one base color upload; before the fix a second (linear) upload for the other slots
+    CHECK(has_warning(report, "not sampled in 0.2"));
+    CHECK_FALSE(has_warning(report, "not shaded yet"));
+
+    // The same asset with the other slots empty stages identically.
+    const GltfAsset plain = load_fixture();
+    StageReport plain_report;
+    const render::ResourceStats before = rig.renderer.registry().total_stats();
+    (void)stage_model(rig.renderer, plain, "plain", {}, &plain_report);
+    const render::ResourceStats after = rig.renderer.registry().total_stats();
+    CHECK(plain_report.textures == report.textures);
+    CHECK(plain_report.texture_bytes == report.texture_bytes);
+    CHECK(plain_report.warnings.empty());
+    (void)before;
+    (void)after;
+}
+
+TEST_CASE("Stage: an undecodable image in an optional slot does not reject 0.2 content, and is neutral with a warning in Extended")
+{
+    for (const render::ModelShading shading : {render::ModelShading::Legacy, render::ModelShading::Extended}) {
+        Rig rig(shading);
+        GltfAsset asset = load_fixture();
+        Image broken;
+        broken.name = "broken";
+        broken.mime_type = "image/png";
+        broken.bytes = {1, 2, 3, 4, 5};  // not an image
+        asset.images.push_back(broken);
+        asset.textures.push_back({static_cast<int32_t>(asset.images.size() - 1), -1});
+        const int32_t bad = static_cast<int32_t>(asset.textures.size() - 1);
+        Material& m = asset.materials[0];
+        m.emissive_texture.texture = bad;
+        m.occlusion_texture.texture = bad;
+        m.normal_texture.texture = bad;
+        m.metallic_roughness_texture.texture = bad;
+        StageReport report;
+        bool staged = true;
+        try {
+            const render::GpuModel model = stage_model(rig.renderer, asset, "optional", {}, &report);
+            CHECK(model.materials.size() >= 1);
+        } catch (const std::runtime_error&) {
+            staged = false;
+        }
+        CHECK(staged);  // before the fix the Legacy case threw "decode failed" for an image 0.2 never read
+        CHECK(report.textures == 1);  // only the base color texture was uploaded in both modes
+        if (shading == render::ModelShading::Extended) {
+            CHECK(has_warning(report, "left neutral"));
+        } else {
+            CHECK(has_warning(report, "not sampled in 0.2"));
+        }
+    }
+}
+
+TEST_CASE("Stage: an undecodable or missing base color texture still fails the staging in both modes, as in 0.2")
+{
+    for (const render::ModelShading shading : {render::ModelShading::Legacy, render::ModelShading::Extended}) {
+        {
+            Rig rig(shading);
+            GltfAsset asset = load_fixture();
+            asset.images[0].bytes = {9, 9, 9};  // the base color image
+            bool threw = false;
+            try {
+                (void)stage_model(rig.renderer, asset, "bad base", {}, nullptr);
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            CHECK(threw);
+        }
+        {
+            Rig rig(shading);
+            GltfAsset asset = load_fixture();
+            asset.materials[0].base_color_texture.texture = 99;
+            bool threw = false;
+            try {
+                (void)stage_model(rig.renderer, asset, "bad index", {}, nullptr);
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            CHECK(threw);
+        }
+    }
 }
 
 TEST_CASE("Stage: tangents reach the vertices, and a normal map on a primitive without them is reported")

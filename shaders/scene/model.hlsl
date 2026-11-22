@@ -55,7 +55,7 @@ struct ModelPush {
     float4 sc_sun_direction;  // unit vector toward the sun
     float4 sc_sun_color;
     float4 sc_ambient_ground; // ambient light from below (+Z up is the sky color)
-    float4 sc_flags;          // x: shading mode (0 legacy, 1 metallic-roughness)
+    float4 sc_flags;          // x: shading mode (0 legacy, 1 extended, 2 metallic-roughness)
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
@@ -68,17 +68,19 @@ float3 ambient_radiance(float3 direction)
 /// The material contract made concrete at one pixel: factors times textures, in the color space each slot is stored in. `n`,
 /// `t` and `b` are the geometric frame facing the viewer; with `normal_mapping` and a nonzero `t`, the tangent-space normal
 /// texture (x and y scaled by the material's normal scale) replaces `n`.
-SurfaceData evaluate_surface(float2 uv, float3 n, float3 t, float3 b, bool normal_mapping)
+SurfaceData evaluate_surface(float2 uv, float4 base, float3 n, float3 t, float3 b, bool physically_based)
 {
     float3 normal = n;
-    if (normal_mapping && mat_flags.x > 0.5 && dot(t, t) > 1e-12) {
+    if (physically_based && mat_flags.x > 0.5) {
+        // Keep implicit derivatives in uniform flow; tangent validity can vary across a fragment quad.
         float3 ts = g_normal.Sample(g_normal_sampler, uv).xyz * 2.0 - 1.0;
-        ts.xy *= mat_mr_normal_occ.z;
-        normal = normalize(t * ts.x + b * ts.y + n * ts.z);
+        if (dot(t, t) > 1e-12) {
+            ts.xy *= mat_mr_normal_occ.z;
+            normal = normalize(t * ts.x + b * ts.y + n * ts.z);
+        }
     }
     SurfaceData s;
-    const float4 base = g_base_color.Sample(g_base_color_sampler, uv) * mat_base_color;
-    const float4 mr = g_metallic_roughness.Sample(g_metallic_roughness_sampler, uv);
+    const float4 mr = physically_based ? g_metallic_roughness.Sample(g_metallic_roughness_sampler, uv) : 1.0;
     s.base_color = base.rgb;
     s.alpha = base.a;
     s.roughness = mat_mr_normal_occ.y * mr.g;
@@ -133,9 +135,11 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
     float3 n = normalize(input.normal);
     float3 t = float3(0.0, 0.0, 0.0);
     float3 b = float3(0.0, 0.0, 0.0);
-    if (dot(input.tangent, input.tangent) > 1e-12) {
-        // Orthonormalize against the interpolated normal; the handedness is whatever the transformed frame says.
-        t = normalize(input.tangent - n * dot(n, input.tangent));
+    const float tangent_len2 = dot(input.tangent, input.tangent);
+    const float3 projected = input.tangent - n * dot(n, input.tangent);
+    const float projected_len2 = dot(projected, projected);
+    if (tangent_len2 > 1e-12 && projected_len2 > 1e-6 * tangent_len2) {
+        t = projected * rsqrt(projected_len2);
         const float3 cross_nt = cross(n, t);
         b = cross_nt * (dot(cross_nt, input.bitangent) < 0.0 ? -1.0 : 1.0);
     }
@@ -144,30 +148,34 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
         t = -t;
         b = -b;
     }
-    const bool physically_based = sc_flags.x > 0.5;
-    const SurfaceData surface = evaluate_surface(input.uv, n, t, b, physically_based);
-    n = surface.normal;
-    if (mat_emissive_cutoff.w > 0.0 && surface.alpha < mat_emissive_cutoff.w) {
+    const float4 base = g_base_color.Sample(g_base_color_sampler, input.uv) * mat_base_color;
+    if (mat_emissive_cutoff.w > 0.0 && base.a < mat_emissive_cutoff.w) {
         discard;
     }
     const float3 to_camera = pc.camera_sign.xyz - input.world_pos;
     const float distance_m = length(to_camera);
+    const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
     float3 lit;
-    if (!physically_based) {
-        const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
-        const float3 ambient = ambient_radiance(n) * surface.occlusion;
-        lit = surface.base_color * (ambient + sc_sun_color.rgb * n_dot_l) + surface.emissive;
+    if (sc_flags.x < 0.5) {
+        lit = base.rgb * (ambient_radiance(n) + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb;
     } else {
-        const float3 v = to_camera / max(distance_m, 1e-6);
-        const float3 r = reflect(-v, n);
-        const float2 table_uv = float2(saturate(dot(n, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
-        const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
-        lit = shade_directional(surface, v, sc_sun_direction.xyz, sc_sun_color.rgb) +
-              shade_ambient(surface, env_brdf, ambient_radiance(n), ambient_radiance(r)) + surface.emissive;
+        const bool pbr = sc_flags.x >= 1.5;
+        const SurfaceData surface = evaluate_surface(input.uv, base, n, t, b, pbr);
+        n = surface.normal;
+        if (pbr) {
+            const float3 v = to_camera / max(distance_m, 1e-6);
+            const float3 r = reflect(-v, n);
+            const float2 table_uv = float2(saturate(dot(n, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
+            const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
+            lit = shade_directional(surface, v, sc_sun_direction.xyz, sc_sun_color.rgb) +
+                  shade_ambient(surface, env_brdf, ambient_radiance(n), ambient_radiance(r)) + surface.emissive;
+        } else {
+            lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;
+        }
     }
     const float fog = 1.0 - exp(-distance_m * sc_fog_color.w);
     // A blended material outputs its straight (non-premultiplied) alpha for the pipeline's source-over blend; everything else
     // writes 1 as before. Fog mixes the color only, so a faded surface still fades into the fogged scene behind it.
-    const float out_alpha = mat_flags.y > 0.5 ? saturate(surface.alpha) : 1.0;
+    const float out_alpha = mat_flags.y > 0.5 ? saturate(base.a) : 1.0;
     return float4(lerp(lit, sc_fog_color.rgb, saturate(fog)), out_alpha);
 }

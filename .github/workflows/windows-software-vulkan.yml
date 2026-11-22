@@ -50,6 +50,7 @@ jobs:
           $runtime = Join-Path $env:MSYS2_ROOT 'ucrt64/bin'
           $env:PATH = "$runtime;$env:PATH"
           $env:VK_LAYER_PATH = $runtime
+          $env:SAIGE_REQUIRE_VALIDATION = '1'
           $env:VK_LOADER_DEBUG = 'error,warn,driver,layer'
           Get-Content $env:VK_DRIVER_FILES
           if (!(Test-Path (Join-Path $runtime 'vulkan-1.dll'))) { throw 'Vulkan loader missing' }

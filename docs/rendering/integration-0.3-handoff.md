@@ -41,8 +41,8 @@ Vulkan** (Mesa llvmpipe on Linux, lavapipe on Windows); none of it is physical-G
 | #54 | `integration-0.3-pbr` (bb122c7) | union of #46 to #53 plus `test_combined_pbr.cpp`. **Do not merge** | all of those | Engine and Graphics: all green (Linux lavapipe, Linux ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan). Dedicated Windows software-Vulkan workflow (`windows-software-vulkan.yml`, run 45018663394, job win32-lavapipe, all 14 steps): **passed** |
 | #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned 64x64 env BRDF table (draft) | #51 | green incl. MSVC reproducibility check |
 | #56 | `docs-0.3-handoff` (this branch) | energy and table notes, MikkTSpace evaluation, alpha plan, this file, analysis tools (draft) | #49 | docs |
-| #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | check (pending when written) |
-| #58 | `mikktspace-tangents` (041db3c) | `generate_tangents_mikktspace`, pinned reference fetched by hash, importer default unchanged (draft) | #46 | check (pending when written) |
+| #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | green (Linux, ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan) |
+| #58 | `mikktspace-tangents` (041db3c) | `generate_tangents_mikktspace`, pinned reference fetched by hash, importer default unchanged (draft) | #46 | green (same set; includes MSVC building the isolated third-party C target) |
 
 Not part of 0.3 and untouched: #34 (draft combined 0.2 evidence PR, not to be merged), the 0.2 release candidate (branch
 `release-0.2.0-rc.1-prep`, 875a771; notes `docs/releases/0.2.0-rc.1.md`; nothing tagged or published), and the validated 0.2 baseline on main.
@@ -96,7 +96,7 @@ retarget the next PR to main and rebase; a clean rebase is expected apart from t
 | Failed staging (undecodable image, out-of-range slot, malformed tangents) | same test: registry live count and active model's pixels unchanged | pass |
 | Resource lifetime: replace a staged model with frames in flight | same test and `test_hdr.cpp`, synchronization validation on | pass, 0 validation errors |
 | Environment BRDF table reproducibility across toolchains | `saige_env_brdf_table_up_to_date` on #55 | pass on Linux, ASan and Windows MSVC |
-| Blend state | #57 pixel tests (UNORM, sRGB, float; every factor and operation) | pass locally; hosted CI pending when written |
+| Blend state | #57 pixel tests (UNORM, sRGB, float; every factor and operation) | pass locally and on hosted CI (Linux, ASan, Windows MSVC) |
 | Shader and renderer mutations (about 30 across M1 to M4, the table and blend) | each against its PR's tests | all caught |
 
 Not covered, and honest limits: no physical GPU; the validation layer on these runners does not detect descriptor shader-read

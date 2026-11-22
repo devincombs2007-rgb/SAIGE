@@ -166,9 +166,6 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
         } else if (m.alpha_mode == AlphaMode::Blend) {
             warn_once(report, "alpha blending is not implemented in 0.2: Blend materials draw as opaque");
         }
-        if (m.normal_texture.valid() || m.metallic_roughness_texture.valid()) {
-            warn_once(report, "normal and metallic-roughness textures are uploaded and bound but not shaded yet");
-        }
         render::MaterialTextures textures;
         textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true);
         textures[render::MaterialSlot::MetallicRoughness] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false);
@@ -196,6 +193,9 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             if (!p.uv0.empty() && p.uv0.size() != std::size_t{vertex_count} * 2) {
                 fail(where, "has a texture coordinate count that does not match its vertices");
             }
+            if (!p.tangents.empty() && p.tangents.size() != std::size_t{vertex_count} * 4) {
+                fail(where, "has a tangent count that does not match its vertices");
+            }
             std::vector<render::ModelVertex> vertices(vertex_count);
             for (uint32_t v = 0; v < vertex_count; ++v) {
                 vertices[v].position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
@@ -204,6 +204,15 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                     vertices[v].uv[0] = p.uv0[v * 2];
                     vertices[v].uv[1] = p.uv0[v * 2 + 1];
                 }
+                if (!p.tangents.empty()) {  // absent tangents stay w = 0: the shader skips normal mapping there
+                    for (uint32_t c = 0; c < 4; ++c) {
+                        vertices[v].tangent[c] = p.tangents[v * 4 + c];
+                    }
+                }
+            }
+            if (p.tangents.empty() && p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size() &&
+                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid()) {
+                warn_once(report, "a primitive with a normal texture has no tangents (it has no texture coordinates): its normal map is ignored");
             }
             std::vector<uint32_t> indices = p.indices;
             if (indices.empty()) {  // a non-indexed triangle list

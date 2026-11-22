@@ -1,5 +1,6 @@
 #include "saige/gfx_test/saige_test.hpp"
 
+#include "saige/gfx_assets/tangents.hpp"
 #include "saige/gfx_scene/stage_model.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
@@ -206,7 +207,6 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     mask.name = "leaves";
     Material blend = asset.materials[0];
     blend.alpha_mode = AlphaMode::Blend;
-    blend.normal_texture.texture = 0;  // an unsampled texture slot
     blend.name = "glass";
     asset.materials.push_back(mask);
     asset.materials.push_back(blend);
@@ -216,8 +216,7 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
     CHECK(has_warning(report, "alpha blending is not implemented"));
-    CHECK(has_warning(report, "not shaded yet"));
-    CHECK(report.warnings.size() == 2);  // each warned about once, however many materials trigger it
+    CHECK(report.warnings.size() == 1);  // warned about once, however many materials trigger it
 }
 
 TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")
@@ -254,7 +253,6 @@ TEST_CASE("Stage: every slot gets its own texture upload per color space and the
     CHECK(after.created - before.created == 2);
     // Two sampler descriptions across the five slots; the default one is the renderer's own and is shared, not created again.
     CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created - samplers_before.created == 1);
-    CHECK(has_warning(report, "not shaded yet"));      // normal is bound but not shaded
     // An out-of-range slot texture is rejected with the slot named.
     asset.materials[0].emissive_texture.texture = 99;
     bool threw = false;
@@ -262,6 +260,34 @@ TEST_CASE("Stage: every slot gets its own texture upload per color space and the
         (void)stage_model(rig.renderer, asset, "bad slot");
     } catch (const std::runtime_error& e) {
         threw = std::string(e.what()).find("emissive texture index is out of range") != std::string::npos;
+    }
+    CHECK(threw);
+}
+
+TEST_CASE("Stage: tangents reach the vertices, and a normal map on a primitive without them is reported")
+{
+    Rig rig;
+    GltfAsset asset = load_fixture();
+    Primitive& primitive = asset.meshes[0].primitives[0];
+    // The loader only generates tangents for primitives whose material has a normal texture, so generate them here.
+    asset.materials[0].normal_texture.texture = 0;
+    REQUIRE(generate_tangents(primitive).result == TangentResult::Generated);
+    REQUIRE(primitive.tangents.size() == std::size_t{primitive.vertex_count()} * 4);
+    StageReport with_tangents;
+    (void)stage_model(rig.renderer, asset, "tangents", {}, &with_tangents);
+    CHECK_FALSE(has_warning(with_tangents, "no tangents"));
+
+    primitive.tangents.clear();
+    StageReport without;
+    (void)stage_model(rig.renderer, asset, "no tangents", {}, &without);
+    CHECK(has_warning(without, "its normal map is ignored"));
+
+    primitive.tangents.assign(5, 0.0f);  // a count that does not match the vertices is a malformed primitive
+    bool threw = false;
+    try {
+        (void)stage_model(rig.renderer, asset, "bad tangents");
+    } catch (const std::runtime_error&) {
+        threw = true;
     }
     CHECK(threw);
 }

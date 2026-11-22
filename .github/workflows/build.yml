@@ -1,67 +1,18 @@
-name: Engine build and tests
+name: Windows Debug test diagnosis
 
 on:
   push:
-    branches: [main, 'core/**']
-  pull_request:
-  workflow_dispatch:
-
-concurrency:
-  group: engine-build-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+    branches: [core/diagnose-msvc-debug-02]
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            preset: linux-debug
-          - os: windows-2022
-            preset: windows-debug
-          - os: windows-2022
-            preset: windows-release
+  debug:
+    runs-on: windows-2022
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - name: Configure Windows Release with Vulkan
-        if: matrix.preset == 'windows-release'
-        run: cmake --preset windows-release -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DVULKAN_HEADERS_ENABLE_MODULE=OFF
-      - name: Configure
-        if: matrix.preset != 'windows-release'
-        run: cmake --preset ${{ matrix.preset }}
-      - name: Build
-        run: cmake --build --preset ${{ matrix.preset }} --parallel
-      - name: Test
-        run: ctest --preset ${{ matrix.preset }}
-      - name: Upload Windows executables
-        if: matrix.preset == 'windows-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: saige-windows-x64
-          path: |
-            build/windows-release/Release/saige_desktop.exe
-            build/windows-release/Release/saige_headless.exe
-          if-no-files-found: error
-      - name: Package Windows project and glTF tools
-        if: matrix.preset == 'windows-release'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force project-preflight | Out-Null
-          Copy-Item build/windows-release/Release/saige_project_tool.exe project-preflight/
-          Copy-Item build/windows-release/Release/saige_scene_trace.exe project-preflight/
-          Copy-Item build/windows-release/Release/saige_scene_asset_tool.exe project-preflight/
-          Copy-Item -Recurse examples/textured-scene project-preflight/
-          Copy-Item docs/project-format-0.2.md project-preflight/
-          Copy-Item build/windows-release/_deps/saige_json-src/LICENSE.MIT project-preflight/nlohmann-json-LICENSE.MIT
-      - name: Upload project and glTF preflight
-        if: matrix.preset == 'windows-release'
-        uses: actions/upload-artifact@v4
-        with:
-          name: saige-project-preflight-x64
-          path: project-preflight/
-          if-no-files-found: error
+      - run: cmake --preset windows-debug
+      - run: cmake --build --preset windows-debug --parallel
+      - run: ctest --preset windows-debug --timeout 35 -V

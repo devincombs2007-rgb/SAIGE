@@ -7,6 +7,7 @@
 
 #include "saige/rhi/api_negotiation.hpp"
 #include "saige/rhi/barrier.hpp"
+#include "saige/rhi/blend.hpp"
 #include "saige/rhi/format.hpp"
 #include "saige/rhi/handle.hpp"
 #include "saige/rhi/resource_desc.hpp"
@@ -69,6 +70,8 @@ struct GraphicsPipelineDesc {
     FrontFace front_face = FrontFace::CounterClockwise;
     DepthState depth;
     std::vector<Format> color_formats;
+    /// Blend state, see blend.hpp. Empty (the default) disables blending; otherwise one entry per color attachment, all equal.
+    std::vector<BlendState> blend;
     Format depth_format = Format::Unknown;
     uint32_t push_constant_size = 0;  ///< Bytes visible to vertex and pixel stages (<= 128).
     /// Descriptor set layouts; the position in this list is the set index (HLSL `[[vk::binding(b, set)]]`).

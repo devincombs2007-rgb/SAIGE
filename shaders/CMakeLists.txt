@@ -11,6 +11,7 @@ set(SAIGE_SHADER_SOURCES
     scene/ground.hlsl
     scene/model.hlsl
     scene/tonemap.hlsl
+    test/blend_color.hlsl
     test/textured_fullscreen.hlsl
 )
 

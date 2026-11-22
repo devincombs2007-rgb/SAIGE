@@ -665,6 +665,9 @@ PipelineHandle NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& 
     if (const ValidationResult v = validate_pipeline_bindings(layout_descs); !v) {
         throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
     }
+    if (const ValidationResult v = validate_blend_state(desc.blend, desc.color_formats); !v) {
+        throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
+    }
     return impl_->pipelines.emplace(NullPipeline{desc});
 }
 

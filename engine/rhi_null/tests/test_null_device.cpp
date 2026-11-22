@@ -99,6 +99,32 @@ TEST_CASE("NullDevice: pipeline creation checks shaders, formats and push consta
     CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
 }
 
+TEST_CASE("NullDevice: blend state is optional, validated, and kept with the pipeline")
+{
+    PipelineFixture f;  // its pipeline has no blend states: blending off, as before blend state existed
+    GraphicsPipelineDesc pd;
+    pd.vertex_shader = f.vs;
+    pd.pixel_shader = f.ps;
+    pd.color_formats = {Format::RGBA8_SRGB};
+    pd.blend = {BlendState::source_over()};
+    CHECK(f.device.create_graphics_pipeline(pd).is_valid());
+
+    pd.color_formats = {Format::RGBA16_FLOAT};
+    CHECK(f.device.create_graphics_pipeline(pd).is_valid());
+
+    pd.color_formats = {Format::RGBA8_UINT};  // integer formats do not blend
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(pd); }));
+    pd.blend = {BlendState{}};  // a disabled state needs no blendable format
+    CHECK(f.device.create_graphics_pipeline(pd).is_valid());
+
+    pd.color_formats = {Format::RGBA8_SRGB, Format::RGBA8_SRGB};
+    pd.blend = {BlendState::source_over()};  // one state for two attachments
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(pd); }));
+    pd.blend = {BlendState::source_over(), BlendState::additive()};  // independent blending is not exposed
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(pd); }));
+    CHECK(f.device.validation_error_count() == 0);  // rejected descriptions are exceptions, not validation errors
+}
+
 TEST_CASE("NullDevice: host-visible buffers are mapped with their initial data")
 {
     NullDevice device;

@@ -1,14 +1,35 @@
 # 0.3 graphics handoff for Codex (state as of 2026-11-22)
 
 Everything here is unmerged and was produced while Codex was unavailable. The reviewable units are the individual PRs; branch
-`claude/integration-0.3-pbr` (PR #54, DO NOT MERGE) is their union plus one test commit, used to validate them together.
-No file under `include/saige`, `src/`, `apps/` or the root CMake is touched. All GPU evidence is **software Vulkan** (Mesa
-llvmpipe on Linux, lavapipe on Windows); none of it is physical-GPU verification (tracked in #9).
+`claude/integration-0.3-pbr` (PR #54, **DO NOT MERGE**, an integration test branch only) is their union plus one test commit, kept
+as combined evidence. No file under `include/saige`, `src/`, `apps/` or the root CMake is touched. All GPU evidence is **software
+Vulkan** (Mesa llvmpipe on Linux, lavapipe on Windows); none of it is physical-GPU verification (tracked in #9).
 
-## PRs, heads and dependencies
+## Owner decisions recorded (0.3 reviews)
+
+1. Approved architecture and M1 to M6; the seven decisions in `material-architecture.md` (ACES-inspired default tone map, sorted
+   alpha blending, per-instance overrides preserved with the schema left to Core, MikkTSpace evaluated, independent per-slot
+   samplers and color space, temporal requirements with Core, no premature ray tracing or upscaler infrastructure).
+2. **MikkTSpace** conditionally approved as a production dependency: pin exact source and hashes, retain the zlib notice, verify
+   compatibility and security; any scoped comparison runs in an isolated environment (run: see `mikktspace-evaluation.md`); keep the Lengyel
+   generator as fallback until MikkTSpace passes its own tests and review.
+3. **Energy-conserving BRDF** approved as an optional model in M5: glTF-faithful shading stays the default; the alternative must be
+   explicitly selectable, independently tested and documented; no silent change of existing material behavior
+   (`brdf-energy-and-lut.md`).
+4. **RHI blend state** approved: modular, backend-independent, backward compatible; sorted source-over blending, view-space
+   bounding-sphere-center depth as the initial sort key, two-pass rendering for double-sided transparent meshes, sorting limits
+   documented, validation and pixel regression tests before renderer integration (#57 is that RHI step; plan in
+   `sorted-alpha-blending-plan.md`).
+5. The **precomputed versioned 64x64 BRDF table** stays (#55), provided accuracy and cross-platform reproducibility stay verified
+   (`saige_env_brdf_table_up_to_date` in CTest, run on Linux, ASan and Windows MSVC).
+6. All 0.3 implementation branches stay independently reviewable; **#54 is not to be merged**.
+
+## PRs, heads, dependencies and hosted CI
 
 | PR | Branch (head) | Content | Depends on | Hosted CI |
 |---|---|---|---|---|
+| #44 | `vulkan-headers-1.4.363` (80cba80) | Vulkan-Headers pin 1.4.363, version probe | main | passed Engine and Graphics (owner confirmed) |
+| #45 | `vulkan-capability-probe` (f711f0a) | Vulkan 1.4 capability probe, negotiation rules (draft) | #44 | passed Engine and Graphics (owner confirmed); Windows run 44999570680 confirmed the core-1.4 path |
 | #46 | `pbr-tangent-generation` (0f2398b) | tangent generator, importer integration | main | green |
 | #47 | `pbr-brdf-reference` (416292e) | CPU glTF BRDF reference | main | green |
 | #48 | `pbr-tonemap-pass` (03364d7) | tone-map pass, CPU reference | main | green |
@@ -17,19 +38,38 @@ llvmpipe on Linux, lavapipe on Windows); none of it is physical-GPU verification
 | #51 | `pbr-m2-metallic-roughness` (a71d49b) | M2: metallic-roughness, `pbr.hlsli`, env BRDF table (draft) | #50, contains #47 | green |
 | #52 | `pbr-m3-normal-mapping` (47ac109) | M3: normal mapping, 48-byte vertex (draft) | #51, contains #46 | green |
 | #53 | `pbr-m4-hdr-output` (8005441) | M4: HDR target and tone-map pass (draft) | #51, contains #48 | green |
-| #54 | `integration-0.3-pbr` (bb122c7) | union of the above plus `test_combined_pbr.cpp` | all | green (Linux, ASan, Windows MSVC Debug and Release, Windows Vulkan) |
-| #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned env BRDF table (draft) | #51 | green incl. MSVC |
-| docs | `docs-0.3-handoff` | energy and table notes, MikkTSpace evaluation, alpha plan, this file | #49 | docs |
+| #54 | `integration-0.3-pbr` (bb122c7) | union of #46 to #53 plus `test_combined_pbr.cpp`. **Do not merge** | all of those | Engine and Graphics: all green (Linux lavapipe, Linux ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan). Dedicated Windows software-Vulkan workflow (`windows-software-vulkan.yml`, run 45018663394, job win32-lavapipe, all 14 steps): **passed** |
+| #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned 64x64 env BRDF table (draft) | #51 | green incl. MSVC reproducibility check |
+| #56 | `docs-0.3-handoff` (this branch) | energy and table notes, MikkTSpace evaluation, alpha plan, this file, analysis tools (draft) | #49 | docs |
+| #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | pending when written; check |
 
-Suggested merge order (owner and Codex decide): #47, #46, #48, #49, #50, #51, #55, #52, #53. Each of the stacked PRs lists the commit to
-review. Textual conflicts met when merging the stack (all resolved on #54): the test source list in
-`engine/rhi_vulkan/CMakeLists.txt` (one line, every PR adds a file), a paragraph of `docs/rendering/gltf-subset.md` (M3 and
-M4 both edit it), and `scene_renderer.cpp` (M2 and M4 each add a setting). After #50 and #51 land, retarget #52, #53 and #55 to
-`main` and rebase; they apply cleanly in the order above.
+Not part of 0.3 and untouched: #34 (draft combined 0.2 evidence PR, not to be merged), the 0.2 release candidate (branch
+`release-0.2.0-rc.1-prep`, 875a771; notes `docs/releases/0.2.0-rc.1.md`; nothing tagged or published), and the validated 0.2 baseline on main.
 
-Other graphics PRs from earlier work still open: #44 (Vulkan headers 1.4.363), #45 (capability probe, stacked on #44), #34 (draft combined 0.2
-evidence, not to be merged). The 0.2 release candidate is untouched: branch `release-0.2.0-rc.1-prep` (875a771), notes
-`docs/releases/0.2.0-rc.1.md`, nothing tagged or published.
+## Recommended merge sequence (owner and Codex decide; each PR needs its own review)
+
+1. Independent of everything else: #44 then #45 (Vulkan headers and capability probe); #57 (RHI blend state); #46, #47, #48; #49.
+2. The material stack, in order: #50, then #51, then #55 (retarget #55 to main after #51; it is a follow-up to M2's table), then
+   #52 and #53 (either order, both retargeted to main after #51).
+3. #56 (docs) after #49, or squashed into #49's review.
+4. Close #54 without merging once the individual PRs have landed.
+
+Textual conflicts to expect (all resolved on #54): the test source list in `engine/rhi_vulkan/CMakeLists.txt` (every PR adds a
+file, one line), a paragraph of `docs/rendering/gltf-subset.md` (M3 and M4 both edit it), `scene_renderer.cpp` (M2 and M4 each add
+a setting), and `rhi_vulkan/CMakeLists.txt` and `rhi/CMakeLists.txt` again with #57 (it adds `test_blend.cpp`). After each merge,
+retarget the next PR to main and rebase; a clean rebase is expected apart from those lines.
+
+## Outstanding reviews and open items
+
+| Item | Owner | Notes |
+|---|---|---|
+| Review of every PR above | Codex, owner approval for major merges | each stacked PR names the commit to review |
+| Core temporal frame data (#17): instance identity, previous rendered-frame transforms, camera history, teleport and camera-cut flags | Core | requirements posted; no interface change made; per-instance override schema stays Core's |
+| MikkTSpace integration PR (vendoring, `generate_tangents_mikktspace`, vertex splitting, tests) | graphics, after the approvals above | comparison done (agrees within 0.45 degrees on well-formed meshes; differs on UV-fold meshes); needs the upstream commit id from a clone |
+| Renderer integration of blend state (sorted blended phase, double-sided two-pass, shader alpha, stats) | graphics, after #57 is reviewed | plan in `sorted-alpha-blending-plan.md` |
+| M5 (image-based lighting plus the optional energy-conserving model) and M6 (cascaded sun shadows) | graphics | new RHI contracts (cube/array textures, depth sampling, render-to-layer); not started |
+| Flip of the `model_shading` and `hdr` defaults | owner | they change the look of every scene; both default to the 0.2 behavior |
+| Physical-GPU verification | owner / #9 | nothing here is physical |
 
 ## What the integrated renderer does
 
@@ -37,9 +77,9 @@ evidence, not to be merged). The 0.2 release candidate is untouched: branch `rel
   base color and emissive are sRGB, the others linear; one GPU texture per (image, color space).
 - `RendererSettings::model_shading` (default `Legacy` = the 0.2 look) and `RendererSettings::hdr` (default off) are the only
   switches. With both defaults every 0.2 behavior and pixel test is unchanged.
-- `MetallicRoughness`: GGX, height-correlated Smith, Schlick as in the glTF specification (verified, see
-  brdf-energy-and-lut.md), sun plus hemispherical ambient through a split-sum table, normal mapping with the glTF frame, mirrored
-  instances and back faces handled.
+- `MetallicRoughness`: GGX, height-correlated Smith, Schlick as in the glTF specification (verified; the specification itself says
+  its dielectric coupling is not energy conserving, see `brdf-energy-and-lut.md`), sun plus hemispherical ambient through a
+  split-sum table, normal mapping with the glTF frame, mirrored instances and back faces handled.
 - `hdr`: scene in RGBA16_FLOAT, tone-map pass (ACES-inspired default, exposure in stops) to the output.
 
 ## Verification matrix
@@ -47,14 +87,16 @@ evidence, not to be merged). The 0.2 release candidate is untouched: branch `rel
 | Check | Where | Result |
 |---|---|---|
 | Full CTest incl. 0.2 regression suite on the union | local Linux, Mesa lavapipe, validation + synchronization validation | 42 of 42 |
-| Same on hosted Engine/Graphics CI for the union | Linux lavapipe, Linux GCC ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan lane | all green on #54 |
-| Windows window-system lane (Win32 + Mesa lavapipe, demo artifact) on the union | `windows-software-vulkan.yml` dispatched on `claude/integration-0.3-pbr` | success (run 45018663394, job win32-lavapipe, all 14 steps): the CTest step `-R vulkan\|win32_platform\|win32_prepared_scene` passed, which matches `saige_render_sink_combined_vulkan_tests`; the packaged demo ran 30 validated frames. I read the job and step conclusions, not the raw log, so the combined test's own output line was not inspected |
-| Combined PBR + normal map + emissive + occlusion + HDR vs CPU reference, all five textures from PNGs, importer-generated tangents | `engine/render_sink/tests/test_combined_pbr.cpp` | pass |
+| Same on hosted Engine and Graphics workflows for the union (#54) | Linux lavapipe, Linux ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan lane | all green |
+| Windows window-system lane (Win32 + Mesa lavapipe, demo artifact) on the union | `windows-software-vulkan.yml` dispatched on `claude/integration-0.3-pbr` | passed (run 45018663394, 14 of 14 steps); I read job and step conclusions, not the raw log |
+| Combined PBR + normal map + emissive + occlusion + HDR vs CPU reference, five PNG textures, importer-generated tangents | `engine/render_sink/tests/test_combined_pbr.cpp` | pass |
 | Color-space correctness | same test: one image used as sRGB base color and linear occlusion (5 uploads); mutations (occlusion as sRGB, emissive as linear) fail | pass, mutations caught |
 | Resize across four sizes | same test, plus `test_hdr.cpp` (content compared with a fresh renderer) | pass |
 | Failed staging (undecodable image, out-of-range slot, malformed tangents) | same test: registry live count and active model's pixels unchanged | pass |
 | Resource lifetime: replace a staged model with frames in flight | same test and `test_hdr.cpp`, synchronization validation on | pass, 0 validation errors |
-| Shader mutations (22 across M1 to M4) | each against its PR's tests | all caught |
+| Environment BRDF table reproducibility across toolchains | `saige_env_brdf_table_up_to_date` on #55 | pass on Linux, ASan and Windows MSVC |
+| Blend state | #57 pixel tests (UNORM, sRGB, float; every factor and operation) | pass locally; hosted CI pending when written |
+| Shader and renderer mutations (about 30 across M1 to M4, the table and blend) | each against its PR's tests | all caught |
 
 Not covered, and honest limits: no physical GPU; the validation layer on these runners does not detect descriptor shader-read
 hazards (see `test_bind_groups.cpp`); NaN branches are not observable on llvmpipe; Windows results are lavapipe, not a driver.
@@ -68,22 +110,7 @@ hazards (see `test_bind_groups.cpp`); NaN branches are not observable on llvmpip
     cmake --build build --target saige_regenerate_env_brdf  # after changing the BRDF terms (bump kEnvBrdfTableVersion)
     python3 tools/analysis/dielectric_energy.py             # independent energy check (numpy)
 
-## Decisions and work waiting on others
-
-1. **Core (issue #17):** temporal frame data (stable instance identity, previous rendered-frame transforms, camera history,
-   explicit teleport and camera-cut flags). Requirements posted; no interface change made. Per-instance material override schema
-   is Core's.
-2. **Owner:** when to flip `model_shading` and `hdr` defaults (they change the look of every scene); whether to offer the
-   energy-conserving coupling as an opt-in (brdf-energy-and-lut.md); approval of a new third-party dependency (MikkTSpace, zlib)
-   after the comparison has been run; the blend-state RHI contract and sort policy (sorted-alpha-blending-plan.md).
-3. **MikkTSpace comparison has not been run**: the harness is committed (`tools/analysis/mikktspace_compare/`) but compiling and
-   running the downloaded reference was blocked in this session. Someone with permission should run it and record the numbers in
-   `mikktspace-evaluation.md`.
-4. **Not started by design:** M5 (image-based lighting) and M6 (cascaded sun shadows) need new RHI contracts (cube/array textures,
-   depth sampling and comparison samplers, render-to-layer) and shared decisions; sorted alpha blending is planned only.
-5. The scene-pass GPU timestamp does not include the tone-map pass; diagnostics JSON has no tone-map entry yet.
-
 ## Housekeeping candidates (not done, owner's call)
 
 Redundant branches `claude/integration-0.2-base` and `claude/native-scene-integration`; draft #34 after its components have all
-landed; the temporary integration PR #54 should be closed (not merged) once the individual PRs are merged.
+landed; PR #54 should be closed (not merged) once the individual PRs are merged.

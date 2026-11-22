@@ -1,8 +1,11 @@
 # Sorted alpha blending: implementation plan
 
-Owner decision 2 (0.3 approval): support proper sorted alpha blending rather than drawing Blend materials as opaque. This is a
-plan. It needs a new RHI contract (blend state), so nothing is implemented until the combined renderer and the shared
-decisions have been reviewed.
+Owner decision 2 (0.3 approval): support proper sorted alpha blending rather than drawing Blend materials as opaque.
+
+Status: the owner approved adding blend state to the RHI (modular, backend-independent, backward compatible), sorted source-over
+blending with view-space bounding-sphere-center depth as the initial sort key, two-pass rendering for double-sided transparent
+meshes, documented sorting limits, and validation plus pixel regression tests before renderer integration. **Step 1 (RHI blend
+state with tests) is PR #57. Steps 2 and 3 wait for its review.** The decisions listed at the end are settled by that approval.
 
 ## Where things stand
 
@@ -64,9 +67,9 @@ encodes), matching the oracle.
 7. Combined with metallic-roughness, normal mapping and HDR in the integration test (`test_combined_pbr.cpp`).
 8. Frames in flight with a failed or replaced scene still validation clean (sync validation).
 
-## Decisions for the owner
+## Decisions (settled by the owner's 0.3 approval)
 
-- Sort key: view-space depth of the bounding-sphere center (recommended) versus nearest-point depth.
-- Two-pass double-sided blending by default (recommended) or single pass.
+- Sort key: view-space depth of the bounding-sphere center, as the initial key (nearest-point depth stays a possible refinement).
+- Two-pass double-sided blending (back faces, then front faces).
 - Whether the per-instance material override (decision 3) may change alpha mode; if so it changes the pipeline selection per
   draw. Schema stays Core's.

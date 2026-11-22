@@ -60,11 +60,12 @@ and passes through the tone map in the HDR path.
 | Burley-style diffuse `(1-F(n.l))(1-F(n.v))` | named in the specification | at most 0.954, but white albedo darkens to 0.26 at grazing | trivial |
 | Diffuse weighted by `1 - E_spec(n.v)`, Kulla-Conty coupling | named in the specification; needs the Fresnel-weighted specular albedo | 1.0 for a white base by construction (single scattering) | one lookup in the table we already ship (`E_spec = f0 * scale + bias` with f0 = 0.04) |
 
-Recommendation: keep the glTF-faithful model as the default, because content authored and previewed in other glTF viewers
-expects it and the project owner asked for compatibility. Offer the energy-conserving coupling as an explicit opt-in
-(`ModelShading` variant or a material-level flag, owner's decision) when image-based lighting arrives in M5, since the table
-makes it nearly free and it matters most under bright, uniform environment light. If added, it needs its own CPU reference and
-its own tests; it must not replace the faithful path silently. No code change is proposed now.
+Decision (owner, 0.3 review): keep the glTF-faithful model as the default, because content authored and previewed in other glTF
+viewers expects it. An optional energy-conserving model is approved for M5, **explicitly selectable, independently tested and
+documented**, never silently changing existing material behavior. The table makes the Kulla-Conty style coupling nearly free
+(one lookup), and it matters most under bright, uniform environment light. Requirements when it is built: its own CPU
+reference (furnace test bound of 1 for a white base, to the single-scattering accuracy stated above), its own GPU-versus-reference
+tests, a selector that defaults to the faithful path, and documentation of the difference. No code change yet.
 
 ## 2. The environment BRDF table as a precomputed, versioned asset
 
@@ -88,5 +89,5 @@ checksum, the physical range of every texel and recomputes 68 texels from the co
 texel, changed clamp, changed Fresnel exponent) each fail it. Embedded rather than a loaded file: no path resolution or
 packaging failure mode, 16 KB. Regenerating requires bumping `kEnvBrdfTableVersion`.
 
-Open item: the 2-half-ulp tolerance is a claim about toolchain reproducibility that hosted Windows CI (MSVC) will confirm or
-refute for the first time on that PR.
+Reproducibility: the 2-half-ulp tolerance held on hosted Linux, ASan and Windows MSVC CI for #55. The owner approved keeping the
+embedded 64x64 table, provided accuracy and cross-platform reproducibility stay verified by that test.

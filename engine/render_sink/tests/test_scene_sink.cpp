@@ -372,6 +372,14 @@ TEST_CASE("Scene: a failed staging leaves the active scene drawing exactly as be
     CHECK_FALSE(([&] { try { (void)sink.stage_scene(std::span(&builtin, 1)); } catch (const std::invalid_argument&) { return false; } return true; })());
     const SceneAssetRef dup[2] = {{scene.id, &scene.asset, "a"}, {scene.id, &scene.asset, "b"}};
     CHECK_FALSE(([&] { try { (void)sink.stage_scene(dup); } catch (const std::invalid_argument&) { return false; } return true; })());
+    // A scene belongs to the sink that staged it: another sink (another device) must refuse it and keep its own scene.
+    RendererFrameSink other(make_device("scene_other_sink"), kW, kH, sink_settings());
+    StagedScene foreign = other.stage_scene(scene.refs());
+    const std::size_t active_before = sink.active_model_count();
+    CHECK_FALSE(([&] { try { sink.activate_scene(std::move(foreign)); } catch (const std::invalid_argument&) { return false; } return true; })());
+    CHECK(sink.active_model_count() == active_before);  // the refusal changed nothing
+    other.activate_scene(std::move(foreign));  // the refusal did not consume it: its own sink still accepts it
+    CHECK(other.active_model_count() == 1);
     CHECK(sink.device().validation_error_count() == 0);
 }
 

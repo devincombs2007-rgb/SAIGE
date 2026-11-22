@@ -215,8 +215,16 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     REQUIRE(model.materials.size() == 4);
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
-    CHECK(has_warning(report, "alpha blending is not implemented"));
-    CHECK(report.warnings.size() == 1);  // warned about once, however many materials trigger it
+    CHECK(report.warnings.empty());  // a blending scene format needs no warning
+    CHECK_FALSE(model.materials[0].blend);
+    CHECK_FALSE(model.materials[1].blend);  // the mask material
+    CHECK(model.materials[2].blend);        // "glass": glTF BLEND
+    // Every primitive carries a bounding sphere for sorting blended draws.
+    for (const auto& primitives : model.meshes) {
+        for (const render::GpuPrimitive& prim : primitives) {
+            CHECK(prim.bounds_radius > 0.0f);
+        }
+    }
 }
 
 TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")

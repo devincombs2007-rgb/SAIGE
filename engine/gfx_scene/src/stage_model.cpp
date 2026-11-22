@@ -1,6 +1,7 @@
 #include "saige/gfx_scene/stage_model.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -164,7 +165,10 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             // shader does for 0 (no test); the shader discards only alpha < cutoff.
             data.alpha_cutoff = m.alpha_cutoff;
         } else if (m.alpha_mode == AlphaMode::Blend) {
-            warn_once(report, "alpha blending is not implemented in 0.2: Blend materials draw as opaque");
+            data.alpha_blend = true;  // drawn source-over in the sorted phase; opaque only if the scene format cannot blend
+            if (!models.blending_supported()) {
+                warn_once(report, "the scene's color format cannot blend: Blend materials draw as opaque");
+            }
         }
         render::MaterialTextures textures;
         textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true);
@@ -255,6 +259,24 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                 fail(where, std::string("GPU upload failed: ") + e.what());
             }
             prim.index_count = static_cast<uint32_t>(indices.size());
+            {   // bounding sphere for sorting blended draws: the box center and the farthest vertex from it
+                float lo[3] = {p.positions[0], p.positions[1], p.positions[2]};
+                float hi[3] = {lo[0], lo[1], lo[2]};
+                for (uint32_t v = 1; v < vertex_count; ++v) {
+                    for (uint32_t c = 0; c < 3; ++c) {
+                        lo[c] = std::min(lo[c], p.positions[v * 3 + c]);
+                        hi[c] = std::max(hi[c], p.positions[v * 3 + c]);
+                    }
+                }
+                const render::Float3 center{(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
+                float radius2 = 0.0f;
+                for (uint32_t v = 0; v < vertex_count; ++v) {
+                    const float dx = p.positions[v * 3] - center.x, dy = p.positions[v * 3 + 1] - center.y, dz = p.positions[v * 3 + 2] - center.z;
+                    radius2 = std::max(radius2, dx * dx + dy * dy + dz * dz);
+                }
+                prim.bounds_center = center;
+                prim.bounds_radius = std::sqrt(radius2);
+            }
             prim.material = (p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size())
                                 ? static_cast<uint32_t>(p.material)
                                 : default_material;

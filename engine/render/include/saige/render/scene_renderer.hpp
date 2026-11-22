@@ -110,6 +110,7 @@ struct FrameStats {
     uint32_t barriers = 0;
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
+    uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
 };
 
 class SceneRenderer {

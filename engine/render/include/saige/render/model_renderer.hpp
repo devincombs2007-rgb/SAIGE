@@ -10,7 +10,7 @@
 // neutral defaults, so one shader serves every material. Shaded: base color, emissive and occlusion (occlusion scales the
 // ambient term, as glTF defines it) in both modes; metallic-roughness and tangent-space normal mapping (with the material's
 // normal scale and the vertex tangents) only in `ModelShading::MetallicRoughness`. Alpha-mask materials discard below their cutoff; alpha
-// blending is not implemented (a Blend material draws as opaque).
+// blending composites `alpha_blend` materials source-over in a sorted phase after all opaque draws (see MaterialData).
 #pragma once
 
 #include "saige/render/gpu_resources.hpp"
@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace saige::render {
 
@@ -38,6 +39,10 @@ struct MaterialData {
     float normal_scale = 1.0f;                       ///< scales the normal texture's x and y (MetallicRoughness shading)
     float occlusion_strength = 1.0f;                 ///< 0 ignores the occlusion texture, 1 applies it fully
     bool double_sided = false;
+    /// glTF `BLEND`: the surface (base color alpha times the factor) is composited source-over with straight alpha in a sorted
+    /// phase after all opaque and masked draws, testing but not writing depth. Needs a blendable scene format (UNORM, sRGB or 16-bit
+    /// float); otherwise the material is drawn opaque.
+    bool alpha_blend = false;
 };
 /// The 0.2 name, kept so existing callers compile.
 using MaterialParams = MaterialData;
@@ -59,6 +64,8 @@ struct ModelFrameStats {
     uint32_t draw_calls = 0;
     uint32_t instances_drawn = 0;
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
+    uint32_t blended_primitives = 0; ///< primitives drawn in the sorted blended phase
+    uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
 };
 
 /// How imported models are lit. Legacy is the 0.2 look: albedo times (ambient plus sun). MetallicRoughness is glTF's physically
@@ -94,6 +101,14 @@ public:
     void draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 camera_position, std::span<const ModelDraw> draws,
               ModelFrameStats& stats);
 
+    /// Whether `alpha_blend` materials are really blended (the scene format blends). Fixed at construction.
+    [[nodiscard]] bool blending_supported() const noexcept { return blending_supported_; }
+
+    /// The key blended primitives are sorted by, larger = farther = drawn first: the view-space depth of `world_center`, which for a
+    /// perspective projection is the clip-space w. (Orthographic projections give every point the same w and would not sort; the
+    /// renderer has perspective cameras only.)
+    [[nodiscard]] static float blend_sort_depth(const Mat4& view_proj, Float3 world_center) noexcept;
+
     /// GPU textures the renderer itself keeps alive: three neutral slot textures and the environment BRDF table (visible in the
     /// registry's texture counters).
     static constexpr uint32_t kOwnedTextureCount = 4;
@@ -102,12 +117,28 @@ public:
 
 private:
     [[nodiscard]] rhi::PipelineHandle pipeline_for(bool mirrored, bool double_sided) const noexcept;
+    void ensure_blend_pipelines();
+
+    /// One primitive waiting for the sorted phase. Kept in a member vector that is cleared, not freed, each frame.
+    struct BlendedDraw {
+        float depth = 0.0f;
+        uint32_t sequence = 0;  ///< submission order: the deterministic tie-break
+        const GpuPrimitive* primitive = nullptr;
+        const GpuMaterial* material = nullptr;
+        Mat4 world;
+        bool mirrored = false;
+    };
 
     rhi::Device& device_;
     GpuResourceRegistry& registry_;
     rhi::ShaderHandle vs_, ps_;
     rhi::BindGroupLayoutHandle material_layout_, constants_layout_;
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]
+    rhi::GraphicsPipelineDesc pipeline_template_;  ///< everything but cull, winding and blend, kept to create blend variants lazily
+    rhi::PipelineHandle blend_pipelines_[4];       ///< [mirrored][pass]: pass 0 culls back faces (draws front faces), pass 1 culls front faces
+    bool blend_pipelines_ready_ = false;
+    bool blending_supported_ = false;
+    std::vector<BlendedDraw> blended_;
     BindGroupRef constants_group_;
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading

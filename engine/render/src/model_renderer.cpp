@@ -4,6 +4,7 @@
 
 #include "saige/shaders/scene_model.spv.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -39,7 +40,7 @@ struct MaterialBlock {
     float base_color[4];
     float emissive_cutoff[4];
     float metallic_roughness_normal_occlusion[4];  ///< metallic, roughness, normal scale, occlusion strength
-    float flags[4];                                ///< x: 1 when the material has a normal texture
+    float flags[4];                                ///< x: 1 when the material has a normal texture; y: 1 when it is blended
 };
 static_assert(sizeof(MaterialBlock) == 64);
 
@@ -139,6 +140,8 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     pd.depth_format = depth_format;
     pd.push_constant_size = sizeof(ModelPush);
     pd.bind_group_layouts = {material_layout_, constants_layout_};
+    pipeline_template_ = pd;
+    blending_supported_ = rhi::is_blendable_color_format(color_format);
     static const char* const names[4] = {"SceneModel.CCW.Back", "SceneModel.CCW.None", "SceneModel.CW.Back", "SceneModel.CW.None"};
     for (int mirrored = 0; mirrored < 2; ++mirrored) {
         for (int two_sided = 0; two_sided < 2; ++two_sided) {
@@ -228,6 +231,11 @@ ModelRenderer::~ModelRenderer()
     for (const rhi::PipelineHandle p : pipelines_) {
         device_.destroy(p);
     }
+    if (blend_pipelines_ready_) {
+        for (const rhi::PipelineHandle p : blend_pipelines_) {
+            device_.destroy(p);
+        }
+    }
     device_.destroy(ps_);
     device_.destroy(vs_);
     device_.destroy(material_layout_);
@@ -255,6 +263,11 @@ GpuMaterial ModelRenderer::create_material(const MaterialData& data, const Mater
     block.metallic_roughness_normal_occlusion[2] = data.normal_scale;
     block.metallic_roughness_normal_occlusion[3] = data.occlusion_strength;
     block.flags[0] = textures[MaterialSlot::Normal].texture.valid() ? 1.0f : 0.0f;
+    const bool blend = data.alpha_blend && blending_supported_;
+    block.flags[1] = blend ? 1.0f : 0.0f;
+    if (blend) {
+        ensure_blend_pipelines();  // outside any rendering, so a device failure surfaces as a failed material, not a failed frame
+    }
     BufferRef uniform;
     make_uniform(device_, registry_, uniform, &block, sizeof(block), name);
 
@@ -273,7 +286,49 @@ GpuMaterial ModelRenderer::create_material(const MaterialData& data, const Mater
     GpuMaterial material;
     material.group = registry_.create_bind_group(material_layout_, bindings, name);
     material.double_sided = data.double_sided;
+    material.blend = blend;
     return material;
+}
+
+void ModelRenderer::ensure_blend_pipelines()
+{
+    if (blend_pipelines_ready_) {
+        return;
+    }
+    rhi::GraphicsPipelineDesc pd = pipeline_template_;
+    pd.depth = {true, false, rhi::CompareOp::Greater};  // test against the opaque depth, never write it
+    pd.blend = {rhi::BlendState::source_over()};        // straight alpha, as glTF defines BLEND
+    static const char* const names[4] = {"SceneModel.Blend.CCW.Front", "SceneModel.Blend.CCW.Back", "SceneModel.Blend.CW.Front",
+                                         "SceneModel.Blend.CW.Back"};
+    rhi::PipelineHandle created[4];
+    int count = 0;
+    try {
+        for (int mirrored = 0; mirrored < 2; ++mirrored) {
+            for (int pass = 0; pass < 2; ++pass) {
+                pd.front_face = mirrored != 0 ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise;
+                pd.cull_mode = pass == 0 ? rhi::CullMode::Back : rhi::CullMode::Front;
+                pd.debug_name = names[mirrored * 2 + pass];
+                created[count] = device_.create_graphics_pipeline(pd);
+                ++count;
+            }
+        }
+    } catch (...) {
+        for (int i = 0; i < count; ++i) {
+            device_.destroy(created[i]);
+        }
+        throw;
+    }
+    for (int i = 0; i < 4; ++i) {
+        blend_pipelines_[i] = created[i];
+    }
+    blend_pipelines_ready_ = true;
+}
+
+float ModelRenderer::blend_sort_depth(const Mat4& view_proj, Float3 c) noexcept
+{
+    // Row 3 of the column-major matrix: clip w = dot(row3, (c, 1)), the distance along the view direction for a perspective projection.
+    const float w = view_proj.at(3, 0) * c.x + view_proj.at(3, 1) * c.y + view_proj.at(3, 2) * c.z + view_proj.at(3, 3);
+    return std::isfinite(w) ? w : 0.0f;  // a non-finite key would break the sort's ordering: such a primitive sorts as if at the camera
 }
 
 rhi::PipelineHandle ModelRenderer::pipeline_for(bool mirrored, bool double_sided) const noexcept
@@ -285,6 +340,8 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                          ModelFrameStats& stats)
 {
     rhi::PipelineHandle bound{};
+    blended_.clear();
+    uint32_t sequence = 0;
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -314,6 +371,15 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
                 const GpuMaterial& material = d.model->materials[prim.material];
+                if (material.blend && blend_pipelines_ready_) {
+                    // Deferred: blended primitives draw after every opaque one, sorted back to front (below).
+                    const Float3 local = prim.bounds_center;
+                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                    blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored});
+                    continue;
+                }
                 const rhi::PipelineHandle pipeline = pipeline_for(mirrored, material.double_sided);
                 if (pipeline != bound) {
                     cmd.bind_pipeline(pipeline);
@@ -329,6 +395,44 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             }
             ++stats.instances_drawn;
         }
+    }
+
+    // Sorted phase: farthest first by the view-space depth of each primitive's bounding-sphere center, submission order breaking
+    // ties, so a frame is reproducible. std::sort with a total order does not allocate; blended_ keeps its capacity.
+    std::sort(blended_.begin(), blended_.end(), [](const BlendedDraw& a, const BlendedDraw& b) {
+        return a.depth != b.depth ? a.depth > b.depth : a.sequence < b.sequence;
+    });
+    for (const BlendedDraw& item : blended_) {
+        ModelPush push{};
+        push.view_proj = view_proj;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                push.model_row[r][c] = item.world.at(r, c);
+            }
+        }
+        push.camera_sign[0] = camera_position.x;
+        push.camera_sign[1] = camera_position.y;
+        push.camera_sign[2] = camera_position.z;
+        push.camera_sign[3] = item.mirrored ? -1.0f : 1.0f;
+        // A double-sided surface draws its back faces first, then its front faces, so a convex mesh composites correctly
+        // against itself; a single-sided one draws its front faces only.
+        const int first_pass = item.material->double_sided ? 1 : 0;
+        for (int pass = first_pass; pass >= 0; --pass) {
+            const rhi::PipelineHandle pipeline = blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
+            if (pipeline != bound) {
+                cmd.bind_pipeline(pipeline);
+                cmd.bind_group(1, constants_group_.handle());
+                bound = pipeline;
+            }
+            cmd.bind_group(0, item.material->group.handle());
+            cmd.bind_vertex_buffer(item.primitive->vertices.handle());
+            cmd.bind_index_buffer(item.primitive->indices.handle(), item.primitive->index_type);
+            cmd.push_constant_struct(push);
+            cmd.draw_indexed(item.primitive->index_count);
+            ++stats.draw_calls;
+            ++stats.blended_draws;
+        }
+        ++stats.blended_primitives;
     }
 }
 

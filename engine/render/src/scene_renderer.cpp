@@ -329,6 +329,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.draw_calls += model_stats.draw_calls;
                 stats.model_instances += model_stats.instances_drawn;
                 stats.model_instances_skipped += model_stats.instances_skipped;
+                stats.model_blended_primitives += model_stats.blended_primitives;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

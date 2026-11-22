@@ -57,6 +57,7 @@ if(SAIGE_RENDER_BUILD_TESTS)
             tests/test_camera.cpp
             tests/test_gpu_resources.cpp
             tests/test_math.cpp
+            tests/test_model_blend.cpp
             tests/test_render_graph.cpp
             tests/test_tonemap.cpp
             tests/test_scene_renderer.cpp

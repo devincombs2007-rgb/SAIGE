@@ -594,10 +594,10 @@ TEST_CASE("PBR: the back of a double-sided quad uses the reversed frame")
     CHECK(rig.device->validation_error_count() == 0);
 }
 
-TEST_CASE("PBR: without tangents, or in Legacy shading, a normal map changes nothing")
+TEST_CASE("PBR: without tangents, or in Legacy or Extended shading, a normal map changes nothing")
 {
     const Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
-    for (const ModelShading shading : {ModelShading::MetallicRoughness, ModelShading::Legacy}) {
+    for (const ModelShading shading : {ModelShading::MetallicRoughness, ModelShading::Legacy, ModelShading::Extended}) {
         Rig rig("pbr_normal_map_ignored", shading);
         {
             MaterialData data;
@@ -616,8 +616,8 @@ TEST_CASE("PBR: without tangents, or in Legacy shading, a normal map changes not
             };
             const auto baseline = render(plain);
             CHECK(render(no_tangents) == baseline);  // no tangent frame: the map is skipped
-            if (shading == ModelShading::Legacy) {
-                CHECK(render(mapped) == baseline);   // the 0.2 look never reads a normal map
+            if (shading != ModelShading::MetallicRoughness) {
+                CHECK(render(mapped) == baseline);   // the 0.2 look and Extended never read a normal map
             } else {
                 CHECK(render(mapped) != baseline);   // not vacuous: with tangents the map does change the image
             }

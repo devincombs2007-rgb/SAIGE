@@ -6,6 +6,12 @@
 
 #include <memory>
 #endif
+#if defined(SAIGE_DESKTOP_SCENE)
+#include "saige/prepared_scene.hpp"
+#include "saige/render_sink/prepared_scene.hpp"
+
+#include <filesystem>
+#endif
 
 #include <charconv>
 #include <chrono>
@@ -13,6 +19,7 @@
 #include <exception>
 #include <iostream>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -82,6 +89,23 @@ public:
         }
     }
 
+#if defined(SAIGE_DESKTOP_SCENE)
+    [[nodiscard]] bool has_renderer() const noexcept { return renderer_ != nullptr; }
+
+    // Stages the prepared scene's GPU resources and makes them active. Staging is all-or-nothing and the renderer keeps its
+    // previous scene (none, at startup) if it throws; the exception propagates to main's error report.
+    void show(const saige::PreparedScene& scene) {
+        if (!renderer_) {
+            return;
+        }
+        renderer_->activate_scene(saige::render::stage_prepared_scene(*renderer_, scene));
+    }
+
+    [[nodiscard]] std::string diagnostics_json() const {
+        return renderer_ ? saige::render::to_json(renderer_->diagnostics()) : std::string{};
+    }
+#endif
+
     [[nodiscard]] std::uint32_t validation_errors() {
         if (!renderer_) {
             return 0;
@@ -108,6 +132,10 @@ int main(int argc, char** argv) {
     bool require_rendered = false;
     bool validate = false;
 #endif
+#if defined(SAIGE_DESKTOP_SCENE)
+    std::optional<std::filesystem::path> scene_path;
+    bool skip_without_gpu = false;
+#endif
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
 #if defined(SAIGE_DESKTOP_VULKAN)
@@ -120,10 +148,23 @@ int main(int argc, char** argv) {
             continue;
         }
 #endif
+#if defined(SAIGE_DESKTOP_SCENE)
+        if (argument == "--scene" && !scene_path && i + 1 < argc) {
+            scene_path = std::filesystem::path(argv[++i]);
+            continue;
+        }
+        if (argument == "--skip-without-gpu" && !skip_without_gpu) {
+            skip_without_gpu = true;  // tests: exit 77 (ctest SKIP_RETURN_CODE) instead of running the probe-only fallback
+            continue;
+        }
+#endif
         if (argument != "--frames" || frames || ++i == argc) {
             std::cerr << "Usage: saige_desktop [--frames COUNT]"
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
+#endif
+#if defined(SAIGE_DESKTOP_SCENE)
+                      << " [--scene PROJECT.json] [--skip-without-gpu]"
 #endif
                       << '\n';
             return 2;
@@ -150,10 +191,36 @@ int main(int argc, char** argv) {
         saige::World world;
         DesktopGame game(world, platform);
         DesktopFrameProbe probe;
+#if defined(SAIGE_DESKTOP_SCENE)
+        // CPU preparation first: a bad project or asset fails here, before any window or GPU work is spent on it.
+        std::optional<saige::PreparedScene> prepared;
+        if (scene_path) {
+            prepared.emplace(*scene_path);
+        }
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
         // Declared after the platform: the renderer releases its swapchain and surface before the HWND goes away.
+#if defined(SAIGE_DESKTOP_SCENE)
+        // With --skip-without-gpu a missing device is reported as "skipped" below instead of failing the sink's construction.
+        DesktopFrameSink sink(probe, platform, strict && !skip_without_gpu, validate);
+#else
         DesktopFrameSink sink(probe, platform, strict, validate);
+#endif
+#if defined(SAIGE_DESKTOP_SCENE)
+        if (prepared) {
+            if (!sink.has_renderer() && skip_without_gpu) {
+                std::cout << "SKIPPED: no usable Vulkan device for the scene run\n";
+                return 77;
+            }
+            sink.show(*prepared);
+        }
+        const auto stats = prepared ? prepared->run(platform, sink, frames) : saige::run(world, platform, game, sink, frames);
+        if (prepared && sink.has_renderer()) {
+            std::cout << "SAIGE scene diagnostics " << sink.diagnostics_json() << '\n';
+        }
+#else
         const auto stats = saige::run(world, platform, game, sink, frames);
+#endif
         std::cout << "SAIGE Vulkan rendered=" << sink.rendered() << '\n';
         if (sink.validation_errors() != 0) {
             std::cerr << "SAIGE desktop renderer: " << sink.validation_errors() << " Vulkan validation error(s)\n";

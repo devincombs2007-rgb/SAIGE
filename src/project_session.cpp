@@ -56,6 +56,13 @@ void ProjectSession::reload(const std::filesystem::path& path) {
     if (desktop_) (void)desktop_->consume_look_delta();
 }
 
+void ProjectSession::attach_desktop(IDesktopPlatform* desktop) noexcept {
+    if (desktop_ != desktop) {
+        desktop_ = desktop;
+        if (desktop_) (void)desktop_->consume_look_delta();
+    }
+}
+
 void ProjectSession::fixed_update(World&, std::chrono::nanoseconds step) {
     if (!desktop_ || step <= std::chrono::nanoseconds::zero()) return;
     const auto down = [&](Key key) { return desktop_->key_down(key) ? 1.F : 0.F; };

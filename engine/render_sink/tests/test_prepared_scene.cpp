@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -222,4 +223,57 @@ int main(int argc, char** argv)
         return 77;
     }
     return saige::test::run_all(argc, argv);
+}
+
+TEST_CASE("Native flow: a saved v1 project keeps BLEND opaque until the host opts in")
+{
+    TempProject opaque;
+    TempProject transparent;
+    const auto set_material = [](const TempProject& project, const char* alpha_mode) {
+        const auto gltf_path = project.dir / "checker-box.gltf";
+        std::ifstream input(gltf_path, std::ios::binary);
+        REQUIRE(input.good());
+        std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        input.close();
+        const std::string pbr = "\"pbrMetallicRoughness\": {";
+        const auto start = source.find(pbr);
+        REQUIRE(start != std::string::npos);
+        source.insert(start + pbr.size(), "\n        \"baseColorFactor\": [1, 1, 1, 0.25],");
+        source.insert(start, std::string{"\"alphaMode\": \""} + alpha_mode + "\",\n      ");
+        std::ofstream output(gltf_path, std::ios::binary | std::ios::trunc);
+        output << source;
+        output.close();
+        REQUIRE(output.good());
+
+        const Project data = load_project(project.scene);
+        save_project(data, project.scene);
+    };
+    set_material(opaque, "OPAQUE");
+    set_material(transparent, "BLEND");
+
+    const auto render_saved = [](const TempProject& project, bool blending) {
+        Desktop desktop;
+        desktop.forward = false;
+        PreparedScene prepared(project.scene);
+        FrameSinkSettings config = settings();
+        if (blending) config.renderer.alpha_blending = true;
+        RendererFrameSink sink(make_device("saved_transparency"), kW, kH, config);
+        StagedScene staged = stage_prepared_scene(sink, prepared);
+        REQUIRE(staged.model_count() == 1);
+        sink.activate_scene(std::move(staged));
+        CHECK(prepared.run(desktop, sink, 1).frames == 1);
+        CHECK(sink.stats().unresolved_instances == 0);
+        CHECK(sink.stats().model_instances_drawn == 3);
+        const auto image = read(sink);
+        sink.device().wait_idle();
+        CHECK(sink.diagnostics().validation_errors == 0);
+        return image;
+    };
+    const auto original = render_saved(opaque, false);
+    const auto compatible = render_saved(transparent, false);
+    const auto opted_in = render_saved(transparent, true);
+    CHECK(compatible.rgba == original.rgba);
+    CHECK(differing(original, opted_in) > 200);
+    capture(compatible, "saved_blend_legacy");
+    capture(opted_in, "saved_blend_opt_in");
 }

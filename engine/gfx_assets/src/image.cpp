@@ -5,15 +5,14 @@
 #include <bit>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <memory>
 #include <new>
 #include <optional>
-#include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 // stb_image, compiled for PNG and JPEG only, from the pinned upstream revision (docs/third-party/stb_image.md).
 #define STBI_ONLY_PNG
@@ -177,6 +176,24 @@ uint32_t level_extent(uint32_t base, uint32_t level) noexcept
     return level >= 32u ? 1u : std::max(1u, base >> level);
 }
 
+/// The most bytes any single allocation here may request: what size_t can index and what a byte vector can hold.
+uint64_t max_chain_bytes() noexcept
+{
+    return std::min<uint64_t>(std::numeric_limits<std::size_t>::max(), std::vector<uint8_t>().max_size());
+}
+
+/// Bytes of one RGBA8 level, or nullopt if that exceeds `limit`. The check divides instead of multiplying: width * height
+/// always fits 64 bits for 32-bit sides, but times four it can wrap (2^31 x 2^31 x 4 == 2^64 == 0), and a wrapped size
+/// must never be compared against, or used to size, anything.
+std::optional<uint64_t> level_bytes(uint32_t width, uint32_t height, uint64_t limit) noexcept
+{
+    const uint64_t texels = uint64_t{width} * height;
+    if (texels > limit / 4u) {
+        return std::nullopt;
+    }
+    return texels * 4u;
+}
+
 } // namespace
 
 MipChain generate_mips(const DecodedImage& image, ColorSpace space)
@@ -184,18 +201,22 @@ MipChain generate_mips(const DecodedImage& image, ColorSpace space)
     MipChain chain;
     // DecodedImage is publicly constructible, so the metadata is not trusted: sizes are computed in 64 bits and must match
     // the pixel storage exactly before anything is sized from them (an empty chain means "rejected").
-    if (image.width == 0 || image.height == 0 ||
-        uint64_t{image.width} * image.height * 4u != uint64_t{image.rgba.size()}) {
+    const uint64_t limit = max_chain_bytes();
+    const std::optional<uint64_t> base_bytes = image.width == 0 || image.height == 0
+                                                   ? std::nullopt
+                                                   : level_bytes(image.width, image.height, limit);
+    if (!base_bytes || *base_bytes != uint64_t{image.rgba.size()}) {
         return chain;
     }
     // Level count from the bit width of the largest side: at most 32, with no shift by the type's width.
     const uint32_t levels = static_cast<uint32_t>(std::bit_width(std::max(image.width, image.height)));
     uint64_t total64 = 0;
     for (uint32_t l = 0; l < levels; ++l) {
-        total64 += uint64_t{level_extent(image.width, l)} * level_extent(image.height, l) * 4u;
-        if (total64 > std::numeric_limits<std::size_t>::max()) {
+        const std::optional<uint64_t> bytes = level_bytes(level_extent(image.width, l), level_extent(image.height, l), limit);
+        if (!bytes || *bytes > limit - total64) {  // bound the sum before adding, so it cannot wrap or exceed an allocation
             return chain;
         }
+        total64 += *bytes;
     }
     const std::size_t total = static_cast<std::size_t>(total64);
     chain.width = image.width;

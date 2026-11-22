@@ -2,9 +2,12 @@
 
 #include "saige/gfx_assets/tangents.hpp"
 #include "saige/render/math.hpp"
+#include "alloc_fault.hpp"
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -332,4 +335,45 @@ TEST_CASE("Tangents: inconsistent colors are rejected before anything changes")
     CHECK(p.positions == before.positions);
     CHECK(p.indices == before.indices);
     CHECK(p.tangents.empty());
+}
+
+TEST_CASE("Tangents: an allocation failure at any point leaves the primitive exactly as it was")
+{
+    if (!saige::test::alloc_fault_available()) {
+        std::printf("  allocation-failure injection is not available with this toolchain: sweep skipped\n");
+        return;
+    }
+    Primitive base = mirrored_strip(/*with_colors=*/true);  // splits two vertices, so every per-vertex array grows
+    Primitive expected = base;
+    const TangentReport good = generate_tangents(expected);
+    REQUIRE(good.result == TangentResult::Generated);
+    REQUIRE(good.split_vertices == 2);
+    const auto same = [](const Primitive& a, const Primitive& b) {
+        return a.positions == b.positions && a.normals == b.normals && a.uv0 == b.uv0 && a.colors == b.colors && a.indices == b.indices &&
+               a.tangents == b.tangents;
+    };
+    uint32_t failures = 0;
+    bool succeeded = false;
+    for (uint32_t n = 1; n < 100000 && !succeeded; ++n) {
+        Primitive p = base;
+        saige::test::fail_allocation_after(n);
+        bool threw = false;
+        try {
+            (void)generate_tangents(p);
+        } catch (const std::bad_alloc&) {
+            threw = true;
+        }
+        saige::test::fail_allocation_after(0);
+        if (threw) {
+            ++failures;
+            CHECK(same(p, base));
+            CHECK(p.tangents.empty());
+        } else {
+            succeeded = true;
+            CHECK(same(p, expected));
+        }
+    }
+    CHECK(succeeded);
+    CHECK(failures >= 10);
+    std::printf("  allocation-failure sweep: %u failing allocation points, every one left the primitive unchanged\n", failures);
 }

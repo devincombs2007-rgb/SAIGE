@@ -61,7 +61,10 @@ if(SAIGE_RENDER_BUILD_TESTS)
             tests/test_render_graph.cpp
             tests/test_tonemap.cpp
             tests/test_scene_renderer.cpp
+            tests/test_shader_derivatives.cpp
             tests/test_transform.cpp
         LINK saige::render saige::rhi_null
     )
+    # test_shader_derivatives.cpp reads the embedded SPIR-V of the model pixel shader.
+    target_include_directories(saige_render_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../shaders/generated)
 endif()

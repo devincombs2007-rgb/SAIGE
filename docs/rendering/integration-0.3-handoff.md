@@ -10,9 +10,9 @@ Vulkan** (Mesa llvmpipe on Linux, lavapipe on Windows); none of it is physical-G
 1. Approved architecture and M1 to M6; the seven decisions in `material-architecture.md` (ACES-inspired default tone map, sorted
    alpha blending, per-instance overrides preserved with the schema left to Core, MikkTSpace evaluated, independent per-slot
    samplers and color space, temporal requirements with Core, no premature ray tracing or upscaler infrastructure).
-2. **MikkTSpace** conditionally approved as a production dependency: pin exact source and hashes, retain the zlib notice, verify
-   compatibility and security; any scoped comparison runs in an isolated environment (run: see `mikktspace-evaluation.md`); keep the Lengyel
-   generator as fallback until MikkTSpace passes its own tests and review.
+2. **MikkTSpace** approved as a production dependency, subject to Codex's final implementation and security review before merge
+   (pinned reference, zlib notice, comparison in `mikktspace-evaluation.md`, wrapper and tests in #58). The Lengyel generator stays
+   the importer default and the fallback until the new implementation is fully integrated and validated.
 3. **Energy-conserving BRDF** approved as an optional model in M5: glTF-faithful shading stays the default; the alternative must be
    explicitly selectable, independently tested and documented; no silent change of existing material behavior
    (`brdf-energy-and-lut.md`).
@@ -42,6 +42,7 @@ Vulkan** (Mesa llvmpipe on Linux, lavapipe on Windows); none of it is physical-G
 | #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned 64x64 env BRDF table (draft) | #51 | green incl. MSVC reproducibility check |
 | #56 | `docs-0.3-handoff` (this branch) | energy and table notes, MikkTSpace evaluation, alpha plan, this file, analysis tools (draft) | #49 | docs |
 | #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | green (Linux, ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan) |
+| #59 | `sorted-alpha-blending` (85a454f) | sorted source-over alpha blending in the model renderer (draft); base branch `blend-base` = #57 + the M1 to M4 stack, a review convenience, not to merge | #57, #50 to #53 | check (pending when written) |
 | #58 | `mikktspace-tangents` (041db3c) | `generate_tangents_mikktspace`, pinned reference fetched by hash, importer default unchanged (draft) | #46 | green (same set; includes MSVC building the isolated third-party C target) |
 
 Not part of 0.3 and untouched: #34 (draft combined 0.2 evidence PR, not to be merged), the 0.2 release candidate (branch
@@ -50,6 +51,7 @@ Not part of 0.3 and untouched: #34 (draft combined 0.2 evidence PR, not to be me
 ## Recommended merge sequence (owner and Codex decide; each PR needs its own review)
 
 1. Independent of everything else: #44 then #45 (Vulkan headers and capability probe); #57 (RHI blend state); #46 then #58 (tangents, then MikkTSpace); #47, #48; #49.
+   #59 (sorted alpha blending) comes after #57 and after the material stack below, because it builds on both; `claude/blend-base` exists only so it can be reviewed now.
 2. The material stack, in order: #50, then #51, then #55 (retarget #55 to main after #51; it is a follow-up to M2's table), then
    #52 and #53 (either order, both retargeted to main after #51).
 3. #56 (docs) after #49, or squashed into #49's review.
@@ -67,7 +69,7 @@ retarget the next PR to main and rebase; a clean rebase is expected apart from t
 | Review of every PR above | Codex, owner approval for major merges | each stacked PR names the commit to review |
 | Core temporal frame data (#17): instance identity, previous rendered-frame transforms, camera history, teleport and camera-cut flags | Core | requirements posted; no interface change made; per-instance override schema stays Core's |
 | MikkTSpace: review and approve #58; then a separate change to make it the importer default with Lengyel as fallback | Codex review, owner approval of the dependency | comparison done (agrees within 0.45 degrees on well-formed meshes; differs on UV-fold meshes); source pinned to upstream commit 3e895b49 and two SHA-256 hashes |
-| Renderer integration of blend state (sorted blended phase, double-sided two-pass, shader alpha, stats) | graphics, after #57 is reviewed | plan in `sorted-alpha-blending-plan.md` |
+| Review of #59 (renderer integration of blend state: deferred sorted phase, lazy pipelines, two face passes, shader alpha) | Codex | implementation notes and limits in `alpha-blending.md` on that branch; plan and decisions in `sorted-alpha-blending-plan.md` |
 | M5 (image-based lighting plus the optional energy-conserving model) and M6 (cascaded sun shadows) | graphics | new RHI contracts (cube/array textures, depth sampling, render-to-layer); not started |
 | Flip of the `model_shading` and `hdr` defaults | owner | they change the look of every scene; both default to the 0.2 behavior |
 | Physical-GPU verification | owner / #9 | nothing here is physical |
@@ -97,6 +99,7 @@ retarget the next PR to main and rebase; a clean rebase is expected apart from t
 | Resource lifetime: replace a staged model with frames in flight | same test and `test_hdr.cpp`, synchronization validation on | pass, 0 validation errors |
 | Environment BRDF table reproducibility across toolchains | `saige_env_brdf_table_up_to_date` on #55 | pass on Linux, ASan and Windows MSVC |
 | Blend state | #57 pixel tests (UNORM, sRGB, float; every factor and operation) | pass locally and on hosted CI (Linux, ASan, Windows MSVC) |
+| Sorted alpha blending end to end (LDR/HDR, Legacy/metallic-roughness, ordering, depth, two-pass, mirrored, in flight) | #59 `test_blend_render.cpp`, `test_model_blend.cpp` | pass locally: 44 of 44, also under ASan + UBSan with warnings as errors and Vulkan enabled; 11 mutations caught; hosted CI check pending when written |
 | Shader and renderer mutations (about 30 across M1 to M4, the table and blend) | each against its PR's tests | all caught |
 
 Not covered, and honest limits: no physical GPU; the validation layer on these runners does not detect descriptor shader-read

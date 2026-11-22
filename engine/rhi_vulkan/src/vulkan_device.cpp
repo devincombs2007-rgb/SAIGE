@@ -24,6 +24,7 @@ namespace saige::rhi {
 
 namespace {
 
+#if defined(SAIGE_RHI_VULKAN_TESTING)
 std::atomic<uint32_t> g_process_validation_errors{0};  // all devices, including errors reported during destruction
 std::atomic<uint32_t> g_memory_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
 
@@ -38,6 +39,9 @@ bool consume_memory_bookkeeping_fault() noexcept
     }
     return false;
 }
+#else
+constexpr bool consume_memory_bookkeeping_fault() noexcept { return false; }  // production builds carry no injection point
+#endif
 
 using vk::Api;
 
@@ -526,7 +530,9 @@ VkBool32 VulkanDevice::debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT sev
     if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0) {
         label = "error";
         self->validation_errors_.fetch_add(1);
+#if defined(SAIGE_RHI_VULKAN_TESTING)
         g_process_validation_errors.fetch_add(1);  // survives the device: leaks are only reported while it is destroyed
+#endif
     } else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0) {
         label = "warning";
     }
@@ -2491,6 +2497,7 @@ bool vulkan_device_available(std::string* reason)
     }
 }
 
+#if defined(SAIGE_RHI_VULKAN_TESTING)
 namespace testing {
 void fail_memory_bookkeeping_after(uint32_t n) noexcept
 {
@@ -2502,5 +2509,6 @@ uint32_t process_validation_error_count() noexcept
     return g_process_validation_errors.load(std::memory_order_relaxed);
 }
 } // namespace testing
+#endif
 
 } // namespace saige::rhi

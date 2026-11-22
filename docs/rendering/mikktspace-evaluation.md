@@ -3,7 +3,7 @@
 Owner decision 4 (0.3 approval): evaluate reference MikkTSpace for production-quality asset compatibility; the Lengyel-style
 generator (`gfx::generate_tangents`, PR #46) is the interim solution.
 
-**Status: comparison run; integration not yet done.** Owner approval (0.3 review): MikkTSpace is conditionally approved as a
+**Status: comparison complete. The wrapper is under review in #58.** Owner approval (0.3 review): MikkTSpace is conditionally approved as a
 production dependency, with the exact upstream source and hashes pinned, the zlib notice retained and compatibility and security
 checked; the Lengyel generator stays as a fallback until MikkTSpace passes its own tests and review.
 
@@ -111,9 +111,8 @@ ASan/UBSan lane.
 
 ## Pinned reference
 
-zlib licence; source examined and run 2026-11-22 from https://github.com/mmikk/MikkTSpace (`master`; the upstream commit id could
-not be resolved from this environment, so the pin is by content hash):
-`mikktspace.c` sha256 `de87e74107df766ce68108801262bd8d53899414236b59810509a8fc2a51e288`,
-`mikktspace.h` sha256 `17fc433894f24c73753d548086cc4d8c5c0379f4a6edfb98b5da243e4f0bc3d0`.
-Upstream commit id, resolved with `git ls-remote` on 2026-11-22: `3e895b49d05ea07e4c2133156cfa94369e19e409`; both files at that commit
-hash to the values above. PR #58 verifies both hashes at configure time, as for stb.
+The comparison ran on 2026-11-22 using the zlib-licensed [MikkTSpace reference](https://github.com/mmikk/MikkTSpace)
+at commit `3e895b49d05ea07e4c2133156cfa94369e19e409`. PR #58 checks both SHA-256 hashes at configure time.
+
+- `mikktspace.c` — `de87e74107df766ce68108801262bd8d53899414236b59810509a8fc2a51e288`
+- `mikktspace.h` — `17fc433894f24c73753d548086cc4d8c5c0379f4a6edfb98b5da243e4f0bc3d0`

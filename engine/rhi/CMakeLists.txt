@@ -22,6 +22,7 @@ option(SAIGE_RHI_BUILD_TESTS "Build saige::rhi unit tests" ${_saige_tests_defaul
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 
 add_library(saige_rhi STATIC
+    src/api_negotiation.cpp
     src/bindless_allocator.cpp
     src/resource_desc.cpp
 )
@@ -36,6 +37,7 @@ if(SAIGE_RHI_BUILD_TESTS)
     enable_testing()
     saige_gfx_add_test(saige_rhi_tests
         SOURCES
+            tests/test_api_negotiation.cpp
             tests/test_barrier.cpp
             tests/test_bindless_allocator.cpp
             tests/test_format.cpp

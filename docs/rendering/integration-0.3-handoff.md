@@ -48,7 +48,7 @@ evidence, not to be merged). The 0.2 release candidate is untouched: branch `rel
 |---|---|---|
 | Full CTest incl. 0.2 regression suite on the union | local Linux, Mesa lavapipe, validation + synchronization validation | 42 of 42 |
 | Same on hosted Engine/Graphics CI for the union | Linux lavapipe, Linux GCC ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan lane | all green on #54 |
-| Windows window-system lane (Win32 + Mesa lavapipe, demo artifact) on the union | `windows-software-vulkan.yml` dispatched on `claude/integration-0.3-pbr` | queued, result not yet read |
+| Windows window-system lane (Win32 + Mesa lavapipe, demo artifact) on the union | `windows-software-vulkan.yml` dispatched on `claude/integration-0.3-pbr` | success (run 45018663394, job win32-lavapipe, all 14 steps): the CTest step `-R vulkan\|win32_platform\|win32_prepared_scene` passed, which matches `saige_render_sink_combined_vulkan_tests`; the packaged demo ran 30 validated frames. I read the job and step conclusions, not the raw log, so the combined test's own output line was not inspected |
 | Combined PBR + normal map + emissive + occlusion + HDR vs CPU reference, all five textures from PNGs, importer-generated tangents | `engine/render_sink/tests/test_combined_pbr.cpp` | pass |
 | Color-space correctness | same test: one image used as sRGB base color and linear occlusion (5 uploads); mutations (occlusion as sRGB, emissive as linear) fail | pass, mutations caught |
 | Resize across four sizes | same test, plus `test_hdr.cpp` (content compared with a fresh renderer) | pass |

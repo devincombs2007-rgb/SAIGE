@@ -68,7 +68,9 @@ specification, the sun, and a hemispherical ambient through a split-sum environm
 `ModelShading::Legacy`, the 0.2 look (albedo times ambient plus sun), so existing scenes are unchanged until a host opts in.
 Bound but not yet shaded: the normal texture (milestone M3); a material that has one is reported in the stage warnings. Mip
 chains for linear data use the same box filter as color, so normal maps are not renormalized per level (revisited with M3).
-The display-referred target still clips: highlights above 1 saturate until HDR output (M4). Specular ambient ignores the
+By default the target is display-referred and clips: highlights above 1 saturate. Setting `RendererSettings::hdr` draws the scene
+in linear light into an RGBA16_FLOAT target and resolves it to the output with a tone-map pass (ACES-inspired by default, with
+`tone_map.exposure_ev`; see `saige/render/tonemap.hpp`). Specular ambient ignores the
 lobe's blur until image-based lighting (M5).
 
 ## Extensions

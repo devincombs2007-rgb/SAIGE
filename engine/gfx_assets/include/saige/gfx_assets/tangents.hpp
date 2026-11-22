@@ -9,8 +9,9 @@
 // Algorithm: per-triangle tangent and bitangent from position and UV edges, accumulated onto each corner weighted by the
 // corner's angle, then Gram-Schmidt against the vertex normal; w is the sign of dot(cross(normal, tangent), bitangent). This is
 // the widely used Lengyel-style method. It is NOT bit-identical to MikkTSpace, which the glTF specification names as the
-// reference: results agree on smooth, consistently mapped surfaces and can differ at UV seams and on degenerate mappings. Adopting
-// MikkTSpace itself means pinning a third-party dependency (zlib licensed) and is a separate decision.
+// reference: results agree on smooth, consistently mapped surfaces and can differ at UV seams and on degenerate mappings.
+// `generate_tangents_mikktspace` (below, with SAIGE_GFX_MIKKTSPACE) runs the pinned reference MikkTSpace. The importer still uses
+// this Lengyel-style generator by default; switching is a separate step after review (docs/rendering/mikktspace-evaluation.md).
 #pragma once
 
 #include "saige/gfx_assets/gltf.hpp"
@@ -31,10 +32,23 @@ struct TangentReport {
     TangentResult result = TangentResult::Invalid;
     uint32_t degenerate_triangles = 0;  ///< zero-area or zero-UV-area triangles, which contribute nothing
     uint32_t fallback_vertices = 0;     ///< vertices with no usable tangent, given an arbitrary frame perpendicular to the normal
+    uint32_t split_vertices = 0;        ///< MikkTSpace only: vertices added because corners of one vertex needed different tangents
 };
 
 /// Fills `primitive.tangents` (xyzw per vertex) if it is empty and the primitive has UVs. Never changes other arrays.
 TangentReport generate_tangents(Primitive& primitive);
+
+#if defined(SAIGE_HAS_MIKKTSPACE)
+/// The same job with the reference MikkTSpace algorithm (zlib, pinned: docs/third-party/mikktspace.md), the one the glTF
+/// specification names. MikkTSpace yields a tangent per triangle *corner*, so where the corners of one indexed vertex need
+/// different tangents (mirrored or sheared UV islands that share vertices, or any seam the file did not split) the vertex is
+/// duplicated (position, normal, uv and colors copied; counted in `split_vertices`) and the indices are remapped. Corner tangents
+/// within 1 degree of each other with the same handedness share a vertex. A primitive without indices is treated as a plain
+/// triangle list and comes out indexed. Fills `Primitive::tangents` only when it is empty and the primitive has UVs; never
+/// changes bounds. Deterministic. Same result codes as `generate_tangents`; additionally Invalid for more than 50 million
+/// triangles (MikkTSpace sizes are `int`).
+TangentReport generate_tangents_mikktspace(Primitive& primitive);
+#endif
 
 [[nodiscard]] std::string to_string(TangentResult result);
 

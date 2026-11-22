@@ -43,6 +43,27 @@ function(saige_add_scene_sink_tests)
         add_test(NAME saige_render_sink_scene_vulkan_tests COMMAND saige_render_sink_scene_vulkan_tests)
         set_tests_properties(saige_render_sink_scene_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
     endif()
+    # The desktop sample's `--scene` mode: Core's PreparedScene through GPU staging into the sink on a real window.
+    if(TARGET saige_desktop AND TARGET saige::rhi_vulkan AND TARGET saige::scene_project)
+        target_link_libraries(saige_desktop PRIVATE saige::scene_project)
+        target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_SCENE)
+        if(SAIGE_TEST_WIN32_VULKAN)
+            add_test(NAME saige_desktop_scene_vulkan COMMAND saige_desktop --scene
+                "${render_sink_dir}/../../examples/textured-scene/saige.scene.json" --frames 30 --validate)
+            set_tests_properties(saige_desktop_scene_vulkan PROPERTIES TIMEOUT 60)
+        endif()
+    endif()
+    # The native app's flow (PreparedScene -> stage_prepared_scene -> activate_scene -> run) with a fake desktop.
+    if(BUILD_TESTING AND TARGET saige::rhi_vulkan AND TARGET saige::scene_project)
+        add_executable(saige_render_sink_prepared_scene_vulkan_tests ${render_sink_dir}/tests/test_prepared_scene.cpp)
+        target_include_directories(saige_render_sink_prepared_scene_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include)
+        target_link_libraries(saige_render_sink_prepared_scene_vulkan_tests PRIVATE saige::render_sink saige::rhi_vulkan saige::scene_project)
+        target_compile_definitions(saige_render_sink_prepared_scene_vulkan_tests PRIVATE
+            SAIGE_TEXTURED_SCENE_DIR="${render_sink_dir}/../../examples/textured-scene")
+        saige_gfx_configure_target(saige_render_sink_prepared_scene_vulkan_tests)
+        add_test(NAME saige_render_sink_prepared_scene_vulkan_tests COMMAND saige_render_sink_prepared_scene_vulkan_tests)
+        set_tests_properties(saige_render_sink_prepared_scene_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
+    endif()
 endfunction()
 cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL saige_add_scene_sink_tests)
 

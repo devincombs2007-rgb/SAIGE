@@ -6,6 +6,12 @@
 
 #include <memory>
 #endif
+#if defined(SAIGE_DESKTOP_SCENE)
+#include "saige/prepared_scene.hpp"
+#include "saige/render_sink/prepared_scene.hpp"
+
+#include <filesystem>
+#endif
 
 #include <charconv>
 #include <chrono>
@@ -13,6 +19,7 @@
 #include <exception>
 #include <iostream>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -82,6 +89,18 @@ public:
         }
     }
 
+#if defined(SAIGE_DESKTOP_SCENE)
+    // Stages the prepared scene's GPU resources and makes them active. Staging is all-or-nothing and the renderer keeps its
+    // previous scene (none, at startup) if it throws; the exception propagates to main's error report.
+    void show(const saige::PreparedScene& scene) {
+        renderer_->activate_scene(saige::render::stage_prepared_scene(*renderer_, scene));
+    }
+
+    [[nodiscard]] std::string diagnostics_json() const {
+        return renderer_ ? saige::render::to_json(renderer_->diagnostics()) : std::string{};
+    }
+#endif
+
     [[nodiscard]] std::uint32_t validation_errors() {
         if (!renderer_) {
             return 0;
@@ -108,6 +127,9 @@ int main(int argc, char** argv) {
     bool require_rendered = false;
     bool validate = false;
 #endif
+#if defined(SAIGE_DESKTOP_SCENE)
+    std::optional<std::filesystem::path> scene_path;
+#endif
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument(argv[i]);
 #if defined(SAIGE_DESKTOP_VULKAN)
@@ -120,10 +142,19 @@ int main(int argc, char** argv) {
             continue;
         }
 #endif
+#if defined(SAIGE_DESKTOP_SCENE)
+        if (argument == "--scene" && !scene_path && i + 1 < argc) {
+            scene_path = std::filesystem::path(argv[++i]);
+            continue;
+        }
+#endif
         if (argument != "--frames" || frames || ++i == argc) {
             std::cerr << "Usage: saige_desktop [--frames COUNT]"
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
+#endif
+#if defined(SAIGE_DESKTOP_SCENE)
+                      << " [--scene PROJECT.json]"
 #endif
                       << '\n';
             return 2;
@@ -139,21 +170,39 @@ int main(int argc, char** argv) {
     }
 
     try {
-        constexpr auto title = L"SAIGE | WASD to move | Esc to quit";
+#if defined(SAIGE_DESKTOP_SCENE)
+        // Validate the saved project and its CPU assets before opening a window.
+        std::optional<saige::PreparedScene> prepared;
+        if (scene_path) {
+            prepared.emplace(*scene_path);
+            require_rendered = true;
+        }
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
+        constexpr auto title = L"SAIGE | WASD to move | Right drag to look | Esc to quit";
         const bool strict = require_rendered || validate;
         saige::Win32Platform platform(title, 960, 540, strict ? saige::DesktopPresentation::renderer_paced
                                                             : saige::DesktopPresentation::host_paced);
 #else
-        saige::Win32Platform platform(title);
+        saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
         DesktopGame game(world, platform);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
-        // Declared after the platform: the renderer releases its swapchain and surface before the HWND goes away.
+        // The sink releases its swapchain and surface before the HWND goes away.
         DesktopFrameSink sink(probe, platform, strict, validate);
+#if defined(SAIGE_DESKTOP_SCENE)
+        if (prepared) {
+            sink.show(*prepared);
+        }
+        const auto stats = prepared ? prepared->run(platform, sink, frames) : saige::run(world, platform, game, sink, frames);
+        if (prepared) {
+            std::cout << "SAIGE scene diagnostics " << sink.diagnostics_json() << '\n';
+        }
+#else
         const auto stats = saige::run(world, platform, game, sink, frames);
+#endif
         std::cout << "SAIGE Vulkan rendered=" << sink.rendered() << '\n';
         if (sink.validation_errors() != 0) {
             std::cerr << "SAIGE desktop renderer: " << sink.validation_errors() << " Vulkan validation error(s)\n";

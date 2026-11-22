@@ -67,7 +67,7 @@ jobs:
           if (!(Test-Path $layerManifest)) { throw 'Validation manifest missing' }
           New-Item -Path $layerKey -Force | Out-Null
           New-ItemProperty -Path $layerKey -Name $layerManifest -Value 0 -PropertyType DWord -Force | Out-Null
-          ctest --preset windows-release -V -R 'vulkan|win32_platform' | Tee-Object -FilePath captures/test-log.txt
+          ctest --preset windows-release -V -R 'vulkan|win32_platform|win32_prepared_scene' | Tee-Object -FilePath captures/test-log.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (Select-String -Path captures/test-log.txt -Pattern '\*\*\*Skipped|\*\*\*Not Run') {
             throw 'A required test did not run with the software driver'
@@ -80,6 +80,81 @@ jobs:
           }
           & .\build\windows-release\Release\saige_desktop.exe --frames 16 --require-rendered --validate 2>&1 | Tee-Object -FilePath captures/desktop-log.txt
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($capture in 'native_first.ppm', 'native_camera_moved.ppm', 'scene_textured.ppm', 'scene_occlusion.ppm') {
+            if (!(Test-Path (Join-Path $env:SAIGE_CAPTURE_DIR $capture))) { throw "Missing scene readback: $capture" }
+          }
+      - name: Build the Windows x64 package without test hooks
+        shell: pwsh
+        run: |
+          cmake --preset windows-release -B build/windows-package -DBUILD_TESTING=OFF -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/windows-package --config Release --target saige_desktop --parallel
+      - name: Assemble the Windows x64 demonstration
+        shell: pwsh
+        run: |
+          $demo = Join-Path $PWD 'saige-windows-x64-demo'
+          New-Item -ItemType Directory -Force "$demo/scene", "$demo/notices", "$demo/evidence" | Out-Null
+          Copy-Item build/windows-package/Release/saige_desktop.exe $demo
+          Copy-Item tools/windows-demo/README.md, tools/windows-demo/Launch.cmd $demo
+          Copy-Item examples/textured-scene/saige.scene.json, examples/textured-scene/checker-box.gltf "$demo/scene"
+          Copy-Item docs/rendering/diagnostics.md "$demo/renderer-diagnostics.md"
+          Copy-Item examples/textured-scene/README.md "$demo/notices/textured-scene.md"
+          Copy-Item docs/third-party/stb_image.md "$demo/notices/stb_image.md"
+          Copy-Item build/windows-release/_deps/saige_json-src/LICENSE.MIT "$demo/notices/nlohmann-json-LICENSE.MIT"
+          git rev-parse HEAD | Set-Content "$demo/evidence/source-commit.txt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Reopen a saved project in the native application
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys.outputs.msys2-location }}
+        run: |
+          $runtime = Join-Path $env:MSYS2_ROOT 'ucrt64/bin'
+          $env:PATH = "$runtime;$env:PATH"
+          $env:VK_LAYER_PATH = $runtime
+          $project = Join-Path $env:RUNNER_TEMP 'saige-reopened-scene'
+          New-Item -ItemType Directory -Force $project | Out-Null
+          Copy-Item examples/textured-scene/* -Destination $project -Recurse
+          $reopened = Join-Path $project 'reopened.scene.json'
+          & .\build\windows-release\Release\saige_project_tool.exe save-as (Join-Path $project 'saige.scene.json') $reopened
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\saige-windows-x64-demo\Launch.cmd --frames 30 --validate 2>&1 |
+            Tee-Object -FilePath captures/packaged-demo-log.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\saige-windows-x64-demo\saige_desktop.exe --scene $reopened --frames 30 --validate 2>&1 |
+            Tee-Object -FilePath captures/reopened-scene-log.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($log in 'captures/packaged-demo-log.txt', 'captures/reopened-scene-log.txt') {
+            if (!(Select-String -Path $log -Pattern '^SAIGE Vulkan rendered=30$')) {
+              throw "Expected all 30 frames to present in $log"
+            }
+            $line = Select-String -Path $log -Pattern '^SAIGE scene diagnostics (.*)$' | Select-Object -Last 1
+            if (!$line) { throw "Native scene diagnostics are missing from $log" }
+            $report = $line.Matches[0].Groups[1].Value | ConvertFrom-Json
+            if (!$report.software_device -or $report.adapter -notmatch 'llvmpipe' -or $report.validation_errors -ne 0) {
+              throw "Expected a validation-clean software Vulkan run in $log"
+            }
+          }
+      - name: Record demonstration evidence and checksums
+        shell: pwsh
+        run: |
+          $demo = Join-Path $PWD 'saige-windows-x64-demo'
+          Copy-Item captures/packaged-demo-log.txt, captures/reopened-scene-log.txt "$demo/evidence"
+          Push-Location $demo
+          try {
+            $hashes = Get-ChildItem -File -Recurse | Sort-Object FullName | ForEach-Object {
+              $relative = (Resolve-Path -Relative $_.FullName).Replace('\', '/').Substring(2)
+              "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $relative"
+            }
+            $hashes | Set-Content SHA256SUMS.txt
+          } finally {
+            Pop-Location
+          }
+      - name: Upload verified demonstration
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-windows-x64-demo
+          path: saige-windows-x64-demo/
+          if-no-files-found: error
       - name: Upload software rendering evidence
         if: always()
         uses: actions/upload-artifact@v4

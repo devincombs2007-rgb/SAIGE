@@ -37,7 +37,7 @@ resolves outside it, so a symlink cannot escape either.
 | Primitive `mode` | `4` (TRIANGLES) only. Other modes are skipped with a warning |
 | `POSITION` | `VEC3` `FLOAT` (required) |
 | `NORMAL` | `VEC3` `FLOAT`. If absent, **flat normals are generated** as the glTF spec requires (the primitive is de-indexed) |
-| `TANGENT` | `VEC4` `FLOAT`. Not generated yet (see limits) |
+| `TANGENT` | `VEC4` `FLOAT`. If a primitive's material has a normal texture and the file has none, tangents are **generated** at import (Lengyel-style, deterministic; not MikkTSpace, see `tangents.hpp`) with a warning. A normal texture with no `TEXCOORD_0` is warned about and generates nothing. Primitives whose material has no normal texture get none |
 | `TEXCOORD_0` | `VEC2`: `FLOAT`, or normalized `UNSIGNED_BYTE` / `UNSIGNED_SHORT` |
 | `COLOR_0` | `VEC3`/`VEC4`: `FLOAT`, or normalized `UNSIGNED_BYTE` / `UNSIGNED_SHORT` |
 | Other attributes (`TEXCOORD_n`, `JOINTS_0`, `WEIGHTS_0`, ...) | ignored with a warning |
@@ -82,5 +82,5 @@ Maximum file size, buffer size, vertices per primitive and node depth are checke
 hostile file cannot make the loader allocate gigabytes. All offsets are bounds-checked with overflow-safe arithmetic.
 
 ## Not yet supported (tracked)
-Tangent generation (MikkTSpace) when a normal map is present, image decoding, `KHR_texture_transform`, sparse accessors,
+MikkTSpace-exact tangents (the generator is Lengyel-style; adopting MikkTSpace means pinning a third-party dependency), image decoding, `KHR_texture_transform`, sparse accessors,
 skins/animation/morph targets, cameras and lights, `.gltf` files that reference other `.gltf` files, and Draco/meshopt.

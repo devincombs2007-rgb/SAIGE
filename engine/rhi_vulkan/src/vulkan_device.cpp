@@ -27,6 +27,7 @@ namespace {
 #if defined(SAIGE_RHI_VULKAN_TESTING)
 std::atomic<uint32_t> g_process_validation_errors{0};  // all devices, including errors reported during destruction
 std::atomic<uint32_t> g_memory_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
+std::atomic<uint32_t> testing_denied_blend_format{0};  // test hook: Format value + 1 that no device may blend into; 0 = off
 
 /// True exactly once, for the registration the test asked to fail.
 bool consume_memory_bookkeeping_fault() noexcept
@@ -1614,6 +1615,27 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
     if (const ValidationResult v = validate_blend_state(desc.blend, desc.color_formats); !v) {
         throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
     }
+    // The shared rules are what the specification guarantees; the selected device is also asked, for every blended attachment, before
+    // anything is created.
+    if (!desc.blend.empty() && desc.blend.front().enable) {
+        for (const Format f : desc.color_formats) {
+            bool supported = false;
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+            const bool denied = testing_denied_blend_format.load() == static_cast<uint32_t>(f) + 1u;
+#else
+            const bool denied = false;
+#endif
+            if (!denied) {
+                VkFormatProperties props{};
+                vk_.vkGetPhysicalDeviceFormatProperties(physical_, to_vk(f), &props);
+                supported = (props.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
+            }
+            if (!supported) {
+                throw std::invalid_argument(std::string("create_graphics_pipeline: the selected device cannot blend into ") +
+                                            std::string(format_name(f)));
+            }
+        }
+    }
 
     VkPipelineRes res;
     res.push_constant_size = desc.push_constant_size;
@@ -2553,6 +2575,11 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept
 uint32_t process_validation_error_count() noexcept
 {
     return g_process_validation_errors.load(std::memory_order_relaxed);
+}
+
+void deny_blending_into(Format format) noexcept
+{
+    testing_denied_blend_format.store(format == Format::Unknown ? 0u : static_cast<uint32_t>(format) + 1u, std::memory_order_relaxed);
 }
 } // namespace testing
 #endif

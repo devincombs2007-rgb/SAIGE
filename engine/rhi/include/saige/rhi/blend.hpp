@@ -7,8 +7,10 @@
 // Portable subset, so every backend can honor it:
 //  * the same blend state for every color attachment (independent per-attachment blending is not exposed; the renderer draws to
 //    one color attachment);
-//  * blending only into formats that blend on every Vulkan implementation: UNORM, sRGB and 16-bit float color formats (and
-//    packed RG11B10 float), not integer, SNORM, 32-bit float, shared-exponent or block-compressed formats;
+//  * blending only into formats for which the Vulkan specification *guarantees* blending (the mandatory-format tables): R8, RG8, RGBA8 and
+//    BGRA8 in UNORM and sRGB, RGB10A2 UNORM, and R16, RG16, RGBA16 float. Not integer, SNORM, 16-bit UNORM, packed RG11B10 float,
+//    32-bit float, shared-exponent or block-compressed formats, whatever a particular device might allow. The Vulkan backend also
+//    checks the selected device's format features for the format before creating a blended pipeline;
 //  * the factors and operations below (no dual-source blending and no constant blend color yet; both extend the enums later).
 //
 // Blending happens in the target's native space: into an *_SRGB target the hardware decodes the destination to linear, blends

@@ -22,6 +22,7 @@ enum class CommandType : uint8_t {
     SetViewport,
     SetScissor,
     BindPipeline,
+    Timestamp,  ///< index in `count`
     BindGroup,
     PushConstants,
     BindVertexBuffer,
@@ -88,6 +89,10 @@ public:
     void wait_idle() override;
     [[nodiscard]] uint64_t frame_number() const noexcept override;
     [[nodiscard]] uint32_t validation_error_count() const noexcept override;
+    /// The null device has no GPU: timestamps are unavailable. Memory is estimated from the resource descriptions
+    /// (tightly packed texture sizes), so it is a stand-in for tests, not a measurement.
+    [[nodiscard]] std::optional<GpuTimestamps> completed_timestamps() const override;
+    [[nodiscard]] DeviceMemoryStats memory_stats() const override;
 
     // ----- Test inspection ------------------------------------------------------------------------------
     /// Commands recorded in the most recently ended frame.

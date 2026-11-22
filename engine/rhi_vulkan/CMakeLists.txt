@@ -63,11 +63,13 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(SAIGE_RHI_VULKAN_BUILD_TESTS)
+    # rhi::testing (fault injection and the process-wide validation counter) exists only in builds that build the tests.
+    target_compile_definitions(saige_rhi_vulkan PUBLIC SAIGE_RHI_VULKAN_TESTING)
     enable_testing()
     if(NOT TARGET saige::render)
         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../render ${CMAKE_CURRENT_BINARY_DIR}/render)
     endif()
-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp)
+    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_diagnostics.cpp)
     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)

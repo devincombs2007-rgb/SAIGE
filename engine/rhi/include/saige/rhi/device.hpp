@@ -136,6 +136,13 @@ public:
     virtual void end_rendering() = 0;
     virtual void set_viewport(const Viewport& viewport) = 0;
     virtual void set_scissor(const Rect2D& rect) = 0;
+    /// Writes timestamp `index` (< max_gpu_timestamps) at the point all earlier commands finish. A no-op where the device
+    /// has no timestamp support (DeviceInfo::gpu_timestamps is false). Results arrive via Device::completed_timestamps().
+    /// Each index may be written at most once per recording (between begin_frame and end_frame): a second write to the same
+    /// index would re-use a query that has not been reset, which Vulkan forbids, so it throws std::invalid_argument (the
+    /// null device counts a validation error) on every device, supported or not. Write indices in increasing order of
+    /// execution: a range is measured from the lower index to the higher one.
+    virtual void write_timestamp(uint32_t index) = 0;
     virtual void bind_pipeline(PipelineHandle pipeline) = 0;
     /// Binds `group` to descriptor set `set` of the bound pipeline. Requires a bound pipeline with a layout at `set`
     /// and a group created from that same layout; the group's resources must still be alive.
@@ -225,6 +232,45 @@ struct DeviceInfo {
     bool synchronization_validation_enabled = false;
     bool presentation_supported = false;
     bool software_device = false;  ///< CPU implementation (e.g. lavapipe).
+    bool gpu_timestamps = false;   ///< write_timestamp / completed_timestamps measure GPU work; false = unavailable
+    double timestamp_period_ns = 0.0;
+};
+
+/// GPU timestamps written by CommandList::write_timestamp, resolved for one completed frame.
+inline constexpr uint32_t max_gpu_timestamps = 8;
+struct GpuTimestamps {
+    uint64_t frame_number = 0;    ///< the frame (Device::frame_number() when it was recorded) these belong to
+    uint32_t available_mask = 0;  ///< bit i set: timestamp i was written by that frame
+    uint64_t ticks[max_gpu_timestamps] = {};  ///< raw counter values, already masked to `valid_bits`
+    double period_ns = 0.0;       ///< nanoseconds per tick
+    /// How many low bits of the counter are valid (the queue family's timestampValidBits, 1..64). The counter wraps modulo
+    /// 2^valid_bits, so ticks are only comparable modulo that; 0 means unknown and every interval is then unavailable.
+    uint32_t valid_bits = 0;
+
+    /// Milliseconds from timestamp `begin` to `end` (begin <= end by index; write them in that order). The difference is
+    /// taken modulo 2^valid_bits, so an interval that crosses one counter wrap is still correct; an interval longer than a
+    /// whole counter period cannot be told apart from a short one (2^36 ticks is over a minute at 1 ns). nullopt if either
+    /// timestamp was not written, the indices are out of range or reversed, or the counter width or period is unknown.
+    [[nodiscard]] std::optional<double> milliseconds_between(uint32_t begin, uint32_t end) const noexcept
+    {
+        if (begin > end || end >= max_gpu_timestamps || ((available_mask >> begin) & 1u) == 0 ||
+            ((available_mask >> end) & 1u) == 0 || valid_bits == 0 || valid_bits > 64 || !(period_ns > 0.0)) {
+            return std::nullopt;
+        }
+        const uint64_t mask = valid_bits == 64 ? ~uint64_t{0} : ((uint64_t{1} << valid_bits) - 1u);
+        const uint64_t delta = ((ticks[end] & mask) - (ticks[begin] & mask)) & mask;
+        return static_cast<double>(delta) * period_ns * 1e-6;
+    }
+};
+
+/// Device memory the backend itself allocated (exact, always available) and, when the driver reports it
+/// (VK_EXT_memory_budget), the process-wide budget and usage of device-local memory.
+struct DeviceMemoryStats {
+    uint64_t allocated_bytes = 0;   ///< live backend allocations (buffers, textures), driver-aligned sizes
+    uint32_t allocation_count = 0;
+    bool budget_available = false;  ///< the driver reports a budget
+    uint64_t budget_bytes = 0;      ///< device-local heaps, valid only if budget_available
+    uint64_t usage_bytes = 0;       ///< this process's usage of those heaps, valid only if budget_available
 };
 
 struct FrameResult {
@@ -297,6 +343,12 @@ public:
     /// Blocks until all submitted GPU work has completed.
     virtual void wait_idle() = 0;
     [[nodiscard]] virtual uint64_t frame_number() const noexcept = 0;
+
+    /// Timestamps of the most recent frame whose GPU work has completed and been collected (collection happens when a
+    /// later frame reuses that frame's slot, so this lags by up to `frames_in_flight` frames). nullopt where the device
+    /// has no timestamps or before any frame has completed.
+    [[nodiscard]] virtual std::optional<GpuTimestamps> completed_timestamps() const = 0;
+    [[nodiscard]] virtual DeviceMemoryStats memory_stats() const = 0;
 
     /// Validation errors reported by the backend since creation (always 0 without validation).
     [[nodiscard]] virtual uint32_t validation_error_count() const noexcept = 0;

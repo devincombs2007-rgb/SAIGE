@@ -3,6 +3,8 @@
 #include "saige/rhi_null/null_device.hpp"
 
 #include <array>
+#include <cmath>
+#include <cstdint>
 #include <span>
 #include <vector>
 #include <stdexcept>
@@ -554,6 +556,115 @@ TEST_CASE("NullDevice: depth/stencil textures cannot be uploaded")
         CHECK(throws_invalid([&] { device.upload_texture(t, data); }));
         CHECK(device.uploaded_bytes(t) == 0);
     }
+}
+
+TEST_CASE("NullDevice: each timestamp index may be written once per recording")
+{
+    NullDevice device;
+    CommandList& cmd = device.begin_frame();
+    cmd.write_timestamp(3);
+    CHECK(device.validation_error_count() == 0);
+    cmd.write_timestamp(3);  // a second write to the same query would reuse one that was not reset
+    CHECK(device.validation_error_count() == 1);
+    cmd.write_timestamp(4);  // other indices are unaffected
+    CHECK(device.validation_error_count() == 1);
+    (void)device.end_frame();
+
+    CommandList& next = device.begin_frame();  // a new recording starts with every index writable again
+    next.write_timestamp(3);
+    next.write_timestamp(4);
+    CHECK(device.validation_error_count() == 1);
+    (void)device.end_frame();
+}
+
+TEST_CASE("GpuTimestamps: intervals are computed modulo the counter width, and invalid ones are unavailable")
+{
+    GpuTimestamps t;
+    t.period_ns = 2.0;  // 500,000 ticks = 1 ms
+    t.available_mask = 0b111;
+    t.valid_bits = 64;
+    t.ticks[0] = 1000;
+    t.ticks[1] = 1000 + 500'000;
+    CHECK(std::fabs(*t.milliseconds_between(0, 1) - 1.0) < 1e-9);
+    CHECK(t.milliseconds_between(0, 0).has_value());  // an empty interval is a valid zero
+    CHECK(*t.milliseconds_between(0, 0) == 0.0);
+
+    // A 36-bit counter (a common timestampValidBits) that wrapped between the two writes: still 500,000 ticks.
+    t.valid_bits = 36;
+    const uint64_t mask36 = (uint64_t{1} << 36) - 1u;
+    t.ticks[0] = mask36 - 99;
+    t.ticks[1] = 499'900;  // (mask36 - 99) + 500,000 wraps to 499,900
+    REQUIRE(t.milliseconds_between(0, 1).has_value());
+    CHECK(std::fabs(*t.milliseconds_between(0, 1) - 1.0) < 1e-9);
+
+    // The full 64-bit counter wrapping.
+    t.valid_bits = 64;
+    t.ticks[0] = ~uint64_t{0} - 249'999;
+    t.ticks[1] = 250'000;
+    REQUIRE(t.milliseconds_between(0, 1).has_value());
+    CHECK(std::fabs(*t.milliseconds_between(0, 1) - 1.0) < 1e-9);
+
+    // Unmasked high bits in the stored ticks cannot corrupt a narrower counter's interval.
+    t.valid_bits = 36;
+    t.ticks[0] = (uint64_t{0xABC} << 36) | 100;
+    t.ticks[1] = (uint64_t{0x123} << 36) | 500'100;
+    CHECK(std::fabs(*t.milliseconds_between(0, 1) - 1.0) < 1e-9);
+
+    // Invalid requests stay unavailable rather than inventing a number.
+    t.valid_bits = 64;
+    t.ticks[0] = 10;
+    t.ticks[1] = 20;
+    CHECK_FALSE(t.milliseconds_between(1, 0).has_value());                       // reversed index order
+    CHECK_FALSE(t.milliseconds_between(0, 3).has_value());                       // 3 was never written
+    CHECK_FALSE(t.milliseconds_between(3, 3).has_value());
+    CHECK_FALSE(t.milliseconds_between(0, max_gpu_timestamps).has_value());      // out of range
+    CHECK_FALSE(t.milliseconds_between(max_gpu_timestamps, 1).has_value());
+    t.valid_bits = 0;
+    CHECK_FALSE(t.milliseconds_between(0, 1).has_value());                       // counter width unknown
+    t.valid_bits = 65;
+    CHECK_FALSE(t.milliseconds_between(0, 1).has_value());
+    t.valid_bits = 64;
+    t.period_ns = 0.0;
+    CHECK_FALSE(t.milliseconds_between(0, 1).has_value());                       // period unknown
+    t.period_ns = -1.0;
+    CHECK_FALSE(t.milliseconds_between(0, 1).has_value());
+}
+
+TEST_CASE("NullDevice: timestamps are validated and unavailable; memory is estimated from descriptions")
+{
+    NullDevice device;
+    CHECK_FALSE(device.info().gpu_timestamps);
+    CHECK_FALSE(device.completed_timestamps().has_value());
+
+    CommandList& cmd = device.begin_frame();
+    cmd.write_timestamp(0);
+    cmd.write_timestamp(max_gpu_timestamps - 1);
+    CHECK(device.validation_error_count() == 0);
+    cmd.write_timestamp(max_gpu_timestamps);  // out of range
+    CHECK(device.validation_error_count() == 1);
+    (void)device.end_frame();
+    uint32_t timestamps_recorded = 0;
+    for (const RecordedCommand& c : device.last_frame_commands()) {
+        timestamps_recorded += c.type == CommandType::Timestamp ? 1u : 0u;
+    }
+    CHECK(timestamps_recorded == 3);
+    CHECK_FALSE(device.completed_timestamps().has_value());  // a null device never invents GPU time
+
+    const DeviceMemoryStats before = device.memory_stats();
+    CHECK(before.allocated_bytes == 0);
+    CHECK_FALSE(before.budget_available);
+    BufferDesc bd;
+    bd.size = 1000;
+    bd.usage = BufferUsage::Vertex;
+    const BufferHandle b = device.create_buffer(bd);
+    const TextureHandle t = device.create_texture(sampled_texture(4, 4, 1));
+    const DeviceMemoryStats during = device.memory_stats();
+    CHECK(during.allocated_bytes == 1000 + 64);
+    CHECK(during.allocation_count == 2);
+    device.destroy(b);
+    device.destroy(t);
+    device.wait_idle();
+    CHECK(device.memory_stats().allocated_bytes == 0);
 }
 
 TEST_CASE("NullDevice: per-binding buffer ranges follow the portable limits")

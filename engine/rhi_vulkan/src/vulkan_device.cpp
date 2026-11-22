@@ -276,6 +276,21 @@ struct VkSamplerRes {
     VkSampler sampler = VK_NULL_HANDLE;
 };
 
+struct VkBindGroupLayoutRes {
+    BindGroupLayoutDesc desc;
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+};
+
+struct VkBindGroupRes {
+    BindGroupLayoutHandle layout_handle;
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    // Non-owning references, only the ones the layout binds. Checked when the group is bound (see bind_group).
+    std::vector<TextureHandle> textures;
+    std::vector<SamplerHandle> samplers;
+    std::vector<BufferHandle> buffers;
+};
+
 struct VkShaderRes {
     ShaderStage stage = ShaderStage::Vertex;
     std::string entry;
@@ -286,6 +301,7 @@ struct VkPipelineRes {
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     uint32_t push_constant_size = 0;
+    std::vector<BindGroupLayoutHandle> bind_group_layouts;  ///< set index = position
 };
 
 struct VkSwapchainRes {
@@ -327,6 +343,8 @@ public:
         cmd_ = cmd;
         bound_layout_ = VK_NULL_HANDLE;
         bound_push_size_ = 0;
+        bound_pipeline_ = {};
+        bound_groups_.fill({});
     }
 
     void barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) override;
@@ -335,6 +353,7 @@ public:
     void set_viewport(const Viewport& viewport) override;
     void set_scissor(const Rect2D& rect) override;
     void bind_pipeline(PipelineHandle pipeline) override;
+    void bind_group(uint32_t set, BindGroupHandle group) override;
     void push_constants(std::span<const std::byte> data, uint32_t offset) override;
     void bind_vertex_buffer(BufferHandle buffer, uint64_t offset) override;
     void bind_index_buffer(BufferHandle buffer, IndexType type, uint64_t offset) override;
@@ -346,10 +365,14 @@ public:
     void end_debug_label() override;
 
 private:
+    void check_draw_state(const char* what) const;
+
     VulkanDevice& device_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
     VkPipelineLayout bound_layout_ = VK_NULL_HANDLE;
     uint32_t bound_push_size_ = 0;
+    PipelineHandle bound_pipeline_;
+    std::array<BindGroupHandle, max_bind_groups_per_pipeline> bound_groups_{};
 };
 
 class VulkanDevice final : public Device {
@@ -364,6 +387,10 @@ public:
     void upload_texture(TextureHandle texture, std::span<const std::byte> data) override;
     SamplerHandle create_sampler(const SamplerDesc& desc) override;
     void destroy(SamplerHandle handle) override;
+    BindGroupLayoutHandle create_bind_group_layout(const BindGroupLayoutDesc& desc) override;
+    BindGroupHandle create_bind_group(BindGroupLayoutHandle layout, std::span<const BindGroupEntry> entries) override;
+    void destroy(BindGroupLayoutHandle handle) override;
+    void destroy(BindGroupHandle handle) override;
     ShaderHandle create_shader(const ShaderDesc& desc) override;
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
     void destroy(BufferHandle handle) override;
@@ -400,6 +427,8 @@ private:
     uint32_t find_memory_type(uint32_t type_bits, VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred) const;
     VkDeviceMemory allocate(const VkMemoryRequirements& req, MemoryLocation location);
     void set_name(VkObjectType type, uint64_t handle, const char* name);
+    VkDescriptorSet allocate_descriptor_set(VkDescriptorSetLayout layout, VkDescriptorPool& pool_out);
+    bool group_resources_alive(const VkBindGroupRes& g) const;
     void immediate_submit(const std::function<void(VkCommandBuffer)>& record);
     uint64_t retire_value() const noexcept { return in_frame_ ? timeline_counter_ + 1 : timeline_counter_; }
     void defer(std::function<void()> fn) { pending_.enqueue(std::move(fn), retire_value()); }
@@ -435,6 +464,9 @@ private:
     HandlePool<VkBufferRes, BufferTag> buffers_;
     HandlePool<VkTextureRes, TextureTag> textures_;
     HandlePool<VkSamplerRes, SamplerTag> samplers_;
+    HandlePool<VkBindGroupLayoutRes, BindGroupLayoutTag> bind_group_layouts_;
+    HandlePool<VkBindGroupRes, BindGroupTag> bind_groups_;
+    std::vector<VkDescriptorPool> descriptor_pools_;  ///< sets are allocated from the back; grows when it is full
     HandlePool<VkShaderRes, ShaderTag> shaders_;
     HandlePool<VkPipelineRes, PipelineTag> pipelines_;
     HandlePool<VkSwapchainRes, SwapchainTag> swapchains_;
@@ -801,7 +833,8 @@ VulkanDevice::~VulkanDevice()
     }
     pending_.drain_all([](std::function<void()>&& fn) { fn(); });
 
-    const uint32_t leaked = buffers_.size() + textures_.size() + samplers_.size() + shaders_.size() + pipelines_.size();
+    const uint32_t leaked = buffers_.size() + textures_.size() + samplers_.size() + bind_group_layouts_.size() +
+                            bind_groups_.size() + shaders_.size() + pipelines_.size();
     if (leaked != 0) {
         std::cerr << "[saige.vulkan] warning: " << leaked << " resource(s) still alive at device destruction; releasing\n";
     }
@@ -817,6 +850,12 @@ VulkanDevice::~VulkanDevice()
         }
     });
     samplers_.for_each([&](SamplerHandle, VkSamplerRes& s) { vk_.vkDestroySampler(device_, s.sampler, nullptr); });
+    // Destroying a pool frees every set allocated from it, so leaked groups need no individual release.
+    for (const VkDescriptorPool pool : descriptor_pools_) {
+        vk_.vkDestroyDescriptorPool(device_, pool, nullptr);
+    }
+    bind_group_layouts_.for_each(
+        [&](BindGroupLayoutHandle, VkBindGroupLayoutRes& l) { vk_.vkDestroyDescriptorSetLayout(device_, l.layout, nullptr); });
     shaders_.for_each([&](ShaderHandle, VkShaderRes& s) { vk_.vkDestroyShaderModule(device_, s.module, nullptr); });
     pipelines_.for_each([&](PipelineHandle, VkPipelineRes& p) {
         vk_.vkDestroyPipeline(device_, p.pipeline, nullptr);
@@ -1213,6 +1252,168 @@ SamplerHandle VulkanDevice::create_sampler(const SamplerDesc& desc)
     return samplers_.emplace(std::move(res));
 }
 
+VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layout, VkDescriptorPool& pool_out)
+{
+    auto try_allocate = [&](VkDescriptorPool pool, VkDescriptorSet& set) {
+        VkDescriptorSetAllocateInfo ai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        ai.descriptorPool = pool;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts = &layout;
+        return vk_.vkAllocateDescriptorSets(device_, &ai, &set);
+    };
+    VkDescriptorSet set = VK_NULL_HANDLE;
+    if (!descriptor_pools_.empty()) {
+        const VkResult r = try_allocate(descriptor_pools_.back(), set);
+        if (r == VK_SUCCESS) {
+            pool_out = descriptor_pools_.back();
+            return set;
+        }
+        if (r != VK_ERROR_OUT_OF_POOL_MEMORY && r != VK_ERROR_FRAGMENTED_POOL) {
+            check(r, "vkAllocateDescriptorSets");
+        }
+    }
+    // The current pool is full (or none exists yet): add one. Sizes comfortably fit any single group.
+    const VkDescriptorPoolSize sizes[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 512},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512},
+        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 512},
+    };
+    VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+    pi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pi.maxSets = 256;
+    pi.poolSizeCount = 4;
+    pi.pPoolSizes = sizes;
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    check(vk_.vkCreateDescriptorPool(device_, &pi, nullptr, &pool), "vkCreateDescriptorPool");
+    descriptor_pools_.push_back(pool);
+    check(try_allocate(pool, set), "vkAllocateDescriptorSets (new pool)");
+    pool_out = pool;
+    return set;
+}
+
+bool VulkanDevice::group_resources_alive(const VkBindGroupRes& g) const
+{
+    return std::all_of(g.textures.begin(), g.textures.end(), [&](TextureHandle h) { return textures_.contains(h); }) &&
+           std::all_of(g.samplers.begin(), g.samplers.end(), [&](SamplerHandle h) { return samplers_.contains(h); }) &&
+           std::all_of(g.buffers.begin(), g.buffers.end(), [&](BufferHandle h) { return buffers_.contains(h); });
+}
+
+BindGroupLayoutHandle VulkanDevice::create_bind_group_layout(const BindGroupLayoutDesc& desc)
+{
+    if (const ValidationResult v = validate(desc); !v) {
+        throw std::invalid_argument(std::string("create_bind_group_layout: ") + v.error);
+    }
+    std::vector<VkDescriptorSetLayoutBinding> bindings;
+    for (const BindGroupLayoutEntry& e : desc.entries) {
+        VkDescriptorSetLayoutBinding b{};
+        b.binding = e.binding;
+        b.descriptorCount = 1;
+        b.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        switch (e.type) {
+        case BindingType::SampledTexture: b.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; break;
+        case BindingType::Sampler: b.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER; break;
+        case BindingType::UniformBuffer: b.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; break;
+        case BindingType::StorageBuffer: b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+        }
+        bindings.push_back(b);
+    }
+    VkDescriptorSetLayoutCreateInfo ci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+    ci.bindingCount = static_cast<uint32_t>(bindings.size());
+    ci.pBindings = bindings.data();
+    VkBindGroupLayoutRes res;
+    res.desc = desc;
+    res.desc.debug_name = nullptr;
+    check(vk_.vkCreateDescriptorSetLayout(device_, &ci, nullptr, &res.layout), "vkCreateDescriptorSetLayout");
+    set_name(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, reinterpret_cast<uint64_t>(res.layout), desc.debug_name);
+    return bind_group_layouts_.emplace(std::move(res));
+}
+
+BindGroupHandle VulkanDevice::create_bind_group(BindGroupLayoutHandle layout, std::span<const BindGroupEntry> entries)
+{
+    const VkBindGroupLayoutRes* l = bind_group_layouts_.get(layout);
+    if (l == nullptr) {
+        throw std::invalid_argument("create_bind_group: invalid layout");
+    }
+    BindGroupResolver resolver;
+    resolver.texture = [this](TextureHandle h) -> std::optional<TextureDesc> {
+        const VkTextureRes* t = textures_.get(h);
+        return t != nullptr ? std::optional<TextureDesc>(t->desc) : std::nullopt;
+    };
+    resolver.sampler_exists = [this](SamplerHandle h) { return samplers_.contains(h); };
+    resolver.buffer = [this](BufferHandle h) -> std::optional<BufferDesc> {
+        const VkBufferRes* b = buffers_.get(h);
+        return b != nullptr ? std::optional<BufferDesc>(b->desc) : std::nullopt;
+    };
+    if (const ValidationResult v = validate(l->desc, entries, resolver); !v) {
+        throw std::invalid_argument(std::string("create_bind_group: ") + v.error);
+    }
+
+    VkBindGroupRes res;
+    res.layout_handle = layout;
+    res.set = allocate_descriptor_set(l->layout, res.pool);
+
+    std::vector<VkDescriptorImageInfo> images(entries.size());
+    std::vector<VkDescriptorBufferInfo> buffers(entries.size());
+    std::vector<VkWriteDescriptorSet> writes;
+    writes.reserve(entries.size());
+    for (const BindGroupLayoutEntry& expected : l->desc.entries) {
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            const BindGroupEntry& e = entries[i];
+            if (e.binding != expected.binding) {
+                continue;
+            }
+            VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w.dstSet = res.set;
+            w.dstBinding = e.binding;
+            w.descriptorCount = 1;
+            if (expected.type == BindingType::SampledTexture) {
+                res.textures.push_back(e.texture);
+                images[i].imageView = textures_.get(e.texture)->view;
+                images[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                w.pImageInfo = &images[i];
+            } else if (expected.type == BindingType::Sampler) {
+                res.samplers.push_back(e.sampler);
+                images[i].sampler = samplers_.get(e.sampler)->sampler;
+                w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+                w.pImageInfo = &images[i];
+            } else {
+                res.buffers.push_back(e.buffer);
+                buffers[i].buffer = buffers_.get(e.buffer)->buffer;
+                buffers[i].offset = e.offset;
+                buffers[i].range = e.size == ~uint64_t{0} ? VK_WHOLE_SIZE : e.size;
+                w.descriptorType = expected.type == BindingType::UniformBuffer ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                                                                              : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                w.pBufferInfo = &buffers[i];
+            }
+            writes.push_back(w);
+        }
+    }
+    vk_.vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    return bind_groups_.emplace(std::move(res));
+}
+
+void VulkanDevice::destroy(BindGroupLayoutHandle handle)
+{
+    std::optional<VkBindGroupLayoutRes> res = bind_group_layouts_.release(handle);
+    if (!res) {
+        std::cerr << "[saige.vulkan] warning: destroy() on an invalid bind group layout handle\n";
+        return;
+    }
+    defer([this, l = res->layout] { vk_.vkDestroyDescriptorSetLayout(device_, l, nullptr); });
+}
+
+void VulkanDevice::destroy(BindGroupHandle handle)
+{
+    std::optional<VkBindGroupRes> res = bind_groups_.release(handle);
+    if (!res) {
+        std::cerr << "[saige.vulkan] warning: destroy() on an invalid bind group handle\n";
+        return;
+    }
+    defer([this, pool = res->pool, set = res->set] { vk_.vkFreeDescriptorSets(device_, pool, 1, &set); });
+}
+
 void VulkanDevice::destroy(SamplerHandle handle)
 {
     std::optional<VkSamplerRes> res = samplers_.release(handle);
@@ -1255,8 +1456,28 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
 
     VkPipelineRes res;
     res.push_constant_size = desc.push_constant_size;
+    res.bind_group_layouts = desc.bind_group_layouts;
     VkPushConstantRange range{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, desc.push_constant_size};
+    if (desc.bind_group_layouts.size() > max_bind_groups_per_pipeline) {
+        throw std::invalid_argument("create_graphics_pipeline: too many bind group layouts");
+    }
+    std::vector<VkDescriptorSetLayout> set_layouts;
+    std::vector<const BindGroupLayoutDesc*> layout_descs;
+    for (const BindGroupLayoutHandle h : desc.bind_group_layouts) {
+        const VkBindGroupLayoutRes* l = bind_group_layouts_.get(h);
+        if (l == nullptr) {
+            throw std::invalid_argument("create_graphics_pipeline: invalid bind group layout");
+        }
+        set_layouts.push_back(l->layout);
+        layout_descs.push_back(&l->desc);
+    }
+    // Every binding is visible to both stages, so per-stage device limits are checked against the pipeline's totals.
+    if (const ValidationResult v = validate_pipeline_bindings(layout_descs); !v) {
+        throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
+    }
     VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    lci.pSetLayouts = set_layouts.data();
     lci.pushConstantRangeCount = desc.push_constant_size > 0 ? 1u : 0u;
     lci.pPushConstantRanges = &range;
     check(vk_.vkCreatePipelineLayout(device_, &lci, nullptr, &res.layout), "vkCreatePipelineLayout");
@@ -1924,8 +2145,57 @@ void VulkanCommandList::bind_pipeline(PipelineHandle pipeline)
         throw std::invalid_argument("bind_pipeline: invalid pipeline");
     }
     device_.vk_.vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
+    if (pipeline != bound_pipeline_) {
+        // Descriptor compatibility also depends on push constant ranges and every lower set's layout, so a different
+        // pipeline starts with nothing bound: the caller rebinds its groups (same-handle rebinds keep them).
+        bound_groups_.fill({});
+    }
+    bound_pipeline_ = pipeline;
     bound_layout_ = p->layout;
     bound_push_size_ = p->push_constant_size;
+}
+
+void VulkanCommandList::bind_group(uint32_t set, BindGroupHandle group)
+{
+    // Every misuse is rejected here, before a Vulkan call is made (the validation layer is a safety net, not the contract).
+    const VkPipelineRes* p = device_.pipelines_.get(bound_pipeline_);
+    if (p == nullptr || bound_layout_ == VK_NULL_HANDLE) {
+        throw std::invalid_argument("bind_group: no pipeline bound");
+    }
+    if (set >= p->bind_group_layouts.size()) {
+        throw std::invalid_argument("bind_group: the bound pipeline has no descriptor set " + std::to_string(set));
+    }
+    const VkBindGroupRes* g = device_.bind_groups_.get(group);
+    if (g == nullptr) {
+        throw std::invalid_argument("bind_group: invalid bind group");
+    }
+    if (g->layout_handle != p->bind_group_layouts[set]) {
+        throw std::invalid_argument("bind_group: the group's layout differs from the pipeline's layout for set " +
+                                    std::to_string(set));
+    }
+    // A group does not own what it references. A later frame that reuses a group after one of its resources was destroyed
+    // would read freed descriptors, so that is rejected here (rebuild the group). Destroying a resource after the group
+    // is bound in the same frame is still safe: destruction is deferred until this frame's submission retires.
+    if (!device_.group_resources_alive(*g)) {
+        throw std::invalid_argument("bind_group: the group refers to a resource that has been destroyed; rebuild the group");
+    }
+    bound_groups_[set] = group;
+    device_.vk_.vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, bound_layout_, set, 1, &g->set, 0, nullptr);
+}
+
+/// A pipeline that declares descriptor sets can only draw once a compatible group is bound at every one of them.
+void VulkanCommandList::check_draw_state(const char* what) const
+{
+    const VkPipelineRes* p = device_.pipelines_.get(bound_pipeline_);
+    if (p == nullptr) {
+        throw std::invalid_argument(std::string(what) + ": no pipeline bound");
+    }
+    for (std::size_t set = 0; set < p->bind_group_layouts.size(); ++set) {
+        const VkBindGroupRes* g = device_.bind_groups_.get(bound_groups_[set]);
+        if (g == nullptr || g->layout_handle != p->bind_group_layouts[set]) {
+            throw std::invalid_argument(std::string(what) + ": no compatible bind group at set " + std::to_string(set));
+        }
+    }
 }
 
 void VulkanCommandList::push_constants(std::span<const std::byte> data, uint32_t offset)
@@ -1960,12 +2230,14 @@ void VulkanCommandList::bind_index_buffer(BufferHandle buffer, IndexType type, u
 void VulkanCommandList::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex,
                              uint32_t first_instance)
 {
+    check_draw_state("draw");
     device_.vk_.vkCmdDraw(cmd_, vertex_count, instance_count, first_vertex, first_instance);
 }
 
 void VulkanCommandList::draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index,
                                      int32_t vertex_offset, uint32_t first_instance)
 {
+    check_draw_state("draw_indexed");
     device_.vk_.vkCmdDrawIndexed(cmd_, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 

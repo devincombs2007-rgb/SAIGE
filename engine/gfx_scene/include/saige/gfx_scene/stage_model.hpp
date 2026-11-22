@@ -6,10 +6,13 @@
 // complete candidate: activating it is moving it into place, and dropping the previous one retires its resources on the
 // device's completion timeline.
 //
-// What is uploaded in 0.2: interleaved position/normal/uv vertices, 16- or 32-bit indices, the base color texture of each
-// material (decoded, sRGB, with a full mip chain), a sampler from the glTF sampler, and the material's constant factors.
-// Normal, metallic-roughness, occlusion and emissive *textures* are parsed but not sampled; each such material is reported
-// in the warnings. Alpha-blended materials draw as opaque (warned).
+// What is uploaded depends on the renderer's `ModelShading`. Legacy (the default; the 0.2 behavior): interleaved position/normal/uv
+// vertices, 16- or 32-bit indices, the base color texture of each material (decoded, sRGB, with a full mip chain), a sampler from the
+// glTF sampler, and the material's constant factors; the other texture slots are ignored (a material that has one is reported in the
+// warnings), so content whose other textures are undecodable still loads. Extended additionally uploads the other four slots (base color
+// and emissive as sRGB, the rest as linear data, one GPU texture per image and color space, each with the sampler its glTF texture
+// names); a slot that cannot be used (bad index, no source image, undecodable image) stays neutral with a warning, while a bad base color
+// texture fails the staging in both modes. Alpha-blended materials draw as opaque (warned).
 #pragma once
 
 #include "saige/gfx_assets/gltf.hpp"

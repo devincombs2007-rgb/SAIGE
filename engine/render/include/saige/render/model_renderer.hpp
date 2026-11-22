@@ -5,8 +5,13 @@
 // renderer picks the clockwise variant for an instance whose world matrix mirrors (negative determinant), so mirrored
 // transforms are well-defined. Instances whose matrix is not finite, or whose determinant is ~zero, are skipped and counted.
 //
-// Materials in 0.2 sample the base color texture only; the rest of a glTF material's textures are not read. Alpha-mask
-// materials discard below their cutoff; alpha blending is not implemented (a Blend material draws as opaque).
+// A material has five texture slots (base color, metallic-roughness, normal, occlusion, emissive), each with its own
+// sampler, plus a parameter block (docs/rendering/material-architecture.md). Slots a material leaves empty are bound to
+// neutral defaults, so one shader serves every material. In ModelShading::Legacy (the default) only the base color slot and the
+// factors the 0.2 renderer used are read: the 0.2 look, unchanged. In ModelShading::Extended base color, emissive and occlusion
+// are shaded (occlusion scales the ambient term, as glTF defines it). The metallic-roughness and normal slots and their factors
+// are bound and stored but not yet read by the shader in either mode (milestones M2 and M3). Alpha-mask materials discard below their cutoff; alpha
+// blending is not implemented (a Blend material draws as opaque).
 #pragma once
 
 #include "saige/render/gpu_resources.hpp"
@@ -19,11 +24,36 @@
 
 namespace saige::render {
 
-struct MaterialParams {
+/// The texture slots of a material, in binding order. The color space is a property of the slot: a texture bound to
+/// BaseColor or Emissive must be sRGB-encoded (a *_SRGB format), the others linear (*_UNORM).
+enum class MaterialSlot : uint8_t { BaseColor, MetallicRoughness, Normal, Occlusion, Emissive };
+inline constexpr uint32_t kMaterialSlotCount = 5;
+
+/// What an asset says about a material: factors and state, no GPU objects. glTF defaults throughout.
+struct MaterialData {
     float base_color[4] = {1.0f, 1.0f, 1.0f, 1.0f};  ///< linear factor
     float emissive[3] = {0.0f, 0.0f, 0.0f};          ///< linear, may exceed 1
     float alpha_cutoff = 0.0f;                       ///< > 0 discards fragments below it (alpha mask); 0 = opaque
+    float metallic = 1.0f;                           ///< factor (not yet shaded)
+    float roughness = 1.0f;                          ///< factor (not yet shaded)
+    float normal_scale = 1.0f;                       ///< (not yet shaded)
+    float occlusion_strength = 1.0f;                 ///< 0 ignores the occlusion texture, 1 applies it fully
     bool double_sided = false;
+};
+/// The 0.2 name, kept so existing callers compile.
+using MaterialParams = MaterialData;
+
+/// One slot's texture and the sampler that texture names. Either may be empty: empty means the slot's neutral default
+/// texture and the renderer's default trilinear/repeat sampler.
+struct MaterialTextureSlot {
+    TextureRef texture;
+    SamplerRef sampler;
+};
+
+struct MaterialTextures {
+    MaterialTextureSlot slots[kMaterialSlotCount];
+    [[nodiscard]] MaterialTextureSlot& operator[](MaterialSlot s) noexcept { return slots[static_cast<uint32_t>(s)]; }
+    [[nodiscard]] const MaterialTextureSlot& operator[](MaterialSlot s) const noexcept { return slots[static_cast<uint32_t>(s)]; }
 };
 
 struct ModelFrameStats {
@@ -32,7 +62,15 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
 };
 
+/// How imported models are shaded. Legacy is the 0.2 look exactly: base color texture and factor, the emissive factor, alpha mask,
+/// hemispherical ambient plus sun; the other texture slots are bound but ignored, and staging only decodes and uploads base color
+/// textures (so 0.2 content loads and looks as it did). Extended additionally shades the emissive texture and the occlusion texture
+/// and stages all five slots (an undecodable optional image then leaves its slot neutral with a warning instead of failing the asset).
+/// Fixed per renderer; Legacy is the default everywhere, so nothing changes until a host opts in.
+enum class ModelShading : uint8_t { Legacy, Extended };
+
 struct ModelRenderSettings {
+    ModelShading shading = ModelShading::Legacy;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
 };
@@ -47,14 +85,22 @@ public:
     ModelRenderer(const ModelRenderer&) = delete;
     ModelRenderer& operator=(const ModelRenderer&) = delete;
 
-    /// Builds a material: a bind group with the texture (or white if empty), the sampler (or a default trilinear/repeat
-    /// sampler if empty) and a uniform block of the parameters.
-    [[nodiscard]] GpuMaterial create_material(const MaterialParams& params, const TextureRef& base_color, const SamplerRef& sampler,
+    /// Builds a material: a bind group with the five textures (neutral defaults for empty slots), the five samplers
+    /// (the default trilinear/repeat sampler for empty ones) and a uniform block of the parameters.
+    [[nodiscard]] GpuMaterial create_material(const MaterialData& data, const MaterialTextures& textures, const char* name);
+
+    /// The 0.2 form: a base color texture and its sampler, every other slot neutral.
+    [[nodiscard]] GpuMaterial create_material(const MaterialData& data, const TextureRef& base_color, const SamplerRef& sampler,
                                               const char* name);
 
     /// Records the draws into an active rendering pass whose color and depth formats are the ones given at construction.
     void draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 camera_position, std::span<const ModelDraw> draws,
               ModelFrameStats& stats);
+
+    [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
+
+    /// GPU textures the renderer itself keeps alive for neutral slots (visible in the registry's texture counters).
+    static constexpr uint32_t kNeutralTextureCount = 3;
 
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }
 
@@ -63,11 +109,12 @@ private:
 
     rhi::Device& device_;
     GpuResourceRegistry& registry_;
+    ModelShading shading_ = ModelShading::Legacy;
     rhi::ShaderHandle vs_, ps_;
     rhi::BindGroupLayoutHandle material_layout_, constants_layout_;
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]
     BindGroupRef constants_group_;
-    TextureRef white_;
+    TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     SamplerRef default_sampler_;
 };
 

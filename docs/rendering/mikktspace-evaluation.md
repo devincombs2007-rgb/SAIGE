@@ -3,9 +3,37 @@
 Owner decision 4 (0.3 approval): evaluate reference MikkTSpace for production-quality asset compatibility; the Lengyel-style
 generator (`gfx::generate_tangents`, PR #46) is the interim solution.
 
-**Status: partly done.** The specification text, the licence and the reference algorithm were examined and an integration is
-designed. The numeric comparison with our generator is written (`tools/analysis/mikktspace_compare/`) but has **not been run**:
-the session was not permitted to compile and execute the downloaded reference code. No comparison numbers are claimed here.
+**Status: comparison run; integration not yet done.** Owner approval (0.3 review): MikkTSpace is conditionally approved as a
+production dependency, with the exact upstream source and hashes pinned, the zlib notice retained and compatibility and security
+checked; the Lengyel generator stays as a fallback until MikkTSpace passes its own tests and review.
+
+## Comparison results (2026-11-22)
+
+Run in an isolated layout: the downloaded reference in its own empty directory, hashes verified against the pinned values below
+before building, the harness and build output in separate directories, nothing from it in the repository.
+`tools/analysis/mikktspace_compare/compare.cpp` runs SAIGE's `gfx::generate_tangents` and reference MikkTSpace on the same
+indexed meshes and compares tangents per triangle corner (glTF's V flipped for MikkTSpace as the sample viewer does).
+
+| mesh | corners | median angle | p99 | max | handedness differences |
+|---|---|---|---|---|---|
+| UV sphere 64x32, seam and poles | 11904 | 0.028 deg | 0.082 deg | 0.084 deg | 0 |
+| same, u stretched 4x | 11904 | 0.028 deg | 0.082 deg | 0.084 deg | 0 |
+| lower half mirrored on its own (split) equator vertices, as an exporter writes it | 11904 | 0.028 deg | 0.082 deg | 0.084 deg | 0 |
+| cube with per-face UVs (hard edges) | 36 | 0 | 0 | 0 | 0 |
+| curved heightfield, shared vertices, sheared and non-uniformly scaled UVs | 9600 | 0.034 deg | 0.423 deg | 0.445 deg | 0 |
+| lower half mirrored but sharing the equator vertices (UVs fold across that band) | 11904 | 0.034 deg | 179.6 deg | 180 deg | 128 (1.08% of corners) |
+
+Reading: on well-formed input (seams and mirrored islands split into separate vertices, which glTF and every exporter
+require) the two generators agree to under half a degree with no handedness differences, so the interim generator is adequate
+there. They disagree, completely, only on the last mesh, where mirrored and unmirrored triangles share vertices and the UVs
+fold: MikkTSpace gives each side its own tangent space by grouping triangles by orientation, while the vertex-based
+accumulation blends them. That input is malformed for tangent purposes (the specification says triangles with inconsistent
+handedness have an undefined tangent space), but it is exactly the case where a different generator would produce visibly
+different shading, and it shows the structural difference.
+
+Limits of this evidence: synthetic meshes only, no corpus of real exported assets and no baked normal maps (those would need
+authoring-tool output, which this environment does not have); angle differences were not rendered. The result supports
+"adopt for conformance and robustness" and does not show a large visual problem on well-formed meshes.
 
 ## What the glTF specification requires
 
@@ -57,20 +85,33 @@ positions, normals and UVs), which `generate_tangents` already requires.
   within 1e-4; handedness consistent per triangle (the spec's equal-W rule); determinism; the staged result rendered against
   an oracle that evaluates the normal map with the MikkTSpace frame.
 
-## Acceptance criteria for the comparison (to apply when `compare.cpp` has been run)
+## Acceptance criteria and outcome
 
-Adopt MikkTSpace as the default if either of the following holds, and still keep the option to turn it off:
+Criteria set before the run: adopt MikkTSpace as the default if either holds, keeping the option to turn it off:
 1. Our generator disagrees materially on any realistic case: more than 1 percent of corners differ by over 5 degrees, or any
    handedness disagreement on a non-degenerate triangle. Then MikkTSpace is needed for compatibility.
 2. Even if the two agree on the synthetic set, the specification says MikkTSpace, and the cost is small (a vendored C file and a
    vertex-splitting step), so adopt it for assets without tangents anyway.
 
-In practice the second criterion already carries the decision; the comparison will quantify the visual risk of staying on the
-interim generator and set a regression threshold for the Lengyel fallback. **Recommendation: adopt reference MikkTSpace for
-imported assets without tangents, as a separate reviewable PR (`gfx_assets` and `third_party` only), after the harness has been
-run.** Owner approval is needed for the new third-party dependency (AGENTS.md: review new dependencies).
+Outcome: criterion 1 is met only on the malformed folded-UV mesh (1.08 percent of corners, 128 handedness differences); on
+well-formed meshes the two agree to 0.45 degrees. Criterion 2 carries the decision, as predicted. The regression threshold for the
+Lengyel fallback against MikkTSpace on well-formed meshes: no corner differs by more than 1 degree and no handedness differs.
+**Next step (approved in principle): a separate reviewable PR (`gfx_assets` and `third_party` only) that vendors the pinned
+source and adds `generate_tangents_mikktspace`, with its own tests and review, before it becomes the importer default.**
 
-## Who needs to do what
+## Security review notes (source read as text)
 
-Someone allowed to build the reference (the owner, Codex, or this session with explicit permission) runs the harness per its
-README and records the numbers here. I have not vendored anything.
+`mikktspace.c` allocates with `malloc` (triangle lists, group buffers, tspace arrays) and checks for NULL on the allocations it
+makes; it trusts the callbacks for index validity, so the wrapper must validate indices, finite values and non-degenerate counts
+first (the importer already does) and must cap triangle counts so `3 * triangles` cannot overflow `int` (the reference uses
+`int` sizes: reject meshes above roughly 700 million corners, in practice far lower via the importer's limits). It has no file or
+network I/O and no global state beyond a fixed sort seed. Build it as an isolated C target; run the integration tests under the
+ASan/UBSan lane.
+
+## Pinned reference
+
+zlib licence; source examined and run 2026-11-22 from https://github.com/mmikk/MikkTSpace (`master`; the upstream commit id could
+not be resolved from this environment, so the pin is by content hash):
+`mikktspace.c` sha256 `de87e74107df766ce68108801262bd8d53899414236b59810509a8fc2a51e288`,
+`mikktspace.h` sha256 `17fc433894f24c73753d548086cc4d8c5c0379f4a6edfb98b5da243e4f0bc3d0`.
+The vendoring PR must record the commit id (from a clone) next to these hashes and verify them in a CTest check, as for stb.

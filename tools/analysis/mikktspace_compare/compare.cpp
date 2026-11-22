@@ -14,18 +14,32 @@ using saige::gfx::Primitive;
 struct Mesh { std::string name; Primitive p; };
 static const float PI = 3.14159265358979f;
 
-static Mesh sphere(const char* name, int lon, int lat, float u_scale, bool mirror_half) {
+// mirror: 0 none; 1 the lower half is mirrored in UV space but shares the equator vertices (UVs fold across that band);
+// 2 the lower half is mirrored on its own duplicated equator vertices, which is how an exporter writes a mirrored island.
+static Mesh sphere(const char* name, int lon, int lat, float u_scale, int mirror) {
     Mesh m; m.name = name; Primitive& p = m.p;
     for (int j = 0; j <= lat; ++j) for (int i = 0; i <= lon; ++i) {   // seam: i == lon duplicates i == 0 with u = 1
         float th = PI * j / lat, ph = 2 * PI * i / lon;
         float x = std::sin(th) * std::cos(ph), y = std::sin(th) * std::sin(ph), z = std::cos(th);
         p.positions.insert(p.positions.end(), {x, y, z}); p.normals.insert(p.normals.end(), {x, y, z});
         float u = (float)i / lon * u_scale, v = (float)j / lat;
-        if (mirror_half && j > lat / 2) u = u_scale - u;                     // the lower half is a mirror image in UV space
+        if (mirror == 1 && j > lat / 2) u = u_scale - u;                     // the lower half is a mirror image in UV space
+        if (mirror == 2 && j >= lat / 2) u = u_scale - u;
         p.uv0.insert(p.uv0.end(), {u, v});
     }
+    if (mirror == 2) {  // second copy of the equator row with the mirrored UVs (rows >= lat/2 already carry them); the upper
+        // half keeps unmirrored UVs on row lat/2, so duplicate that row with the original u for the upper triangles.
+        for (int i = 0; i <= lon; ++i) {
+            uint32_t src = (lat / 2) * (lon + 1) + i;
+            p.positions.insert(p.positions.end(), {p.positions[src*3], p.positions[src*3+1], p.positions[src*3+2]});
+            p.normals.insert(p.normals.end(), {p.normals[src*3], p.normals[src*3+1], p.normals[src*3+2]});
+            p.uv0.insert(p.uv0.end(), {(float)i / lon * u_scale, (float)(lat / 2) / lat});
+        }
+    }
+    const uint32_t upper_equator = (uint32_t)((lat + 1) * (lon + 1));
     for (int j = 0; j < lat; ++j) for (int i = 0; i < lon; ++i) {
         uint32_t a = j * (lon + 1) + i, b = a + 1, c = a + lon + 1, d = c + 1;
+        if (mirror == 2 && j == lat / 2 - 1) { c = upper_equator + i; d = c + 1; }  // upper half ends on the unmirrored copy
         if (j != 0) p.indices.insert(p.indices.end(), {a, c, b});          // poles: the degenerate triangle is dropped, as exporters do
         if (j != lat - 1) p.indices.insert(p.indices.end(), {b, c, d});
     }
@@ -88,9 +102,10 @@ static void setT(const SMikkTSpaceContext* c, const float t[], float s, int f, i
 
 int main() {
     std::vector<Mesh> meshes;
-    meshes.push_back(sphere("UV sphere 64x32: seam, poles", 64, 32, 1.f, false));
-    meshes.push_back(sphere("UV sphere, u stretched 4x", 64, 32, 4.f, false));
-    meshes.push_back(sphere("UV sphere, lower half mirrored in UV", 64, 32, 1.f, true));
+    meshes.push_back(sphere("UV sphere 64x32: seam, poles", 64, 32, 1.f, 0));
+    meshes.push_back(sphere("UV sphere, u stretched 4x", 64, 32, 4.f, 0));
+    meshes.push_back(sphere("sphere, lower half mirrored, UVs fold on shared equator", 64, 32, 1.f, 1));
+    meshes.push_back(sphere("sphere, lower half mirrored on split equator (valid)", 64, 32, 1.f, 2));
     meshes.push_back(cube());
     meshes.push_back(heightfield());
     for (Mesh& m : meshes) {

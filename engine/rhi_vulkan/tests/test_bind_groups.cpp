@@ -537,3 +537,192 @@ TEST_CASE("Vulkan bind groups: per-binding buffer ranges follow the portable lim
     }
     CHECK(device->validation_error_count() == 0);
 }
+
+namespace {
+
+/// Records a frame with the render target attached, viewport set, ready for bind/draw calls; ends and waits on scope exit.
+class FrameScope {
+public:
+    FrameScope(Fixture& f) : fixture_(f), cmd_(f.device.begin_frame())
+    {
+        const rhi::TextureBarrier to_attachment{
+            f.target, {rhi::PipelineStage::AllCommands, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::Undefined},
+            {rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::ColorAttachment}, {}};
+        cmd_.barrier(std::span(&to_attachment, 1));
+        rhi::RenderingDesc rd;
+        rhi::ColorAttachment ca;
+        ca.texture = f.target;
+        rd.colors.push_back(ca);
+        rd.area = {0, 0, kSize, kSize};
+        cmd_.begin_rendering(rd);
+        cmd_.set_viewport({0.0f, 0.0f, static_cast<float>(kSize), static_cast<float>(kSize), 0.0f, 1.0f});
+        cmd_.set_scissor({0, 0, kSize, kSize});
+    }
+    ~FrameScope()
+    {
+        cmd_.end_rendering();
+        (void)fixture_.device.end_frame();
+        fixture_.device.wait_idle();
+    }
+    FrameScope(const FrameScope&) = delete;
+    FrameScope& operator=(const FrameScope&) = delete;
+    rhi::CommandList& cmd() { return cmd_; }
+
+private:
+    Fixture& fixture_;
+    rhi::CommandList& cmd_;
+};
+
+rhi::PipelineHandle make_pipeline(Fixture& f, uint32_t push_constant_size, std::vector<rhi::BindGroupLayoutHandle> layouts)
+{
+    rhi::GraphicsPipelineDesc pd;
+    pd.vertex_shader = f.vs;
+    pd.pixel_shader = f.ps;
+    pd.cull_mode = rhi::CullMode::None;
+    pd.color_formats = {rhi::Format::RGBA8_UNORM};
+    pd.push_constant_size = push_constant_size;
+    pd.bind_group_layouts = std::move(layouts);
+    return f.device.create_graphics_pipeline(pd);
+}
+
+} // namespace
+
+TEST_CASE("Vulkan bind groups: switching pipelines clears the bound groups, rebinding restores them")
+{
+    const auto device = make_validated_device("bind_group_pipeline_switch");
+    {
+        Fixture f(*device);
+        const rhi::TextureHandle tex = device->create_texture(sampled(1));
+        device->upload_texture(tex, pattern(kSize, kSize));
+        const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+        const rhi::BindGroupHandle group = f.make_group(tex, sampler);
+        // Same set layout handle, different push constant range: not descriptor-compatible on Vulkan, so a group bound
+        // for the first pipeline must never carry over to this one.
+        const rhi::PipelineHandle other = make_pipeline(f, 16, {f.layout});
+        {
+            FrameScope frame(f);
+            rhi::CommandList& cmd = frame.cmd();
+            cmd.bind_pipeline(f.pipeline);
+            cmd.bind_group(0, group);
+            cmd.draw(3);                               // valid
+            cmd.bind_pipeline(f.pipeline);             // same handle: groups are retained
+            cmd.draw(3);
+            cmd.bind_pipeline(other);                  // different handle: nothing is bound any more
+            CHECK(rejected([&] { cmd.draw(3); }));
+            cmd.bind_group(0, group);
+            cmd.draw(3);                               // rebound: valid
+            cmd.bind_pipeline(f.pipeline);             // and back again
+            CHECK(rejected([&] { cmd.draw(3); }));
+            cmd.bind_group(0, group);
+            cmd.draw(3);
+        }
+        device->destroy(other);
+        device->destroy(group);
+        device->destroy(sampler);
+        device->destroy(tex);
+    }
+    CHECK(device->validation_error_count() == 0);
+}
+
+namespace {
+
+/// Builds layouts that together hold exactly the portable per-pipeline totals, in three groups. Set 0 keeps the test
+/// shader's bindings 0 (texture), 1 (sampler) and 2 (uniform buffer) so the pipeline stays valid for it.
+std::vector<rhi::BindGroupLayoutDesc> layouts_at_the_limits()
+{
+    using rhi::BindingType;
+    std::vector<rhi::BindGroupLayoutDesc> out(3);
+    out[0].entries = {{0, BindingType::SampledTexture}, {1, BindingType::Sampler}, {2, BindingType::UniformBuffer}};
+    for (uint32_t b = 3; b < 16; ++b) out[0].entries.push_back({b, BindingType::SampledTexture});   // 14 textures here
+    for (uint32_t b = 0; b < 2; ++b) out[1].entries.push_back({b, BindingType::SampledTexture});    // 16 textures in total
+    for (uint32_t b = 2; b < 16; ++b) out[1].entries.push_back({b, BindingType::Sampler});          // 15 samplers here
+    out[2].entries.push_back({0, BindingType::Sampler});                                            // 16 samplers in total
+    for (uint32_t b = 1; b < 12; ++b) out[2].entries.push_back({b, BindingType::UniformBuffer});    // 12 uniform buffers
+    for (uint32_t b = 12; b < 16; ++b) out[2].entries.push_back({b, BindingType::StorageBuffer});   // 4 storage buffers
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("Vulkan bind groups: aggregate descriptor totals are limited per pipeline")
+{
+    const auto device = make_validated_device("bind_group_totals");
+    {
+        Fixture f(*device);
+        std::vector<rhi::BindGroupLayoutHandle> handles;
+        for (const rhi::BindGroupLayoutDesc& d : layouts_at_the_limits()) {
+            handles.push_back(device->create_bind_group_layout(d));
+        }
+        // Exactly at every limit: accepted, and valid for the shader.
+        const rhi::PipelineHandle at_limits = make_pipeline(f, 0, handles);
+        CHECK(at_limits.is_valid());
+        device->destroy(at_limits);
+
+        // One more of any type, in a fourth group, crosses that limit and is rejected before vkCreatePipelineLayout.
+        for (const rhi::BindingType extra : {rhi::BindingType::SampledTexture, rhi::BindingType::Sampler,
+                                             rhi::BindingType::UniformBuffer, rhi::BindingType::StorageBuffer}) {
+            rhi::BindGroupLayoutDesc one;
+            one.entries = {{0, extra}};
+            const rhi::BindGroupLayoutHandle fourth = device->create_bind_group_layout(one);
+            auto over = handles;
+            over.push_back(fourth);
+            CHECK(rejected([&] { (void)make_pipeline(f, 0, over); }));
+            device->destroy(fourth);
+        }
+        for (const rhi::BindGroupLayoutHandle h : handles) {
+            device->destroy(h);
+        }
+    }
+    CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("Vulkan bind groups: a group whose resources were destroyed cannot be bound again")
+{
+    const auto device = make_validated_device("bind_group_stale");
+    {
+        Fixture f(*device);
+        for (int victim = 0; victim < 3; ++victim) {  // 0 = texture, 1 = sampler, 2 = uniform buffer
+            const rhi::TextureHandle tex = device->create_texture(sampled(1));
+            device->upload_texture(tex, pattern(kSize, kSize));
+            const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+            rhi::BufferDesc ub;
+            ub.size = 256;
+            ub.usage = rhi::BufferUsage::Uniform;
+            ub.memory = rhi::MemoryLocation::CpuToGpu;
+            const rhi::BufferHandle uniform = device->create_buffer(ub);
+            rhi::BindGroupEntry entries[3];
+            entries[0].binding = 0;
+            entries[0].texture = tex;
+            entries[1].binding = 1;
+            entries[1].sampler = sampler;
+            entries[2].binding = 2;
+            entries[2].buffer = uniform;
+            entries[2].size = 16;
+            const rhi::BindGroupHandle group = device->create_bind_group(f.layout, entries);
+
+            // A frame that uses the group, and destroys a resource AFTER binding it, still draws validly: destruction is
+            // deferred until this frame's submission retires.
+            {
+                FrameScope frame(f);
+                frame.cmd().bind_pipeline(f.pipeline);
+                frame.cmd().bind_group(0, group);
+                if (victim == 0) device->destroy(tex);
+                if (victim == 1) device->destroy(sampler);
+                if (victim == 2) device->destroy(uniform);
+                frame.cmd().draw(3);
+            }
+            // A later frame reusing the group would read freed descriptors: binding it is rejected. Rebuild the group.
+            {
+                FrameScope frame(f);
+                frame.cmd().bind_pipeline(f.pipeline);
+                CHECK(rejected([&] { frame.cmd().bind_group(0, group); }));
+                CHECK(rejected([&] { frame.cmd().draw(3); }));  // and nothing got bound
+            }
+            device->destroy(group);
+            if (victim != 0) device->destroy(tex);
+            if (victim != 1) device->destroy(sampler);
+            if (victim != 2) device->destroy(uniform);
+        }
+    }
+    CHECK(device->validation_error_count() == 0);
+}

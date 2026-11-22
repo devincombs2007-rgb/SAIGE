@@ -573,3 +573,123 @@ TEST_CASE("NullDevice: per-binding buffer ranges follow the portable limits")
     entries[2].size = max_uniform_binding_range;
     CHECK(f.device.create_bind_group(f.layout, entries).is_valid());
 }
+
+TEST_CASE("NullDevice: switching pipelines clears the bound groups, rebinding restores them")
+{
+    BindFixture f;
+    const BindGroupHandle group = f.device.create_bind_group(f.layout, f.entries());
+    GraphicsPipelineDesc pd;
+    pd.vertex_shader = f.vs;
+    pd.pixel_shader = f.ps;
+    pd.color_formats = {Format::RGBA8_SRGB};
+    pd.push_constant_size = 16;  // same set layout handle, different push constant range
+    pd.bind_group_layouts = {f.layout};
+    const PipelineHandle other = f.device.create_graphics_pipeline(pd);
+
+    f.frame([&](CommandList& cmd) { cmd.bind_group(0, group); });
+    CHECK(f.device.validation_error_count() == 0);
+
+    // Same handle again: the group is retained.
+    f.frame([&](CommandList& cmd) {
+        cmd.bind_group(0, group);
+        cmd.bind_pipeline(f.pipeline);
+    });
+    CHECK(f.device.validation_error_count() == 0);
+
+    // A different pipeline starts with nothing bound.
+    f.frame([&](CommandList& cmd) {
+        cmd.bind_group(0, group);
+        cmd.bind_pipeline(other);
+    });
+    CHECK(f.device.validation_error_count() == 1);
+
+    // Rebinding after the switch restores it, and switching back requires rebinding again.
+    f.frame([&](CommandList& cmd) {
+        cmd.bind_pipeline(other);
+        cmd.bind_group(0, group);
+    });
+    CHECK(f.device.validation_error_count() == 1);
+    f.frame([&](CommandList& cmd) {
+        cmd.bind_pipeline(other);
+        cmd.bind_group(0, group);
+        cmd.bind_pipeline(f.pipeline);
+    });
+    CHECK(f.device.validation_error_count() == 2);
+}
+
+namespace {
+
+std::vector<BindGroupLayoutDesc> null_layouts_at_the_limits()
+{
+    std::vector<BindGroupLayoutDesc> out(3);
+    out[0].entries = {{0, BindingType::SampledTexture}, {1, BindingType::Sampler}, {2, BindingType::UniformBuffer}};
+    for (uint32_t b = 3; b < 16; ++b) out[0].entries.push_back({b, BindingType::SampledTexture});
+    for (uint32_t b = 0; b < 2; ++b) out[1].entries.push_back({b, BindingType::SampledTexture});
+    for (uint32_t b = 2; b < 16; ++b) out[1].entries.push_back({b, BindingType::Sampler});
+    out[2].entries.push_back({0, BindingType::Sampler});
+    for (uint32_t b = 1; b < 12; ++b) out[2].entries.push_back({b, BindingType::UniformBuffer});
+    for (uint32_t b = 12; b < 16; ++b) out[2].entries.push_back({b, BindingType::StorageBuffer});
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("NullDevice: aggregate descriptor totals are limited per pipeline")
+{
+    BindFixture f;
+    std::vector<BindGroupLayoutHandle> handles;
+    for (const BindGroupLayoutDesc& d : null_layouts_at_the_limits()) {
+        handles.push_back(f.device.create_bind_group_layout(d));
+    }
+    auto make = [&](const std::vector<BindGroupLayoutHandle>& layouts) {
+        GraphicsPipelineDesc pd;
+        pd.vertex_shader = f.vs;
+        pd.pixel_shader = f.ps;
+        pd.color_formats = {Format::RGBA8_SRGB};
+        pd.bind_group_layouts = layouts;
+        return f.device.create_graphics_pipeline(pd);
+    };
+    CHECK(make(handles).is_valid());  // exactly at every limit
+    for (const BindingType extra : {BindingType::SampledTexture, BindingType::Sampler, BindingType::UniformBuffer,
+                                    BindingType::StorageBuffer}) {
+        BindGroupLayoutDesc one;
+        one.entries = {{0, extra}};
+        auto over = handles;
+        over.push_back(f.device.create_bind_group_layout(one));
+        CHECK(throws_invalid([&] { (void)make(over); }));
+    }
+}
+
+TEST_CASE("NullDevice: binding a group whose resources were destroyed is an error")
+{
+    BindFixture f;
+    for (int victim = 0; victim < 3; ++victim) {
+        const TextureHandle tex = f.device.create_texture(sampled_texture(4, 4));
+        const SamplerHandle sampler = f.device.create_sampler({});
+        BufferDesc ub;
+        ub.size = 256;
+        ub.usage = BufferUsage::Uniform;
+        ub.memory = MemoryLocation::CpuToGpu;
+        const BufferHandle uniform = f.device.create_buffer(ub);
+        auto entries = f.entries();
+        entries[0].texture = tex;
+        entries[1].sampler = sampler;
+        entries[2].buffer = uniform;
+        const BindGroupHandle group = f.device.create_bind_group(f.layout, entries);
+
+        const uint32_t before = f.device.validation_error_count();
+        // Destroying after binding, in the same frame, is fine: destruction is deferred.
+        f.frame([&](CommandList& cmd) {
+            cmd.bind_group(0, group);
+            if (victim == 0) f.device.destroy(tex);
+            if (victim == 1) f.device.destroy(sampler);
+            if (victim == 2) f.device.destroy(uniform);
+        });
+        CHECK(f.device.validation_error_count() == before);
+        f.device.wait_idle();  // the destroyed resource is now really gone
+
+        // A later frame reusing the group is rejected, and nothing is bound for the draw either.
+        f.frame([&](CommandList& cmd) { cmd.bind_group(0, group); });
+        CHECK(f.device.validation_error_count() == before + 2);
+    }
+}

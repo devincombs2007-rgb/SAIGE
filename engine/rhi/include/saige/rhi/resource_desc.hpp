@@ -228,6 +228,18 @@ struct BindGroupEntry {
     uint64_t size = ~uint64_t{0};  ///< Bytes from `offset`; the default means "to the end of the buffer".
 };
 
+/// Per-pipeline totals across all of its bind group layouts. Every binding is visible to the vertex and pixel stages, so
+/// each total counts against both stages. These are Vulkan's guaranteed minimums for the per-stage limits
+/// (maxPerStageDescriptorSamplers/SampledImages/UniformBuffers/StorageBuffers); a pipeline within them is valid on every
+/// conforming device. Four 16-binding groups could exceed them, which is why the totals are checked, not just each group.
+inline constexpr uint32_t max_pipeline_sampled_textures = 16;
+inline constexpr uint32_t max_pipeline_samplers = 16;
+inline constexpr uint32_t max_pipeline_uniform_buffers = 12;
+inline constexpr uint32_t max_pipeline_storage_buffers = 4;
+
+/// Checks the per-pipeline totals above over `layouts` (the pipeline's layouts, in set order).
+[[nodiscard]] ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts) noexcept;
+
 /// Backend-independent layout rules: 1..max_bindings_per_group entries and unique binding numbers.
 [[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept;
 

@@ -125,8 +125,25 @@ pixel stages.
   is deferred until in-flight submissions retire, so they can be destroyed in any order right after a frame is
   submitted (tested on Vulkan with validation). A group must not outlive the device. Leaked groups are reported at
   device teardown like other resources.
+- **Pipeline switches.** Descriptor compatibility on Vulkan depends on the push constant ranges and every lower set's
+  layout, not only the layout at one slot. The 0.2 contract is therefore simple: binding a *different* pipeline handle
+  clears every bound group and the caller rebinds; re-binding the same handle keeps them. Both backends do this, and a
+  draw after a switch without rebinding is rejected.
+- **Aggregate limits.** Every binding is visible to both the vertex and the pixel stage, so a pipeline's layouts are
+  checked in total, not only one range or one group at a time: at most 16 sampled textures, 16 samplers, 12 uniform
+  buffers and 4 storage buffers across all of its layouts. These are the Vulkan minimums for the per-stage limits, so a
+  pipeline inside them is valid on every conforming device. Creation throws before `vkCreatePipelineLayout`. Raising them
+  per device is a capability decision for later, not an implicit one.
+- **Groups are immutable and non-owning (the stale-resource boundary).** A group never keeps its textures, samplers or
+  buffers alive. Using a group after any of them was destroyed is invalid; to replace a resource, build a new group and
+  retire the old one. `bind_group` enforces this: it validates that every resource the group binds is still alive and
+  throws (null: reports) otherwise, so a later frame cannot reuse a group over freed descriptors. Destroying a resource
+  *after* binding the group in the same frame is safe, because destruction is deferred until that frame's submission
+  retires. The resource registry (next) destroys a material's group before its textures, so ordinary code never reaches
+  the error.
 - **Pooling.** The Vulkan backend allocates sets from growing pools of 256 sets and frees them individually when they
-  retire.
+  retire. Allocation only tries the newest pool, so capacity freed in older pools is not reused until the process
+  restarts. That is tracked debt: it will be addressed if scene reloads are measured to grow pool count.
 - **Null backend.** Records `BindGroup` commands and reports a validation error for a draw without a compatible group at
   every declared set, a layout mismatch, or an undeclared set.
 

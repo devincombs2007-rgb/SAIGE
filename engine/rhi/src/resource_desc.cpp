@@ -191,6 +191,37 @@ ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept
     return {};
 }
 
+ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts) noexcept
+{
+    uint32_t textures = 0;
+    uint32_t samplers = 0;
+    uint32_t uniforms = 0;
+    uint32_t storages = 0;
+    for (const BindGroupLayoutDesc* layout : layouts) {
+        for (const BindGroupLayoutEntry& e : layout->entries) {
+            switch (e.type) {
+            case BindingType::SampledTexture: ++textures; break;
+            case BindingType::Sampler: ++samplers; break;
+            case BindingType::UniformBuffer: ++uniforms; break;
+            case BindingType::StorageBuffer: ++storages; break;
+            }
+        }
+    }
+    if (textures > max_pipeline_sampled_textures) {
+        return {"A pipeline's bind group layouts exceed the portable total of 16 sampled textures"};
+    }
+    if (samplers > max_pipeline_samplers) {
+        return {"A pipeline's bind group layouts exceed the portable total of 16 samplers"};
+    }
+    if (uniforms > max_pipeline_uniform_buffers) {
+        return {"A pipeline's bind group layouts exceed the portable total of 12 uniform buffers"};
+    }
+    if (storages > max_pipeline_storage_buffers) {
+        return {"A pipeline's bind group layouts exceed the portable total of 4 storage buffers"};
+    }
+    return {};
+}
+
 ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const BindGroupEntry> entries,
                           const BindGroupResolver& resolver)
 {

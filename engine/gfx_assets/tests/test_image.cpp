@@ -235,6 +235,20 @@ TEST_CASE("Image: sizes are bounded before any pixel allocation")
     CHECK(decode_image(png, tiny).ok());  // exactly at the limit is accepted
 }
 
+TEST_CASE("Image: the dimension limit is exact on both sides")
+{
+    const std::vector<uint8_t> png = pattern_png(64, 48);
+    ImageLimits limits;
+    limits.max_dimension = 64;
+    CHECK(decode_image(png, limits).ok());  // the longest side equals the limit: accepted
+    limits.max_dimension = 63;
+    const ImageDecodeResult r = decode_image(png, limits);
+    CHECK_FALSE(r.ok());
+    CHECK(r.error.find("dimensions 64x48") != std::string::npos);
+    limits.max_dimension = 0;
+    CHECK_FALSE(decode_image(png, limits).ok());  // a zero limit rejects everything rather than wrapping or ignoring it
+}
+
 TEST_CASE("Image: a header that declares enormous dimensions is rejected without decoding")
 {
     // Rewrite the IHDR of a tiny valid PNG to claim 60000 x 60000 (14.4 GB decoded). The pixel data is not that large,
@@ -392,6 +406,29 @@ TEST_CASE("Mips: the chain matches the RHI's layout for any size")
         CHECK(solid);
     }
     CHECK(generate_mips(DecodedImage{}, ColorSpace::Srgb).levels == 0);  // empty input yields an empty chain
+}
+
+TEST_CASE("Mips: dimension metadata that does not match the pixel storage is rejected before any sizing")
+{
+    // DecodedImage is publicly constructible: nothing about its width/height may be trusted. Each of these used to risk a
+    // 32-bit size overflow, a shift by the type's width, or an enormous allocation; all must return an empty chain.
+    const auto rejected = [](uint32_t w, uint32_t h, std::size_t bytes) {
+        DecodedImage image;
+        image.width = w;
+        image.height = h;
+        image.rgba.assign(bytes, 0);
+        const MipChain chain = generate_mips(image, ColorSpace::Srgb);
+        return chain.levels == 0 && chain.data.empty() && chain.width == 0 && chain.height == 0;
+    };
+    CHECK(rejected(0xFFFFFFFFu, 0xFFFFFFFFu, 16));
+    CHECK(rejected(0x80000000u, 1, 4));       // largest side >= 2^31: the old level loop shifted by 32
+    CHECK(rejected(0x40000001u, 4, 16));      // w*h*4 wraps to 16 in 32 bits
+    CHECK(rejected(65536, 65536, 16));        // 2^34 bytes claimed, 16 supplied
+    CHECK(rejected(3, 2, 23));                // one byte short
+    CHECK(rejected(3, 2, 25));                // one byte long
+    CHECK_FALSE(rejected(3, 2, 24));          // exactly right is accepted
+    CHECK(rejected(0, 5, 0));
+    CHECK(rejected(5, 0, 0));
 }
 
 TEST_CASE("Mips: sRGB color is averaged in linear light, linear data is averaged as stored")

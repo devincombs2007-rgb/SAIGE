@@ -7,6 +7,10 @@
 // releasing a reference while frames are in flight is always safe (rhi::Device::destroy contract). The registry adds
 // what the device does not know: who still holds what, how much is live, and what leaked.
 //
+// Exception safety: create_* is transactional. Everything that can fail for lack of memory (bookkeeping capacity, the
+// name copy) happens before the device resource is created, and registering it afterwards cannot fail, so an exception
+// leaves the device and the registry exactly as they were. Releasing a reference never allocates or throws.
+//
 // Threading: single-threaded, like rhi::Device (0.1 contract D-08). References are not safe to copy or release from
 // two threads.
 //

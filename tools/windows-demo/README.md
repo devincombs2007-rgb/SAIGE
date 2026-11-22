@@ -6,7 +6,7 @@ down arrows to rise or descend, right-drag to look, and Escape to close.
 
 The executable targets 64-bit Windows and requires a Vulkan 1.3 loader and a
 compatible Vulkan driver. The Release build links the Microsoft C++ runtime
-statically. The archive ships no GPU driver,
+statically and is built with tests disabled. The archive ships no GPU driver,
 software Vulkan runtime, or validation layer.
 
 For a 30-frame smoke run and a diagnostics log, open PowerShell in the extracted

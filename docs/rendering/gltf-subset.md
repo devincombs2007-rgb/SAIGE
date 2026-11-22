@@ -58,18 +58,16 @@ resolves outside it, so a symlink cannot escape either.
 | `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0` |
 | `KHR_texture_transform`, `KHR_materials_*` (other than emissive strength) | ⚠️ optional uses are ignored with a warning |
 
-**What the renderer shades** (`stage_model`, milestones M1 and M2 of [the material architecture](material-architecture.md)): all
-five textures are decoded and bound, each with the sampler its glTF texture names. Base color and emissive are uploaded as
-sRGB, metallic-roughness, normal and occlusion as linear data (the same image used in both roles is uploaded once per color
-space). Shaded in both modes: base color, emissive (texture times factor) and occlusion (scales the ambient term by
-`strength`). **Metallic-roughness** (G roughness, B metallic, times the factors) is shaded when the renderer is created with
-`RendererSettings::model_shading = ModelShading::MetallicRoughness`: GGX, height-correlated Smith and Schlick as in the glTF
-specification, the sun, and a hemispherical ambient through a split-sum environment BRDF table. The default is
-`ModelShading::Legacy`, the 0.2 look (albedo times ambient plus sun), so existing scenes are unchanged until a host opts in.
-Bound but not yet shaded: the normal texture (milestone M3); a material that has one is reported in the stage warnings. Mip
-chains for linear data use the same box filter as color, so normal maps are not renormalized per level (revisited with M3).
-The display-referred target still clips: highlights above 1 saturate until HDR output (M4). Specular ambient ignores the
-lobe's blur until image-based lighting (M5).
+**What the renderer shades** (`stage_model`, milestones M1 and M2 of [the material architecture](material-architecture.md)):
+
+- **Legacy** is the default. SAIGE 0.2 projects retain base-color texturing, the emissive factor, alpha masks, and the original
+  lighting. Staging leaves the four optional texture slots alone.
+- **Extended** adds emissive texturing and scales ambient lighting by the occlusion texture and strength.
+- **MetallicRoughness** adds glTF GGX, height-correlated Smith and Schlick shading with the split-sum environment BRDF table.
+
+Both opt-in modes stage all five textures. An unusable optional slot stays neutral and produces a warning. Base color and emissive
+use sRGB, while metallic-roughness, normal and occlusion use linear data. Normal maps are bound here and shaded starting with M3.
+HDR output in M4 preserves highlights above 1.0. Renderer mode is selected by the host and requires no project-format change.
 
 ## Extensions
 - Every entry of `extensionsRequired` must be supported, otherwise the load **fails** naming the extension.

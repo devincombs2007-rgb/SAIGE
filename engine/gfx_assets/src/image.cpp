@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <memory>
+#include <new>
 #include <optional>
 #include <span>
 #include <string>
@@ -58,6 +61,13 @@ ImageDecodeResult fail(std::string message)
     r.error = std::move(message);
     return r;
 }
+
+/// Owns a buffer returned by stb_image until the output vector has been built, so an allocation failure (or any early
+/// return) cannot leak it.
+struct StbiPixels {
+    void operator()(unsigned char* p) const noexcept { stbi_image_free(p); }
+};
+using StbiBuffer = std::unique_ptr<unsigned char, StbiPixels>;
 
 } // namespace
 
@@ -113,21 +123,23 @@ ImageDecodeResult decode_image(std::span<const uint8_t> bytes, const ImageLimits
     int dw = 0;
     int dh = 0;
     int dc = 0;
-    unsigned char* pixels = stbi_load_from_memory(bytes.data(), size, &dw, &dh, &dc, 4);
+    const StbiBuffer pixels(stbi_load_from_memory(bytes.data(), size, &dw, &dh, &dc, 4));
     if (pixels == nullptr) {
         return fail(std::string("image: decode failed (") + (stbi_failure_reason() != nullptr ? stbi_failure_reason() : "unknown") + ")");
     }
     ImageDecodeResult result;
     if (dw != w || dh != h) {  // the header and the decoder disagree: refuse rather than trust either
-        stbi_image_free(pixels);
         return fail("image: header and decoded dimensions differ");
     }
     DecodedImage image;
     image.width = width;
     image.height = height;
     image.source = *format;
-    image.rgba.assign(pixels, pixels + decoded);
-    stbi_image_free(pixels);
+    try {
+        image.rgba.assign(pixels.get(), pixels.get() + decoded);
+    } catch (const std::bad_alloc&) {
+        return fail("image: out of memory for " + std::to_string(decoded) + " decoded bytes");
+    }
     for (uint64_t i = 3; i < decoded; i += 4) {
         if (image.rgba[i] != 255) {
             image.has_alpha = true;
@@ -170,23 +182,30 @@ uint32_t level_extent(uint32_t base, uint32_t level) noexcept
 MipChain generate_mips(const DecodedImage& image, ColorSpace space)
 {
     MipChain chain;
-    if (image.width == 0 || image.height == 0 || image.rgba.size() != std::size_t{image.width} * image.height * 4u) {
+    // DecodedImage is publicly constructible, so the metadata is not trusted: sizes are computed in 64 bits and must match
+    // the pixel storage exactly before anything is sized from them (an empty chain means "rejected").
+    if (image.width == 0 || image.height == 0 ||
+        uint64_t{image.width} * image.height * 4u != uint64_t{image.rgba.size()}) {
         return chain;
     }
+    // Level count from the bit width of the largest side: at most 32, with no shift by the type's width.
+    const uint32_t levels = static_cast<uint32_t>(std::bit_width(std::max(image.width, image.height)));
+    uint64_t total64 = 0;
+    for (uint32_t l = 0; l < levels; ++l) {
+        total64 += uint64_t{level_extent(image.width, l)} * level_extent(image.height, l) * 4u;
+        if (total64 > std::numeric_limits<std::size_t>::max()) {
+            return chain;
+        }
+    }
+    const std::size_t total = static_cast<std::size_t>(total64);
     chain.width = image.width;
     chain.height = image.height;
-    const uint32_t largest = std::max(image.width, image.height);
-    uint32_t levels = 1;
-    while ((largest >> levels) != 0) {
-        ++levels;
-    }
     chain.levels = levels;
-
-    std::size_t total = 0;
-    for (uint32_t l = 0; l < levels; ++l) {
-        total += std::size_t{level_extent(image.width, l)} * level_extent(image.height, l) * 4u;
+    try {
+        chain.data.resize(total);
+    } catch (const std::bad_alloc&) {
+        return MipChain{};
     }
-    chain.data.resize(total);
     std::memcpy(chain.data.data(), image.rgba.data(), image.rgba.size());
 
     const auto& lut = srgb_to_linear_table();

@@ -77,6 +77,29 @@ TEST_CASE("Device memory: backend allocations are counted exactly and balance af
     CHECK(device->validation_error_count() == 0);
 }
 
+TEST_CASE("GPU timestamps: an index is written at most once per recording, supported device or not")
+{
+    const auto device = make_validated_device("diag_timestamp_duplicates");
+    rhi::CommandList& cmd = device->begin_frame();
+    cmd.write_timestamp(2);
+    bool second_threw = false;
+    try {
+        cmd.write_timestamp(2);  // re-using a query that has not been reset is invalid Vulkan: refused before any call
+    } catch (const std::invalid_argument&) {
+        second_threw = true;
+    }
+    CHECK(second_threw);
+    cmd.write_timestamp(5);  // other indices are unaffected, and the refused write left the recording usable
+    (void)device->end_frame();
+
+    rhi::CommandList& next = device->begin_frame();  // a new recording may write every index again
+    next.write_timestamp(2);
+    next.write_timestamp(5);
+    (void)device->end_frame();
+    device->wait_idle();
+    CHECK(device->validation_error_count() == 0);  // nothing invalid ever reached Vulkan
+}
+
 TEST_CASE("GPU timestamps: measured where supported, absent where not, and written ones are ordered")
 {
     const auto device = make_validated_device("diag_timestamps");
@@ -138,6 +161,8 @@ TEST_CASE("GPU timestamps: measured where supported, absent where not, and writt
         const std::optional<rhi::GpuTimestamps> t = device->completed_timestamps();
         REQUIRE(t.has_value());
         CHECK(t->period_ns > 0.0);
+        CHECK(t->valid_bits > 0);
+        CHECK(t->valid_bits <= 64);
         CHECK((t->available_mask & 0b11u) == 0b11u);   // timestamps 0 and 1 were written
         CHECK((t->available_mask & (1u << 2)) == 0);   // 2 was not: it must not appear as a measurement
         CHECK(t->ticks[1] >= t->ticks[0]);
@@ -162,6 +187,7 @@ TEST_CASE("GpuTimestamps::milliseconds_between validates its inputs")
     rhi::GpuTimestamps t;
     t.period_ns = 2.0;
     t.available_mask = 0b11;
+    t.valid_bits = 64;
     t.ticks[0] = 1000;
     t.ticks[1] = 1000 + 500'000;  // 500,000 ticks * 2 ns = 1 ms
     CHECK(t.milliseconds_between(0, 1).has_value());

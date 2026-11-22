@@ -41,14 +41,15 @@ Vulkan** (Mesa llvmpipe on Linux, lavapipe on Windows); none of it is physical-G
 | #54 | `integration-0.3-pbr` (bb122c7) | union of #46 to #53 plus `test_combined_pbr.cpp`. **Do not merge** | all of those | Engine and Graphics: all green (Linux lavapipe, Linux ASan/UBSan, Windows MSVC Debug and Release, Windows MSVC Vulkan). Dedicated Windows software-Vulkan workflow (`windows-software-vulkan.yml`, run 45018663394, job win32-lavapipe, all 14 steps): **passed** |
 | #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned 64x64 env BRDF table (draft) | #51 | green incl. MSVC reproducibility check |
 | #56 | `docs-0.3-handoff` (this branch) | energy and table notes, MikkTSpace evaluation, alpha plan, this file, analysis tools (draft) | #49 | docs |
-| #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | pending when written; check |
+| #57 | `rhi-blend-state` (4a6ef4c) | RHI blend state, validation, pixel tests | main | check (pending when written) |
+| #58 | `mikktspace-tangents` (041db3c) | `generate_tangents_mikktspace`, pinned reference fetched by hash, importer default unchanged (draft) | #46 | check (pending when written) |
 
 Not part of 0.3 and untouched: #34 (draft combined 0.2 evidence PR, not to be merged), the 0.2 release candidate (branch
 `release-0.2.0-rc.1-prep`, 875a771; notes `docs/releases/0.2.0-rc.1.md`; nothing tagged or published), and the validated 0.2 baseline on main.
 
 ## Recommended merge sequence (owner and Codex decide; each PR needs its own review)
 
-1. Independent of everything else: #44 then #45 (Vulkan headers and capability probe); #57 (RHI blend state); #46, #47, #48; #49.
+1. Independent of everything else: #44 then #45 (Vulkan headers and capability probe); #57 (RHI blend state); #46 then #58 (tangents, then MikkTSpace); #47, #48; #49.
 2. The material stack, in order: #50, then #51, then #55 (retarget #55 to main after #51; it is a follow-up to M2's table), then
    #52 and #53 (either order, both retargeted to main after #51).
 3. #56 (docs) after #49, or squashed into #49's review.
@@ -65,7 +66,7 @@ retarget the next PR to main and rebase; a clean rebase is expected apart from t
 |---|---|---|
 | Review of every PR above | Codex, owner approval for major merges | each stacked PR names the commit to review |
 | Core temporal frame data (#17): instance identity, previous rendered-frame transforms, camera history, teleport and camera-cut flags | Core | requirements posted; no interface change made; per-instance override schema stays Core's |
-| MikkTSpace integration PR (vendoring, `generate_tangents_mikktspace`, vertex splitting, tests) | graphics, after the approvals above | comparison done (agrees within 0.45 degrees on well-formed meshes; differs on UV-fold meshes); needs the upstream commit id from a clone |
+| MikkTSpace: review and approve #58; then a separate change to make it the importer default with Lengyel as fallback | Codex review, owner approval of the dependency | comparison done (agrees within 0.45 degrees on well-formed meshes; differs on UV-fold meshes); source pinned to upstream commit 3e895b49 and two SHA-256 hashes |
 | Renderer integration of blend state (sorted blended phase, double-sided two-pass, shader alpha, stats) | graphics, after #57 is reviewed | plan in `sorted-alpha-blending-plan.md` |
 | M5 (image-based lighting plus the optional energy-conserving model) and M6 (cascaded sun shadows) | graphics | new RHI contracts (cube/array textures, depth sampling, render-to-layer); not started |
 | Flip of the `model_shading` and `hdr` defaults | owner | they change the look of every scene; both default to the 0.2 behavior |

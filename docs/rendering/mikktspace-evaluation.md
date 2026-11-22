@@ -96,8 +96,9 @@ Criteria set before the run: adopt MikkTSpace as the default if either holds, ke
 Outcome: criterion 1 is met only on the malformed folded-UV mesh (1.08 percent of corners, 128 handedness differences); on
 well-formed meshes the two agree to 0.45 degrees. Criterion 2 carries the decision, as predicted. The regression threshold for the
 Lengyel fallback against MikkTSpace on well-formed meshes: no corner differs by more than 1 degree and no handedness differs.
-**Next step (approved in principle): a separate reviewable PR (`gfx_assets` and `third_party` only) that vendors the pinned
-source and adds `generate_tangents_mikktspace`, with its own tests and review, before it becomes the importer default.**
+**Done as PR #58: the pinned source is fetched by CMake (commit and hashes verified, not vendored) and `generate_tangents_mikktspace`
+has its own tests; the importer default is unchanged until #58 is reviewed. Making it the default, with Lengyel as the fallback, is a
+separate change.**
 
 ## Security review notes (source read as text)
 
@@ -114,4 +115,5 @@ zlib licence; source examined and run 2026-11-22 from https://github.com/mmikk/M
 not be resolved from this environment, so the pin is by content hash):
 `mikktspace.c` sha256 `de87e74107df766ce68108801262bd8d53899414236b59810509a8fc2a51e288`,
 `mikktspace.h` sha256 `17fc433894f24c73753d548086cc4d8c5c0379f4a6edfb98b5da243e4f0bc3d0`.
-The vendoring PR must record the commit id (from a clone) next to these hashes and verify them in a CTest check, as for stb.
+Upstream commit id, resolved with `git ls-remote` on 2026-11-22: `3e895b49d05ea07e4c2133156cfa94369e19e409`; both files at that commit
+hash to the values above. PR #58 verifies both hashes at configure time, as for stb.

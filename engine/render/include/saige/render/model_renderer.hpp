@@ -61,10 +61,12 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
 };
 
-/// How imported models are lit. Legacy is the 0.2 look: albedo times (ambient plus sun). MetallicRoughness is glTF's physically
-/// based model (GGX, Smith, Schlick) with the sun and a hemispherical ambient, still written to a display-referred target
-/// until HDR output (M4). The mode is fixed per renderer.
-enum class ModelShading : uint8_t { Legacy, MetallicRoughness };
+/// Renderer-local lighting selection. These values also identify the shader modes.
+enum class ModelShading : uint8_t {
+    Legacy = 0,             ///< SAIGE 0.2 lighting and base-color-only staging.
+    Extended = 1,           ///< Legacy lighting with occlusion and emissive textures.
+    MetallicRoughness = 2,  ///< glTF physically based shading.
+};
 
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
@@ -98,6 +100,7 @@ public:
     /// registry's texture counters).
     static constexpr uint32_t kOwnedTextureCount = 4;
 
+    [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }
 
 private:
@@ -105,6 +108,7 @@ private:
 
     rhi::Device& device_;
     GpuResourceRegistry& registry_;
+    ModelShading shading_;
     rhi::ShaderHandle vs_, ps_;
     rhi::BindGroupLayoutHandle material_layout_, constants_layout_;
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]

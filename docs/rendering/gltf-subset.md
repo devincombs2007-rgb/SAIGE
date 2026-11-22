@@ -58,23 +58,25 @@ resolves outside it, so a symlink cannot escape either.
 | `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0`. A **normal** texture that names another set is not uploaded or applied (its tangents belong to `TEXCOORD_0`), so that surface keeps its geometric normal, with a warning |
 | `KHR_texture_transform`, `KHR_materials_*` (other than emissive strength) | ⚠️ optional uses are ignored with a warning |
 
-**What the renderer shades** (`stage_model`, milestones M1 to M3 of [the material architecture](material-architecture.md)): all
-five textures are decoded and bound, each with the sampler its glTF texture names. Base color and emissive are uploaded as
-sRGB, metallic-roughness, normal and occlusion as linear data (the same image used in both roles is uploaded once per color
-space). Shaded in both modes: base color, emissive (texture times factor) and occlusion (scales the ambient term by
-`strength`). Shaded only when the renderer is created with `RendererSettings::model_shading = ModelShading::MetallicRoughness`:
-- **Metallic-roughness** (G roughness, B metallic, times the factors): GGX, height-correlated Smith and Schlick as in the glTF
-  specification, the sun, and a hemispherical ambient through a split-sum environment BRDF table.
-- **Normal mapping**: the tangent-space normal (x and y times `normalTexture.scale`, +Y up in the image) is rotated by the
-  vertex tangent frame. The frame is orthonormalized against the interpolated normal; the bitangent's handedness comes from
-  the transformed frame, so mirrored instances stay correct; the back of a double-sided surface negates the whole frame, as the
-  glTF reference viewer does. A primitive without tangents (no texture coordinates) skips the map, and staging reports it.
-  Tangents come from the file or from the importer's generator.
+**What the renderer shades** (`stage_model`, milestones M1 to M3 of [the material architecture](material-architecture.md)):
 
-The default is `ModelShading::Legacy`, the 0.2 look (albedo times ambient plus sun, no normal maps), so existing scenes are
-unchanged until a host opts in. Mip chains for linear data use the same box filter as color, so normal maps are not renormalized
-per level (a known softening of distant relief; Toksvig-style filtering is a later refinement). The display-referred target still
-clips: highlights above 1 saturate until HDR output (M4). Specular ambient ignores the lobe's blur until image-based lighting (M5).
+- **Legacy** is the default. SAIGE 0.2 projects retain base-color texturing, the emissive factor, alpha masks, and the original
+  lighting. Staging leaves the four optional texture slots alone.
+- **Extended** adds emissive texturing and scales ambient lighting by the occlusion texture and strength. The metallic-roughness and
+  normal textures are staged and bound but not shaded.
+- **MetallicRoughness** adds glTF GGX, height-correlated Smith and Schlick shading with the split-sum environment BRDF table, and
+  tangent-space **normal mapping**: the normal (x and y times `normalTexture.scale`, +Y up in the image) is rotated by the vertex
+  tangent frame. The frame is orthonormalized against the interpolated normal; the bitangent's handedness comes from the transformed
+  frame, so mirrored instances stay correct; the back of a double-sided surface negates the whole frame, as the glTF reference viewer
+  does. A primitive without tangents (no texture coordinates), or a degenerate frame (tangent parallel to the normal), keeps the
+  geometric normal; staging reports the former. Tangents come from the file or from the importer's generator.
+
+Both opt-in modes stage all five textures. An unusable optional slot stays neutral and produces a warning. Base color and emissive
+use sRGB, while metallic-roughness, normal and occlusion use linear data. Mip chains for linear data use the same box filter as
+color, so normal maps are not renormalized per level (a known softening of distant relief). HDR output in M4 preserves highlights
+above 1.0. Renderer mode is selected by the host and requires no project-format change. In the pixel shader every slot after the
+alpha-mask test is read with explicit UV gradients taken before the test, so no implicit derivative depends on discarded or
+divergent neighbours.
 
 ## Extensions
 - Every entry of `extensionsRequired` must be supported, otherwise the load **fails** naming the extension.

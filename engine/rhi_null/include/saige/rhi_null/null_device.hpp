@@ -22,8 +22,8 @@ enum class CommandType : uint8_t {
     SetViewport,
     SetScissor,
     BindPipeline,
-    BindGroup,
     Timestamp,  ///< index in `count`
+    BindGroup,
     PushConstants,
     BindVertexBuffer,
     BindIndexBuffer,

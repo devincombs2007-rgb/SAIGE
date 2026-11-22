@@ -250,6 +250,21 @@ public:
         commands_.push_back(std::move(c));
     }
 
+    void write_timestamp(uint32_t index) override
+    {
+        check_frame("write_timestamp");
+        if (index >= max_gpu_timestamps) {
+            device_.error("write_timestamp(): index out of range");
+        } else if ((written_timestamps_ & (1u << index)) != 0) {
+            device_.error("write_timestamp(): index " + std::to_string(index) + " was already written in this frame");
+        } else {
+            written_timestamps_ |= 1u << index;
+        }
+        RecordedCommand c = make(CommandType::Timestamp);
+        c.count = index;
+        commands_.push_back(std::move(c));
+    }
+
     void bind_group(uint32_t set, BindGroupHandle group) override
     {
         check_frame("bind_group");
@@ -276,21 +291,6 @@ public:
         RecordedCommand c = make(CommandType::BindGroup);
         c.group = group;
         c.count = set;
-        commands_.push_back(std::move(c));
-    }
-
-    void write_timestamp(uint32_t index) override
-    {
-        check_frame("write_timestamp");
-        if (index >= max_gpu_timestamps) {
-            device_.error("write_timestamp(): index out of range");
-        } else if ((written_timestamps_ & (1u << index)) != 0) {
-            device_.error("write_timestamp(): index " + std::to_string(index) + " was already written in this frame");
-        } else {
-            written_timestamps_ |= 1u << index;
-        }
-        RecordedCommand c = make(CommandType::Timestamp);
-        c.count = index;
         commands_.push_back(std::move(c));
     }
 

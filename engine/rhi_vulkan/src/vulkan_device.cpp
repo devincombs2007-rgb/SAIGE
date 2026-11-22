@@ -347,9 +347,9 @@ public:
         cmd_ = cmd;
         bound_layout_ = VK_NULL_HANDLE;
         bound_push_size_ = 0;
+        written_timestamps_ = 0;
         bound_pipeline_ = {};
         bound_groups_.fill({});
-        written_timestamps_ = 0;
     }
 
     void barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) override;
@@ -358,8 +358,8 @@ public:
     void set_viewport(const Viewport& viewport) override;
     void set_scissor(const Rect2D& rect) override;
     void bind_pipeline(PipelineHandle pipeline) override;
-    void bind_group(uint32_t set, BindGroupHandle group) override;
     void write_timestamp(uint32_t index) override;
+    void bind_group(uint32_t set, BindGroupHandle group) override;
     void push_constants(std::span<const std::byte> data, uint32_t offset) override;
     void bind_vertex_buffer(BufferHandle buffer, uint64_t offset) override;
     void bind_index_buffer(BufferHandle buffer, IndexType type, uint64_t offset) override;
@@ -2291,6 +2291,22 @@ void VulkanCommandList::bind_pipeline(PipelineHandle pipeline)
     bound_push_size_ = p->push_constant_size;
 }
 
+void VulkanCommandList::write_timestamp(uint32_t index)
+{
+    if (index >= max_gpu_timestamps) {
+        throw std::invalid_argument("write_timestamp: index out of range");
+    }
+    if ((written_timestamps_ & (1u << index)) != 0) {
+        throw std::invalid_argument("write_timestamp: index " + std::to_string(index) + " was already written in this frame");
+    }
+    written_timestamps_ |= 1u << index;
+    if (!device_.timestamps_) {
+        return;  // unavailable on this device: documented no-op (DeviceInfo::gpu_timestamps is false)
+    }
+    device_.vk_.vkCmdWriteTimestamp2(cmd_, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, device_.timestamp_pool_,
+                                     device_.slot_index_ * max_gpu_timestamps + index);
+}
+
 void VulkanCommandList::bind_group(uint32_t set, BindGroupHandle group)
 {
     // Every misuse is rejected here, before a Vulkan call is made (the validation layer is a safety net, not the contract).
@@ -2332,22 +2348,6 @@ void VulkanCommandList::check_draw_state(const char* what) const
             throw std::invalid_argument(std::string(what) + ": no compatible bind group at set " + std::to_string(set));
         }
     }
-}
-
-void VulkanCommandList::write_timestamp(uint32_t index)
-{
-    if (index >= max_gpu_timestamps) {
-        throw std::invalid_argument("write_timestamp: index out of range");
-    }
-    if ((written_timestamps_ & (1u << index)) != 0) {
-        throw std::invalid_argument("write_timestamp: index " + std::to_string(index) + " was already written in this frame");
-    }
-    written_timestamps_ |= 1u << index;
-    if (!device_.timestamps_) {
-        return;  // unavailable on this device: documented no-op (DeviceInfo::gpu_timestamps is false)
-    }
-    device_.vk_.vkCmdWriteTimestamp2(cmd_, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, device_.timestamp_pool_,
-                                     device_.slot_index_ * max_gpu_timestamps + index);
 }
 
 void VulkanCommandList::push_constants(std::span<const std::byte> data, uint32_t offset)

@@ -2,7 +2,9 @@
 // asset IDs) -> GPU staging -> RendererFrameSink -> pixels. Exit code 77 when no Vulkan 1.3 device is available.
 // Validation errors, including synchronization hazards, fail each test. Set SAIGE_CAPTURE_DIR to save frames as PPM.
 
+#include "saige/gfx_assets/image.hpp"
 #include "saige/gfx_test/image.hpp"
+#include "saige/gfx_test/png.hpp"
 #include "saige/gfx_test/saige_test.hpp"
 
 #include "saige/gfx_assets/gltf.hpp"
@@ -12,6 +14,7 @@
 #include "saige/rhi_vulkan/vulkan_device.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -555,6 +558,127 @@ TEST_CASE("Scene diagnostics: device memory rises when a scene is staged and ret
     CHECK(after.device_memory.allocation_count == base.device_memory.allocation_count);
     CHECK(after.resources.live == base.resources.live);
     CHECK(after.validation_errors == 0);
+}
+
+namespace {
+
+using Clock = std::chrono::steady_clock;
+double ms_since(Clock::time_point t0)
+{
+    return std::chrono::duration<double, std::milli>(Clock::now() - t0).count();
+}
+
+/// A flat 256 x 256 grid of quads (66,049 vertices, 131,072 triangles) in the XY plane, facing +Z, uv spanning [0,1].
+gfx::Primitive grid_primitive(uint32_t cells)
+{
+    gfx::Primitive p;
+    const uint32_t n = cells + 1;
+    for (uint32_t y = 0; y < n; ++y) {
+        for (uint32_t x = 0; x < n; ++x) {
+            const float u = static_cast<float>(x) / static_cast<float>(cells);
+            const float v = static_cast<float>(y) / static_cast<float>(cells);
+            p.positions.insert(p.positions.end(), {u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.0f});
+            p.normals.insert(p.normals.end(), {0.0f, 0.0f, 1.0f});
+            p.uv0.insert(p.uv0.end(), {u, v});
+        }
+    }
+    for (uint32_t y = 0; y < cells; ++y) {
+        for (uint32_t x = 0; x < cells; ++x) {
+            const uint32_t a = y * n + x, b = a + 1, c = a + n, d = c + 1;
+            p.indices.insert(p.indices.end(), {a, b, d, a, d, c});  // counter-clockwise seen from +Z
+        }
+    }
+    p.material = 0;
+    return p;
+}
+
+} // namespace
+
+// Baselines, not thresholds: this prints what the pipeline costs on this machine so later work (an instance buffer,
+// async upload, streaming) can be justified by measurement. The assertions are only sanity bounds. On a software
+// rasterizer the numbers describe the CPU path, and the log line says so.
+TEST_CASE("Scene measurements: decode, mips, staging and per-instance submit cost")
+{
+    Scene scene;
+    RendererFrameSink sink(make_device("scene_measure"), kW, kH, sink_settings());
+    const std::string adapter = sink.diagnostics().adapter;
+
+    // 1) A 1024x1024 texture: PNG decode and mip chain generation (CPU).
+    std::vector<uint8_t> pixels(size_t{1024} * 1024 * 4);
+    for (uint32_t y = 0; y < 1024; ++y) {
+        for (uint32_t x = 0; x < 1024; ++x) {
+            uint8_t* px = &pixels[(size_t{y} * 1024 + x) * 4];
+            px[0] = static_cast<uint8_t>(x ^ y);
+            px[1] = static_cast<uint8_t>(x * 3 + (y >> 2));
+            px[2] = static_cast<uint8_t>(y * 5);
+            px[3] = 255;
+        }
+    }
+    const std::vector<uint8_t> png = saige::test::make_png(1024, 1024, 8, 6, pixels, size_t{1024} * 4);
+    auto t0 = Clock::now();
+    const gfx::ImageDecodeResult decoded = gfx::decode_image(png);
+    const double decode_ms = ms_since(t0);
+    REQUIRE(decoded.ok());
+    t0 = Clock::now();
+    const gfx::MipChain chain = gfx::generate_mips(*decoded.image, gfx::ColorSpace::Srgb);
+    const double mips_ms = ms_since(t0);
+    CHECK(chain.levels == 11);
+
+    // 2) Staging a 131k-triangle mesh with that texture (decode + mips + upload + materials), end to end.
+    gfx::GltfAsset big = scene.asset;
+    big.images[0].bytes = png;
+    big.meshes[0].primitives[0] = grid_primitive(256);
+    gfx::StageReport report;
+    t0 = Clock::now();
+    StagedScene staged = sink.stage_scene(std::vector<SceneAssetRef>{{scene.id, &big, "bench"}}, {});
+    const double stage_ms = ms_since(t0);
+    report = staged.report();
+    CHECK(report.primitives == 1);
+    CHECK(report.texture_bytes >= 1024u * 1024u * 4u);
+    sink.activate_scene(std::move(staged));
+    const rhi::DeviceMemoryStats memory = sink.diagnostics().device_memory;
+
+    // 3) Per-instance cost of submit(): the fixture's 24-vertex box, 1 / 100 / 1000 instances (CPU wall time per frame,
+    //    which for the offscreen path includes waiting for the frame slot).
+    sink.activate_scene(sink.stage_scene(scene.refs()));
+    struct Sample {
+        int instances;
+        double frame_ms;
+    };
+    std::vector<Sample> samples;
+    for (const int count : {1, 100, 1000}) {
+        std::vector<RenderInstance> instances;
+        for (int i = 0; i < count; ++i) {
+            const float gx = static_cast<float>(i % 40) * 1.5f;
+            const float gy = static_cast<float>(i / 40) * 1.5f - 10.0f;
+            instances.push_back(make_instance(scene.id, translation({gx, gy, 0.0f}), static_cast<uint32_t>(i + 1)));
+        }
+        for (int warm = 0; warm < 2; ++warm) submit(sink, instances, scene.camera);
+        std::vector<double> times;
+        for (int i = 0; i < 8; ++i) {
+            t0 = Clock::now();
+            submit(sink, instances, scene.camera);
+            times.push_back(ms_since(t0));
+        }
+        samples.push_back({count, median(times)});
+    }
+    (void)read(sink);
+
+    std::printf("MEASURE {\"adapter\":\"%s\",\"software_device\":%s,\"png_1024_decode_ms\":%.2f,\"mips_1024_ms\":%.2f,"
+                "\"stage_131k_tris_1024_tex_ms\":%.2f,\"staged_texture_bytes\":%llu,\"staged_vertex_bytes\":%llu,"
+                "\"staged_index_bytes\":%llu,\"device_allocated_bytes\":%llu,\"submit_ms\":{\"1\":%.3f,\"100\":%.3f,\"1000\":%.3f},"
+                "\"submit_us_per_instance_at_1000\":%.2f}\n",
+                adapter.c_str(), sink.diagnostics().software_device ? "true" : "false", decode_ms, mips_ms, stage_ms,
+                static_cast<unsigned long long>(report.texture_bytes), static_cast<unsigned long long>(report.vertex_bytes),
+                static_cast<unsigned long long>(report.index_bytes), static_cast<unsigned long long>(memory.allocated_bytes),
+                samples[0].frame_ms, samples[1].frame_ms, samples[2].frame_ms,
+                samples[2].frame_ms);  // ms per 1000 instances is numerically the same as microseconds per instance
+
+    // Sanity only: nothing here may take tens of seconds, and cost must grow with the work.
+    CHECK(decode_ms < 30'000.0);
+    CHECK(stage_ms < 60'000.0);
+    CHECK(samples[2].frame_ms > samples[0].frame_ms);
+    CHECK(sink.diagnostics().validation_errors == 0);
 }
 
 int main(int argc, char** argv)

@@ -217,7 +217,9 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             try {
                 prim.vertices = registry.create_buffer(vb, std::as_bytes(std::span(vertices)));
                 if (vertex_count <= std::numeric_limits<uint16_t>::max()) {
-                    std::vector<uint16_t> narrow(indices.begin(), indices.end());
+                    std::vector<uint16_t> narrow;
+                    narrow.reserve(indices.size());
+                    for (const uint32_t index : indices) narrow.push_back(static_cast<uint16_t>(index));
                     ib.size = narrow.size() * sizeof(uint16_t);
                     prim.indices = registry.create_buffer(ib, std::as_bytes(std::span(narrow)));
                     prim.index_type = rhi::IndexType::Uint16;

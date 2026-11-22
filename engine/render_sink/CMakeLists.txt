@@ -47,11 +47,10 @@ function(saige_add_scene_sink_tests)
     if(TARGET saige_desktop AND TARGET saige::rhi_vulkan AND TARGET saige::scene_project)
         target_link_libraries(saige_desktop PRIVATE saige::scene_project)
         target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_SCENE)
-        if(BUILD_TESTING)
-            # Name contains "vulkan" so Core's Windows software-Vulkan lane runs it; exit 77 (skipped, never passed) without a GPU.
+        if(SAIGE_TEST_WIN32_VULKAN)
             add_test(NAME saige_desktop_scene_vulkan COMMAND saige_desktop --scene
-                "${render_sink_dir}/../../examples/textured-scene/saige.scene.json" --frames 30 --require-rendered --validate --skip-without-gpu)
-            set_tests_properties(saige_desktop_scene_vulkan PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+                "${render_sink_dir}/../../examples/textured-scene/saige.scene.json" --frames 30 --validate)
+            set_tests_properties(saige_desktop_scene_vulkan PROPERTIES TIMEOUT 60)
         endif()
     endif()
     # The native app's flow (PreparedScene -> stage_prepared_scene -> activate_scene -> run) with a fake desktop.

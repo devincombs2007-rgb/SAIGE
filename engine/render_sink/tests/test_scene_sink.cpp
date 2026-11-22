@@ -446,6 +446,109 @@ TEST_CASE("Scene: shutdown with an active scene is leak-free")
     CHECK(report.empty());
 }
 
+namespace {
+
+double median(std::vector<double> v)
+{
+    std::sort(v.begin(), v.end());
+    return v.empty() ? 0.0 : v[v.size() / 2];
+}
+
+/// Submits `frames` empty-scene frames at the given size and returns the distinct GPU scene-pass times the sink reported.
+std::vector<double> scene_pass_times(uint32_t w, uint32_t h, const Scene& scene, int frames)
+{
+    RendererFrameSink sink(make_device("scene_timing"), w, h, sink_settings());
+    sink.activate_scene(sink.stage_scene(scene.refs()));
+    std::vector<double> times;
+    uint64_t last_frame = ~uint64_t{0};
+    for (int i = 0; i < frames; ++i) {
+        submit(sink, scene.instances, scene.camera, static_cast<uint64_t>(i));
+        const RendererDiagnostics d = sink.diagnostics();
+        if (d.gpu_scene_pass_ms && d.gpu_timing_frame != last_frame) {
+            times.push_back(*d.gpu_scene_pass_ms);
+            last_frame = d.gpu_timing_frame;
+        }
+    }
+    return times;
+}
+
+} // namespace
+
+TEST_CASE("Scene diagnostics: GPU timing follows the work, and is absent (not zero) where unsupported")
+{
+    Scene scene;
+    {
+        RendererFrameSink sink(make_device("scene_diag"), kW, kH, sink_settings());
+        const RendererDiagnostics idle = sink.diagnostics();
+        CHECK(!idle.adapter.empty());
+        CHECK_FALSE(idle.gpu_scene_pass_ms.has_value());  // nothing has completed yet
+        CHECK(idle.validation_errors == 0);
+        sink.activate_scene(sink.stage_scene(scene.refs()));
+        for (uint64_t i = 0; i < 8; ++i) submit(sink, scene.instances, scene.camera, i);
+        (void)read(sink);
+        const RendererDiagnostics d = sink.diagnostics();
+        std::printf("  adapter '%s' software=%d timestamps=%d scene pass=%s\n", d.adapter.c_str(), d.software_device ? 1 : 0,
+                    d.gpu_timestamps_supported ? 1 : 0, d.gpu_scene_pass_ms ? std::to_string(*d.gpu_scene_pass_ms).c_str() : "unavailable");
+        const std::string json = to_json(d);
+        CHECK(json.find("\"schema_version\":1") != std::string::npos);
+        if (d.gpu_timestamps_supported) {
+            REQUIRE(d.gpu_scene_pass_ms.has_value());
+            CHECK(*d.gpu_scene_pass_ms >= 0.0);
+            CHECK(d.gpu_timing_frame < 8);
+            CHECK(json.find("\"gpu_scene_pass_ms\":null") == std::string::npos);
+        } else {
+            CHECK_FALSE(d.gpu_scene_pass_ms.has_value());
+            CHECK(json.find("\"gpu_scene_pass_ms\":null") != std::string::npos);
+        }
+        CHECK(d.validation_errors == 0);
+    }
+
+    // The measurement follows the work: a 640x360 pass costs clearly more than a 32x18 one (medians over frames). On a
+    // software rasterizer this is CPU time, which the adapter name and `software_device` make explicit.
+    if (!make_device("scene_timing_probe")->info().gpu_timestamps) {
+        std::printf("  (timestamps unavailable: skipping the scaling check)\n");
+        return;
+    }
+    const std::vector<double> small = scene_pass_times(32, 18, scene, 12);
+    const std::vector<double> large = scene_pass_times(640, 360, scene, 12);
+    REQUIRE(small.size() >= 4);
+    REQUIRE(large.size() >= 4);
+    std::printf("  median scene pass: %.4f ms at 32x18, %.4f ms at 640x360\n", median(small), median(large));
+    CHECK(median(large) > 1.5 * median(small));
+}
+
+TEST_CASE("Scene diagnostics: device memory rises when a scene is staged and returns exactly when it is released")
+{
+    Scene scene;
+    RendererFrameSink sink(make_device("scene_diag_memory"), kW, kH, sink_settings());
+    const auto settle = [&] {  // let the device retire everything released so far
+        sink.activate_scene({});
+        submit(sink, {}, scene.camera);
+        (void)read(sink);
+        submit(sink, {}, scene.camera);
+        (void)read(sink);
+    };
+    // First staging creates the model renderer's own resources too; take the baseline after one full cycle.
+    sink.activate_scene(sink.stage_scene(scene.refs()));
+    settle();
+    const RendererDiagnostics base = sink.diagnostics();
+
+    StagedScene staged = sink.stage_scene(scene.refs());
+    const RendererDiagnostics during = sink.diagnostics();
+    const uint64_t expected = staged.report().texture_bytes + staged.report().vertex_bytes + staged.report().index_bytes;
+    CHECK(during.device_memory.allocated_bytes >= base.device_memory.allocated_bytes + expected);  // at least what we uploaded
+    CHECK(during.resources.live > base.resources.live);
+    CHECK(during.resources.live_bytes > base.resources.live_bytes);
+
+    staged = StagedScene{};  // release the candidate without ever showing it
+    settle();
+    const RendererDiagnostics after = sink.diagnostics();
+    CHECK(after.device_memory.allocated_bytes == base.device_memory.allocated_bytes);  // exact, no leak
+    CHECK(after.device_memory.allocation_count == base.device_memory.allocation_count);
+    CHECK(after.resources.live == base.resources.live);
+    CHECK(after.validation_errors == 0);
+}
+
 int main(int argc, char** argv)
 {
     std::string reason;

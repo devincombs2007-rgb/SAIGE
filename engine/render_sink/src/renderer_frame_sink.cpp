@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <thread>
@@ -163,6 +164,73 @@ RendererFrameSink::~RendererFrameSink()
         device_->destroy(readback_);
     }
     device_->wait_idle();
+}
+
+RendererDiagnostics RendererFrameSink::diagnostics() const
+{
+    RendererDiagnostics d;
+    const rhi::DeviceInfo& info = device_->info();
+    d.adapter = info.device_name;
+    d.software_device = info.software_device;
+    d.gpu_timestamps_supported = info.gpu_timestamps;
+    if (const std::optional<rhi::GpuTimestamps> t = device_->completed_timestamps()) {
+        d.gpu_scene_pass_ms = t->milliseconds_between(timestamp_scene_begin, timestamp_scene_end);
+        if (d.gpu_scene_pass_ms) {
+            d.gpu_timing_frame = t->frame_number;
+        }
+    }
+    d.device_memory = device_->memory_stats();
+    d.resources = renderer_->registry().total_stats();
+    d.validation_errors = device_->validation_error_count();
+    return d;
+}
+
+std::string to_json(const RendererDiagnostics& d)
+{
+    const auto escape = [](const std::string& in) {
+        std::string out;
+        for (const char c : in) {
+            switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            default:
+                if (static_cast<unsigned char>(c) < 0x20) {
+                    out += ' ';
+                } else {
+                    out += c;
+                }
+            }
+        }
+        return out;
+    };
+    std::string j = "{\"schema_version\":" + std::to_string(RendererDiagnostics::schema_version);
+    j += ",\"adapter\":\"" + escape(d.adapter) + "\"";
+    j += std::string(",\"software_device\":") + (d.software_device ? "true" : "false");
+    j += std::string(",\"gpu_timestamps_supported\":") + (d.gpu_timestamps_supported ? "true" : "false");
+    if (d.gpu_scene_pass_ms) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "%.6f", *d.gpu_scene_pass_ms);
+        j += std::string(",\"gpu_scene_pass_ms\":") + buf;
+        j += ",\"gpu_timing_frame\":" + std::to_string(d.gpu_timing_frame);
+    } else {
+        j += ",\"gpu_scene_pass_ms\":null,\"gpu_timing_frame\":null";
+    }
+    j += ",\"device_memory\":{\"allocated_bytes\":" + std::to_string(d.device_memory.allocated_bytes);
+    j += ",\"allocation_count\":" + std::to_string(d.device_memory.allocation_count);
+    if (d.device_memory.budget_available) {
+        j += ",\"budget_bytes\":" + std::to_string(d.device_memory.budget_bytes);
+        j += ",\"usage_bytes\":" + std::to_string(d.device_memory.usage_bytes) + "}";
+    } else {
+        j += ",\"budget_bytes\":null,\"usage_bytes\":null}";
+    }
+    j += ",\"resources\":{\"live\":" + std::to_string(d.resources.live);
+    j += ",\"live_bytes\":" + std::to_string(d.resources.live_bytes);
+    j += ",\"peak_bytes\":" + std::to_string(d.resources.peak_bytes);
+    j += ",\"created\":" + std::to_string(d.resources.created);
+    j += ",\"destroyed\":" + std::to_string(d.resources.destroyed) + "}";
+    j += ",\"validation_errors\":" + std::to_string(d.validation_errors) + "}";
+    return j;
 }
 
 StagedScene RendererFrameSink::stage_scene(std::span<const SceneAssetRef> assets, const gfx::StageSettings& settings)

@@ -3,8 +3,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
+#include <span>
+#include <string>
+#include <utility>
 
 // stb_image, compiled for PNG and JPEG only, from the pinned upstream revision (docs/third-party/stb_image.md).
 #define STBI_ONLY_PNG

@@ -8,13 +8,17 @@
 //   so it is destroyed first (the platform destroys the HWND).
 #pragma once
 
+#include "saige/asset_id.hpp"
 #include "saige/desktop.hpp"
+#include "saige/gfx_scene/stage_model.hpp"
 #include "saige/render/scene_renderer.hpp"
 #include "saige/rhi/device.hpp"
 #include "saige/runtime.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <span>
+#include <string>
 #include <vector>
 
 namespace saige::render {
@@ -30,10 +34,54 @@ struct FrameSinkStats {
     uint64_t frames_skipped = 0;          ///< minimized, zero extent or swapchain not ready
     uint64_t swapchain_recreations = 0;
     std::size_t last_instance_count = 0;
+    uint64_t model_instances_drawn = 0;     ///< imported-model placements drawn, summed over frames
+    uint64_t model_instances_skipped = 0;   ///< non-finite or degenerate world matrices (the renderer skips them)
+    uint64_t unresolved_instances = 0;      ///< instances naming an asset that is not staged: drawn as a fallback cube
+};
+
+/// One asset to stage: its stable ID (Core's `RenderInstance::mesh`) and its imported CPU data. The data is only read
+/// during `stage_scene`.
+struct SceneAssetRef {
+    saige::AssetId id;
+    const gfx::GltfAsset* asset = nullptr;
+    std::string name;  ///< prefixes the GPU debug names so a leak report points at the asset
+};
+
+/// A complete set of GPU models, staged but not yet shown. Move-only. Dropping it (for example after a failed staging
+/// elsewhere, or a replaced scene) releases its GPU resources through the registry; the device retires them when the GPU
+/// is done with any frame still using them. It must not outlive the sink that created it.
+class StagedScene {
+public:
+    StagedScene() = default;
+    StagedScene(StagedScene&&) noexcept = default;
+    StagedScene& operator=(StagedScene&&) noexcept = default;
+    StagedScene(const StagedScene&) = delete;
+    StagedScene& operator=(const StagedScene&) = delete;
+
+    [[nodiscard]] std::size_t model_count() const noexcept { return models_.size(); }
+    [[nodiscard]] bool empty() const noexcept { return models_.empty(); }
+    /// Totals over every staged asset, with the warnings of all of them.
+    [[nodiscard]] const gfx::StageReport& report() const noexcept { return report_; }
+    [[nodiscard]] const GpuModel* find(saige::AssetId id) const noexcept;
+
+private:
+    friend class RendererFrameSink;
+    struct Entry {
+        saige::AssetId id;
+        GpuModel model;
+    };
+    std::vector<Entry> models_;  ///< sorted by id
+    gfx::StageReport report_;
 };
 
 /// Converts Core's frame snapshot into renderer instances (positions in world meters, stable per-entity colors).
 [[nodiscard]] std::vector<SceneInstance> to_scene_instances(std::span<const saige::RenderInstance> instances);
+
+/// Core's camera pose (XYZW quaternion, local +X forward, +Z up) as the renderer's camera. Same convention, no change of basis.
+[[nodiscard]] Camera to_render_camera(const saige::CameraView& camera) noexcept;
+
+/// Core's authoritative world matrix (column-major, translation at indices 12-14) as the renderer's matrix.
+[[nodiscard]] Mat4 to_render_matrix(const saige::WorldMatrix& matrix) noexcept;
 
 class RendererFrameSink final : public saige::IFrameSink {
 public:
@@ -49,6 +97,17 @@ public:
     RendererFrameSink& operator=(const RendererFrameSink&) = delete;
 
     void submit(const saige::FrameView& frame) override;
+
+    /// Stages every asset on the GPU (decoding images, uploading meshes and textures, building materials) and returns the
+    /// candidate without showing it. All-or-nothing: if any asset fails, this throws std::runtime_error naming the asset
+    /// and image or mesh, nothing is retained, and the currently active scene keeps drawing untouched. Duplicate asset IDs
+    /// or the built-in (all-zero) ID throw std::invalid_argument. Call between submits (it uploads synchronously).
+    [[nodiscard]] StagedScene stage_scene(std::span<const SceneAssetRef> assets, const gfx::StageSettings& settings = {});
+    /// Makes a staged scene the active one. The previous scene's references are released here; frames still in flight keep
+    /// their resources until the device retires them. An empty scene is allowed (instances then fall back to cubes).
+    void activate_scene(StagedScene&& scene);
+    [[nodiscard]] std::size_t active_model_count() const noexcept { return active_.model_count(); }
+    [[nodiscard]] SceneRenderer& renderer_mutable() noexcept { return *renderer_; }
 
     [[nodiscard]] const FrameSinkStats& stats() const noexcept { return stats_; }
     [[nodiscard]] rhi::Device& device() noexcept { return *device_; }
@@ -70,6 +129,9 @@ private:
     FrameSinkSettings settings_;
     std::unique_ptr<SceneRenderer> renderer_;
     std::vector<SceneInstance> instances_;  // copy of the current FrameView (contract: copy what you retain)
+    std::vector<ModelDraw> model_draws_;    // imported-model draws of the current FrameView
+    Camera camera_;                         // the current FrameView's camera pose, if it has one
+    StagedScene active_;
     FrameSinkStats stats_;
 
     // Windowed
@@ -80,6 +142,9 @@ private:
 
     // Offscreen
     rhi::TextureHandle offscreen_color_;
+    /// What the previous offscreen frame left the target in (its readback copy), so the next frame's first barrier waits for
+    /// that copy instead of discarding the image underneath it. Undefined before the first frame.
+    rhi::ResourceState offscreen_state_;
     rhi::BufferHandle readback_;
     bool has_frame_ = false;
 

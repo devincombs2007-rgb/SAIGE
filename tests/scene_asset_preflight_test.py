@@ -1,4 +1,5 @@
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,7 @@ def trace(tool, project):
     process = subprocess.run([tool, project, "12"], check=True, capture_output=True, text=True, timeout=15)
     result = json.loads(process.stdout)
     assert result["renderer"] == "none"
+    assert math.isfinite(result["project_open_ms"]) and result["project_open_ms"] >= 0
     assert result["frames"] == result["ticks"] == 12
     assert result["instances"] == result["matrix_instances"] == 3
     assert result["snapshot_payload_bytes"] > 0

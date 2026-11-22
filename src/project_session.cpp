@@ -1,5 +1,7 @@
 #include "saige/project_session.hpp"
 
+#include "project_load.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -33,9 +35,7 @@ ProjectSession::ProjectSession(const std::filesystem::path& path, IDesktopPlatfo
 }
 
 void ProjectSession::reload(const std::filesystem::path& path) {
-    auto root = std::filesystem::canonical(std::filesystem::absolute(path).parent_path());
-    auto source = load_project(path);
-    const auto matrices = resolve_project_matrices(source);
+    auto [source, root, matrices] = detail::load_validated_project(path);
     World world;
     for (std::size_t i = 0; i < matrices.size(); ++i) {
         const auto entity = world.create();

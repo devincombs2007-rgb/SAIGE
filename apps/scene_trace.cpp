@@ -98,7 +98,10 @@ int main(int argc, char** argv) {
     }
     try {
         ScriptedDesktop desktop(frames);
+        const auto open_started = std::chrono::steady_clock::now();
         saige::ProjectSession session(std::filesystem::path(argv[1]), &desktop);
+        const auto open_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - open_started).count();
         TraceSink sink;
         TraceMetrics metrics;
         for (auto* series : {&metrics.total, &metrics.input, &metrics.simulation,
@@ -110,6 +113,7 @@ int main(int argc, char** argv) {
         std::cout << "{\"schema_version\":1,\"renderer\":\"none\",\"workload\":\"scripted_project\","
                   << "\"frames\":" << stats.frames << ",\"ticks\":" << stats.ticks
                   << ",\"instances\":" << metrics.peak_instances << ",\"matrix_instances\":" << sink.matrix_count
+                  << ",\"project_open_ms\":" << open_ms
                   << ",\"frame_p50_ms\":" << percentile_ms(metrics.total, 50)
                   << ",\"frame_p95_ms\":" << percentile_ms(metrics.total, 95)
                   << ",\"input_p95_ms\":" << percentile_ms(metrics.input, 95)

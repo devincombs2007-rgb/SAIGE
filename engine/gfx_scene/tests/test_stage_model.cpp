@@ -3,7 +3,12 @@
 #include "saige/gfx_scene/stage_model.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 
 using namespace saige;

@@ -4,13 +4,17 @@
 #include "saige/gfx_assets/image.hpp"
 #include "saige/rhi/resource_desc.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace saige::gfx;

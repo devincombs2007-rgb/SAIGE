@@ -6,11 +6,13 @@
 #include "saige/shaders/test_textured_fullscreen.spv.hpp"
 #include "vulkan_test_util.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <span>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using namespace saige;

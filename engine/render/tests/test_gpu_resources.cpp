@@ -3,10 +3,12 @@
 #include "saige/render/gpu_resources.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
+#include <cstdint>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace saige::render;

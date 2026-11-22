@@ -13,7 +13,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
+#include <memory>
+#include <optional>
+#include <span>
 #include <vector>
 
 using namespace saige;

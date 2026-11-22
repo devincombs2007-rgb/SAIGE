@@ -1,10 +1,16 @@
 #include "saige/gfx_scene/stage_model.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <map>
+#include <span>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace saige::gfx {
 

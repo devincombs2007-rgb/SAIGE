@@ -1,9 +1,18 @@
 #include "saige/render/gpu_resources.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace saige::render {
 

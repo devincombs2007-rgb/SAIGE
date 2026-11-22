@@ -3,7 +3,10 @@
 #include "saige/shaders/scene_model.spv.hpp"
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <span>
 #include <stdexcept>
 
 namespace saige::render {

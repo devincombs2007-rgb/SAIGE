@@ -7,9 +7,13 @@
 #include "saige/render/gpu_resources.hpp"
 #include "vulkan_test_util.hpp"
 
+#include <cstdint>
 #include <cstring>
+#include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace saige;

@@ -14,6 +14,7 @@
 #include "saige/render/model.hpp"
 #include "saige/rhi/device.hpp"
 
+#include <cstdint>
 #include <span>
 
 namespace saige::render {

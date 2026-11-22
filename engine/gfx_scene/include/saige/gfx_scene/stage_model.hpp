@@ -17,6 +17,8 @@
 #include "saige/render/model.hpp"
 #include "saige/render/scene_renderer.hpp"
 
+#include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>

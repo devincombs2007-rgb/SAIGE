@@ -14,6 +14,13 @@ namespace saige::gfx {
 
 namespace {
 
+/// Some unit vector perpendicular to `n`, deterministic (the same rule as the Lengyel generator's fallback).
+render::Float3 any_perpendicular(render::Float3 n)
+{
+    const render::Float3 axis = std::fabs(n.x) < 0.9f ? render::Float3{1.0f, 0.0f, 0.0f} : render::Float3{0.0f, 1.0f, 0.0f};
+    return render::normalize(axis - n * render::dot(axis, n));
+}
+
 constexpr uint32_t kMaxTriangles = 50'000'000;
 constexpr float kMergeCosine = 0.99985f;  // corner tangents within 1 degree (and the same sign) share a vertex
 
@@ -117,6 +124,33 @@ TangentReport generate_tangents_mikktspace(Primitive& p)
         return report;  // Invalid
     }
 
+    // Everything below builds locals; the primitive is not touched until the final, non-throwing publish.
+    const auto normal_of = [&](uint32_t v) {
+        return render::normalize(render::Float3{p.normals[std::size_t{v} * 3], p.normals[std::size_t{v} * 3 + 1], p.normals[std::size_t{v} * 3 + 2]});
+    };
+    // A corner's tangent as MikkTSpace returned it, made safe: finite, unit length and perpendicular to the vertex normal. A corner for
+    // which that is impossible (a zero or non-finite result, or one parallel to the normal) gets a deterministic perpendicular frame.
+    const auto sanitized = [&](std::size_t k, uint32_t v, float out[3], float& sign) {
+        const render::Float3 n = normal_of(v);
+        render::Float3 tg{ctx.tangent[k * 3], ctx.tangent[k * 3 + 1], ctx.tangent[k * 3 + 2]};
+        sign = ctx.sign[k] >= 0.0f ? 1.0f : -1.0f;
+        bool usable = std::isfinite(tg.x) && std::isfinite(tg.y) && std::isfinite(tg.z) && std::isfinite(ctx.sign[k]);
+        if (usable) {
+            tg = tg - n * render::dot(n, tg);  // orthogonalize against the normal (MikkTSpace already does; this guards the output)
+            usable = render::length(tg) > 1e-3f && std::isfinite(render::length(tg));
+        }
+        if (usable) {
+            tg = render::normalize(tg);
+        } else {
+            tg = any_perpendicular(n);
+            sign = 1.0f;
+            ++report.fallback_vertices;
+        }
+        out[0] = tg.x;
+        out[1] = tg.y;
+        out[2] = tg.z;
+    };
+
     // Assign each corner a vertex: the original one for the first tangent seen there, a duplicate for each clearly different one.
     struct Assigned {
         float t[3];
@@ -129,8 +163,9 @@ TangentReport generate_tangents_mikktspace(Primitive& p)
     std::vector<uint32_t> duplicate_source;  // original vertex of each added vertex, in order
     for (std::size_t k = 0; k < corners; ++k) {
         const uint32_t v = indexed ? p.indices[k] : static_cast<uint32_t>(k);
-        const float* t = &ctx.tangent[k * 3];
-        const float s = ctx.sign[k] >= 0.0f ? 1.0f : -1.0f;
+        float t[3];
+        float s;
+        sanitized(k, v, t, s);
         std::vector<Assigned>& list = by_vertex[v];
         uint32_t id = std::numeric_limits<uint32_t>::max();
         for (const Assigned& a : list) {
@@ -155,25 +190,46 @@ TangentReport generate_tangents_mikktspace(Primitive& p)
         }
         new_indices[k] = id;
     }
-    // A vertex that no triangle uses keeps a harmless default tangent (the +X axis, handedness +1) so every vertex has one.
+    // A vertex no triangle uses still gets a valid frame: a deterministic unit vector perpendicular to its own normal (a fixed +X would
+    // not be perpendicular to every normal).
     for (std::size_t v = 0; v < vertex_count; ++v) {
         if (by_vertex[v].empty()) {
-            tangents[v * 4 + 0] = 1.0f;
+            const render::Float3 tg = any_perpendicular(normal_of(static_cast<uint32_t>(v)));
+            tangents[v * 4 + 0] = tg.x;
+            tangents[v * 4 + 1] = tg.y;
+            tangents[v * 4 + 2] = tg.z;
             tangents[v * 4 + 3] = 1.0f;
         }
     }
-    for (const uint32_t source : duplicate_source) {
-        for (std::size_t i = 0; i < 3; ++i) p.positions.push_back(p.positions[static_cast<std::size_t>(source) * 3 + i]);
-        for (std::size_t i = 0; i < 3; ++i) p.normals.push_back(p.normals[static_cast<std::size_t>(source) * 3 + i]);
-        for (std::size_t i = 0; i < 2; ++i) p.uv0.push_back(p.uv0[static_cast<std::size_t>(source) * 2 + i]);
-        if (!p.colors.empty()) {
-            for (std::size_t i = 0; i < 4; ++i) p.colors.push_back(p.colors[static_cast<std::size_t>(source) * 4 + i]);
+
+    // Publish. Capacity for every appended element is reserved first: a reserve can throw, and does so before the primitive has changed;
+    // the appends that follow then cannot allocate. The moves are non-throwing. So either the primitive comes out complete or it is
+    // exactly as it was.
+    const std::size_t total = vertex_count + duplicate_source.size();
+    if (!duplicate_source.empty()) {
+        p.positions.reserve(total * 3);
+        p.normals.reserve(total * 3);
+        p.uv0.reserve(total * 2);
+        if (!p.colors.empty()) p.colors.reserve(total * 4);
+        for (const uint32_t source : duplicate_source) {
+            for (std::size_t i = 0; i < 3; ++i) p.positions.push_back(p.positions[static_cast<std::size_t>(source) * 3 + i]);
+            for (std::size_t i = 0; i < 3; ++i) p.normals.push_back(p.normals[static_cast<std::size_t>(source) * 3 + i]);
+            for (std::size_t i = 0; i < 2; ++i) p.uv0.push_back(p.uv0[static_cast<std::size_t>(source) * 2 + i]);
+            if (!p.colors.empty()) {
+                for (std::size_t i = 0; i < 4; ++i) p.colors.push_back(p.colors[static_cast<std::size_t>(source) * 4 + i]);
+            }
         }
     }
     p.indices = std::move(new_indices);
     p.tangents = std::move(tangents);
     report.result = TangentResult::Generated;
     report.split_vertices = static_cast<uint32_t>(duplicate_source.size());
+    for (std::size_t k = 0; k < corners; k += 3) {
+        const float w0 = p.tangents[std::size_t{p.indices[k]} * 4 + 3];
+        if (w0 != p.tangents[std::size_t{p.indices[k + 1]} * 4 + 3] || w0 != p.tangents[std::size_t{p.indices[k + 2]} * 4 + 3]) {
+            ++report.mixed_handedness_triangles;
+        }
+    }
     return report;
 }
 

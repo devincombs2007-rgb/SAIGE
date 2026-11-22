@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <new>
 #include <set>
 #include <vector>
 
@@ -257,4 +259,85 @@ TEST_CASE("MikkTSpace: degenerate triangles do not poison their neighbours")
     CHECK(generate_tangents_mikktspace(p).result == TangentResult::Generated);
     for (const float f : p.tangents) CHECK(std::isfinite(f));
     CHECK(angle_degrees(tangent_of(p, 1), {0, -1, 0}) < 0.5);
+}
+
+// ----------------------------------------------------------------------------------------------- review findings on #58
+
+#include "alloc_fault.hpp"
+
+namespace {
+
+bool same_primitive(const Primitive& a, const Primitive& b)
+{
+    return a.positions == b.positions && a.normals == b.normals && a.uv0 == b.uv0 && a.colors == b.colors && a.indices == b.indices &&
+           a.tangents == b.tangents;
+}
+
+} // namespace
+
+TEST_CASE("MikkTSpace: an allocation failure at any point leaves the primitive exactly as it was")
+{
+    if (!saige::test::alloc_fault_available()) {
+        std::printf("  allocation-failure injection is not available with this toolchain: sweep skipped\n");
+        return;
+    }
+    Primitive base = sphere(16, 8, 1);  // shared mirrored equator: vertices are split, so every array grows
+    base.colors.assign(std::size_t{base.vertex_count()} * 4, 0.5f);
+    Primitive expected = base;
+    const TangentReport good = generate_tangents_mikktspace(expected);
+    REQUIRE(good.result == TangentResult::Generated);
+    REQUIRE(good.split_vertices > 0);
+
+    uint32_t failures = 0;
+    bool succeeded = false;
+    for (uint32_t n = 1; n < 100000 && !succeeded; ++n) {
+        Primitive p = base;
+        saige::test::fail_allocation_after(n);
+        bool threw = false;
+        try {
+            (void)generate_tangents_mikktspace(p);
+        } catch (const std::bad_alloc&) {
+            threw = true;
+        }
+        saige::test::fail_allocation_after(0);
+        if (threw) {
+            ++failures;
+            CHECK(same_primitive(p, base));  // all arrays, indices and tangents unchanged: no half-grown vertex arrays
+            CHECK(p.tangents.empty());
+        } else {
+            succeeded = true;
+            CHECK(same_primitive(p, expected));  // enough allocations succeeded: the full, identical result
+        }
+    }
+    CHECK(succeeded);
+    CHECK(failures >= 10);  // not vacuous: the sweep failed many distinct allocation points, including the array growth
+    std::printf("  allocation-failure sweep: %u failing allocation points, every one left the primitive unchanged\n", failures);
+}
+
+TEST_CASE("MikkTSpace: every output tangent is finite, unit length and perpendicular to its normal, including unused and degenerate vertices")
+{
+    // A vertex no triangle uses, with a normal along +X: a fixed +X tangent would be parallel to it.
+    Primitive p = quad_minus_x();
+    p.positions.insert(p.positions.end(), {5.0f, 5.0f, 5.0f});
+    p.normals.insert(p.normals.end(), {1.0f, 0.0f, 0.0f});
+    p.uv0.insert(p.uv0.end(), {0.3f, 0.3f});
+    // A vertex whose normal is not a valid direction (zero length) used by a triangle, and a triangle with identical UVs on all corners.
+    p.positions.insert(p.positions.end(), {0.0f, 3.0f, 1.0f, 0.0f, 4.0f, 1.0f, 0.0f, 3.0f, 2.0f});
+    p.normals.insert(p.normals.end(), {0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f});
+    p.uv0.insert(p.uv0.end(), {0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f});
+    p.indices.insert(p.indices.end(), {5, 6, 7});
+    const TangentReport r = generate_tangents_mikktspace(p);
+    REQUIRE(r.result == TangentResult::Generated);
+    CHECK(r.fallback_vertices > 0);  // the degenerate triangle's corners
+    for (uint32_t v = 0; v < p.vertex_count(); ++v) {
+        const Float3 t = tangent_of(p, v);
+        CHECK(std::isfinite(t.x));
+        CHECK(std::isfinite(t.y));
+        CHECK(std::isfinite(t.z));
+        CHECK(std::fabs(length(t) - 1.0f) < 1e-3f);
+        CHECK(std::fabs(dot(t, normal_of(p, v))) < 1e-3f);
+        CHECK(std::fabs(std::fabs(sign_of(p, v)) - 1.0f) < 1e-6f);
+    }
+    // The unused vertex (index 4) is perpendicular to its +X normal, which the old fixed +X default was not.
+    CHECK(std::fabs(dot(tangent_of(p, 4), Float3{1.0f, 0.0f, 0.0f})) < 1e-5f);
 }

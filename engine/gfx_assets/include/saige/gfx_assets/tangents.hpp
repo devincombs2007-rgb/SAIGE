@@ -32,7 +32,8 @@ struct TangentReport {
     TangentResult result = TangentResult::Invalid;
     uint32_t degenerate_triangles = 0;  ///< zero-area or zero-UV-area triangles, which contribute nothing
     uint32_t fallback_vertices = 0;     ///< vertices with no usable tangent, given an arbitrary frame perpendicular to the normal
-    uint32_t split_vertices = 0;        ///< MikkTSpace only: vertices added because corners of one vertex needed different tangents
+    uint32_t split_vertices = 0;        ///< vertices added because triangles of mirrored UV orientation shared one (see below)
+    uint32_t mixed_handedness_triangles = 0;  ///< triangles whose corners still disagree on handedness (normals contradicting the winding)
 };
 
 /// Fills `primitive.tangents` (xyzw per vertex) if it is empty and the primitive has UVs. Never changes other arrays.
@@ -47,6 +48,12 @@ TangentReport generate_tangents(Primitive& primitive);
 /// triangle list and comes out indexed. Fills `Primitive::tangents` only when it is empty and the primitive has UVs; never
 /// changes bounds. Deterministic. Same result codes as `generate_tangents`; additionally Invalid for more than 50 million
 /// triangles (MikkTSpace sizes are `int`).
+///
+/// All or nothing: the result is built in locals and every appended capacity is reserved before the primitive is first changed, so
+/// an allocation failure leaves it exactly as it was (the guarantee is exercised by an allocation-failure sweep in the tests). Every
+/// output tangent is finite, unit length and perpendicular to its vertex normal: a MikkTSpace result that is not (non-finite, zero,
+/// parallel to the normal) is replaced by a deterministic perpendicular frame and counted in `fallback_vertices`, and a vertex no
+/// triangle uses gets such a frame too.
 TangentReport generate_tangents_mikktspace(Primitive& primitive);
 #endif
 

@@ -197,6 +197,35 @@ VkImageLayout to_vk(TextureLayout l)
     return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
+VkFilter to_vk(Filter f) { return f == Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR; }
+
+VkSamplerMipmapMode to_vk(MipmapMode m)
+{
+    return m == MipmapMode::Nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+}
+
+VkSamplerAddressMode to_vk(AddressMode a)
+{
+    switch (a) {
+    case AddressMode::Repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    case AddressMode::MirroredRepeat: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+    case AddressMode::ClampToEdge: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    case AddressMode::ClampToBorder: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    case AddressMode::MirrorClampToEdge: return VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE;
+    }
+    return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+}
+
+VkBorderColor to_vk(BorderColor b)
+{
+    switch (b) {
+    case BorderColor::TransparentBlack: return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    case BorderColor::OpaqueBlack: return VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+    case BorderColor::OpaqueWhite: return VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    }
+    return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+}
+
 VkCompareOp to_vk(CompareOp op)
 {
     switch (op) {
@@ -240,6 +269,11 @@ struct VkTextureRes {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     bool swapchain_image = false;
+};
+
+struct VkSamplerRes {
+    SamplerDesc desc;
+    VkSampler sampler = VK_NULL_HANDLE;
 };
 
 struct VkShaderRes {
@@ -327,6 +361,9 @@ public:
 
     BufferHandle create_buffer(const BufferDesc& desc, std::span<const std::byte> initial_data) override;
     TextureHandle create_texture(const TextureDesc& desc) override;
+    void upload_texture(TextureHandle texture, std::span<const std::byte> data) override;
+    SamplerHandle create_sampler(const SamplerDesc& desc) override;
+    void destroy(SamplerHandle handle) override;
     ShaderHandle create_shader(const ShaderDesc& desc) override;
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
     void destroy(BufferHandle handle) override;
@@ -391,11 +428,13 @@ private:
     uint32_t slot_index_ = 0;
     uint64_t frame_number_ = 0;
     bool in_frame_ = false;
+    bool anisotropy_supported_ = false;
     std::vector<PendingPresent> presents_;
     VkCommandPool upload_pool_ = VK_NULL_HANDLE;
 
     HandlePool<VkBufferRes, BufferTag> buffers_;
     HandlePool<VkTextureRes, TextureTag> textures_;
+    HandlePool<VkSamplerRes, SamplerTag> samplers_;
     HandlePool<VkShaderRes, ShaderTag> shaders_;
     HandlePool<VkPipelineRes, PipelineTag> pipelines_;
     HandlePool<VkSwapchainRes, SwapchainTag> swapchains_;
@@ -536,6 +575,29 @@ void VulkanDevice::create_instance()
     app.engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
     app.apiVersion = VK_API_VERSION_1_3;
 
+    // Optional synchronization validation, enabled in code (environment variables are ignored by elevated Windows
+    // processes). The extension is provided by the validation layer itself.
+    VkValidationFeatureEnableEXT sync_feature = VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+    VkValidationFeaturesEXT validation_features{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+    validation_features.enabledValidationFeatureCount = 1;
+    validation_features.pEnabledValidationFeatures = &sync_feature;
+    if (info_.validation_enabled && desc_.enable_synchronization_validation) {
+        uint32_t layer_ext_count = 0;
+        vk_.vkEnumerateInstanceExtensionProperties(validation_layer, &layer_ext_count, nullptr);
+        std::vector<VkExtensionProperties> layer_exts(layer_ext_count);
+        vk_.vkEnumerateInstanceExtensionProperties(validation_layer, &layer_ext_count, layer_exts.data());
+        const bool has_features_ext = std::any_of(layer_exts.begin(), layer_exts.end(), [](const VkExtensionProperties& e) {
+            return std::strcmp(e.extensionName, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME) == 0;
+        });
+        if (has_features_ext) {
+            extensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+            info_.synchronization_validation_enabled = true;
+        } else {
+            std::cerr << "[saige.vulkan] warning: synchronization validation requested but "
+                         "VK_EXT_validation_features is unavailable; continuing without it\n";
+        }
+    }
+
     VkDebugUtilsMessengerCreateInfoEXT messenger_info{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
     messenger_info.messageSeverity =
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
@@ -552,7 +614,14 @@ void VulkanDevice::create_instance()
     ci.enabledLayerCount = static_cast<uint32_t>(layers.size());
     ci.ppEnabledLayerNames = layers.data();
     if (info_.validation_enabled) {
-        ci.pNext = &messenger_info;  // also validates instance creation/destruction
+        // The messenger struct on the instance chain also validates instance creation/destruction. The features
+        // struct goes first on that chain; the messenger's own pNext stays null because the same struct is reused for
+        // vkCreateDebugUtilsMessengerEXT, which forbids a pNext chain.
+        ci.pNext = &messenger_info;
+        if (info_.synchronization_validation_enabled) {
+            validation_features.pNext = &messenger_info;
+            ci.pNext = &validation_features;
+        }
     }
     check(vk_.vkCreateInstance(&ci, nullptr, &instance_), "vkCreateInstance");
 
@@ -662,6 +731,12 @@ void VulkanDevice::create_logical_device()
     f12.pNext = &f13;
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     f2.pNext = &f12;
+    {
+        VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        vk_.vkGetPhysicalDeviceFeatures2(physical_, &supported);
+        anisotropy_supported_ = supported.features.samplerAnisotropy == VK_TRUE;
+        f2.features.samplerAnisotropy = anisotropy_supported_ ? VK_TRUE : VK_FALSE;
+    }
 
     std::vector<const char*> extensions;
     if (swapchain_extension_) {
@@ -726,7 +801,7 @@ VulkanDevice::~VulkanDevice()
     }
     pending_.drain_all([](std::function<void()>&& fn) { fn(); });
 
-    const uint32_t leaked = buffers_.size() + textures_.size() + shaders_.size() + pipelines_.size();
+    const uint32_t leaked = buffers_.size() + textures_.size() + samplers_.size() + shaders_.size() + pipelines_.size();
     if (leaked != 0) {
         std::cerr << "[saige.vulkan] warning: " << leaked << " resource(s) still alive at device destruction; releasing\n";
     }
@@ -741,6 +816,7 @@ VulkanDevice::~VulkanDevice()
             vk_.vkFreeMemory(device_, t.memory, nullptr);
         }
     });
+    samplers_.for_each([&](SamplerHandle, VkSamplerRes& s) { vk_.vkDestroySampler(device_, s.sampler, nullptr); });
     shaders_.for_each([&](ShaderHandle, VkShaderRes& s) { vk_.vkDestroyShaderModule(device_, s.module, nullptr); });
     pipelines_.for_each([&](PipelineHandle, VkPipelineRes& p) {
         vk_.vkDestroyPipeline(device_, p.pipeline, nullptr);
@@ -999,12 +1075,18 @@ TextureHandle VulkanDevice::create_texture(const TextureDesc& desc)
     try {
         res.memory = allocate(req, MemoryLocation::GpuOnly);
         check(vk_.vkBindImageMemory(device_, res.image, res.memory, 0), "vkBindImageMemory");
-        VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-        vi.image = res.image;
-        vi.viewType = desc.array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
-        vi.format = ci.format;
-        vi.subresourceRange = {res.aspect, 0, res.desc.mip_levels, 0, desc.array_layers};
-        check(vk_.vkCreateImageView(device_, &vi, nullptr, &res.view), "vkCreateImageView");
+        // Views are only valid for images usable by shaders or as attachments; a transfer-only texture has none.
+        constexpr VkImageUsageFlags view_usages = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT |
+                                                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                                  VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        if ((usage & view_usages) != 0) {
+            VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            vi.image = res.image;
+            vi.viewType = desc.array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+            vi.format = ci.format;
+            vi.subresourceRange = {res.aspect, 0, res.desc.mip_levels, 0, desc.array_layers};
+            check(vk_.vkCreateImageView(device_, &vi, nullptr, &res.view), "vkCreateImageView");
+        }
     } catch (...) {
         vk_.vkDestroyImage(device_, res.image, nullptr);
         if (res.memory != VK_NULL_HANDLE) {
@@ -1014,6 +1096,131 @@ TextureHandle VulkanDevice::create_texture(const TextureDesc& desc)
     }
     set_name(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<uint64_t>(res.image), desc.debug_name);
     return textures_.emplace(std::move(res));
+}
+
+void VulkanDevice::upload_texture(TextureHandle texture, std::span<const std::byte> data)
+{
+    const VkTextureRes* t = textures_.get(texture);
+    if (t == nullptr || t->swapchain_image) {
+        throw std::invalid_argument("upload_texture: invalid texture handle");
+    }
+    if (in_frame_) {
+        throw std::logic_error("upload_texture: not allowed between begin_frame() and end_frame()");
+    }
+    const TextureDesc& d = t->desc;
+    if (const ValidationResult v = validate_texture_upload(d, data.size()); !v) {
+        throw std::invalid_argument(v.error);
+    }
+
+    // Copy regions: mip level outermost, then array layer, rows tightly packed (matches compute_texture_data_size).
+    std::vector<VkBufferImageCopy> regions;
+    const Extent3D base{d.width, d.height, 1};
+    uint64_t offset = 0;
+    for (uint32_t level = 0; level < d.mip_levels; ++level) {
+        const Extent3D e = mip_extent(base, level);
+        const SurfaceLayout layout = compute_surface_layout(d.format, e.width, e.height);
+        for (uint32_t layer = 0; layer < d.array_layers; ++layer) {
+            VkBufferImageCopy r{};
+            r.bufferOffset = offset;
+            r.imageSubresource = {t->aspect, level, layer, 1};
+            r.imageExtent = {e.width, e.height, 1};
+            regions.push_back(r);
+            offset += layout.slice_pitch;
+        }
+    }
+
+    BufferDesc staging_desc;
+    staging_desc.size = data.size();
+    staging_desc.usage = BufferUsage::TransferSrc;
+    staging_desc.memory = MemoryLocation::CpuToGpu;
+    staging_desc.debug_name = "TextureUploadStaging";
+    const BufferHandle staging = create_buffer(staging_desc, data);
+    const VkBuffer src = buffers_.get(staging)->buffer;
+    const VkImage image = t->image;
+    const VkImageAspectFlags aspect = t->aspect;
+    const uint32_t mips = d.mip_levels;
+    const uint32_t layers = d.array_layers;
+    try {
+        immediate_submit([&](VkCommandBuffer cmd) {
+            auto transition = [&](VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage,
+                                  VkAccessFlags2 dst_access, VkImageLayout from, VkImageLayout to) {
+                VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+                b.srcStageMask = src_stage;
+                b.srcAccessMask = src_access;
+                b.dstStageMask = dst_stage;
+                b.dstAccessMask = dst_access;
+                b.oldLayout = from;
+                b.newLayout = to;
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.image = image;
+                b.subresourceRange = {aspect, 0, mips, 0, layers};
+                VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                di.imageMemoryBarrierCount = 1;
+                di.pImageMemoryBarriers = &b;
+                vk_.vkCmdPipelineBarrier2(cmd, &di);
+            };
+            // A re-upload overwrites a texture that earlier frames may still be reading or writing. Those frames are
+            // already submitted and may still be executing (the host only waits for *this* submission), so the first
+            // transition is a full dependency on all prior work. Write-after-read needs only the execution dependency
+            // (ALL_COMMANDS); write-after-write also needs the earlier writes (a previous upload's copy, or rendering
+            // into a texture that also has attachment usage) made available, hence MEMORY_WRITE as the source access.
+            // A fresh texture has no prior work, so this costs it nothing.
+            transition(VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_COPY_BIT,
+                       VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            vk_.vkCmdCopyBufferToImage(cmd, src, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                       static_cast<uint32_t>(regions.size()), regions.data());
+            transition(VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                       VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                       VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        });
+    } catch (...) {
+        destroy(staging);
+        throw;
+    }
+    // immediate_submit waited for completion, so the staging buffer is no longer in use.
+    if (std::optional<VkBufferRes> s = buffers_.release(staging)) {
+        vk_.vkDestroyBuffer(device_, s->buffer, nullptr);
+        vk_.vkFreeMemory(device_, s->memory, nullptr);
+    }
+}
+
+SamplerHandle VulkanDevice::create_sampler(const SamplerDesc& desc)
+{
+    if (const ValidationResult v = validate(desc); !v) {
+        throw std::invalid_argument(std::string("create_sampler: ") + v.error);
+    }
+    VkSamplerCreateInfo ci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    ci.magFilter = to_vk(desc.mag_filter);
+    ci.minFilter = to_vk(desc.min_filter);
+    ci.mipmapMode = to_vk(desc.mipmap_mode);
+    ci.addressModeU = to_vk(desc.address_u);
+    ci.addressModeV = to_vk(desc.address_v);
+    ci.addressModeW = to_vk(desc.address_w);
+    ci.mipLodBias = desc.mip_lod_bias;
+    // Anisotropy degrades to trilinear on devices without the feature instead of failing the load.
+    ci.anisotropyEnable = (desc.max_anisotropy > 1.0f && anisotropy_supported_) ? VK_TRUE : VK_FALSE;
+    ci.maxAnisotropy = ci.anisotropyEnable == VK_TRUE ? desc.max_anisotropy : 1.0f;
+    ci.compareEnable = desc.compare_enable ? VK_TRUE : VK_FALSE;
+    ci.compareOp = to_vk(desc.compare_op);
+    ci.minLod = desc.min_lod;
+    ci.maxLod = desc.max_lod;
+    ci.borderColor = to_vk(desc.border_color);
+    VkSamplerRes res;
+    res.desc = desc;
+    check(vk_.vkCreateSampler(device_, &ci, nullptr, &res.sampler), "vkCreateSampler");
+    return samplers_.emplace(std::move(res));
+}
+
+void VulkanDevice::destroy(SamplerHandle handle)
+{
+    std::optional<VkSamplerRes> res = samplers_.release(handle);
+    if (!res) {
+        std::cerr << "[saige.vulkan] warning: destroy() on an invalid sampler handle\n";
+        return;
+    }
+    defer([this, s = res->sampler] { vk_.vkDestroySampler(device_, s, nullptr); });
 }
 
 ShaderHandle VulkanDevice::create_shader(const ShaderDesc& desc)

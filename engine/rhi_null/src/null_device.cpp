@@ -21,6 +21,11 @@ struct NullBuffer {
 struct NullTexture {
     TextureDesc desc;
     bool swapchain_image = false;
+    uint64_t uploaded_bytes = 0;
+};
+
+struct NullSampler {
+    SamplerDesc desc;
 };
 
 struct NullShader {
@@ -52,6 +57,7 @@ struct NullDevice::Impl {
     DeviceDesc desc;
     HandlePool<NullBuffer, BufferTag> buffers;
     HandlePool<NullTexture, TextureTag> textures;
+    HandlePool<NullSampler, SamplerTag> samplers;
     HandlePool<NullShader, ShaderTag> shaders;
     HandlePool<NullPipeline, PipelineTag> pipelines;
     HandlePool<NullSwapchain, SwapchainTag> swapchains;
@@ -398,7 +404,45 @@ TextureHandle NullDevice::create_texture(const TextureDesc& desc)
     if (const ValidationResult v = validate(desc); !v) {
         throw std::invalid_argument(std::string("create_texture: ") + v.error);
     }
-    return impl_->textures.emplace(NullTexture{desc, false});
+    return impl_->textures.emplace(NullTexture{desc, false, 0});
+}
+
+void NullDevice::upload_texture(TextureHandle texture, std::span<const std::byte> data)
+{
+    NullTexture* t = impl_->textures.get(texture);
+    if (t == nullptr || t->swapchain_image) {
+        throw std::invalid_argument("upload_texture: invalid texture handle");
+    }
+    if (impl_->in_frame) {
+        throw std::logic_error("upload_texture: not allowed between begin_frame() and end_frame()");
+    }
+    if (const ValidationResult v = validate_texture_upload(t->desc, data.size()); !v) {
+        throw std::invalid_argument(v.error);
+    }
+    t->uploaded_bytes = data.size();
+}
+
+SamplerHandle NullDevice::create_sampler(const SamplerDesc& desc)
+{
+    if (const ValidationResult v = validate(desc); !v) {
+        throw std::invalid_argument(std::string("create_sampler: ") + v.error);
+    }
+    return impl_->samplers.emplace(NullSampler{desc});
+}
+
+void NullDevice::destroy(SamplerHandle handle)
+{
+    if (!impl_->samplers.contains(handle)) {
+        impl_->error("destroy(): invalid sampler handle");
+        return;
+    }
+    impl_->pending.enqueue([this, handle] { impl_->samplers.release(handle); }, impl_->frame + impl_->desc.frames_in_flight);
+}
+
+uint64_t NullDevice::uploaded_bytes(TextureHandle texture) const noexcept
+{
+    const NullTexture* t = impl_->textures.get(texture);
+    return t != nullptr ? t->uploaded_bytes : 0;
 }
 
 ShaderHandle NullDevice::create_shader(const ShaderDesc& desc)
@@ -629,8 +673,8 @@ uint32_t NullDevice::live_resource_count() const noexcept
     impl_->swapchains.for_each([&](SwapchainHandle, NullSwapchain& sc) {
         swapchain_images += static_cast<uint32_t>(sc.images.size());
     });
-    return impl_->buffers.size() + impl_->textures.size() - swapchain_images + impl_->shaders.size() +
-           impl_->pipelines.size();
+    return impl_->buffers.size() + impl_->textures.size() - swapchain_images + impl_->samplers.size() +
+           impl_->shaders.size() + impl_->pipelines.size();
 }
 
 uint32_t NullDevice::pending_destruction_count() const noexcept

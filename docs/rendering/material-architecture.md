@@ -57,8 +57,11 @@ side.
 - **Alpha and sidedness select pipeline state, not parameters:** the existing mirrored/cull variants extend to a key of
   (alpha mode, double-sided, mirrored, color format, depth format). Blend gets its own variant and a sort policy; it is no
   longer drawn opaque.
-- **Tangents:** use the asset's tangents when present, otherwise generate MikkTSpace tangents in the asset pipeline (CPU,
-  deterministic, tested), never in the shader. Vertex format grows from 32 to 48 bytes (adds a float4 tangent); this is the one
+- **Tangents:** use the asset's tangents when present, otherwise generate them in the asset pipeline (CPU, deterministic,
+  tested), never in the shader. The generator (branch `claude/pbr-tangent-generation`) is Lengyel-style: per-triangle,
+  angle-weighted, orthogonalized, with the handedness sign in w. It is **not** MikkTSpace, which the glTF specification names
+  as the reference, so it can differ at UV seams. Pinning MikkTSpace itself (zlib licence) is a separate dependency decision and
+  is not assumed here. (An earlier draft of this document said MikkTSpace; that was wrong about what was implemented.) Vertex format grows from 32 to 48 bytes (adds a float4 tangent); this is the one
   change to a persisted-in-memory layout, and it is isolated to `ModelVertex` and the staging code.
 - **Project format:** nothing changes. Materials stay in the glTF. If the project later overrides a parameter, that is a Core
   schema change proposed on its own (see decision 3 below).
@@ -94,7 +97,7 @@ Each is a separately reviewable change with its own tests and no dependency on a
 |---|---|---|---|
 | M1 | **Material data and default textures.** `MaterialData` block, five-slot bind group, neutral defaults, all slots sampled but shaded as today | `model.hlsl`, `gfx_scene/stage_model`, registry (no new primitive) | all 0.2 pixel tests unchanged and byte-identical where the material is the same; new test that each slot reaches the shader |
 | M2 | **Metallic-roughness shading.** `SurfaceData`, the BRDF, sun plus ambient, still LDR | shared HLSL include, a CPU reference of the BRDF in `gfx_test_support` | CPU-oracle comparison on constant-color scenes; white-furnace energy test within a stated tolerance; mutation checks on Fresnel, roughness and Smith terms |
-| M3 | **Normal maps and tangents.** MikkTSpace in the asset pipeline, 48-byte vertex | importer, `ModelVertex`, staging | a tangent test on a known mesh; a normal-map fixture rendered against the CPU oracle; mirrored instances keep correct handedness |
+| M3 | **Normal maps and tangents.** Tangent generation in the asset pipeline (done as a separate change, `generate_tangents`); 48-byte vertex and shading remain | importer, `ModelVertex`, staging | a tangent test on a known mesh; a normal-map fixture rendered against the CPU oracle; mirrored instances keep correct handedness |
 | M4 | **HDR target and tone mapping.** `RGBA16_FLOAT` scene target, one tone-map pass | render graph pass | the HDR path matches the LDR path where tone mapping is the identity-equivalent; a bright-emissive test that clips in LDR and not in HDR |
 | M5 | **Image-based lighting.** Prefiltered environment and BRDF lookup | cube textures, compute or fragment prefilter (RHI additions) | furnace test with the environment; reference images with stated tolerance and provenance |
 | M6 | **Cascaded sun shadows** | depth-only and array targets | shadow-acne and peter-panning fixtures; validation clean |

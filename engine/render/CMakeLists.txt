@@ -30,6 +30,8 @@ endif()
 
 add_library(saige_render STATIC
     src/camera.cpp
+    src/gpu_resources.cpp
+    src/model_renderer.cpp
     src/render_graph.cpp
     src/scene_renderer.cpp
     src/transform.cpp
@@ -49,6 +51,7 @@ if(SAIGE_RENDER_BUILD_TESTS)
     saige_gfx_add_test(saige_render_tests
         SOURCES
             tests/test_camera.cpp
+            tests/test_gpu_resources.cpp
             tests/test_math.cpp
             tests/test_render_graph.cpp
             tests/test_scene_renderer.cpp

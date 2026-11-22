@@ -5,12 +5,16 @@
 #pragma once
 
 #include "saige/render/camera.hpp"
+#include "saige/render/gpu_resources.hpp"
+#include "saige/render/model.hpp"
+#include "saige/render/model_renderer.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/render_graph.hpp"
 #include "saige/rhi/device.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 
@@ -76,6 +80,8 @@ struct SceneFrame {
     std::span<const SceneInstance> instances;
     /// When set, replaces the settings-driven camera (follow/fixed) for this frame. Not retained after render().
     const Camera* camera = nullptr;
+    /// Imported models to draw this frame (not retained after render()); they share the depth buffer with everything else.
+    std::span<const ModelDraw> models;
 };
 
 /// Where a frame is rendered. The renderer leaves `texture` in `final_state` (or its last-use state).
@@ -89,9 +95,15 @@ struct RenderTarget {
     rhi::BufferHandle readback_buffer;
 };
 
+/// Timestamp slots the renderer writes (rhi::CommandList::write_timestamp); the span between them is the scene pass.
+inline constexpr uint32_t timestamp_scene_begin = 0;
+inline constexpr uint32_t timestamp_scene_end = 1;
+
 struct FrameStats {
     uint32_t draw_calls = 0;
     uint32_t barriers = 0;
+    uint32_t model_instances = 0;          ///< imported-model placements drawn
+    uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
 };
 
 class SceneRenderer {
@@ -109,6 +121,10 @@ public:
     [[nodiscard]] Float3 camera_eye(const SceneFrame& frame) const;
     [[nodiscard]] float instance_yaw(const SceneFrame& frame, const SceneInstance& instance) const;
     [[nodiscard]] const RendererSettings& settings() const noexcept { return settings_; }
+    /// Owns the GPU resources of every staged model; counters and the leak report live here.
+    [[nodiscard]] GpuResourceRegistry& registry() noexcept { return registry_; }
+    /// The imported-model renderer, created on first use (the 0.1 cube path never pays for it).
+    [[nodiscard]] ModelRenderer& model_renderer();
     [[nodiscard]] rhi::Format color_format() const noexcept { return color_format_; }
 
 private:
@@ -126,6 +142,8 @@ private:
     uint32_t depth_height_ = 0;
     rhi::ResourceState depth_state_;
     RenderGraph graph_;
+    GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
+    std::unique_ptr<ModelRenderer> models_;
 };
 
 } // namespace saige::render

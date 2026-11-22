@@ -74,6 +74,8 @@ using ShaderHandle = Handle<struct ShaderTag>;
 using PipelineHandle = Handle<struct PipelineTag>;
 using SwapchainHandle = Handle<struct SwapchainTag>;
 using AccelerationStructureHandle = Handle<struct AccelerationStructureTag>;
+using BindGroupLayoutHandle = Handle<struct BindGroupLayoutTag>;
+using BindGroupHandle = Handle<struct BindGroupTag>;
 
 static_assert(sizeof(BufferHandle) == 4, "Handles must stay 32-bit");
 

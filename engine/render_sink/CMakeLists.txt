@@ -24,6 +24,15 @@ if(BUILD_TESTING)
         saige_gfx_configure_target(saige_render_sink_vulkan_tests)
         add_test(NAME saige_render_sink_vulkan_tests COMMAND saige_render_sink_vulkan_tests)
         set_tests_properties(saige_render_sink_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+        # The 0.3 renderer end to end: staged glTF with five textures, metallic-roughness, normal mapping and HDR together.
+        add_executable(saige_render_sink_combined_vulkan_tests tests/test_combined_pbr.cpp)
+        target_include_directories(saige_render_sink_combined_vulkan_tests PRIVATE
+            ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
+            ${SAIGE_GFX_SOURCE_ROOT}/engine/rhi_vulkan/tests)
+        target_link_libraries(saige_render_sink_combined_vulkan_tests PRIVATE saige::render_sink saige::rhi_vulkan)
+        saige_gfx_configure_target(saige_render_sink_combined_vulkan_tests)
+        add_test(NAME saige_render_sink_combined_vulkan_tests COMMAND saige_render_sink_combined_vulkan_tests)
+        set_tests_properties(saige_render_sink_combined_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
     endif()
 endif()
 

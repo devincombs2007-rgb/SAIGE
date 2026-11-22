@@ -633,3 +633,51 @@ TEST_CASE("PBR: without tangents, or in Legacy shading, a normal map changes not
         CHECK(rig.device->validation_error_count() == 0);
     }
 }
+
+TEST_CASE("PBR: a tangent parallel to the normal has no frame, so the surface keeps its geometric normal (no NaN)")
+{
+    const Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
+    Rig rig("pbr_degenerate_tangent", ModelShading::MetallicRoughness);
+    MaterialData data;
+    data.base_color[0] = 0.8f; data.base_color[1] = 0.6f; data.base_color[2] = 0.4f;
+    data.metallic = 0.0f;
+    data.roughness = 0.6f;
+    MaterialTextures with_map;
+    with_map[MaterialSlot::Normal] = {normal_map(rig), nearest_clamp(rig)};
+    GpuResourceRegistry& registry = rig.renderer->registry();
+
+    // The quad faces -X (normal n = (-1, 0, 0)); a tangent along n projects to zero against it.
+    const auto quad_with_tangent = [&](const GpuMaterial& material, Float3 tangent) {
+        const Float3 n{-1, 0, 0};
+        std::vector<ModelVertex> v = {
+            {{0.0f, +1.0f, 2.5f}, n, {0, 0}}, {{0.0f, -1.0f, 2.5f}, n, {1, 0}},
+            {{0.0f, +1.0f, 0.5f}, n, {0, 1}}, {{0.0f, -1.0f, 0.5f}, n, {1, 1}},
+        };
+        for (ModelVertex& vertex : v) {
+            vertex.tangent[0] = tangent.x;
+            vertex.tangent[1] = tangent.y;
+            vertex.tangent[2] = tangent.z;
+            vertex.tangent[3] = 1.0f;
+        }
+        GpuModel m;
+        m.name = "degenerate quad";
+        m.materials.push_back(material);
+        m.meshes.push_back({make_primitive(registry, v, {0, 2, 3, 0, 3, 1}, 0)});
+        m.placements.push_back({0, Mat4::identity()});
+        return m;
+    };
+    const auto render = [&](const GpuModel& m) {
+        const ModelDraw d{&m, Mat4::identity()};
+        return rig.target->render(*rig.renderer, {}, camera, 0, std::span(&d, 1)).rgba;
+    };
+
+    const GpuMaterial plain = rig.material(data);
+    const GpuMaterial mapped = rig.material(data, with_map);
+    const auto baseline = render(quad_with_tangent(plain, {0.0f, -1.0f, 0.0f}));
+    // Not vacuous: with a proper tangent the map changes the image.
+    CHECK(render(quad_with_tangent(mapped, {0.0f, -1.0f, 0.0f})) != baseline);
+    // Exactly parallel to the normal, and parallel to within 1e-4: both fall back to the unmapped surface.
+    CHECK(render(quad_with_tangent(mapped, {-1.0f, 0.0f, 0.0f})) == baseline);
+    CHECK(render(quad_with_tangent(mapped, {-1.0f, -1.0e-4f, 0.0f})) == baseline);
+    CHECK(rig.device->validation_error_count() == 0);
+}

@@ -16,7 +16,7 @@ llvmpipe on Linux, lavapipe on Windows); none of it is physical-GPU verification
 | #50 | `pbr-m1-material-data` (48c4128) | M1: five slots, per-slot samplers and color space | main | green |
 | #51 | `pbr-m2-metallic-roughness` (a71d49b) | M2: metallic-roughness, `pbr.hlsli`, env BRDF table (draft) | #50, contains #47 | green |
 | #52 | `pbr-m3-normal-mapping` (47ac109) | M3: normal mapping, 48-byte vertex (draft) | #51, contains #46 | green |
-| #53 | `pbr-m4-hdr-output` (8005441) | M4: HDR target and tone-map pass (draft) | #51, contains #48 | green when last checked, re-check |
+| #53 | `pbr-m4-hdr-output` (8005441) | M4: HDR target and tone-map pass (draft) | #51, contains #48 | green |
 | #54 | `integration-0.3-pbr` (bb122c7) | union of the above plus `test_combined_pbr.cpp` | all | green (Linux, ASan, Windows MSVC Debug and Release, Windows Vulkan) |
 | #55 | `pbr-env-brdf-asset` (9b2e416) | embedded versioned env BRDF table (draft) | #51 | green incl. MSVC |
 | docs | `docs-0.3-handoff` | energy and table notes, MikkTSpace evaluation, alpha plan, this file | #49 | docs |

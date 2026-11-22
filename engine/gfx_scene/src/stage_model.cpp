@@ -41,6 +41,14 @@ std::string label(std::string_view name, const std::string& kind, std::size_t in
     throw std::runtime_error(what + ": " + why);
 }
 
+/// A problem with what the asset says about one texture slot (a bad index, a missing or undecodable image). It is fatal for the base
+/// color slot, as in 0.2; for the optional slots, which 0.2 never read, it leaves the slot neutral with a warning. A *device* failure
+/// (GPU upload) is never a SlotProblem: it always fails the staging.
+struct SlotProblem {
+    std::string where;
+    std::string why;
+};
+
 } // namespace
 
 rhi::SamplerDesc to_sampler_desc(const Sampler& s, float max_anisotropy)
@@ -90,18 +98,18 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
     // texture is decoded and uploaded twice, because the format decides how the GPU reads it. Each slot gets the sampler
     // its glTF texture names; identical sampler descriptions share one device sampler through the registry.
     std::map<std::pair<int32_t, bool>, render::TextureRef> textures_by_image;
-    const auto slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref,
-                                  bool srgb) -> render::MaterialTextureSlot {
+    const auto load_slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref,
+                                       bool srgb) -> render::MaterialTextureSlot {
         if (!ref.valid()) {
             return {};
         }
         const std::string who = label(name, "material", material_index, material.name);
         if (static_cast<std::size_t>(ref.texture) >= asset.textures.size()) {
-            fail(who, std::string(slot_name) + " texture index is out of range");
+            throw SlotProblem{who, std::string(slot_name) + " texture index is out of range"};
         }
         const Texture& texture = asset.textures[static_cast<std::size_t>(ref.texture)];
         if (texture.image < 0 || static_cast<std::size_t>(texture.image) >= asset.images.size()) {
-            fail(who, std::string(slot_name) + " texture has no usable source image");
+            throw SlotProblem{who, std::string(slot_name) + " texture has no usable source image"};
         }
         render::TextureRef tex;
         const std::pair<int32_t, bool> key{texture.image, srgb};
@@ -113,7 +121,7 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
 #if defined(SAIGE_HAS_IMAGE_DECODE)
             const ImageDecodeResult decoded = decode_image(image.bytes, settings.image_limits);
             if (!decoded.ok()) {
-                fail(image_label, decoded.error);
+                throw SlotProblem{image_label, decoded.error};
             }
             const MipChain chain = generate_mips(*decoded.image, srgb ? ColorSpace::Srgb : ColorSpace::Linear);
             rhi::TextureDesc td;
@@ -134,7 +142,7 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             textures_by_image.emplace(key, tex);
 #else
             (void)settings;
-            fail(image_label, "this build has no image decoder (SAIGE_GFX_IMAGE_DECODE is OFF)");
+            throw SlotProblem{image_label, "this build has no image decoder (SAIGE_GFX_IMAGE_DECODE is OFF)"};
 #endif
         }
         if (ref.tex_coord != 0) {
@@ -147,6 +155,18 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             sampler = registry.get_sampler(to_sampler_desc(Sampler{}, settings.max_anisotropy));
         }
         return {tex, sampler};
+    };
+    const auto slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref,
+                                  bool srgb, bool optional) -> render::MaterialTextureSlot {
+        try {
+            return load_slot_texture(material, material_index, slot_name, ref, srgb);
+        } catch (const SlotProblem& problem) {
+            if (!optional) {
+                fail(problem.where, problem.why);
+            }
+            warn_once(report, "an optional material texture could not be used and its slot is left neutral: " + problem.where + ": " + problem.why);
+            return {};
+        }
     };
 
     // ------------------------------------------------------------------------------------------ materials
@@ -172,12 +192,34 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                 warn_once(report, "the scene's color format cannot blend: Blend materials draw as opaque");
             }
         }
+        // Legacy (the default) stages what 0.2 staged: the base color texture only, so 0.2 content loads and looks as it did, including
+        // content whose other textures could not be decoded. Extended and MetallicRoughness stage all five slots; an optional slot that
+        // cannot be used stays neutral.
+        const render::ModelShading shading = models.shading();
+        const bool extended = shading != render::ModelShading::Legacy;
+        const bool other_slots = m.normal_texture.valid() || m.metallic_roughness_texture.valid() || m.occlusion_texture.valid() || m.emissive_texture.valid();
+        if (!extended && other_slots) {
+            warn_once(report, "normal, metallic-roughness, occlusion and emissive textures are not sampled in 0.2 (base color only)");
+        } else if (shading == render::ModelShading::Extended && m.normal_texture.valid()) {
+            warn_once(report, "normal textures are uploaded and bound but not shaded yet");  // only MetallicRoughness shades them
+        }
         render::MaterialTextures textures;
-        textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true);
-        textures[render::MaterialSlot::MetallicRoughness] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false);
-        textures[render::MaterialSlot::Normal] = slot_texture(m, i, "normal", m.normal_texture, false);
-        textures[render::MaterialSlot::Occlusion] = slot_texture(m, i, "occlusion", m.occlusion_texture, false);
-        textures[render::MaterialSlot::Emissive] = slot_texture(m, i, "emissive", m.emissive_texture, true);
+        textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true, /*optional=*/false);
+        if (extended) {
+            textures[render::MaterialSlot::MetallicRoughness] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false, true);
+            // The tangents are generated for TEXCOORD_0, and only TEXCOORD_0 is sampled. A normal map that names another coordinate
+            // set cannot be shaded correctly (it would be read with the wrong UVs and a frame that does not belong to them), so
+            // the slot is left empty and the surface keeps its geometric normal.
+            TextureRef normal_ref = m.normal_texture;
+            if (normal_ref.valid() && normal_ref.tex_coord != 0) {
+                warn_once(report, "a normal texture that names TEXCOORD_" + std::to_string(normal_ref.tex_coord) +
+                                      " is ignored: only TEXCOORD_0 is sampled, so the surface keeps its geometric normal");
+                normal_ref = TextureRef{};
+            }
+            textures[render::MaterialSlot::Normal] = slot_texture(m, i, "normal", normal_ref, false, true);
+            textures[render::MaterialSlot::Occlusion] = slot_texture(m, i, "occlusion", m.occlusion_texture, false, true);
+            textures[render::MaterialSlot::Emissive] = slot_texture(m, i, "emissive", m.emissive_texture, true, true);
+        }
         const std::string material_label = label(name, "material", i, m.name);
         model.materials.push_back(models.create_material(data, textures, material_label.c_str()));
     }
@@ -217,7 +259,8 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                 }
             }
             if (p.tangents.empty() && p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size() &&
-                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid()) {
+                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid() &&
+                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.tex_coord == 0) {
                 warn_once(report, "a primitive with a normal texture has no tangents (it has no texture coordinates): its normal map is ignored");
             }
             std::vector<uint32_t> indices = p.indices;

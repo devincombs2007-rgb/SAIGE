@@ -4,26 +4,26 @@ namespace saige::rhi {
 
 bool is_blendable_color_format(Format format) noexcept
 {
-    if (format == Format::Unknown || is_compressed(format) || is_depth_or_stencil(format)) {
-        return false;
-    }
+    // The formats for which the Vulkan specification makes VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT mandatory for optimal tiling
+    // (the "Mandatory Format Support" tables of the Formats chapter, checked against the specification source): R8, RG8, RGBA8 and BGRA8
+    // in UNORM and sRGB, A2B10G10R10 UNORM, and the 16-bit float formats R16, RG16 and RGBA16. Nothing else is promised on every
+    // implementation: not SNORM or integer formats, not 16-bit UNORM, not packed RG11B10 float, not 32-bit float, not shared-exponent
+    // or compressed formats. (A device may blend into more; the backend additionally checks the selected device for the formats it
+    // is given.)
     switch (format) {
-    case Format::R32_FLOAT:
-    case Format::RG32_FLOAT:
-    case Format::RGB32_FLOAT:
-    case Format::RGBA32_FLOAT:
-    case Format::RGB9E5_UFLOAT:  // not renderable at all
-        return false;
-    default:
-        break;
-    }
-    switch (get_format_info(format).type) {
-    case FormatType::Unorm:
-    case FormatType::UnormSrgb:
-    case FormatType::Float:
+    case Format::R8_UNORM:
+    case Format::RG8_UNORM:
+    case Format::RGBA8_UNORM:
+    case Format::RGBA8_SRGB:
+    case Format::BGRA8_UNORM:
+    case Format::BGRA8_SRGB:
+    case Format::RGB10A2_UNORM:
+    case Format::R16_FLOAT:
+    case Format::RG16_FLOAT:
+    case Format::RGBA16_FLOAT:
         return true;
     default:
-        return false;  // integer and SNORM formats
+        return false;
     }
 }
 
@@ -50,7 +50,7 @@ ValidationResult validate_blend_state(std::span<const BlendState> blend, std::sp
     if (blend.front().enable) {
         for (const Format f : color_formats) {
             if (!is_blendable_color_format(f)) {
-                return {"blending into this color format is not in the portable subset (UNORM, sRGB and 16-bit float formats)"};
+                return {"blending into this color format is not guaranteed by the Vulkan specification (portable subset: R8, RG8, RGBA8, BGRA8 UNORM or sRGB, RGB10A2 UNORM, R16, RG16, RGBA16 float)"};
             }
         }
     }

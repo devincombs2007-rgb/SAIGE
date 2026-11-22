@@ -15,7 +15,6 @@
 #include "vulkan_test_util.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -339,44 +338,53 @@ TEST_CASE("PBR: the metallic-roughness texture is read as linear data, G for rou
     CHECK(rig.device->validation_error_count() == 0);
 }
 
-TEST_CASE("PBR: the environment BRDF table matches the independent integral, at texels and between them")
+TEST_CASE("PBR: the embedded environment BRDF table matches the independent integral, at texels and between them")
 {
-    const auto started = std::chrono::steady_clock::now();
-    const EnvBrdfTable table = make_env_brdf_table();
-    const double build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-    std::printf("  env BRDF table built in %.1f ms\n", build_ms);
-    REQUIRE(table.size == 32);
+    const EnvBrdfAsset& table = precomputed_env_brdf();
+    CHECK(table.version == kEnvBrdfTableVersion);
+    REQUIRE(table.size == kEnvBrdfTableSize);
+    CHECK(env_brdf_checksum(table.texels, table.texel_count) == table.checksum);
+    const auto reference = [](float roughness, float n_dot_v) { return brdf::integrate_env_brdf(roughness, n_dot_v, 384, 384); };
     double worst = 0.0;
-    for (uint32_t j = 0; j < table.size; j += 5) {
-        for (uint32_t i = 0; i < table.size; i += 5) {
+    for (uint32_t j = 0; j < table.size; j += 6) {
+        for (uint32_t i = 0; i < table.size; i += 6) {
             const float n_dot_v = (static_cast<float>(i) + 0.5f) / static_cast<float>(table.size);
             const float roughness = (static_cast<float>(j) + 0.5f) / static_cast<float>(table.size);
             const EnvBrdfValue got = table.at(i, j);
-            const brdf::EnvBrdf want = brdf::integrate_env_brdf(roughness, n_dot_v);
+            const brdf::EnvBrdf want = reference(roughness, n_dot_v);
             worst = std::max({worst, static_cast<double>(std::fabs(got.scale - want.scale)), static_cast<double>(std::fabs(got.bias - want.bias))});
-            CHECK(std::fabs(got.scale - want.scale) < 0.007f);
-            CHECK(std::fabs(got.bias - want.bias) < 0.007f);
+            CHECK(std::fabs(got.scale - want.scale) < 0.003f);
+            CHECK(std::fabs(got.bias - want.bias) < 0.003f);
         }
     }
-    // Between texels, linear interpolation of the table (what the sampler does) stays close to the true integral.
+    // Between texels, bilinear interpolation of the table (what the sampler does) stays close to the true integral, including
+    // the grazing and smooth edges where the function changes fastest.
     double worst_between = 0.0;
-    for (const float roughness : {0.12f, 0.37f, 0.74f}) {
-        for (const float n_dot_v : {0.08f, 0.33f, 0.61f, 0.93f}) {
-            const float fx = n_dot_v * static_cast<float>(table.size) - 0.5f;
-            const float fy = roughness * static_cast<float>(table.size) - 0.5f;
-            const uint32_t x0 = static_cast<uint32_t>(std::floor(fx)), y0 = static_cast<uint32_t>(std::floor(fy));
-            const float tx = fx - std::floor(fx), ty = fy - std::floor(fy);
-            const auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
-            const EnvBrdfValue p00 = table.at(x0, y0), p10 = table.at(x0 + 1, y0), p01 = table.at(x0, y0 + 1), p11 = table.at(x0 + 1, y0 + 1);
-            const float scale = lerp(lerp(p00.scale, p10.scale, tx), lerp(p01.scale, p11.scale, tx), ty);
-            const float bias = lerp(lerp(p00.bias, p10.bias, tx), lerp(p01.bias, p11.bias, tx), ty);
-            const brdf::EnvBrdf want = brdf::integrate_env_brdf(roughness, n_dot_v);
-            worst_between = std::max({worst_between, static_cast<double>(std::fabs(scale - want.scale)), static_cast<double>(std::fabs(bias - want.bias))});
-            CHECK(std::fabs(scale - want.scale) < 0.01f);
-            CHECK(std::fabs(bias - want.bias) < 0.01f);
-        }
+    uint32_t seed = 12345;
+    const auto next = [&seed] {
+        seed = seed * 1664525u + 1013904223u;
+        return 0.02f + 0.96f * static_cast<float>(seed >> 8) / static_cast<float>(1u << 24);
+    };
+    for (int k = 0; k < 60; ++k) {
+        const float n_dot_v = next();
+        const float roughness = next();
+        const float n = static_cast<float>(table.size);
+        const float fx = std::clamp(n_dot_v * n - 0.5f, 0.0f, n - 1.0f);
+        const float fy = std::clamp(roughness * n - 0.5f, 0.0f, n - 1.0f);
+        const uint32_t x0 = static_cast<uint32_t>(fx), y0 = static_cast<uint32_t>(fy);
+        const uint32_t x1 = std::min(x0 + 1, table.size - 1), y1 = std::min(y0 + 1, table.size - 1);
+        const float tx = fx - std::floor(fx), ty = fy - std::floor(fy);
+        const auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
+        const EnvBrdfValue p00 = table.at(x0, y0), p10 = table.at(x1, y0), p01 = table.at(x0, y1), p11 = table.at(x1, y1);
+        const float scale = lerp(lerp(p00.scale, p10.scale, tx), lerp(p01.scale, p11.scale, tx), ty);
+        const float bias = lerp(lerp(p00.bias, p10.bias, tx), lerp(p01.bias, p11.bias, tx), ty);
+        const brdf::EnvBrdf want = reference(roughness, n_dot_v);
+        worst_between = std::max({worst_between, static_cast<double>(std::fabs(scale - want.scale)), static_cast<double>(std::fabs(bias - want.bias))});
+        CHECK(std::fabs(scale - want.scale) < 0.008f);
+        CHECK(std::fabs(bias - want.bias) < 0.008f);
     }
-    std::printf("  env BRDF table: worst error at texels %.4f, between texels %.4f\n", worst, worst_between);
+    std::printf("  embedded env BRDF table v%u (%ux%u): worst error at texels %.4f, between texels (60 random points) %.4f\n",
+                table.version, table.size, table.size, worst, worst_between);
 }
 
 TEST_CASE("PBR: binary16 conversion is exact for every half value and rounds to nearest even")
@@ -594,10 +602,10 @@ TEST_CASE("PBR: the back of a double-sided quad uses the reversed frame")
     CHECK(rig.device->validation_error_count() == 0);
 }
 
-TEST_CASE("PBR: without tangents, or in Legacy shading, a normal map changes nothing")
+TEST_CASE("PBR: without tangents, or in Legacy or Extended shading, a normal map changes nothing")
 {
     const Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
-    for (const ModelShading shading : {ModelShading::MetallicRoughness, ModelShading::Legacy}) {
+    for (const ModelShading shading : {ModelShading::MetallicRoughness, ModelShading::Legacy, ModelShading::Extended}) {
         Rig rig("pbr_normal_map_ignored", shading);
         {
             MaterialData data;
@@ -616,12 +624,60 @@ TEST_CASE("PBR: without tangents, or in Legacy shading, a normal map changes not
             };
             const auto baseline = render(plain);
             CHECK(render(no_tangents) == baseline);  // no tangent frame: the map is skipped
-            if (shading == ModelShading::Legacy) {
-                CHECK(render(mapped) == baseline);   // the 0.2 look never reads a normal map
+            if (shading != ModelShading::MetallicRoughness) {
+                CHECK(render(mapped) == baseline);   // the 0.2 look and Extended never read a normal map
             } else {
                 CHECK(render(mapped) != baseline);   // not vacuous: with tangents the map does change the image
             }
         }
         CHECK(rig.device->validation_error_count() == 0);
     }
+}
+
+TEST_CASE("PBR: a tangent parallel to the normal has no frame, so the surface keeps its geometric normal (no NaN)")
+{
+    const Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
+    Rig rig("pbr_degenerate_tangent", ModelShading::MetallicRoughness);
+    MaterialData data;
+    data.base_color[0] = 0.8f; data.base_color[1] = 0.6f; data.base_color[2] = 0.4f;
+    data.metallic = 0.0f;
+    data.roughness = 0.6f;
+    MaterialTextures with_map;
+    with_map[MaterialSlot::Normal] = {normal_map(rig), nearest_clamp(rig)};
+    GpuResourceRegistry& registry = rig.renderer->registry();
+
+    // The quad faces -X (normal n = (-1, 0, 0)); a tangent along n projects to zero against it.
+    const auto quad_with_tangent = [&](const GpuMaterial& material, Float3 tangent) {
+        const Float3 n{-1, 0, 0};
+        std::vector<ModelVertex> v = {
+            {{0.0f, +1.0f, 2.5f}, n, {0, 0}}, {{0.0f, -1.0f, 2.5f}, n, {1, 0}},
+            {{0.0f, +1.0f, 0.5f}, n, {0, 1}}, {{0.0f, -1.0f, 0.5f}, n, {1, 1}},
+        };
+        for (ModelVertex& vertex : v) {
+            vertex.tangent[0] = tangent.x;
+            vertex.tangent[1] = tangent.y;
+            vertex.tangent[2] = tangent.z;
+            vertex.tangent[3] = 1.0f;
+        }
+        GpuModel m;
+        m.name = "degenerate quad";
+        m.materials.push_back(material);
+        m.meshes.push_back({make_primitive(registry, v, {0, 2, 3, 0, 3, 1}, 0)});
+        m.placements.push_back({0, Mat4::identity()});
+        return m;
+    };
+    const auto render = [&](const GpuModel& m) {
+        const ModelDraw d{&m, Mat4::identity()};
+        return rig.target->render(*rig.renderer, {}, camera, 0, std::span(&d, 1)).rgba;
+    };
+
+    const GpuMaterial plain = rig.material(data);
+    const GpuMaterial mapped = rig.material(data, with_map);
+    const auto baseline = render(quad_with_tangent(plain, {0.0f, -1.0f, 0.0f}));
+    // Not vacuous: with a proper tangent the map changes the image.
+    CHECK(render(quad_with_tangent(mapped, {0.0f, -1.0f, 0.0f})) != baseline);
+    // Exactly parallel to the normal, and parallel to within 1e-4: both fall back to the unmapped surface.
+    CHECK(render(quad_with_tangent(mapped, {-1.0f, 0.0f, 0.0f})) == baseline);
+    CHECK(render(quad_with_tangent(mapped, {-1.0f, -1.0e-4f, 0.0f})) == baseline);
+    CHECK(rig.device->validation_error_count() == 0);
 }

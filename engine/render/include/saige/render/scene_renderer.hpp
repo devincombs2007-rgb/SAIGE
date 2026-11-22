@@ -140,8 +140,7 @@ public:
     [[nodiscard]] rhi::Format scene_format() const noexcept { return scene_format_; }
 
 private:
-    void ensure_depth(uint32_t width, uint32_t height);
-    void ensure_hdr(uint32_t width, uint32_t height);
+    void ensure_targets(uint32_t width, uint32_t height);
     [[nodiscard]] Float3 camera_target(const SceneFrame& frame) const;
 
     rhi::Device& device_;
@@ -152,14 +151,12 @@ private:
     rhi::PipelineHandle cube_pipeline_, ground_pipeline_;
     rhi::BufferHandle cube_vertices_, cube_indices_;
     rhi::TextureHandle depth_;
-    uint32_t depth_width_ = 0;
-    uint32_t depth_height_ = 0;
+    uint32_t target_width_ = 0;
+    uint32_t target_height_ = 0;
     rhi::ResourceState depth_state_;
     std::unique_ptr<ToneMapper> tone_mapper_;  ///< HDR only
     rhi::TextureHandle hdr_;                   ///< HDR only: the scene's linear float target, sized like the output
     rhi::BindGroupHandle hdr_input_;           ///< the tone mapper's view of hdr_
-    uint32_t hdr_width_ = 0;
-    uint32_t hdr_height_ = 0;
     rhi::ResourceState hdr_state_;
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first

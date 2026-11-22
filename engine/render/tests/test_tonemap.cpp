@@ -1,9 +1,11 @@
 #include "saige/gfx_test/saige_test.hpp"
 
 #include "saige/render/tonemap.hpp"
+#include "saige/rhi_null/null_device.hpp"
 
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 
 using namespace saige::render;
 
@@ -113,4 +115,93 @@ TEST_CASE("Tone map: NaN, negative and infinite input never produce a non-finite
         CHECK(neg_inf.x == 0.0f);
     }
     CHECK(std::isfinite(tone_map({nan, nan, nan}, settings(ToneMapOperator::Reinhard, 30.0f)).x));  // huge exposure stays finite
+}
+
+// ----------------------------------------------------------------------------------------------- review findings on #48
+
+TEST_CASE("Tone map: any white point or exposure, including zero, negative, NaN, infinite or underflowing, still gives finite output in [0, 1]")
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    const float inputs[] = {0.0f, 1e-30f, 1e-6f, 0.5f, 1.0f, 100.0f, 65504.0f, 1e30f, inf, nan, -5.0f, -inf};
+    for (const float white : {0.0f, -3.0f, nan, inf, -inf, 1e-30f, 1e-20f, 1e-3f, 1e30f}) {
+        for (const float ev : {0.0f, -2.0f, 100.0f, -100.0f, nan, inf, -inf}) {
+            ToneMapSettings s = settings(ToneMapOperator::Reinhard, ev);
+            s.white_point = white;
+            for (const float x : inputs) {
+                const Float3 out = tone_map({x, x * 0.5f, 0.0f}, s);
+                for (const float c : {out.x, out.y, out.z}) {
+                    CHECK(std::isfinite(c));
+                    CHECK(c >= 0.0f);
+                    CHECK(c <= 1.0f);
+                }
+            }
+        }
+    }
+    // Black stays black for a zero white point: 0 * (1 + 0 / 0) used to be NaN.
+    ToneMapSettings zero = settings(ToneMapOperator::Reinhard);
+    zero.white_point = 0.0f;
+    CHECK(tone_map({0.0f, 0.0f, 0.0f}, zero).x == 0.0f);
+}
+
+TEST_CASE("Tone map: sanitize clamps invalid settings, keeps valid ones, and is what the reference applies")
+{
+    const ToneMapSettings defaults;
+    const ToneMapSettings same = sanitize(defaults);
+    CHECK(same.op == defaults.op);
+    CHECK(same.exposure_ev == defaults.exposure_ev);
+    CHECK(same.white_point == defaults.white_point);
+    ToneMapSettings s = settings(ToneMapOperator::Reinhard, 3.0f);
+    s.white_point = 8.0f;
+    CHECK(sanitize(s).white_point == 8.0f);
+    CHECK(sanitize(s).exposure_ev == 3.0f);
+    s.white_point = 0.0f;
+    CHECK(sanitize(s).white_point == kMinWhitePoint);
+    s.white_point = 1e30f;
+    CHECK(sanitize(s).white_point == kMaxWhitePoint);
+    s.white_point = std::numeric_limits<float>::quiet_NaN();
+    CHECK(sanitize(s).white_point == defaults.white_point);
+    s.exposure_ev = std::numeric_limits<float>::quiet_NaN();
+    CHECK(sanitize(s).exposure_ev == 0.0f);
+    s.exposure_ev = -1000.0f;
+    CHECK(sanitize(s).exposure_ev == -kMaxExposureEv);
+    // The reference gives identical output for a setting and its sanitized form.
+    ToneMapSettings bad = settings(ToneMapOperator::Reinhard, 1.0f);
+    bad.white_point = 0.0f;
+    const Float3 a = tone_map({2.0f, 0.3f, 7.0f}, bad);
+    const Float3 b = tone_map({2.0f, 0.3f, 7.0f}, sanitize(bad));
+    CHECK(a.x == b.x);
+    CHECK(a.y == b.y);
+    CHECK(a.z == b.z);
+}
+
+TEST_CASE("ToneMapper: a failure at any acquisition releases everything acquired before it")
+{
+    // A tone mapper acquires five device objects in a row (layout, two shaders, pipeline, sampler). A throw from the constructor means the
+    // destructor never runs, so each earlier object must be released by the constructor itself.
+    for (uint32_t failing = 1; failing <= 5; ++failing) {
+        saige::rhi::NullDevice device;
+        const uint32_t before = device.live_resource_count();
+        device.fail_creation_after(failing);
+        bool threw = false;
+        try {
+            ToneMapper mapper(device, saige::rhi::Format::RGBA8_SRGB);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        CHECK(threw);
+        device.fail_creation_after(0);
+        device.wait_idle();  // destruction is deferred until frames retire
+        CHECK(device.live_resource_count() == before);
+        CHECK(device.validation_error_count() == 0);
+    }
+    // And with no failure it constructs and releases cleanly.
+    saige::rhi::NullDevice device;
+    const uint32_t before = device.live_resource_count();
+    {
+        ToneMapper mapper(device, saige::rhi::Format::RGBA8_SRGB);
+        CHECK(device.live_resource_count() == before + 5);
+    }
+    device.wait_idle();
+    CHECK(device.live_resource_count() == before);
 }

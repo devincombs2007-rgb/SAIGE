@@ -56,19 +56,30 @@ std::span<const uint32_t> words(const T (&a)[N])
 
 } // namespace
 
+ToneMapSettings sanitize(ToneMapSettings s) noexcept
+{
+    s.exposure_ev = std::isnan(s.exposure_ev) ? 0.0f : std::min(std::max(s.exposure_ev, -kMaxExposureEv), kMaxExposureEv);
+    s.white_point = std::isnan(s.white_point) ? ToneMapSettings{}.white_point : std::min(std::max(s.white_point, kMinWhitePoint), kMaxWhitePoint);
+    return s;
+}
+
 float exposure_scale(float exposure_ev) noexcept
 {
     return std::exp2(exposure_ev);
 }
 
-Float3 tone_map(Float3 c, const ToneMapSettings& settings) noexcept
+Float3 tone_map(Float3 c, const ToneMapSettings& requested) noexcept
 {
+    const ToneMapSettings settings = sanitize(requested);
     const float scale = exposure_scale(settings.exposure_ev);
     return {curve(clean(c.x * scale), settings), curve(clean(c.y * scale), settings), curve(clean(c.z * scale), settings)};
 }
 
 ToneMapper::ToneMapper(rhi::Device& device, rhi::Format target_format) : device_(device)
 {
+    // The destructor does not run if a constructor throws, so every acquisition after the first can fail only inside this try block:
+    // whatever was created is released before the exception leaves.
+    try {
     rhi::BindGroupLayoutDesc ld;
     ld.entries = {{0, rhi::BindingType::SampledTexture}, {1, rhi::BindingType::Sampler}};
     ld.debug_name = "ToneMapLayout";
@@ -91,15 +102,30 @@ ToneMapper::ToneMapper(rhi::Device& device, rhi::Format target_format) : device_
     sd.address_u = rhi::AddressMode::ClampToEdge;
     sd.address_v = rhi::AddressMode::ClampToEdge;
     sampler_ = device_.create_sampler(sd);
+    } catch (...) {
+        release();
+        throw;
+    }
+}
+
+void ToneMapper::release() noexcept
+{
+    const auto destroy_if = [this](auto& handle) {
+        if (handle.is_valid()) {
+            device_.destroy(handle);
+            handle = {};
+        }
+    };
+    destroy_if(sampler_);
+    destroy_if(pipeline_);
+    destroy_if(ps_);
+    destroy_if(vs_);
+    destroy_if(layout_);
 }
 
 ToneMapper::~ToneMapper()
 {
-    device_.destroy(sampler_);
-    device_.destroy(pipeline_);
-    device_.destroy(ps_);
-    device_.destroy(vs_);
-    device_.destroy(layout_);
+    release();
 }
 
 rhi::BindGroupHandle ToneMapper::create_input(rhi::TextureHandle hdr)
@@ -116,7 +142,8 @@ void ToneMapper::draw(rhi::CommandList& cmd, rhi::BindGroupHandle input, const T
 {
     cmd.bind_pipeline(pipeline_);
     cmd.bind_group(0, input);
-    Push push{exposure_scale(settings.exposure_ev), static_cast<uint32_t>(settings.op), settings.white_point, 0.0f};
+    const ToneMapSettings s = sanitize(settings);  // the same values the CPU reference uses
+    Push push{exposure_scale(s.exposure_ev), static_cast<uint32_t>(s.op), s.white_point, 0.0f};
     cmd.push_constants(std::as_bytes(std::span(&push, 1)), 0);
     cmd.draw(3);
 }

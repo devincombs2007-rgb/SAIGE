@@ -67,8 +67,23 @@ struct RegistryState {
         return (e.live && e.generation == generation) ? &e : nullptr;
     }
 
+    /// Makes the next `add` (and the later release of what it registers) infallible: every allocation the bookkeeping
+    /// needs happens here, before any device resource exists. Throws std::bad_alloc with nothing changed but capacity.
+    /// Invariant afterwards: entries and free_slots have room for one more slot, and free_slots can hold every slot that
+    /// will ever exist, so `release` never allocates.
+    void reserve_slot()
+    {
+        if (free_slots.empty() && entries.size() == entries.capacity()) {
+            entries.reserve(std::max<std::size_t>(16, entries.size() * 2));
+        }
+        if (free_slots.capacity() < entries.capacity()) {
+            free_slots.reserve(entries.capacity());
+        }
+    }
+
+    /// Registers a device resource. Cannot throw after `reserve_slot` (moves and arithmetic only).
     uint32_t add(ResourceKind kind, uint32_t raw, uint64_t bytes, std::string name, uint32_t& generation_out,
-                 std::vector<std::pair<uint32_t, uint32_t>> deps = {})
+                 std::vector<std::pair<uint32_t, uint32_t>> deps = {}) noexcept
     {
         uint32_t slot;
         if (!free_slots.empty()) {
@@ -147,7 +162,11 @@ struct RegistryState {
         e->live = false;
         e->name.clear();
         e->generation = e->generation == 0xFFFFFFFFu ? 1u : e->generation + 1u;  // stale references no longer match
-        free_slots.push_back(slot);
+        // Allocation-free by construction (reserve_slot sized free_slots for every slot). If that invariant were ever
+        // broken the slot is simply not reused: releasing a reference must never allocate or throw.
+        if (free_slots.size() < free_slots.capacity()) {
+            free_slots.push_back(slot);
+        }
         // The group is gone first; now let go of what it bound (which may in turn be destroyed).
         for (const auto& [dep_slot, dep_generation] : deps) {
             release(dep_slot, dep_generation);
@@ -261,14 +280,21 @@ GpuResourceRegistry::~GpuResourceRegistry()
 
 BufferRef GpuResourceRegistry::create_buffer(const rhi::BufferDesc& desc, std::span<const std::byte> initial_data)
 {
+    // Transactional: everything that can fail for lack of memory happens before the device resource exists, and the
+    // registration after it cannot fail, so there is no window in which a device handle exists without an owner.
+    std::string name = desc.debug_name != nullptr ? desc.debug_name : "";
+    state_->reserve_slot();
     const rhi::BufferHandle handle = device_.create_buffer(desc, initial_data);
     uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::Buffer, handle.raw(), desc.size, desc.debug_name != nullptr ? desc.debug_name : "", generation);
+    const uint32_t slot = state_->add(ResourceKind::Buffer, handle.raw(), desc.size, std::move(name), generation);
     return BufferRef(RefCore(state_, slot, generation), handle);
 }
 
 TextureRef GpuResourceRegistry::create_texture(const rhi::TextureDesc& desc, std::span<const std::byte> data)
 {
+    std::string name = desc.debug_name != nullptr ? desc.debug_name : "";
+    const uint64_t bytes = rhi::compute_texture_data_size(desc);  // may throw for an invalid description: nothing exists yet
+    state_->reserve_slot();
     const rhi::TextureHandle handle = device_.create_texture(desc);
     if (!data.empty()) {
         try {
@@ -279,8 +305,7 @@ TextureRef GpuResourceRegistry::create_texture(const rhi::TextureDesc& desc, std
         }
     }
     uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::Texture, handle.raw(), rhi::compute_texture_data_size(desc),
-                                      desc.debug_name != nullptr ? desc.debug_name : "", generation);
+    const uint32_t slot = state_->add(ResourceKind::Texture, handle.raw(), bytes, std::move(name), generation);
     return TextureRef(RefCore(state_, slot, generation), handle);
 }
 
@@ -293,9 +318,12 @@ SamplerRef GpuResourceRegistry::get_sampler(const rhi::SamplerDesc& desc)
             return SamplerRef(RefCore(state_, se.slot, se.generation), rhi::SamplerHandle::from_raw(e.raw));
         }
     }
+    std::string name = "sampler";
+    state_->reserve_slot();
+    state_->samplers.reserve(state_->samplers.size() + 1);  // the push_back below cannot allocate
     const rhi::SamplerHandle handle = device_.create_sampler(desc);
     uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::Sampler, handle.raw(), 0, "sampler", generation);
+    const uint32_t slot = state_->add(ResourceKind::Sampler, handle.raw(), 0, std::move(name), generation);
     state_->samplers.push_back({desc, slot, generation});
     return SamplerRef(RefCore(state_, slot, generation), handle);
 }
@@ -331,12 +359,17 @@ BindGroupRef GpuResourceRegistry::create_bind_group(rhi::BindGroupLayoutHandle l
         }
         entries.push_back(e);
     }
+    // Transactional (see the header): everything that can fail for lack of memory has happened by the time the device
+    // creates the group; the retains and the registration that follow cannot throw, so there is no window in which the
+    // group exists without an owner or its dependencies hold references nobody will release.
+    std::string group_name = name != nullptr ? name : "";
+    state_->reserve_slot();
     const rhi::BindGroupHandle handle = device_.create_bind_group(layout, entries);
     for (const auto& [slot, generation] : deps) {
-        state_->retain(slot, generation);  // the group's own hold on each resource
+        state_->retain(slot, generation);  // the group's own hold on each resource (noexcept)
     }
     uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::BindGroup, handle.raw(), 0, name != nullptr ? name : "", generation, std::move(deps));
+    const uint32_t slot = state_->add(ResourceKind::BindGroup, handle.raw(), 0, std::move(group_name), generation, std::move(deps));
     return BindGroupRef(RefCore(state_, slot, generation), handle);
 }
 

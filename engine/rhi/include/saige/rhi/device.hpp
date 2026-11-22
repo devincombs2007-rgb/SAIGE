@@ -5,6 +5,7 @@
 // Bindless descriptors, compute and ray tracing extend this interface in later phases.
 #pragma once
 
+#include "saige/rhi/api_negotiation.hpp"
 #include "saige/rhi/barrier.hpp"
 #include "saige/rhi/format.hpp"
 #include "saige/rhi/handle.hpp"
@@ -218,6 +219,10 @@ struct DeviceDesc {
     /// `DeviceInfo::synchronization_validation_enabled`. Ignored by the null backend.
     bool enable_synchronization_validation = false;
     bool require_presentation = false;  ///< Fail creation if swapchains are unsupported.
+    /// The newest API version the backend may *request*. The default is the baseline (1.3), so nothing changes unless a caller
+    /// opts in; the request is `min(loader, this, api_implemented)` and a value below the baseline fails creation. Raising it
+    /// only allows capability probing (`DeviceInfo::capabilities`): no optional feature is enabled by it.
+    ApiVersion max_api_version = api_baseline;
     uint32_t frames_in_flight = 2;
     std::string application_name = "SAIGE";
 };
@@ -226,8 +231,14 @@ struct DeviceInfo {
     Backend backend = Backend::Null;
     std::string device_name;
     std::string driver_name;
-    uint32_t api_version_major = 0;
+    uint32_t api_version_major = 0;  ///< the physical device's own reported version
     uint32_t api_version_minor = 0;
+    ApiVersion loader_api_version;     ///< what the loader offers (zero where there is no loader: the null backend)
+    ApiVersion instance_api_version;   ///< what the instance was created with: min(loader, DeviceDesc::max_api_version)
+    ApiVersion effective_api_version;  ///< min(instance, device): the version the device is treated as
+    /// Optional capabilities above the baseline, probed and not enabled (see api_negotiation.hpp). All `None` on the baseline
+    /// path and on the null backend.
+    CapabilityReport capabilities;
     bool validation_enabled = false;
     bool synchronization_validation_enabled = false;
     bool presentation_supported = false;

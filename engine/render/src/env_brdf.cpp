@@ -132,7 +132,7 @@ EnvBrdfValue EnvBrdfTable::at(uint32_t n_dot_v_index, uint32_t roughness_index) 
     return {half_to_float(texels[i]), half_to_float(texels[i + 1])};
 }
 
-EnvBrdfTable make_env_brdf_table(uint32_t size)
+EnvBrdfTable make_env_brdf_table(uint32_t size, int steps)
 {
     EnvBrdfTable table;
     table.size = size;
@@ -141,7 +141,7 @@ EnvBrdfTable make_env_brdf_table(uint32_t size)
         const float roughness = (static_cast<float>(j) + 0.5f) / static_cast<float>(size);
         for (uint32_t i = 0; i < size; ++i) {
             const float n_dot_v = (static_cast<float>(i) + 0.5f) / static_cast<float>(size);
-            const EnvBrdfValue v = integrate_env_brdf(n_dot_v, roughness, 128);
+            const EnvBrdfValue v = integrate_env_brdf(n_dot_v, roughness, steps);
             const std::size_t k = (static_cast<std::size_t>(j) * size + i) * 2;
             table.texels[k] = float_to_half(v.scale);
             table.texels[k + 1] = float_to_half(v.bias);
@@ -150,10 +150,20 @@ EnvBrdfTable make_env_brdf_table(uint32_t size)
     return table;
 }
 
-const EnvBrdfTable& default_env_brdf_table()
+EnvBrdfValue EnvBrdfAsset::at(uint32_t n_dot_v_index, uint32_t roughness_index) const noexcept
 {
-    static const EnvBrdfTable table = make_env_brdf_table();  // initialization is thread-safe
-    return table;
+    const std::size_t i = (static_cast<std::size_t>(roughness_index) * size + n_dot_v_index) * 2;
+    return {half_to_float(texels[i]), half_to_float(texels[i + 1])};
+}
+
+uint64_t env_brdf_checksum(const uint16_t* texels, std::size_t count) noexcept
+{
+    uint64_t hash = 0xcbf29ce484222325ull;  // FNV-1a, 64-bit
+    for (std::size_t i = 0; i < count; ++i) {
+        hash = (hash ^ (texels[i] & 0xFFu)) * 0x100000001b3ull;
+        hash = (hash ^ (texels[i] >> 8)) * 0x100000001b3ull;
+    }
+    return hash;
 }
 
 } // namespace saige::render

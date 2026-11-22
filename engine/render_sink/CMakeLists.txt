@@ -9,7 +9,7 @@ endif()
 add_library(saige_render_sink STATIC src/renderer_frame_sink.cpp)
 add_library(saige::render_sink ALIAS saige_render_sink)
 target_include_directories(saige_render_sink PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-target_link_libraries(saige_render_sink PUBLIC saige::core saige::render)
+target_link_libraries(saige_render_sink PUBLIC saige::core saige::render saige::gfx_scene)
 saige_gfx_configure_target(saige_render_sink)
 
 if(BUILD_TESTING)
@@ -26,6 +26,25 @@ if(BUILD_TESTING)
         set_tests_properties(saige_render_sink_vulkan_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
     endif()
 endif()
+
+# End-to-end scene tests: Core's saved textured project (saige::project is defined after this directory is processed, so the
+# registration is deferred to the end of the root directory) through GPU staging and the sink on Vulkan. Exit 77 = no Vulkan
+# device (skipped, never passed).
+set_property(GLOBAL PROPERTY SAIGE_RENDER_SINK_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+function(saige_add_scene_sink_tests)
+    get_property(render_sink_dir GLOBAL PROPERTY SAIGE_RENDER_SINK_DIR)
+    if(BUILD_TESTING AND TARGET saige::rhi_vulkan AND TARGET saige::project)
+        add_executable(saige_render_sink_scene_tests ${render_sink_dir}/tests/test_scene_sink.cpp)
+        target_include_directories(saige_render_sink_scene_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include)
+        target_link_libraries(saige_render_sink_scene_tests PRIVATE saige::render_sink saige::rhi_vulkan saige::project)
+        target_compile_definitions(saige_render_sink_scene_tests PRIVATE
+            SAIGE_TEXTURED_SCENE_DIR="${render_sink_dir}/../../examples/textured-scene")
+        saige_gfx_configure_target(saige_render_sink_scene_tests)
+        add_test(NAME saige_render_sink_scene_tests COMMAND saige_render_sink_scene_tests)
+        set_tests_properties(saige_render_sink_scene_tests PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 180)
+    endif()
+endfunction()
+cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL saige_add_scene_sink_tests)
 
 # Desktop wiring (integration with Core's apps/desktop.cpp): when the Win32 desktop sample and the Vulkan backend are
 # both built, the sample renders through RendererFrameSink. Without a Vulkan device it falls back to its probe.

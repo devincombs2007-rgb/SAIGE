@@ -286,7 +286,14 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 b.copy_src(color);
                 b.set_side_effects();
             },
-            [&](PassContext& ctx) { ctx.command_list()->copy_texture_to_buffer(target.texture, target.readback_buffer); });
+            [&](PassContext& ctx) {
+                // The buffer is shared by consecutive frames, and an earlier frame's copy into it may still be running when
+                // this one is submitted: order this copy's write after that one (write-after-write).
+                const rhi::ResourceState copy_write{rhi::PipelineStage::Transfer, rhi::Access::TransferWrite, rhi::TextureLayout::Undefined};
+                const rhi::BufferBarrier waw{target.readback_buffer, copy_write, copy_write, 0, ~uint64_t{0}};
+                ctx.command_list()->barrier({}, std::span(&waw, 1));
+                ctx.command_list()->copy_texture_to_buffer(target.texture, target.readback_buffer);
+            });
     }
 
     const CompileResult& compiled = graph_.compile();

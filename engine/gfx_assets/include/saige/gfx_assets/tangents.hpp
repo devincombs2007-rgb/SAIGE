@@ -36,7 +36,13 @@ struct TangentReport {
     uint32_t mixed_handedness_triangles = 0;  ///< triangles whose corners still disagree on handedness (normals contradicting the winding)
 };
 
-/// Fills `primitive.tangents` (xyzw per vertex) if it is empty and the primitive has UVs. Never changes other arrays.
+/// Fills `primitive.tangents` (xyzw per vertex) if it is empty and the primitive has UVs. An absent index buffer is a plain triangle list
+/// over the vertices. Triangles are grouped by the orientation of their UV mapping: where triangles of opposite orientation (a mirrored
+/// UV island) share a vertex, that vertex has no single tangent frame, so it is **split**: a copy (position, normal, uv and colors) is
+/// appended for the second orientation and that orientation's triangles are remapped to it (indexed input only; `split_vertices` counts
+/// them). That is the only case in which vertex arrays and indices change. The change is all or nothing: the full result is built first
+/// and published with non-throwing moves, so an allocation failure leaves the primitive exactly as it was. `Invalid` and the other
+/// non-results change nothing.
 TangentReport generate_tangents(Primitive& primitive);
 
 #if defined(SAIGE_HAS_MIKKTSPACE)

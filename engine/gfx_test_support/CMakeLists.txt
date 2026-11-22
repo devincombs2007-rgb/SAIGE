@@ -15,5 +15,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 
 if(SAIGE_GFX_TEST_SUPPORT_BUILD_TESTS)
     enable_testing()
-    saige_gfx_add_test(saige_gfx_test_support_tests SOURCES tests/test_image.cpp)
+    saige_gfx_add_test(saige_gfx_test_support_tests SOURCES tests/test_image.cpp tests/test_brdf_reference.cpp)
+    # brdf_reference.hpp uses the renderer's header-only vector math; no link dependency is needed.
+    target_include_directories(saige_gfx_test_support_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../render/include)
 endif()

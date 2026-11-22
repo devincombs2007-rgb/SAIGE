@@ -1,9 +1,18 @@
 #include "saige/render/gpu_resources.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <iostream>
+#include <memory>
+#include <span>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace saige::render {
 
@@ -13,6 +22,7 @@ const char* to_string(ResourceKind kind) noexcept
     case ResourceKind::Buffer: return "Buffer";
     case ResourceKind::Texture: return "Texture";
     case ResourceKind::Sampler: return "Sampler";
+    case ResourceKind::BindGroup: return "BindGroup";
     }
     return "Unknown";
 }
@@ -27,6 +37,9 @@ struct Entry {
     uint64_t bytes = 0;
     uint32_t raw = 0;  ///< the device handle's raw value; the typed handle is rebuilt from it on destruction
     std::string name;
+    /// References this entry holds on other entries (a bind group's textures, samplers and buffers): (slot, generation).
+    /// Kept as raw slots, not RefCore objects, so the state does not own a shared_ptr to itself.
+    std::vector<std::pair<uint32_t, uint32_t>> deps;
 };
 
 struct SamplerEntry {
@@ -54,7 +67,8 @@ struct RegistryState {
         return (e.live && e.generation == generation) ? &e : nullptr;
     }
 
-    uint32_t add(ResourceKind kind, uint32_t raw, uint64_t bytes, std::string name, uint32_t& generation_out)
+    uint32_t add(ResourceKind kind, uint32_t raw, uint64_t bytes, std::string name, uint32_t& generation_out,
+                 std::vector<std::pair<uint32_t, uint32_t>> deps = {})
     {
         uint32_t slot;
         if (!free_slots.empty()) {
@@ -71,6 +85,7 @@ struct RegistryState {
         e.bytes = bytes;
         e.raw = raw;
         e.name = std::move(name);
+        e.deps = std::move(deps);
         generation_out = e.generation;
         ResourceStats& s = stats[static_cast<std::size_t>(kind)];
         ++s.live;
@@ -92,6 +107,7 @@ struct RegistryState {
             case ResourceKind::Buffer: device->destroy(rhi::BufferHandle::from_raw(e.raw)); break;
             case ResourceKind::Texture: device->destroy(rhi::TextureHandle::from_raw(e.raw)); break;
             case ResourceKind::Sampler: device->destroy(rhi::SamplerHandle::from_raw(e.raw)); break;
+            case ResourceKind::BindGroup: device->destroy(rhi::BindGroupHandle::from_raw(e.raw)); break;
             }
         } catch (...) {
             // Releasing a reference must never throw; the device reports its own misuse.
@@ -126,10 +142,16 @@ struct RegistryState {
         if (!closed) {
             destroy_on_device(*e);
         }
+        std::vector<std::pair<uint32_t, uint32_t>> deps = std::move(e->deps);
+        e->deps.clear();
         e->live = false;
         e->name.clear();
         e->generation = e->generation == 0xFFFFFFFFu ? 1u : e->generation + 1u;  // stale references no longer match
         free_slots.push_back(slot);
+        // The group is gone first; now let go of what it bound (which may in turn be destroyed).
+        for (const auto& [dep_slot, dep_generation] : deps) {
+            release(dep_slot, dep_generation);
+        }
     }
 };
 
@@ -276,6 +298,46 @@ SamplerRef GpuResourceRegistry::get_sampler(const rhi::SamplerDesc& desc)
     const uint32_t slot = state_->add(ResourceKind::Sampler, handle.raw(), 0, "sampler", generation);
     state_->samplers.push_back({desc, slot, generation});
     return SamplerRef(RefCore(state_, slot, generation), handle);
+}
+
+BindGroupRef GpuResourceRegistry::create_bind_group(rhi::BindGroupLayoutHandle layout, std::span<const BindGroupBinding> bindings,
+                                                    const char* name)
+{
+    std::vector<rhi::BindGroupEntry> entries;
+    std::vector<std::pair<uint32_t, uint32_t>> deps;
+    entries.reserve(bindings.size());
+    auto own = [&](const RefCore& core) {
+        if (core.state.get() != state_.get()) {
+            throw std::invalid_argument("create_bind_group: a bound resource does not belong to this registry");
+        }
+        deps.emplace_back(core.slot, core.generation);
+    };
+    for (const BindGroupBinding& b : bindings) {
+        rhi::BindGroupEntry e;
+        e.binding = b.binding;
+        if (b.texture.valid()) {
+            own(b.texture.core_);
+            e.texture = b.texture.handle();
+        }
+        if (b.sampler.valid()) {
+            own(b.sampler.core_);
+            e.sampler = b.sampler.handle();
+        }
+        if (b.buffer.valid()) {
+            own(b.buffer.core_);
+            e.buffer = b.buffer.handle();
+            e.offset = b.offset;
+            e.size = b.size;
+        }
+        entries.push_back(e);
+    }
+    const rhi::BindGroupHandle handle = device_.create_bind_group(layout, entries);
+    for (const auto& [slot, generation] : deps) {
+        state_->retain(slot, generation);  // the group's own hold on each resource
+    }
+    uint32_t generation = 0;
+    const uint32_t slot = state_->add(ResourceKind::BindGroup, handle.raw(), 0, name != nullptr ? name : "", generation, std::move(deps));
+    return BindGroupRef(RefCore(state_, slot, generation), handle);
 }
 
 ResourceStats GpuResourceRegistry::stats(ResourceKind kind) const noexcept

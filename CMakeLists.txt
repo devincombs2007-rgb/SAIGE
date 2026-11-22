@@ -108,9 +108,16 @@ if(SAIGE_BUILD_PROJECTS)
 endif()
 
 if(TARGET saige::project AND TARGET saige::gfx_assets)
+    add_library(saige_scene_project STATIC src/prepared_scene.cpp)
+    add_library(saige::scene_project ALIAS saige_scene_project)
+    target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets)
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
-    target_link_libraries(saige_scene_asset_tool PRIVATE saige::project saige::gfx_assets)
+    target_link_libraries(saige_scene_asset_tool PRIVATE saige::scene_project)
     if(BUILD_TESTING)
+        add_executable(prepared_scene_test tests/prepared_scene_test.cpp)
+        target_link_libraries(prepared_scene_test PRIVATE saige::scene_project)
+        add_test(NAME prepared_scene_replacement COMMAND prepared_scene_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
         find_package(Python3 COMPONENTS Interpreter)
         if(Python3_Interpreter_FOUND)
             add_test(NAME scene_asset_preflight COMMAND "${Python3_EXECUTABLE}"

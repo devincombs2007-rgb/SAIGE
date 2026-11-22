@@ -1,0 +1,9 @@
+# Preparing a scene for the Windows app
+
+Use saige::scene_project to stage the scene before creating or replacing its renderer-side state. PreparedScene validates the saved project, resolves its hierarchy, and imports the glTF once for each declared nonzero AssetId. Nodes sharing an ID see the same imported CPU model. The project's zero ID still denotes the built-in mesh and does not resolve to an imported asset.
+
+The CPU bundle owns its imported arrays. Asset lookup and spans borrow that storage. The reported payload covers positions, normals, tangents, UVs, vertex colors, indices and encoded image bytes. The aggregate default cap for these retained arrays is 256 MiB. It excludes metadata, container capacity and temporary importer allocations. Existing importer limits still apply to individual files. Preparing a scene acquires no GPU resources and consumes no input.
+
+The native app stages a new CPU bundle, then uses the renderer to stage the corresponding GPU resources. Keep the old scene active until both succeed. On failure, dispose of the candidate. After a successful swap, retire the old GPU resources on the renderer's completion timeline. Do not retain CPU pointers after releasing the bundle. PreparedScene::run borrows input only for one runtime call and detaches it on exit or exception. The platform must outlive any sink that owns its surface.
+
+The prepared-scene test checks shared asset ID lookup, inherited transforms and camera movement. It attempts replacement with missing and malformed glTF, confirms the old scene continues, restores the file, then verifies the replacement can load and quit without submitting a frame. This covers the Core transaction and frame boundary. An actual textured draw, a captured camera move and GPU retirement still require the renderer integration.

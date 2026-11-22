@@ -321,3 +321,30 @@ TEST_CASE("Tone map pass: a floating-point target shows the exact math, at half-
     device->wait_idle();
     CHECK(device->validation_error_count() == 0);
 }
+
+TEST_CASE("Tone map pass: invalid Reinhard white points and exposures give the same finite output as the reference")
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    const auto device = test::make_validated_device("tonemap_settings");
+    {
+        Rig rig(*device, rhi::Format::RGBA8_UNORM);
+        ToneMapper mapper(*device, rhi::Format::RGBA8_UNORM);
+        for (const float white : {0.0f, -3.0f, nan, inf, 1e-30f, 1e-20f, 1e30f}) {
+            for (const float ev : {0.0f, 1.0f, nan, 200.0f}) {
+                ToneMapSettings s;
+                s.op = ToneMapOperator::Reinhard;
+                s.exposure_ev = ev;
+                s.white_point = white;
+                const std::vector<uint8_t> pixels = rig.run(mapper, s);
+                CHECK(mismatches(rig, pixels, s, false, 1) == 0);  // identical to the sanitized reference, including the black texel
+                // No sentinel survives (the target is cleared to 128) and a black texel stays black.
+                CHECK(pixels[0] == 0);
+                CHECK(pixels[1] == 0);
+                CHECK(pixels[2] == 0);
+            }
+        }
+    }
+    device->wait_idle();
+    CHECK(device->validation_error_count() == 0);
+}

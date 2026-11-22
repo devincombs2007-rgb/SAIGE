@@ -58,6 +58,22 @@ void test_stream(const std::filesystem::path& fixture) {
     stream.request(std::array{west, east});
     require(stream.stage_next() && stream.commit_frame() && stream.active_chunk(west.coord)->find_asset(mesh), "retry preserves stable mesh ID");
 
+    ChunkStream moving({2, bytes * 2});
+    moving.request(std::array{east, west});
+    require(moving.stage_next(), "prepare the first of two requested chunks");
+    moving.request(std::array{west, east});
+    require(moving.retained_asset_bytes() == bytes, "repeated requests keep completed staging");
+    require(moving.stage_next() && moving.commit_frame(), "moving requests don't starve preparation");
+    moving.request(std::array{west});
+    require(moving.commit_frame(), "evict east to leave preparation headroom");
+    const ChunkSource north{{0, 1}, fixture};
+    moving.request(std::array{west, east});
+    require(moving.stage_next() && moving.retained_asset_bytes() == bytes * 2, "prepare candidate east");
+    moving.request(std::array{west, north});
+    require(moving.retained_asset_bytes() == bytes, "superseded chunks immediately release retained payload");
+    require(moving.stage_next() && moving.commit_frame() && moving.active_chunk(north.coord) &&
+            !moving.active_chunk(east.coord), "supersession activates only the newly desired chunks");
+
     stream.request(std::array{east, missing});
     stream.request(std::array{west});
     require(!stream.stage_next() && stream.commit_frame() && !stream.active_chunk(east.coord),

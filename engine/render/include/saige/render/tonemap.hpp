@@ -27,10 +27,21 @@ struct ToneMapSettings {
     float white_point = 4.0f;  ///< Reinhard only: the scene luminance that maps to white (must be positive)
 };
 
+/// Limits that keep every setting inside the range where the operators stay finite: a Reinhard white point squared must neither
+/// underflow to 0 (division by zero for black) nor overflow, and the exposure scale must stay representable.
+inline constexpr float kMinWhitePoint = 0.01f;
+inline constexpr float kMaxWhitePoint = 65504.0f;
+inline constexpr float kMaxExposureEv = 64.0f;
+
+/// The settings the CPU reference and the GPU pass actually use: a NaN white point becomes the default 4 and others are clamped to
+/// [kMinWhitePoint, kMaxWhitePoint]; a NaN exposure becomes 0 and others are clamped to +-kMaxExposureEv. Valid settings (including the
+/// defaults) are unchanged. This keeps the public contract that output is finite and in [0, 1] for any input and any settings.
+[[nodiscard]] ToneMapSettings sanitize(ToneMapSettings settings) noexcept;
+
 [[nodiscard]] float exposure_scale(float exposure_ev) noexcept;
 
 /// The reference: exactly the shader's math, including its handling of negative and non-finite input (NaN and negatives become
-/// 0, values above 65504, the largest finite half float, are clamped). Returns linear color in [0, 1].
+/// 0, values above 65504, the largest finite half float, are clamped), applied with `sanitize(settings)`. Returns linear color in [0, 1].
 [[nodiscard]] Float3 tone_map(Float3 linear_hdr, const ToneMapSettings& settings) noexcept;
 
 /// The full-screen pass. Records one draw inside a rendering whose single color attachment has the format given at construction;
@@ -51,6 +62,8 @@ public:
     void draw(rhi::CommandList& cmd, rhi::BindGroupHandle input, const ToneMapSettings& settings);
 
 private:
+    void release() noexcept;  ///< destroys whatever has been created; safe at any point of construction
+
     rhi::Device& device_;
     rhi::BindGroupLayoutHandle layout_;
     rhi::ShaderHandle vs_;

@@ -23,5 +23,5 @@ The manifest is a separate UTF-8 JSON file. It leaves existing scene project fil
 Coordinates are unique signed 32-bit integer pairs. Project paths are portable relative paths inside the manifest directory.
 The loader permits missing chunk projects so they can fail at staging time while the current scene stays active. The manifest
 is bounded to 1 MiB and 4,096 sources. `select_chunks` selects a square neighborhood in grid coordinates and returns sources in
-deterministic order. The host still controls the count and byte budgets through `ChunkStream`. The tests drive a two-chunk
+deterministic order. Hosts can use `chunk_containing` to map world positions to half-open cells, including negative coordinates. The host still controls the count and byte budgets through `ChunkStream`. The tests drive a two-chunk
 crossing, eviction, revisit, and failed request.

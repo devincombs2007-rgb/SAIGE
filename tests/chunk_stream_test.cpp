@@ -120,14 +120,15 @@ void test_manifest(const std::filesystem::path& fixture) {
             manifest[1].coord == ChunkCoord{0, 0} && manifest[2].coord == ChunkCoord{1, 0}, "sort manifest coordinates");
     const auto mesh = saige::PreparedScene(fixture).assets().front().id;
     ChunkStream stream;
-    for (const int x : {0, 1, 0}) {
-        const ChunkCoord view{x, 0};
+    require(saige::chunk_containing({-0.01f, -8.0f, 0}, 8) == ChunkCoord{-1, -1}, "negative cells use floor");
+    for (const float x : {0.0f, 8.0f, 7.99f}) {
+        const auto view = saige::chunk_containing({x, 0, 0}, 8);
         stream.request(saige::select_chunks(manifest, view, 0));
         require(stream.stage_next() && stream.commit_frame(), "cross or revisit a manifest chunk");
         require(stream.active_count() == 1 && stream.active_chunk(view)->find_asset(mesh), "revisit preserves the saved mesh ID");
     }
     const auto* west = stream.active_chunk({0, 0});
-    stream.request(saige::select_chunks(manifest, {-1, 0}, 0));
+    stream.request(saige::select_chunks(manifest, saige::chunk_containing({-0.1f, 0, 0}, 8), 0));
     bool missing = false;
     try {
         (void)stream.stage_next();
@@ -138,6 +139,12 @@ void test_manifest(const std::filesystem::path& fixture) {
     require(saige::select_chunks(manifest, {0, 0}, 1).size() == 3, "radius includes both neighboring cells");
     require(saige::select_chunks(manifest, {std::numeric_limits<std::int32_t>::min(), 0}, 1).empty(),
             "extreme coordinates do not overflow");
+
+    try {
+        (void)saige::chunk_containing({1, 0, 0}, 1e-30);
+        throw std::runtime_error("out-of-range grid coordinate was accepted");
+    } catch (const std::out_of_range&) {
+    }
 
     for (const auto malformed : {
         R"({"schema_version":2,"chunks":[]})",

@@ -3,7 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cstdlib>
+#include <cmath>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -101,6 +101,21 @@ std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
         throw std::invalid_argument("Duplicate chunk coordinates");
     }
     return result;
+}
+
+ChunkCoord chunk_containing(Vec3 position, double cell_size) {
+    if (!std::isfinite(cell_size) || cell_size <= 0.0 || !std::isfinite(position.x) ||
+        !std::isfinite(position.y) || !std::isfinite(position.z)) {
+        throw std::invalid_argument("Chunk lookup requires a finite position and positive cell size");
+    }
+    const auto cell = [cell_size](float coordinate) {
+        const double index = std::floor(static_cast<double>(coordinate) / cell_size);
+        if (index < std::numeric_limits<std::int32_t>::min() || index > std::numeric_limits<std::int32_t>::max()) {
+            throw std::out_of_range("World position is outside the chunk grid");
+        }
+        return static_cast<std::int32_t>(index);
+    };
+    return {cell(position.x), cell(position.y)};
 }
 
 std::vector<ChunkSource> select_chunks(std::span<const ChunkSource> sources, ChunkCoord center, std::uint32_t radius) {

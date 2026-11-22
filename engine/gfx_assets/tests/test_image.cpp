@@ -429,6 +429,15 @@ TEST_CASE("Mips: dimension metadata that does not match the pixel storage is rej
     CHECK_FALSE(rejected(3, 2, 24));          // exactly right is accepted
     CHECK(rejected(0, 5, 0));
     CHECK(rejected(5, 0, 0));
+    // Byte counts outside the representable range, including with empty storage. 2^31 x 2^31 x 4 is exactly 2^64, which wraps
+    // to 0 in 64-bit arithmetic and so "matches" an empty pixel array; (2^32-1)^2 x 4 wraps to a large value. Both used to
+    // pass a multiply-then-compare check; neither may reach any sizing.
+    CHECK(rejected(0x80000000u, 0x80000000u, 0));
+    CHECK(rejected(0xFFFFFFFFu, 0xFFFFFFFFu, 0));
+    CHECK(rejected(0x80000000u, 0x80000000u, 16));
+    CHECK(rejected(0xFFFFFFFFu, 1, 0));  // 2^34 bytes: representable as a number, but not backed by the (empty) storage
+    // Largest sides with a plausible, tiny storage never allocate the chain either.
+    CHECK(rejected(0x10000u, 0x10000u, 4));
 }
 
 TEST_CASE("Mips: sRGB color is averaged in linear light, linear data is averaged as stored")

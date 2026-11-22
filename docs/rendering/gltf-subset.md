@@ -58,20 +58,16 @@ resolves outside it, so a symlink cannot escape either.
 | `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0` |
 | `KHR_texture_transform`, `KHR_materials_*` (other than emissive strength) | ⚠️ optional uses are ignored with a warning |
 
-**What the renderer shades** (`stage_model`, milestone M1 of [the material architecture](material-architecture.md)). Two modes, chosen per
-renderer by `RendererSettings::model_shading`:
-- `ModelShading::Legacy` (the default everywhere): the 0.2 behavior exactly. Staging decodes and uploads the base color texture only, so
-  0.2 content loads as it did (including content whose other textures cannot be decoded, which 0.2 never read); the shader uses base color
-  texture and factor, the emissive *factor*, alpha mask and the hemispherical ambient plus sun. A material with any other texture is
-  reported in the stage warnings ("not sampled in 0.2").
-- `ModelShading::Extended` (opt in): staging also decodes and uploads the other four slots, base color and emissive as sRGB and
-  metallic-roughness, normal and occlusion as linear data (the same image used in both roles is uploaded once per color space), each with
-  the sampler its glTF texture names; the shader additionally reads the emissive texture (times its factor) and the occlusion texture
-  (scales the ambient term by `strength`). The metallic-roughness and normal textures are uploaded and bound but not shaded yet
-  (milestones M2 and M3); a material that has one is reported. A slot that cannot be used (bad texture index, no source image,
-  undecodable image) stays neutral with a warning; a bad base color texture fails the staging in both modes, as in 0.2.
+**What the renderer shades** (`stage_model`, milestones M1 and M2 of [the material architecture](material-architecture.md)):
 
-Mip chains for linear data use the same box filter as color, so normal maps are not renormalized per level (revisited with M3).
+- **Legacy** is the default. SAIGE 0.2 projects retain base-color texturing, the emissive factor, alpha masks, and the original
+  lighting. Staging leaves the four optional texture slots alone.
+- **Extended** adds emissive texturing and scales ambient lighting by the occlusion texture and strength.
+- **MetallicRoughness** adds glTF GGX, height-correlated Smith and Schlick shading with the split-sum environment BRDF table.
+
+Both opt-in modes stage all five textures. An unusable optional slot stays neutral and produces a warning. Base color and emissive
+use sRGB, while metallic-roughness, normal and occlusion use linear data. Normal maps are bound here and shaded starting with M3.
+HDR output in M4 preserves highlights above 1.0. Renderer mode is selected by the host and requires no project-format change.
 
 ## Extensions
 - Every entry of `extensionsRequired` must be supported, otherwise the load **fails** naming the extension.

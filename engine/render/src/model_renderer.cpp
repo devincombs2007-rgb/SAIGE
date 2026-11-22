@@ -1,5 +1,7 @@
 #include "saige/render/model_renderer.hpp"
 
+#include "saige/render/env_brdf.hpp"
+
 #include "saige/shaders/scene_model.spv.hpp"
 
 #include <cmath>
@@ -29,7 +31,7 @@ struct SceneConstants {
     float sun_direction[4];
     float sun_color[4];
     float ambient_ground[4];
-    float flags[4];  ///< x: 1 for ModelShading::Extended
+    float flags[4];  ///< x: shading mode
 };
 
 /// Material uniform block (set 0, binding 10), matching `Material` in the shader.
@@ -119,7 +121,7 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     material.debug_name = "ModelMaterialLayout";
     material_layout_ = device_.create_bind_group_layout(material);
     rhi::BindGroupLayoutDesc constants;
-    constants.entries = {{0, rhi::BindingType::UniformBuffer}};
+    constants.entries = {{0, rhi::BindingType::UniformBuffer}, {1, rhi::BindingType::SampledTexture}, {2, rhi::BindingType::Sampler}};
     constants.debug_name = "ModelConstantsLayout";
     constants_layout_ = device_.create_bind_group_layout(constants);
 
@@ -161,15 +163,9 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     sc.ambient_ground[0] = 0.20f;
     sc.ambient_ground[1] = 0.18f;
     sc.ambient_ground[2] = 0.16f;
-    sc.flags[0] = shading_ == ModelShading::Extended ? 1.0f : 0.0f;
+    sc.flags[0] = static_cast<float>(shading_);
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");
-    BindGroupBinding binding;
-    binding.binding = 0;
-    binding.buffer = constants_buffer;
-    binding.size = sizeof(sc);
-    constants_group_ = registry_.create_bind_group(constants_layout_, std::span(&binding, 1), "ModelSceneConstants");
-
     // Neutral 1x1 textures, so a slot a material leaves empty changes nothing: white for base color, emissive (the factor
     // alone decides), metallic-roughness and occlusion (factors alone decide), and a flat tangent-space normal (0, 0, 1).
     const auto neutral = [&](rhi::Format format, const char* debug, uint8_t r, uint8_t g, uint8_t b) {
@@ -187,6 +183,38 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 
     rhi::SamplerDesc sampler;  // trilinear, repeat
     default_sampler_ = registry_.get_sampler(sampler);
+
+    // The split-sum environment BRDF table (metallic-roughness shading's ambient specular): the embedded, versioned asset.
+    // Legacy shading never reads it, so it gets one zero texel.
+    {
+        const bool needed = settings.shading == ModelShading::MetallicRoughness;
+        const uint16_t zero[2] = {0, 0};  // Legacy shading never reads the table: one zero texel
+        const EnvBrdfAsset& asset = precomputed_env_brdf();
+        const uint32_t table_size = needed ? asset.size : 1u;
+        const uint16_t* table_texels = needed ? asset.texels : zero;
+        const std::size_t table_values = needed ? asset.texel_count : 2u;
+        rhi::TextureDesc d;
+        d.format = rhi::Format::RG16_FLOAT;
+        d.width = d.height = table_size;
+        d.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        d.debug_name = "ModelEnvBrdf";
+        env_brdf_ = registry_.create_texture(d, std::as_bytes(std::span(table_texels, table_values)));
+        rhi::SamplerDesc s;
+        s.address_u = s.address_v = rhi::AddressMode::ClampToEdge;
+        s.mipmap_mode = rhi::MipmapMode::Nearest;
+        s.max_lod = 0.0f;
+        env_brdf_sampler_ = registry_.get_sampler(s);
+    }
+
+    BindGroupBinding constant_bindings[3];
+    constant_bindings[0].binding = 0;
+    constant_bindings[0].buffer = constants_buffer;
+    constant_bindings[0].size = sizeof(sc);
+    constant_bindings[1].binding = 1;
+    constant_bindings[1].texture = env_brdf_;
+    constant_bindings[2].binding = 2;
+    constant_bindings[2].sampler = env_brdf_sampler_;
+    constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants");
 }
 
 ModelRenderer::~ModelRenderer()
@@ -195,6 +223,8 @@ ModelRenderer::~ModelRenderer()
     white_srgb_.reset();
     white_linear_.reset();
     flat_normal_.reset();
+    env_brdf_.reset();
+    env_brdf_sampler_.reset();
     default_sampler_.reset();
     for (const rhi::PipelineHandle p : pipelines_) {
         device_.destroy(p);

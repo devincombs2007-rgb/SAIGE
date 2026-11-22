@@ -10,7 +10,8 @@ checked; the Lengyel generator stays as a fallback until MikkTSpace passes its o
 ## Comparison results (2026-11-22)
 
 Run in an isolated layout: the downloaded reference in its own empty directory, hashes verified against the pinned values below
-before building, the harness and build output in separate directories, nothing from it in the repository.
+before building, the harness and build output in separate directories, nothing from it in the repository. The SAIGE generator
+was built from the original #46 implementation at `0f2398b`. Results describe that revision.
 `tools/analysis/mikktspace_compare/compare.cpp` runs SAIGE's `gfx::generate_tangents` and reference MikkTSpace on the same
 indexed meshes and compares tangents per triangle corner (glTF's V flipped for MikkTSpace as the sample viewer does).
 

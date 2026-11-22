@@ -8,7 +8,8 @@ whether the handedness agrees. glTF's V axis is flipped for MikkTSpace as the Kh
 Status: run on 2026-11-22; results are in docs/rendering/mikktspace-evaluation.md. It needs the third-party reference sources
 (`mikktspace.c`, `mikktspace.h`, zlib license, https://github.com/mmikk/MikkTSpace) and the PR #46 tangent generator sources.
 
-Reference revision used: `master` as fetched on 2026-11-22,
+Reference revision used on 2026-11-22: `3e895b49d05ea07e4c2133156cfa94369e19e409`. The recorded comparison uses
+SAIGE's original #46 generator at `0f2398b`.
 `mikktspace.c` sha256 `de87e74107df766ce68108801262bd8d53899414236b59810509a8fc2a51e288`,
 `mikktspace.h` sha256 `17fc433894f24c73753d548086cc4d8c5c0379f4a6edfb98b5da243e4f0bc3d0`.
 Verify the hashes of whatever you download before building.

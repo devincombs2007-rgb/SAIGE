@@ -167,10 +167,13 @@ struct Rig {
     std::unique_ptr<SceneRenderer> renderer;
     std::unique_ptr<OffscreenTarget> target;
 
-    explicit Rig(const char* name)
+    /// `shading`: Legacy (the default, the 0.2 look) or Extended (also shades the emissive and occlusion textures).
+    explicit Rig(const char* name, ModelShading shading = ModelShading::Legacy)
     {
         device = make_validated_device(name, /*synchronization=*/true);
-        renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, model_settings());
+        RendererSettings settings = model_settings();
+        settings.model_shading = shading;
+        renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, settings);
         target = std::make_unique<OffscreenTarget>(*device, kW, kH);
     }
     ~Rig()
@@ -537,7 +540,7 @@ CheckerPurity checker_purity(const Image& img, const Mat4& vp)
 
 TEST_CASE("Models: the emissive slot reads its own texture as sRGB through its own sampler")
 {
-    Rig rig("model_slot_emissive");
+    Rig rig("model_slot_emissive", ModelShading::Extended);
     {
         const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
         const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
@@ -577,7 +580,7 @@ TEST_CASE("Models: the emissive slot reads its own texture as sRGB through its o
 
 TEST_CASE("Models: the occlusion slot scales only the ambient term, read as linear data")
 {
-    Rig rig("model_slot_occlusion");
+    Rig rig("model_slot_occlusion", ModelShading::Extended);
     {
         const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
         const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
@@ -636,4 +639,40 @@ TEST_CASE("Models: a material with empty slots renders exactly like one with exp
         CHECK(rig.render(camera, std::span(&a, 1)).rgba == rig.render(camera, std::span(&b, 1)).rgba);
     }
     CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Models (Legacy, the default): populated emissive and occlusion textures leave a 0.2 scene exactly as it was")
+{
+    // A 0.2 material with an emissive factor, plus an emissive texture and an occlusion texture that 0.2 never read. In the default
+    // Legacy mode the image must equal the same material without those textures, and equal the 0.2 lighting oracle: albedo * K plus
+    // the emissive factor. In Extended mode the extra textures do change it (so the comparison is not vacuous).
+    for (const ModelShading shading : {ModelShading::Legacy, ModelShading::Extended}) {
+        Rig rig("model_legacy_compat", shading);
+        {
+            const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+            const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+            GpuResourceRegistry& registry = rig.renderer->registry();
+            MaterialData data;
+            data.base_color[0] = 0.6f; data.base_color[1] = 0.5f; data.base_color[2] = 0.4f;
+            data.emissive[0] = 0.05f; data.emissive[1] = 0.02f; data.emissive[2] = 0.01f;
+            MaterialTextures extras;
+            extras[MaterialSlot::Emissive].texture = checker_texture(rig);   // an sRGB texture with values the factor would not hide
+            extras[MaterialSlot::Occlusion].texture = texel_texture(rig, rhi::Format::RGBA8_UNORM, 64, 64, 64, "test.occ");
+            const GpuModel plain = make_quad(registry, rig.renderer->model_renderer().create_material(data, MaterialTextures{}, "plain"), 0.0f, 1.5f);
+            const GpuModel populated = make_quad(registry, rig.renderer->model_renderer().create_material(data, extras, "populated"), 0.0f, 1.5f);
+            const ModelDraw a{&plain, Mat4::identity()};
+            const ModelDraw b{&populated, Mat4::identity()};
+            const Image image_plain = rig.render(camera, std::span(&a, 1));
+            const Image image_populated = rig.render(camera, std::span(&b, 1));
+            if (shading == ModelShading::Legacy) {
+                CHECK(image_plain.rgba == image_populated.rgba);
+                const Float3 k = lighting_k({-1, 0, 0}, model_settings());
+                const Float3 want{0.6f * k.x + 0.05f, 0.5f * k.y + 0.02f, 0.4f * k.z + 0.01f};  // the 0.2 formula
+                CHECK(near3(linear_at(image_populated, to_pixel(vp, {0, 0, 1.5f})), want, 0.012f));
+            } else {
+                CHECK(image_plain.rgba != image_populated.rgba);
+            }
+        }
+        CHECK(rig.device->validation_error_count() == 0);
+    }
 }

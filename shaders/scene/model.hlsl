@@ -1,7 +1,8 @@
-// Imported model surfaces: base color texture and factor, emissive texture and factor, occlusion, alpha mask, the same
-// hemispherical ambient plus sun and fog as the 0.1 cube and ground, so imported and procedural objects sit together.
-// Occlusion scales the ambient term only, as glTF defines it. The metallic-roughness and normal textures and their factors
-// are bound but not read yet (milestones M2 and M3 of docs/rendering/material-architecture.md).
+// Imported model surfaces, in one of two modes chosen per renderer (SceneConstants.sc_flags.x). Mode 0, the default, is the 0.2 look
+// exactly: base color texture and factor, emissive factor, alpha mask, the same hemispherical ambient plus sun and fog as the 0.1
+// cube and ground, so imported and procedural objects sit together; the other texture slots are bound but not read. Mode 1
+// (extended slots) also shades the emissive texture and occlusion. The metallic-roughness and normal textures and their factors
+// are bound but not read in either mode yet (milestones M2 and M3 of docs/rendering/material-architecture.md).
 //
 // Bindings (RHI bind groups, docs/rendering/rhi-design.md section 4.2):
 //   set 0, per material:  0..4 textures (base color, metallic-roughness, normal, occlusion, emissive),
@@ -49,6 +50,7 @@ struct ModelPush {
     float4 sc_sun_direction;  // unit vector toward the sun
     float4 sc_sun_color;
     float4 sc_ambient_ground; // ambient light from below (+Z up is the sky color)
+    float4 sc_flags;          // x: 1 when the extended material slots are shaded (ModelShading::Extended), 0 for the 0.2 look
 };
 
 struct VSInput {
@@ -92,10 +94,19 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
         n = -n; // the back of a double-sided surface lights with the reversed normal
     }
     const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
-    const float occlusion = lerp(1.0, g_occlusion.Sample(g_occlusion_sampler, input.uv).r, mat_mr_normal_occ.w);
-    const float3 ambient = lerp(sc_ambient_ground.rgb, sc_fog_color.rgb * 0.6, n.z * 0.5 + 0.5) * occlusion;
-    const float3 emissive = g_emissive.Sample(g_emissive_sampler, input.uv).rgb * mat_emissive_cutoff.rgb;
-    const float3 lit = base.rgb * (ambient + sc_sun_color.rgb * n_dot_l) + emissive;
+    float3 lit;
+    if (sc_flags.x < 0.5) {
+        // The 0.2 look, unchanged: base color texture and factor, the emissive *factor*, hemispherical ambient plus sun. The other
+        // texture slots are bound but not read.
+        const float3 ambient = lerp(sc_ambient_ground.rgb, sc_fog_color.rgb * 0.6, n.z * 0.5 + 0.5);
+        lit = base.rgb * (ambient + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb;
+    } else {
+        // Extended: the emissive texture times its factor, and occlusion scaling the ambient term only (as glTF defines it).
+        const float occlusion = lerp(1.0, g_occlusion.Sample(g_occlusion_sampler, input.uv).r, mat_mr_normal_occ.w);
+        const float3 ambient = lerp(sc_ambient_ground.rgb, sc_fog_color.rgb * 0.6, n.z * 0.5 + 0.5) * occlusion;
+        const float3 emissive = g_emissive.Sample(g_emissive_sampler, input.uv).rgb * mat_emissive_cutoff.rgb;
+        lit = base.rgb * (ambient + sc_sun_color.rgb * n_dot_l) + emissive;
+    }
     const float distance_m = length(input.world_pos - pc.camera_sign.xyz);
     const float fog = 1.0 - exp(-distance_m * sc_fog_color.w);
     return float4(lerp(lit, sc_fog_color.rgb, saturate(fog)), 1.0);

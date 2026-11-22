@@ -7,9 +7,10 @@
 //
 // A material has five texture slots (base color, metallic-roughness, normal, occlusion, emissive), each with its own
 // sampler, plus a parameter block (docs/rendering/material-architecture.md). Slots a material leaves empty are bound to
-// neutral defaults, so one shader serves every material. Shaded so far: base color, emissive and occlusion (occlusion
-// scales the ambient term, as glTF defines it). The metallic-roughness and normal slots and their factors are bound and
-// stored but not yet read by the shader (milestones M2 and M3). Alpha-mask materials discard below their cutoff; alpha
+// neutral defaults, so one shader serves every material. In ModelShading::Legacy (the default) only the base color slot and the
+// factors the 0.2 renderer used are read: the 0.2 look, unchanged. In ModelShading::Extended base color, emissive and occlusion
+// are shaded (occlusion scales the ambient term, as glTF defines it). The metallic-roughness and normal slots and their factors
+// are bound and stored but not yet read by the shader in either mode (milestones M2 and M3). Alpha-mask materials discard below their cutoff; alpha
 // blending is not implemented (a Blend material draws as opaque).
 #pragma once
 
@@ -61,7 +62,15 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
 };
 
+/// How imported models are shaded. Legacy is the 0.2 look exactly: base color texture and factor, the emissive factor, alpha mask,
+/// hemispherical ambient plus sun; the other texture slots are bound but ignored, and staging only decodes and uploads base color
+/// textures (so 0.2 content loads and looks as it did). Extended additionally shades the emissive texture and the occlusion texture
+/// and stages all five slots (an undecodable optional image then leaves its slot neutral with a warning instead of failing the asset).
+/// Fixed per renderer; Legacy is the default everywhere, so nothing changes until a host opts in.
+enum class ModelShading : uint8_t { Legacy, Extended };
+
 struct ModelRenderSettings {
+    ModelShading shading = ModelShading::Legacy;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
 };
@@ -88,6 +97,8 @@ public:
     void draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 camera_position, std::span<const ModelDraw> draws,
               ModelFrameStats& stats);
 
+    [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
+
     /// GPU textures the renderer itself keeps alive for neutral slots (visible in the registry's texture counters).
     static constexpr uint32_t kNeutralTextureCount = 3;
 
@@ -98,6 +109,7 @@ private:
 
     rhi::Device& device_;
     GpuResourceRegistry& registry_;
+    ModelShading shading_ = ModelShading::Legacy;
     rhi::ShaderHandle vs_, ps_;
     rhi::BindGroupLayoutHandle material_layout_, constants_layout_;
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]

@@ -29,6 +29,7 @@ struct SceneConstants {
     float sun_direction[4];
     float sun_color[4];
     float ambient_ground[4];
+    float flags[4];  ///< x: 1 for ModelShading::Extended
 };
 
 /// Material uniform block (set 0, binding 10), matching `Material` in the shader.
@@ -103,7 +104,7 @@ uint64_t GpuModel::triangle_count() const noexcept
 
 ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry, rhi::Format color_format,
                              rhi::Format depth_format, const ModelRenderSettings& settings)
-    : device_(device), registry_(registry)
+    : device_(device), registry_(registry), shading_(settings.shading)
 {
     using namespace saige::shaders;
     vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_vs_main), "VSMain", "SceneModel.VS"});
@@ -160,6 +161,7 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     sc.ambient_ground[0] = 0.20f;
     sc.ambient_ground[1] = 0.18f;
     sc.ambient_ground[2] = 0.16f;
+    sc.flags[0] = 0.0f;
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");
     BindGroupBinding binding;

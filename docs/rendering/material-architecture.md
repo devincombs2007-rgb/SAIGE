@@ -106,7 +106,36 @@ M1 and M2 need no RHI additions. M4 uses an existing format. Cube textures, stor
 growth, and each is additive. Ray tracing, clouds and virtualized geometry plug in behind `SurfaceData` and the diagnostics
 sections above; nothing in M1 to M6 closes them off.
 
-## 7. Decisions needed
+## 7. Interfaces for ray tracing and temporal reconstruction
+
+Neither is implemented in 0.3. The point is that nothing built in M1 to M6 has to be undone to add them. Concretely:
+
+**Ray tracing** (hardware ray queries in a later phase) needs three things that are cheap to keep available now:
+- *Geometry readable from a shader*: vertex and index buffers created with storage and device-address usage (buffer device
+  address is core since Vulkan 1.2, probed by the capability work), instead of being vertex-input-only as they are today.
+- *Material access by index*: `evaluate_surface` takes a `MaterialData` and interpolants, so a ray-hit shader and a raster
+  shader share it. Moving materials from per-material bind groups to a global array (bindless) is a contained change behind that
+  function; it must not change `MaterialData`.
+- *Stable instance and primitive identity*: a draw or a ray hit should be able to report (instance id, primitive id, material
+  index). Today a draw knows its model and push constants; adding an instance index to the data a shader can read is additive.
+
+**Temporal reconstruction** (TAA, upscaling, frame generation, ray-tracing denoisers) consumes the previous frame, so the
+renderer must be given it; this is the one interface that crosses into Core:
+- *Previous-frame world matrix per instance and previous camera pose* in the frame snapshot. `FrameView` carries the current
+  frame only. Without both, per-pixel motion vectors cannot be computed correctly for moving objects or a moving camera, and any
+  temporal technique falls back to camera-only reprojection (wrong for dynamic objects). Core owns `FrameView` and the world
+  matrices; this is a request, not a change made here (see issue #17).
+- *Sub-pixel projection jitter* applied by the renderer to its own projection (a renderer-internal parameter, no Core change),
+  with the un-jittered matrices kept for motion vectors.
+- *A motion-vector and depth output* from the scene pass, and *history resources* with explicit lifetime in the render graph
+  (a resource that survives a frame boundary, and is reset on resize or scene replacement). The render graph already owns
+  transient resources; history is an extension of it.
+- *Determinism*: every temporal input (jitter sequence, frame index) must be reproducible from the frame number, so the
+  existing byte-exact capture tests remain possible with jitter off, and meaningful with it on.
+
+None of these touch `MaterialData` or `SurfaceData`; they extend the frame data, the render graph and the buffers' usage flags.
+
+## 8. Decisions needed
 
 1. **Owner and Core:** approve the three-contract split and the M1 to M6 order, or reorder (for example HDR before
    normal maps).
@@ -116,3 +145,5 @@ sections above; nothing in M1 to M6 closes them off.
 4. **Review:** that Blend materials move from opaque to sorted blending in this track, which changes pixels only for assets that
    use Blend; the 0.2 fixture does not declare an alpha mode, so it is unaffected.
 5. **Process:** physical-GPU measurement (#9) before any performance target is set for M2 to M6.
+6. **Core:** whether `FrameView` can carry the previous frame's world matrix per instance and the previous camera pose (section
+   7). It is not needed for 0.3's milestones, but it is the earliest point where deferring it starts to cost design freedom.

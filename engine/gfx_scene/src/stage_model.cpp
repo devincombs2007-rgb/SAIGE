@@ -188,12 +188,12 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
         }
         // Legacy (the default) stages what 0.2 staged: the base color texture only, so 0.2 content loads and looks as it did, including
         // content whose other textures could not be decoded. Extended stages all five slots; an optional slot that cannot be used stays neutral.
-        const bool extended = models.shading() == render::ModelShading::Extended;
+        const bool extended = models.shading() != render::ModelShading::Legacy;
         const bool other_slots = m.normal_texture.valid() || m.metallic_roughness_texture.valid() || m.occlusion_texture.valid() || m.emissive_texture.valid();
         if (!extended && other_slots) {
             warn_once(report, "normal, metallic-roughness, occlusion and emissive textures are not sampled in 0.2 (base color only)");
-        } else if (extended && (m.normal_texture.valid() || m.metallic_roughness_texture.valid())) {
-            warn_once(report, "normal and metallic-roughness textures are uploaded and bound but not shaded yet");
+        } else if (extended && m.normal_texture.valid()) {
+            warn_once(report, "normal textures are uploaded and bound but not shaded yet");
         }
         render::MaterialTextures textures;
         textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true, /*optional=*/false);

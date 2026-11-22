@@ -39,8 +39,8 @@ struct Scan {
 template <std::size_t N>
 Scan scan(const uint32_t (&words)[N])
 {
+    static_assert(N > 5, "a SPIR-V module has a five-word header");
     Scan s;
-    REQUIRE(N > 5);
     REQUIRE(words[0] == 0x07230203u);
     std::size_t i = 5;  // after the header
     long index = 0;

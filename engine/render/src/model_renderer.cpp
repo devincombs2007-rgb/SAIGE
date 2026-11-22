@@ -39,8 +39,9 @@ struct MaterialBlock {
     float base_color[4];
     float emissive_cutoff[4];
     float metallic_roughness_normal_occlusion[4];  ///< metallic, roughness, normal scale, occlusion strength
+    float flags[4];                                ///< x: 1 when the material has a normal texture
 };
-static_assert(sizeof(MaterialBlock) == 48);
+static_assert(sizeof(MaterialBlock) == 64);
 
 /// Material bind group (set 0): textures at 0..4 in MaterialSlot order, their samplers at 5..9, the block at 10.
 constexpr uint32_t kSamplerBase = kMaterialSlotCount;
@@ -131,7 +132,8 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     pd.vertex_layout.stride = sizeof(ModelVertex);
     pd.vertex_layout.attributes = {{0, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, position)},
                                    {1, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, normal)},
-                                   {2, rhi::Format::RG32_FLOAT, offsetof(ModelVertex, uv)}};
+                                   {2, rhi::Format::RG32_FLOAT, offsetof(ModelVertex, uv)},
+                                   {3, rhi::Format::RGBA32_FLOAT, offsetof(ModelVertex, tangent)}};
     pd.depth = {true, true, rhi::CompareOp::Greater};  // reverse-Z
     pd.color_formats = {color_format};
     pd.depth_format = depth_format;
@@ -252,6 +254,7 @@ GpuMaterial ModelRenderer::create_material(const MaterialData& data, const Mater
     block.metallic_roughness_normal_occlusion[1] = data.roughness;
     block.metallic_roughness_normal_occlusion[2] = data.normal_scale;
     block.metallic_roughness_normal_occlusion[3] = data.occlusion_strength;
+    block.flags[0] = textures[MaterialSlot::Normal].texture.valid() ? 1.0f : 0.0f;
     BufferRef uniform;
     make_uniform(device_, registry_, uniform, &block, sizeof(block), name);
 

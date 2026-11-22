@@ -1,7 +1,7 @@
 // Imported model surfaces: base color texture and factor, emissive texture and factor, occlusion, alpha mask, the same
 // hemispherical ambient plus sun and fog as the 0.1 cube and ground, so imported and procedural objects sit together.
-// Occlusion scales the ambient term only, as glTF defines it. The metallic-roughness and normal textures and their factors
-// are bound but not read yet (milestones M2 and M3 of docs/rendering/material-architecture.md).
+// Occlusion scales the ambient term only, as glTF defines it. The metallic-roughness texture and tangent-space normal
+// mapping apply in mode 1 only (docs/rendering/material-architecture.md); mode 0 stays the 0.2 look.
 //
 // Bindings (RHI bind groups, docs/rendering/rhi-design.md section 4.2):
 //   set 0, per material:  0..4 textures (base color, metallic-roughness, normal, occlusion, emissive),
@@ -32,8 +32,8 @@ struct ModelPush {
 [[vk::push_constant]] ConstantBuffer<ModelPush> pc;
 
 [[vk::binding(0, 0)]] Texture2D<float4> g_base_color;          // sRGB
-[[vk::binding(1, 0)]] Texture2D<float4> g_metallic_roughness;  // linear; G roughness, B metallic (not read yet)
-[[vk::binding(2, 0)]] Texture2D<float4> g_normal;              // linear tangent-space (not read yet)
+[[vk::binding(1, 0)]] Texture2D<float4> g_metallic_roughness;  // linear; G roughness, B metallic
+[[vk::binding(2, 0)]] Texture2D<float4> g_normal;              // linear tangent-space, +Y up in the image (glTF)
 [[vk::binding(3, 0)]] Texture2D<float4> g_occlusion;           // linear; R
 [[vk::binding(4, 0)]] Texture2D<float4> g_emissive;            // sRGB
 [[vk::binding(5, 0)]] SamplerState g_base_color_sampler;
@@ -46,6 +46,7 @@ struct ModelPush {
     float4 mat_base_color;      // linear factor, multiplied with the texture
     float4 mat_emissive_cutoff; // emissive rgb (linear, may exceed 1), alpha cutoff in w (0 = opaque, no test)
     float4 mat_mr_normal_occ;   // metallic, roughness, normal scale, occlusion strength
+    float4 mat_flags;           // x: 1 when the material has a normal texture
 };
 
 [[vk::binding(0, 1)]] cbuffer SceneConstants
@@ -64,9 +65,17 @@ float3 ambient_radiance(float3 direction)
     return lerp(sc_ambient_ground.rgb, sc_fog_color.rgb * 0.6, direction.z * 0.5 + 0.5);
 }
 
-/// The material contract made concrete at one pixel: factors times textures, in the color space each slot is stored in.
-SurfaceData evaluate_surface(float2 uv, float3 normal)
+/// The material contract made concrete at one pixel: factors times textures, in the color space each slot is stored in. `n`,
+/// `t` and `b` are the geometric frame facing the viewer; with `normal_mapping` and a nonzero `t`, the tangent-space normal
+/// texture (x and y scaled by the material's normal scale) replaces `n`.
+SurfaceData evaluate_surface(float2 uv, float3 n, float3 t, float3 b, bool normal_mapping)
 {
+    float3 normal = n;
+    if (normal_mapping && mat_flags.x > 0.5 && dot(t, t) > 1e-12) {
+        float3 ts = g_normal.Sample(g_normal_sampler, uv).xyz * 2.0 - 1.0;
+        ts.xy *= mat_mr_normal_occ.z;
+        normal = normalize(t * ts.x + b * ts.y + n * ts.z);
+    }
     SurfaceData s;
     const float4 base = g_base_color.Sample(g_base_color_sampler, uv) * mat_base_color;
     const float4 mr = g_metallic_roughness.Sample(g_metallic_roughness_sampler, uv);
@@ -84,6 +93,7 @@ struct VSInput {
     [[vk::location(0)]] float3 position : POSITION;
     [[vk::location(1)]] float3 normal : NORMAL;
     [[vk::location(2)]] float2 uv : TEXCOORD0;
+    [[vk::location(3)]] float4 tangent : TANGENT; // xyz: direction of increasing u, w: handedness (0 = none)
 };
 
 struct VSOutput {
@@ -91,6 +101,8 @@ struct VSOutput {
     [[vk::location(0)]] float3 world_pos : TEXCOORD0;
     [[vk::location(1)]] float3 normal : TEXCOORD1;
     [[vk::location(2)]] float2 uv : TEXCOORD2;
+    [[vk::location(3)]] float3 tangent : TEXCOORD3;   // world space, zero when the vertex has none
+    [[vk::location(4)]] float3 bitangent : TEXCOORD4; // world space, the transformed object-space bitangent
 };
 
 VSOutput VSMain(VSInput input)
@@ -107,23 +119,41 @@ VSOutput VSMain(VSInput input)
     output.world_pos = world;
     output.normal = n * pc.camera_sign.w;
     output.uv = input.uv;
+    // Surface directions transform with the model matrix itself (only normals need the cofactor). The bitangent is built in object
+    // space from the handedness and then transformed too, so a mirrored instance keeps a consistent, left-handed frame.
+    const float3 t_obj = input.tangent.xyz;
+    const float3 b_obj = cross(input.normal, t_obj) * input.tangent.w;
+    output.tangent = float3(dot(pc.model_row0.xyz, t_obj), dot(pc.model_row1.xyz, t_obj), dot(pc.model_row2.xyz, t_obj));
+    output.bitangent = float3(dot(pc.model_row0.xyz, b_obj), dot(pc.model_row1.xyz, b_obj), dot(pc.model_row2.xyz, b_obj));
     return output;
 }
 
 float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
 {
     float3 n = normalize(input.normal);
-    if (!front) {
-        n = -n; // the back of a double-sided surface lights with the reversed normal
+    float3 t = float3(0.0, 0.0, 0.0);
+    float3 b = float3(0.0, 0.0, 0.0);
+    if (dot(input.tangent, input.tangent) > 1e-12) {
+        // Orthonormalize against the interpolated normal; the handedness is whatever the transformed frame says.
+        t = normalize(input.tangent - n * dot(n, input.tangent));
+        const float3 cross_nt = cross(n, t);
+        b = cross_nt * (dot(cross_nt, input.bitangent) < 0.0 ? -1.0 : 1.0);
     }
-    const SurfaceData surface = evaluate_surface(input.uv, n);
+    if (!front) {
+        n = -n; // the back of a double-sided surface lights with the reversed frame (as the glTF reference viewer does)
+        t = -t;
+        b = -b;
+    }
+    const bool physically_based = sc_flags.x > 0.5;
+    const SurfaceData surface = evaluate_surface(input.uv, n, t, b, physically_based);
+    n = surface.normal;
     if (mat_emissive_cutoff.w > 0.0 && surface.alpha < mat_emissive_cutoff.w) {
         discard;
     }
     const float3 to_camera = pc.camera_sign.xyz - input.world_pos;
     const float distance_m = length(to_camera);
     float3 lit;
-    if (sc_flags.x < 0.5) {
+    if (!physically_based) {
         const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
         const float3 ambient = ambient_radiance(n) * surface.occlusion;
         lit = surface.base_color * (ambient + sc_sun_color.rgb * n_dot_l) + surface.emissive;

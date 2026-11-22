@@ -48,21 +48,36 @@ bool sweep_axis(Vec3& feet, std::size_t axis, float displacement, std::span<cons
     return blocked;
 }
 
+bool is_supported(Vec3 feet, std::span<const StaticBox> course) {
+    return sweep_axis(feet, 2, -contact_tolerance, course);
+}
+
+void validate_boxes(std::span<const StaticBox> course) {
+    for (const auto& box : course) {
+        if (!finite(box.min) || !finite(box.max) || box.min.x >= box.max.x ||
+            box.min.y >= box.max.y || box.min.z >= box.max.z) {
+            throw std::invalid_argument("Character course contains an invalid box");
+        }
+    }
+}
+
+bool overlaps_course(Vec3 feet, std::span<const StaticBox> course) {
+    const auto character = bounds(feet);
+    return std::ranges::any_of(course, [&](const StaticBox& box) {
+        return overlaps(character, box, 0) && overlaps(character, box, 1) && overlaps(character, box, 2);
+    });
+}
+
 } // namespace
 
 CharacterMotor::CharacterMotor(Vec3 spawn, std::span<const StaticBox> course)
     : spawn_(spawn), course_(course.begin(), course.end()), state_{spawn, {}, false} {
     if (!finite(spawn)) throw std::invalid_argument("Character spawn must be finite");
-    const auto character = bounds(spawn);
-    for (const auto& box : course_) {
-        if (!finite(box.min) || !finite(box.max) || box.min.x >= box.max.x ||
-            box.min.y >= box.max.y || box.min.z >= box.max.z) {
-            throw std::invalid_argument("Character course contains an invalid box");
-        }
-        if (overlaps(character, box, 0) && overlaps(character, box, 1) && overlaps(character, box, 2)) {
-            throw std::invalid_argument("Character spawn overlaps course geometry");
-        }
+    validate_boxes(course_);
+    if (overlaps_course(spawn, course_)) {
+        throw std::invalid_argument("Character spawn overlaps course geometry");
     }
+    reset();
 }
 
 void CharacterMotor::step(CharacterInput input, std::chrono::nanoseconds dt) {
@@ -99,8 +114,20 @@ void CharacterMotor::step(CharacterInput input, std::chrono::nanoseconds dt) {
     }
 }
 
+bool CharacterMotor::replace_static_geometry(std::span<const StaticBox> geometry) {
+    validate_boxes(geometry);
+    if (overlaps_course(state_.feet, geometry) || overlaps_course(spawn_, geometry)) {
+        return false;
+    }
+    std::vector<StaticBox> candidate(geometry.begin(), geometry.end());
+    course_.swap(candidate);
+    state_.grounded = state_.velocity.z <= 0.0f && is_supported(state_.feet, course_);
+    if (state_.grounded) state_.velocity.z = 0.0f;
+    return true;
+}
+
 void CharacterMotor::reset() noexcept {
-    state_ = {spawn_, {}, false};
+    state_ = {spawn_, {}, is_supported(spawn_, course_)};
     previous_jump_ = false;
 }
 

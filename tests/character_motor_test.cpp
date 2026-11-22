@@ -54,6 +54,39 @@ void test_contacts() {
     }
 }
 
+void test_geometry_replacement() {
+    CharacterMotor motor({}, course);
+    require(motor.state().grounded, "spawn recognizes ground before the first tick");
+    motor.step({0, 0, true}, tick);
+    require(motor.state().feet.z > 0 && !motor.state().grounded, "jump works on the first tick");
+    motor.reset();
+    require(motor.state().grounded, "reset immediately restores ground contact");
+
+    for (int i = 0; i < 45; ++i) motor.step({1, 0, false, true}, tick);
+    const auto stopped = motor.state();
+    constexpr std::array obstructed{
+        course[0], StaticBox{{1, -1, 0}, {2, 1, 1}},
+    };
+    require(!motor.replace_static_geometry(obstructed) && motor.state() == stopped,
+            "an overlapping candidate cannot replace active collision");
+    constexpr std::array invalid{StaticBox{{1, 1, 1}, {0, 0, 0}}};
+    try {
+        (void)motor.replace_static_geometry(invalid);
+        throw std::runtime_error("invalid collision was accepted");
+    } catch (const std::invalid_argument&) {
+        require(motor.state() == stopped, "invalid geometry cannot mutate the player");
+    }
+    motor.step({1}, tick);
+    require(motor.state() == stopped, "old wall remains after both rejected replacements");
+
+    require(motor.replace_static_geometry(std::span(course).first(1)), "accept an unobstructed replacement");
+    for (int i = 0; i < 25; ++i) motor.step({1}, tick);
+    require(motor.state().grounded && motor.state().feet.x > 2.1f, "retired wall no longer blocks movement");
+    require(motor.replace_static_geometry({}) && !motor.state().grounded, "unloading floor removes support");
+    motor.step({}, tick);
+    require(motor.state().feet.z < stopped.feet.z, "unloaded floor no longer prevents gravity");
+}
+
 class ScriptClock final : public IPlatform {
 public:
     std::chrono::steady_clock::time_point now() override { return time_; }
@@ -115,6 +148,7 @@ int main() {
     try {
         test_contacts();
         test_replay();
+        test_geometry_replacement();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

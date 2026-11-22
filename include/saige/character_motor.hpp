@@ -32,6 +32,9 @@ class CharacterMotor {
 public:
     CharacterMotor(Vec3 spawn, std::span<const StaticBox> course);
     void step(CharacterInput input, std::chrono::nanoseconds dt);
+    // Replace the static collision set between ticks. Returns false if the player or reset pose
+    // would overlap the candidate. Invalid boxes throw. Either rejection keeps the old state.
+    bool replace_static_geometry(std::span<const StaticBox> geometry);
     void reset() noexcept;
     [[nodiscard]] const CharacterState& state() const noexcept { return state_; }
 

@@ -56,6 +56,7 @@ public:
             } else {
                 motor_->step({static_cast<float>(forward - back), static_cast<float>(left - right),
                               platform_.key_down(Key::space), platform_.key_down(Key::shift)}, step);
+                if (motor_->state().feet.z < -8.0f) motor_->reset();
             }
             world.set_position(marker_, motor_->state().feet);
             return;

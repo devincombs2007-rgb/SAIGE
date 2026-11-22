@@ -1,5 +1,6 @@
 #include "saige/render_sink/renderer_frame_sink.hpp"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -30,7 +31,9 @@ rhi::NativeSurface to_rhi_surface(const saige::NativeWindowHandle& handle)
 
 } // namespace
 
-std::vector<SceneInstance> to_scene_instances(std::span<const saige::RenderInstance> instances)
+namespace {
+
+SceneInstance to_scene_instance(const saige::RenderInstance& inst)
 {
     // Linear-space albedos; entity 0 (the sample's marker) gets the signature orange.
     static constexpr std::array<Float3, 6> palette{{{0.85f, 0.30f, 0.10f},
@@ -39,16 +42,54 @@ std::vector<SceneInstance> to_scene_instances(std::span<const saige::RenderInsta
                                                     {0.80f, 0.70f, 0.15f},
                                                     {0.60f, 0.25f, 0.75f},
                                                     {0.85f, 0.85f, 0.85f}}};
+    SceneInstance s;
+    s.position = {inst.position.x, inst.position.y, inst.position.z};
+    s.color = palette[inst.entity.index % palette.size()];
+    s.yaw_offset = static_cast<float>(inst.entity.index) * 0.7f;
+    return s;
+}
+
+bool id_less(const saige::AssetId& a, const saige::AssetId& b) noexcept
+{
+    return a.high != b.high ? a.high < b.high : a.low < b.low;
+}
+
+} // namespace
+
+std::vector<SceneInstance> to_scene_instances(std::span<const saige::RenderInstance> instances)
+{
     std::vector<SceneInstance> out;
     out.reserve(instances.size());
     for (const saige::RenderInstance& inst : instances) {
-        SceneInstance s;
-        s.position = {inst.position.x, inst.position.y, inst.position.z};
-        s.color = palette[inst.entity.index % palette.size()];
-        s.yaw_offset = static_cast<float>(inst.entity.index) * 0.7f;
-        out.push_back(s);
+        out.push_back(to_scene_instance(inst));
     }
     return out;
+}
+
+Camera to_render_camera(const saige::CameraView& camera) noexcept
+{
+    Camera c;
+    c.position = {camera.position.x, camera.position.y, camera.position.z};
+    c.rotation = {camera.rotation.x, camera.rotation.y, camera.rotation.z, camera.rotation.w};
+    c.fov_y_radians = camera.fov_y_radians;
+    c.near_plane = camera.near_plane;
+    return c;
+}
+
+Mat4 to_render_matrix(const saige::WorldMatrix& matrix) noexcept
+{
+    Mat4 m;
+    for (std::size_t i = 0; i < 16; ++i) {
+        m.m[i] = matrix[i];
+    }
+    return m;
+}
+
+const GpuModel* StagedScene::find(saige::AssetId id) const noexcept
+{
+    const auto it = std::lower_bound(models_.begin(), models_.end(), id,
+                                     [](const Entry& e, const saige::AssetId& key) { return id_less(e.id, key); });
+    return (it != models_.end() && it->id == id) ? &it->model : nullptr;
 }
 
 RendererFrameSink::RendererFrameSink(std::unique_ptr<rhi::Device> device, const saige::IDesktopPlatform& platform,
@@ -110,6 +151,7 @@ RendererFrameSink::~RendererFrameSink()
 {
     // D-18: release GPU work, swapchain and surface before the platform destroys its window.
     device_->wait_idle();
+    active_ = StagedScene{};  // the scene's references go before the renderer's registry does
     renderer_.reset();
     if (swapchain_.is_valid()) {
         device_->destroy(swapchain_);
@@ -123,15 +165,90 @@ RendererFrameSink::~RendererFrameSink()
     device_->wait_idle();
 }
 
+StagedScene RendererFrameSink::stage_scene(std::span<const SceneAssetRef> assets, const gfx::StageSettings& settings)
+{
+    for (std::size_t i = 0; i < assets.size(); ++i) {
+        if (assets[i].asset == nullptr) {
+            throw std::invalid_argument("stage_scene: an asset reference has no data");
+        }
+        if (assets[i].id.is_builtin()) {
+            throw std::invalid_argument("stage_scene: the all-zero asset ID is reserved for the built-in mesh");
+        }
+        for (std::size_t j = i + 1; j < assets.size(); ++j) {
+            if (assets[i].id == assets[j].id) {
+                throw std::invalid_argument("stage_scene: duplicate asset ID");
+            }
+        }
+    }
+    StagedScene staged;
+    staged.owner_ = this;
+    for (const SceneAssetRef& ref : assets) {
+        gfx::StageReport report;
+        const std::string name = ref.name.empty() ? saige::format_asset_id(ref.id) : ref.name;
+        StagedScene::Entry entry{ref.id, gfx::stage_model(*renderer_, *ref.asset, name, settings, &report)};
+        staged.models_.push_back(std::move(entry));
+        staged.report_.textures += report.textures;
+        staged.report_.texture_bytes += report.texture_bytes;
+        staged.report_.primitives += report.primitives;
+        staged.report_.vertex_bytes += report.vertex_bytes;
+        staged.report_.index_bytes += report.index_bytes;
+        for (const std::string& w : report.warnings) {
+            if (std::find(staged.report_.warnings.begin(), staged.report_.warnings.end(), w) == staged.report_.warnings.end()) {
+                staged.report_.warnings.push_back(w);
+            }
+        }
+    }
+    std::sort(staged.models_.begin(), staged.models_.end(),
+              [](const StagedScene::Entry& a, const StagedScene::Entry& b) { return id_less(a.id, b.id); });
+    return staged;
+}
+
+void RendererFrameSink::activate_scene(StagedScene&& scene)
+{
+    if (scene.owner_ != nullptr && scene.owner_ != this) {
+        throw std::invalid_argument("activate_scene: the scene was staged by a different RendererFrameSink");
+    }
+    active_ = std::move(scene);  // the previous scene's references are released here
+}
+
 void RendererFrameSink::submit(const saige::FrameView& frame)
 {
     ++stats_.frames_submitted;
-    instances_ = to_scene_instances(frame.instances);  // copy: the span is only valid during submit()
-    stats_.last_instance_count = instances_.size();
+    // Copy what is retained: the FrameView is only valid during submit().
+    instances_.clear();
+    model_draws_.clear();
+    for (const saige::RenderInstance& inst : frame.instances) {
+        const GpuModel* model = nullptr;
+        if (!inst.mesh.is_builtin()) {
+            model = active_.find(inst.mesh);
+            if (model == nullptr) {
+                ++stats_.unresolved_instances;  // names an asset that is not staged: a fallback cube, never nothing
+            }
+        }
+        if (model != nullptr) {
+            Mat4 world = Mat4::identity();
+            if (inst.world_matrix) {
+                world = to_render_matrix(*inst.world_matrix);
+            } else {  // no authoritative matrix: place the model at the instance position, unrotated
+                world.at(0, 3) = inst.position.x;
+                world.at(1, 3) = inst.position.y;
+                world.at(2, 3) = inst.position.z;
+            }
+            model_draws_.push_back({model, world});
+        } else {
+            instances_.push_back(to_scene_instance(inst));
+        }
+    }
+    stats_.last_instance_count = frame.instances.size();
     SceneFrame scene;
     scene.tick = frame.tick;
     scene.alpha = frame.alpha;
     scene.instances = instances_;
+    scene.models = model_draws_;
+    if (frame.camera) {
+        camera_ = to_render_camera(*frame.camera);
+        scene.camera = &camera_;  // a missing camera keeps the 0.1 follow camera
+    }
     if (platform_ != nullptr) {
         submit_windowed(scene);
     } else {
@@ -182,7 +299,9 @@ void RendererFrameSink::submit_windowed(const SceneFrame& frame)
     target.height = height_;
     target.initial_state = swapchain_acquired;
     target.final_state = swapchain_present;
-    (void)renderer_->render(cmd, frame, target);
+    const FrameStats fs = renderer_->render(cmd, frame, target);
+    stats_.model_instances_drawn += fs.model_instances;
+    stats_.model_instances_skipped += fs.model_instances_skipped;
     const rhi::FrameResult result = device_->end_frame();
     if (result.swapchain_out_of_date) {
         recreate_pending_ = true;
@@ -197,8 +316,12 @@ void RendererFrameSink::submit_offscreen(const SceneFrame& frame)
     target.texture = offscreen_color_;
     target.width = width_;
     target.height = height_;
+    target.initial_state = offscreen_state_;
     target.readback_buffer = readback_;
-    (void)renderer_->render(cmd, frame, target);
+    const FrameStats fs = renderer_->render(cmd, frame, target);
+    offscreen_state_ = {rhi::PipelineStage::Transfer, rhi::Access::TransferRead, rhi::TextureLayout::TransferSrc};
+    stats_.model_instances_drawn += fs.model_instances;
+    stats_.model_instances_skipped += fs.model_instances_skipped;
     (void)device_->end_frame();
     has_frame_ = true;
     ++stats_.frames_rendered;

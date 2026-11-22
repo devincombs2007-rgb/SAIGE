@@ -6,12 +6,27 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace saige::render {
 
 namespace {
 
 constexpr rhi::Format depth_format = rhi::Format::D32_FLOAT;
+
+void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
+                     rhi::BindGroupHandle hdr_input)
+{
+    if (hdr_input.is_valid()) {
+        device.destroy(hdr_input);
+    }
+    if (hdr.is_valid()) {
+        device.destroy(hdr);
+    }
+    if (depth.is_valid()) {
+        device.destroy(depth);
+    }
+}
 
 const rhi::ResourceState depth_attachment_state{
     rhi::PipelineStage::EarlyFragmentTests | rhi::PipelineStage::LateFragmentTests, rhi::Access::DepthStencilWrite,
@@ -117,15 +132,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
 
 SceneRenderer::~SceneRenderer()
 {
-    if (hdr_input_.is_valid()) {
-        device_.destroy(hdr_input_);
-    }
-    if (hdr_.is_valid()) {
-        device_.destroy(hdr_);
-    }
-    if (depth_.is_valid()) {
-        device_.destroy(depth_);
-    }
+    release_targets(device_, depth_, hdr_, hdr_input_);
     device_.destroy(cube_indices_);
     device_.destroy(cube_vertices_);
     device_.destroy(ground_pipeline_);
@@ -136,49 +143,49 @@ SceneRenderer::~SceneRenderer()
     device_.destroy(cube_vs_);
 }
 
-void SceneRenderer::ensure_depth(uint32_t width, uint32_t height)
+void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
 {
-    if (depth_.is_valid() && depth_width_ == width && depth_height_ == height) {
+    if (depth_.is_valid() && target_width_ == width && target_height_ == height) {
         return;
     }
-    if (depth_.is_valid()) {
-        device_.destroy(depth_);
-    }
-    rhi::TextureDesc d;
-    d.format = depth_format;
-    d.width = width;
-    d.height = height;
-    d.usage = rhi::TextureUsage::DepthStencilAttachment;
-    d.debug_name = "SceneDepth";
-    depth_ = device_.create_texture(d);
-    depth_width_ = width;
-    depth_height_ = height;
-    depth_state_ = {};  // new image: undefined contents
-}
 
-void SceneRenderer::ensure_hdr(uint32_t width, uint32_t height)
-{
-    if (hdr_.is_valid() && hdr_width_ == width && hdr_height_ == height) {
-        return;
+    rhi::TextureDesc depth_desc;
+    depth_desc.format = depth_format;
+    depth_desc.width = width;
+    depth_desc.height = height;
+    depth_desc.usage = rhi::TextureUsage::DepthStencilAttachment;
+    depth_desc.debug_name = "SceneDepth";
+
+    rhi::TextureHandle next_depth;
+    rhi::TextureHandle next_hdr;
+    rhi::BindGroupHandle next_input;
+    try {
+        next_depth = device_.create_texture(depth_desc);
+
+        if (settings_.hdr) {
+            rhi::TextureDesc hdr_desc;
+            hdr_desc.format = rhi::Format::RGBA16_FLOAT;
+            hdr_desc.width = width;
+            hdr_desc.height = height;
+            hdr_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+            hdr_desc.debug_name = "SceneHdr";
+            next_hdr = device_.create_texture(hdr_desc);
+            next_input = tone_mapper_->create_input(next_hdr);
+        }
+    } catch (...) {
+        release_targets(device_, next_depth, next_hdr, next_input);
+        throw;
     }
-    if (hdr_input_.is_valid()) {
-        device_.destroy(hdr_input_);  // retired on the device's completion timeline: frames still using it finish first
-        hdr_input_ = {};
-    }
-    if (hdr_.is_valid()) {
-        device_.destroy(hdr_);
-    }
-    rhi::TextureDesc d;
-    d.format = rhi::Format::RGBA16_FLOAT;
-    d.width = width;
-    d.height = height;
-    d.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
-    d.debug_name = "SceneHdr";
-    hdr_ = device_.create_texture(d);
-    hdr_input_ = tone_mapper_->create_input(hdr_);
-    hdr_width_ = width;
-    hdr_height_ = height;
-    hdr_state_ = {};  // new image: undefined contents
+
+    // Install the whole attachment set before retiring the old one on the device's completion timeline.
+    std::swap(depth_, next_depth);
+    std::swap(hdr_, next_hdr);
+    std::swap(hdr_input_, next_input);
+    target_width_ = width;
+    target_height_ = height;
+    depth_state_ = {};
+    hdr_state_ = {};
+    release_targets(device_, next_depth, next_hdr, next_input);
 }
 
 Float3 SceneRenderer::camera_target(const SceneFrame& frame) const
@@ -244,10 +251,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
-    ensure_depth(target.width, target.height);
-    if (settings_.hdr) {
-        ensure_hdr(target.width, target.height);
-    }
+    ensure_targets(target.width, target.height);
 
     const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
     DrawConstants constants{};

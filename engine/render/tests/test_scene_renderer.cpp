@@ -5,6 +5,8 @@
 
 #include <cmath>
 #include <cstring>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 using namespace saige;
@@ -219,6 +221,64 @@ TEST_CASE("SceneRenderer: destruction releases every GPU resource it created")
         (void)renderer.render(o.device.begin_frame(), SceneFrame{}, o.target());
         (void)o.device.end_frame();
         CHECK(o.device.live_resource_count() > baseline);
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be retried")
+{
+    Offscreen o;
+    rhi::TextureDesc resized_desc = *o.device.texture_desc(o.color);
+    resized_desc.width = 160;
+    resized_desc.height = 90;
+    RenderTarget resized = o.target(resized_desc.width, resized_desc.height);
+    resized.texture = o.device.create_texture(resized_desc);
+
+    const uint32_t baseline = o.device.live_resource_count();
+    {
+        RendererSettings settings;
+        settings.hdr = true;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        const auto draw_frame = [&](const RenderTarget& target) {
+            (void)renderer.render(o.device.begin_frame(), SceneFrame{}, target);
+            (void)o.device.end_frame();
+            const auto passes = of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering);
+            REQUIRE(passes.size() == 2);
+            const auto& scene_pass = passes[0]->rendering;
+            REQUIRE(scene_pass.depth.has_value());
+            REQUIRE(scene_pass.colors.size() == 1);
+            return std::pair{scene_pass.depth->texture, scene_pass.colors[0].texture};
+        };
+
+        const auto original_targets = draw_frame(o.target());
+        o.device.wait_idle();
+        const uint32_t ready_count = o.device.live_resource_count();
+        // Fail depth allocation, HDR allocation, and the tone-map bind group in turn.
+        for (uint32_t allocation = 1; allocation <= 3; ++allocation) {
+            rhi::CommandList& cmd = o.device.begin_frame();
+            o.device.fail_creation_after(allocation);
+            bool failed = false;
+            try {
+                (void)renderer.render(cmd, SceneFrame{}, resized);
+            } catch (const std::runtime_error&) {
+                failed = true;
+            }
+            o.device.fail_creation_after(0);
+            (void)o.device.end_frame();
+            CHECK(failed);
+            CHECK(o.device.last_frame_commands().empty());
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == ready_count);
+            CHECK(draw_frame(o.target()) == original_targets);
+        }
+
+        const auto new_targets = draw_frame(resized);
+        CHECK(new_targets.first != original_targets.first);
+        CHECK(new_targets.second != original_targets.second);
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == ready_count);
     }
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == baseline);

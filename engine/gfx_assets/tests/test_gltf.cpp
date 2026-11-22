@@ -814,3 +814,88 @@ TEST_CASE("glTF files: external resources are confined to the asset's directory"
     }
     fs::remove_all(dir);
 }
+
+// ================================================================================================= tangents
+namespace {
+
+/// A unit quad (glTF space: facing +Z) with UVs, optionally TANGENT, and a material that does or does not use a normal texture.
+std::string quad_doc(bool uvs, bool tangent, bool normal_texture)
+{
+    Blob b;
+    const float pos[12] = {0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0};
+    for (float v : pos) b.f32(v);                                         // POSITION at 0 (48 bytes)
+    for (int i = 0; i < 4; ++i) b.vec3(0, 0, 1);                          // NORMAL at 48
+    const float uv[8] = {0, 1, 1, 1, 1, 0, 0, 0};                         // top-left origin: +Y world is up the image
+    for (float v : uv) b.f32(v);                                          // TEXCOORD_0 at 96 (32 bytes)
+    for (int i = 0; i < 4; ++i) { b.f32(0); b.f32(1); b.f32(0); b.f32(1); }  // TANGENT at 128: +Y, w = +1 (deliberately unlike the generated one)
+    b.u16(0); b.u16(1); b.u16(2); b.u16(0); b.u16(2); b.u16(3);          // indices at 192 (12 bytes)
+    Blob img;
+    img.u8(1);
+    std::string attributes = R"("POSITION":0,"NORMAL":1)";
+    if (uvs) attributes += R"(,"TEXCOORD_0":2)";
+    if (tangent) attributes += R"(,"TANGENT":3)";
+    const std::string material = normal_texture ? R"("materials":[{"normalTexture":{"index":0}}],)" : R"("materials":[{}],)";
+    return R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],)"
+           R"("meshes":[{"primitives":[{"attributes":{)" + attributes + R"(},"indices":4,"material":0}]}],)" + material +
+           R"("textures":[{"source":0}],"images":[{"uri":")" + data_uri(img, "image/png") + R"("}],)"
+           R"("accessors":[{"bufferView":0,"componentType":5126,"count":4,"type":"VEC3"},)"
+           R"({"bufferView":1,"componentType":5126,"count":4,"type":"VEC3"},)"
+           R"({"bufferView":2,"componentType":5126,"count":4,"type":"VEC2"},)"
+           R"({"bufferView":3,"componentType":5126,"count":4,"type":"VEC4"},)"
+           R"({"bufferView":4,"componentType":5123,"count":6,"type":"SCALAR"}],)"
+           R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":48},{"buffer":0,"byteOffset":48,"byteLength":48},)"
+           R"({"buffer":0,"byteOffset":96,"byteLength":32},{"buffer":0,"byteOffset":128,"byteLength":64},)"
+           R"({"buffer":0,"byteOffset":192,"byteLength":12}],)"
+           R"("buffers":[{"byteLength":204,"uri":")" + data_uri(b) + R"("}]})";
+}
+
+bool has_warning(const GltfAsset& a, const std::string& fragment)
+{
+    for (const std::string& w : a.warnings) {
+        if (w.find(fragment) != std::string::npos) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("glTF tangents: a normal-mapped primitive without TANGENT gets generated tangents, reported once")
+{
+    const GltfLoadResult r = load_text(quad_doc(true, false, true));
+    REQUIRE(r.ok());
+    const Primitive& p = r.asset->meshes[0].primitives[0];
+    REQUIRE(p.tangents.size() == 16);
+    // glTF +X is engine +Y (front/left axes are converted once at import); the tangent follows U, which runs along glTF +X.
+    for (uint32_t v = 0; v < 4; ++v) {
+        const float len = std::sqrt(p.tangents[v * 4] * p.tangents[v * 4] + p.tangents[v * 4 + 1] * p.tangents[v * 4 + 1] +
+                                    p.tangents[v * 4 + 2] * p.tangents[v * 4 + 2]);
+        CHECK(near(len, 1.0f));
+        CHECK(near(p.tangents[v * 4 + 1], 1.0f));  // glTF +X (the U direction) is engine +Y
+        CHECK(near(p.tangents[v * 4 + 3], 1.0f));  // handedness
+    }
+    CHECK(has_warning(*r.asset, "tangents were generated"));
+}
+
+TEST_CASE("glTF tangents: the file's own TANGENT is kept untouched, and unused tangents are never generated")
+{
+    const GltfLoadResult given = load_text(quad_doc(true, true, true));
+    REQUIRE(given.ok());
+    const Primitive& p = given.asset->meshes[0].primitives[0];
+    REQUIRE(p.tangents.size() == 16);
+    CHECK(near(p.tangents[2], 1.0f));  // the file's glTF +Y tangent, converted to engine +Z: not the generated engine +Y one
+    CHECK(near(p.tangents[1], 0.0f));
+    CHECK_FALSE(has_warning(*given.asset, "tangents were generated"));
+
+    const GltfLoadResult no_normal_map = load_text(quad_doc(true, false, false));
+    REQUIRE(no_normal_map.ok());
+    CHECK(no_normal_map.asset->meshes[0].primitives[0].tangents.empty());  // nothing would use them
+    CHECK_FALSE(has_warning(*no_normal_map.asset, "tangents were generated"));
+}
+
+TEST_CASE("glTF tangents: a normal texture without UVs is warned about and generates nothing")
+{
+    const GltfLoadResult r = load_text(quad_doc(false, false, true));
+    REQUIRE(r.ok());
+    CHECK(r.asset->meshes[0].primitives[0].tangents.empty());
+    CHECK(has_warning(*r.asset, "no TEXCOORD_0"));
+}

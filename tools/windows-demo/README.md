@@ -26,6 +26,6 @@ SHA256SUMS.txt records hashes relative to the archive root.
 
 This demonstration uses a small original glTF scene licensed under CC0-1.0.
 The fixture notice is in notices/textured-scene.md. The renderer samples base
-color textures, and glTF Blend materials draw opaque. Reopening in the test
+color textures; glTF Blend materials draw opaque unless alpha blending is enabled (it is off by default). Reopening in the test
 starts a new native process. Separate renderer tests cover failed scene
 replacement and retirement of resources that are still in flight.

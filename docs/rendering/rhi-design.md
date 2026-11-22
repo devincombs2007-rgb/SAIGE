@@ -184,6 +184,25 @@ descriptions and never reports timestamps.
   Pipelines can be precompiled in the background from a recorded PSO list to avoid hitches.
 - Pipeline creation is thread-safe and can run on job-system workers.
 
+### 6.1 Blend state (0.3)
+
+`GraphicsPipelineDesc::blend` (`saige/rhi/blend.hpp`) is a `std::vector<BlendState>`: empty (the default) means blending is
+disabled for every color attachment, exactly as before the field existed, so every existing description and pipeline is
+unchanged. When present it has one entry per color attachment. `BlendState` holds an enable flag, source and destination
+factors and an operation for color and for alpha separately, plus presets (`source_over()` for straight alpha as glTF's `BLEND`,
+`premultiplied_over()`, `additive()`).
+
+Portable subset, enforced identically by every backend through `validate_blend_state` before any native object is created:
+- the same state for all color attachments (independent per-attachment blending is not exposed);
+- blending only into UNORM, sRGB and 16-bit float color formats (plus packed RG11B10 float), the formats that blend on every
+  Vulkan implementation; integer, SNORM, 32-bit float, shared-exponent and block-compressed formats are rejected when a state is
+  enabled (a disabled state is accepted for any format);
+- factors: zero, one, source/destination color and alpha and their complements; operations: add, subtract, reverse subtract,
+  min, max. Dual-source blending and a constant blend color are not part of the contract yet and extend the enums when needed.
+
+Blending is done in the target's native space: into an `*_SRGB` target the hardware decodes the destination, blends linearly and
+encodes. Depth state is separate (`DepthState`): a transparent pass typically tests depth and does not write it.
+
 ## 7. Command recording & submission
 
 - `CommandList` wraps `VkCommandBuffer`. Each worker thread and frame-in-flight gets its own command pool.

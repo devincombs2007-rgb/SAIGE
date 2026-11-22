@@ -1,7 +1,10 @@
 #include "saige/render/model_renderer.hpp"
 
+#include "saige/render/env_brdf.hpp"
+
 #include "saige/shaders/scene_model.spv.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -29,13 +32,21 @@ struct SceneConstants {
     float sun_direction[4];
     float sun_color[4];
     float ambient_ground[4];
+    float flags[4];  ///< x: shading mode
 };
 
-/// Material uniform block (set 0, binding 2), matching `Material` in the shader.
+/// Material uniform block (set 0, binding 10), matching `Material` in the shader.
 struct MaterialBlock {
     float base_color[4];
     float emissive_cutoff[4];
+    float metallic_roughness_normal_occlusion[4];  ///< metallic, roughness, normal scale, occlusion strength
+    float flags[4];                                ///< x: 1 when the material has a normal texture; y: 1 when it is blended
 };
+static_assert(sizeof(MaterialBlock) == 64);
+
+/// Material bind group (set 0): textures at 0..4 in MaterialSlot order, their samplers at 5..9, the block at 10.
+constexpr uint32_t kSamplerBase = kMaterialSlotCount;
+constexpr uint32_t kBlockBinding = 2 * kMaterialSlotCount;
 
 template <std::size_t N>
 std::span<const uint32_t> words(const uint32_t (&array)[N])
@@ -104,11 +115,15 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_model_ps_main), "PSMain", "SceneModel.PS"});
 
     rhi::BindGroupLayoutDesc material;
-    material.entries = {{0, rhi::BindingType::SampledTexture}, {1, rhi::BindingType::Sampler}, {2, rhi::BindingType::UniformBuffer}};
+    for (uint32_t slot = 0; slot < kMaterialSlotCount; ++slot) {
+        material.entries.push_back({slot, rhi::BindingType::SampledTexture});
+        material.entries.push_back({kSamplerBase + slot, rhi::BindingType::Sampler});
+    }
+    material.entries.push_back({kBlockBinding, rhi::BindingType::UniformBuffer});
     material.debug_name = "ModelMaterialLayout";
     material_layout_ = device_.create_bind_group_layout(material);
     rhi::BindGroupLayoutDesc constants;
-    constants.entries = {{0, rhi::BindingType::UniformBuffer}};
+    constants.entries = {{0, rhi::BindingType::UniformBuffer}, {1, rhi::BindingType::SampledTexture}, {2, rhi::BindingType::Sampler}};
     constants.debug_name = "ModelConstantsLayout";
     constants_layout_ = device_.create_bind_group_layout(constants);
 
@@ -118,12 +133,16 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     pd.vertex_layout.stride = sizeof(ModelVertex);
     pd.vertex_layout.attributes = {{0, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, position)},
                                    {1, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, normal)},
-                                   {2, rhi::Format::RG32_FLOAT, offsetof(ModelVertex, uv)}};
+                                   {2, rhi::Format::RG32_FLOAT, offsetof(ModelVertex, uv)},
+                                   {3, rhi::Format::RGBA32_FLOAT, offsetof(ModelVertex, tangent)}};
     pd.depth = {true, true, rhi::CompareOp::Greater};  // reverse-Z
     pd.color_formats = {color_format};
     pd.depth_format = depth_format;
     pd.push_constant_size = sizeof(ModelPush);
     pd.bind_group_layouts = {material_layout_, constants_layout_};
+    pipeline_template_ = pd;
+    blending_supported_ = rhi::is_blendable_color_format(color_format);
+    alpha_blending_ = settings.alpha_blending;
     static const char* const names[4] = {"SceneModel.CCW.Back", "SceneModel.CCW.None", "SceneModel.CW.Back", "SceneModel.CW.None"};
     for (int mirrored = 0; mirrored < 2; ++mirrored) {
         for (int two_sided = 0; two_sided < 2; ++two_sided) {
@@ -150,34 +169,73 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     sc.ambient_ground[0] = 0.20f;
     sc.ambient_ground[1] = 0.18f;
     sc.ambient_ground[2] = 0.16f;
+    sc.flags[0] = settings.shading == ModelShading::MetallicRoughness ? 1.0f : 0.0f;
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");
-    BindGroupBinding binding;
-    binding.binding = 0;
-    binding.buffer = constants_buffer;
-    binding.size = sizeof(sc);
-    constants_group_ = registry_.create_bind_group(constants_layout_, std::span(&binding, 1), "ModelSceneConstants");
-
-    // A 1x1 white texel: materials without a base color texture sample it, so one shader serves both.
-    rhi::TextureDesc white;
-    white.format = rhi::Format::RGBA8_SRGB;
-    white.width = white.height = 1;
-    white.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
-    white.debug_name = "ModelWhite";
-    const std::byte texel[4] = {std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
-    white_ = registry_.create_texture(white, texel);
+    // Neutral 1x1 textures, so a slot a material leaves empty changes nothing: white for base color, emissive (the factor
+    // alone decides), metallic-roughness and occlusion (factors alone decide), and a flat tangent-space normal (0, 0, 1).
+    const auto neutral = [&](rhi::Format format, const char* debug, uint8_t r, uint8_t g, uint8_t b) {
+        rhi::TextureDesc d;
+        d.format = format;
+        d.width = d.height = 1;
+        d.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        d.debug_name = debug;
+        const std::byte texel[4] = {std::byte{r}, std::byte{g}, std::byte{b}, std::byte{255}};
+        return registry_.create_texture(d, texel);
+    };
+    white_srgb_ = neutral(rhi::Format::RGBA8_SRGB, "ModelWhite", 255, 255, 255);
+    white_linear_ = neutral(rhi::Format::RGBA8_UNORM, "ModelWhiteLinear", 255, 255, 255);
+    flat_normal_ = neutral(rhi::Format::RGBA8_UNORM, "ModelFlatNormal", 128, 128, 255);
 
     rhi::SamplerDesc sampler;  // trilinear, repeat
     default_sampler_ = registry_.get_sampler(sampler);
+
+    // The split-sum environment BRDF table (metallic-roughness shading's ambient specular). Legacy shading never reads it, so
+    // it gets one zero texel instead of paying for the integration.
+    {
+        const bool needed = settings.shading == ModelShading::MetallicRoughness;
+        const EnvBrdfTable zero{1, {0, 0}};
+        const EnvBrdfTable& table = needed ? default_env_brdf_table() : zero;
+        rhi::TextureDesc d;
+        d.format = rhi::Format::RG16_FLOAT;
+        d.width = d.height = table.size;
+        d.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        d.debug_name = "ModelEnvBrdf";
+        env_brdf_ = registry_.create_texture(d, std::as_bytes(std::span(table.texels)));
+        rhi::SamplerDesc s;
+        s.address_u = s.address_v = rhi::AddressMode::ClampToEdge;
+        s.mipmap_mode = rhi::MipmapMode::Nearest;
+        s.max_lod = 0.0f;
+        env_brdf_sampler_ = registry_.get_sampler(s);
+    }
+
+    BindGroupBinding constant_bindings[3];
+    constant_bindings[0].binding = 0;
+    constant_bindings[0].buffer = constants_buffer;
+    constant_bindings[0].size = sizeof(sc);
+    constant_bindings[1].binding = 1;
+    constant_bindings[1].texture = env_brdf_;
+    constant_bindings[2].binding = 2;
+    constant_bindings[2].sampler = env_brdf_sampler_;
+    constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants");
 }
 
 ModelRenderer::~ModelRenderer()
 {
     constants_group_.reset();
-    white_.reset();
+    white_srgb_.reset();
+    white_linear_.reset();
+    flat_normal_.reset();
+    env_brdf_.reset();
+    env_brdf_sampler_.reset();
     default_sampler_.reset();
     for (const rhi::PipelineHandle p : pipelines_) {
         device_.destroy(p);
+    }
+    if (blend_pipelines_ready_) {
+        for (const rhi::PipelineHandle p : blend_pipelines_) {
+            device_.destroy(p);
+        }
     }
     device_.destroy(ps_);
     device_.destroy(vs_);
@@ -185,30 +243,93 @@ ModelRenderer::~ModelRenderer()
     device_.destroy(constants_layout_);
 }
 
-GpuMaterial ModelRenderer::create_material(const MaterialParams& params, const TextureRef& base_color, const SamplerRef& sampler,
+GpuMaterial ModelRenderer::create_material(const MaterialData& data, const TextureRef& base_color, const SamplerRef& sampler,
                                            const char* name)
 {
+    MaterialTextures textures;
+    textures[MaterialSlot::BaseColor] = {base_color, sampler};
+    return create_material(data, textures, name);
+}
+
+GpuMaterial ModelRenderer::create_material(const MaterialData& data, const MaterialTextures& textures, const char* name)
+{
     MaterialBlock block{};
-    std::memcpy(block.base_color, params.base_color, sizeof(block.base_color));
-    block.emissive_cutoff[0] = params.emissive[0];
-    block.emissive_cutoff[1] = params.emissive[1];
-    block.emissive_cutoff[2] = params.emissive[2];
-    block.emissive_cutoff[3] = params.alpha_cutoff;
+    std::memcpy(block.base_color, data.base_color, sizeof(block.base_color));
+    block.emissive_cutoff[0] = data.emissive[0];
+    block.emissive_cutoff[1] = data.emissive[1];
+    block.emissive_cutoff[2] = data.emissive[2];
+    block.emissive_cutoff[3] = data.alpha_cutoff;
+    block.metallic_roughness_normal_occlusion[0] = data.metallic;
+    block.metallic_roughness_normal_occlusion[1] = data.roughness;
+    block.metallic_roughness_normal_occlusion[2] = data.normal_scale;
+    block.metallic_roughness_normal_occlusion[3] = data.occlusion_strength;
+    block.flags[0] = textures[MaterialSlot::Normal].texture.valid() ? 1.0f : 0.0f;
+    const bool blend = data.alpha_blend && blending_enabled();
+    block.flags[1] = blend ? 1.0f : 0.0f;
+    if (blend) {
+        ensure_blend_pipelines();  // outside any rendering, so a device failure surfaces as a failed material, not a failed frame
+    }
     BufferRef uniform;
     make_uniform(device_, registry_, uniform, &block, sizeof(block), name);
 
-    BindGroupBinding bindings[3];
-    bindings[0].binding = 0;
-    bindings[0].texture = base_color.valid() ? base_color : white_;
-    bindings[1].binding = 1;
-    bindings[1].sampler = sampler.valid() ? sampler : default_sampler_;
-    bindings[2].binding = 2;
-    bindings[2].buffer = uniform;
-    bindings[2].size = sizeof(block);
+    const TextureRef* neutral[kMaterialSlotCount] = {&white_srgb_, &white_linear_, &flat_normal_, &white_linear_, &white_srgb_};
+    BindGroupBinding bindings[2 * kMaterialSlotCount + 1];
+    for (uint32_t slot = 0; slot < kMaterialSlotCount; ++slot) {
+        const MaterialTextureSlot& s = textures.slots[slot];
+        bindings[slot].binding = slot;
+        bindings[slot].texture = s.texture.valid() ? s.texture : *neutral[slot];
+        bindings[kSamplerBase + slot].binding = kSamplerBase + slot;
+        bindings[kSamplerBase + slot].sampler = s.sampler.valid() ? s.sampler : default_sampler_;
+    }
+    bindings[kBlockBinding].binding = kBlockBinding;
+    bindings[kBlockBinding].buffer = uniform;
+    bindings[kBlockBinding].size = sizeof(block);
     GpuMaterial material;
     material.group = registry_.create_bind_group(material_layout_, bindings, name);
-    material.double_sided = params.double_sided;
+    material.double_sided = data.double_sided;
+    material.blend = blend;
     return material;
+}
+
+void ModelRenderer::ensure_blend_pipelines()
+{
+    if (blend_pipelines_ready_) {
+        return;
+    }
+    rhi::GraphicsPipelineDesc pd = pipeline_template_;
+    pd.depth = {true, false, rhi::CompareOp::Greater};  // test against the opaque depth, never write it
+    pd.blend = {rhi::BlendState::source_over()};        // straight alpha, as glTF defines BLEND
+    static const char* const names[4] = {"SceneModel.Blend.CCW.Front", "SceneModel.Blend.CCW.Back", "SceneModel.Blend.CW.Front",
+                                         "SceneModel.Blend.CW.Back"};
+    rhi::PipelineHandle created[4];
+    int count = 0;
+    try {
+        for (int mirrored = 0; mirrored < 2; ++mirrored) {
+            for (int pass = 0; pass < 2; ++pass) {
+                pd.front_face = mirrored != 0 ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise;
+                pd.cull_mode = pass == 0 ? rhi::CullMode::Back : rhi::CullMode::Front;
+                pd.debug_name = names[mirrored * 2 + pass];
+                created[count] = device_.create_graphics_pipeline(pd);
+                ++count;
+            }
+        }
+    } catch (...) {
+        for (int i = 0; i < count; ++i) {
+            device_.destroy(created[i]);
+        }
+        throw;
+    }
+    for (int i = 0; i < 4; ++i) {
+        blend_pipelines_[i] = created[i];
+    }
+    blend_pipelines_ready_ = true;
+}
+
+float ModelRenderer::blend_sort_depth(const Mat4& view_proj, Float3 c) noexcept
+{
+    // Row 3 of the column-major matrix: clip w = dot(row3, (c, 1)), the distance along the view direction for a perspective projection.
+    const float w = view_proj.at(3, 0) * c.x + view_proj.at(3, 1) * c.y + view_proj.at(3, 2) * c.z + view_proj.at(3, 3);
+    return std::isfinite(w) ? w : 0.0f;  // a non-finite key would break the sort's ordering: such a primitive sorts as if at the camera
 }
 
 rhi::PipelineHandle ModelRenderer::pipeline_for(bool mirrored, bool double_sided) const noexcept
@@ -220,6 +341,8 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                          ModelFrameStats& stats)
 {
     rhi::PipelineHandle bound{};
+    blended_.clear();
+    uint32_t sequence = 0;
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -249,6 +372,15 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
                 const GpuMaterial& material = d.model->materials[prim.material];
+                if (material.blend && blend_pipelines_ready_) {
+                    // Deferred: blended primitives draw after every opaque one, sorted back to front (below).
+                    const Float3 local = prim.bounds_center;
+                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                    blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored});
+                    continue;
+                }
                 const rhi::PipelineHandle pipeline = pipeline_for(mirrored, material.double_sided);
                 if (pipeline != bound) {
                     cmd.bind_pipeline(pipeline);
@@ -264,6 +396,44 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             }
             ++stats.instances_drawn;
         }
+    }
+
+    // Sorted phase: farthest first by the view-space depth of each primitive's bounding-sphere center, submission order breaking
+    // ties, so a frame is reproducible. std::sort with a total order does not allocate; blended_ keeps its capacity.
+    std::sort(blended_.begin(), blended_.end(), [](const BlendedDraw& a, const BlendedDraw& b) {
+        return a.depth != b.depth ? a.depth > b.depth : a.sequence < b.sequence;
+    });
+    for (const BlendedDraw& item : blended_) {
+        ModelPush push{};
+        push.view_proj = view_proj;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                push.model_row[r][c] = item.world.at(r, c);
+            }
+        }
+        push.camera_sign[0] = camera_position.x;
+        push.camera_sign[1] = camera_position.y;
+        push.camera_sign[2] = camera_position.z;
+        push.camera_sign[3] = item.mirrored ? -1.0f : 1.0f;
+        // A double-sided surface draws its back faces first, then its front faces, so a convex mesh composites correctly
+        // against itself; a single-sided one draws its front faces only.
+        const int first_pass = item.material->double_sided ? 1 : 0;
+        for (int pass = first_pass; pass >= 0; --pass) {
+            const rhi::PipelineHandle pipeline = blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
+            if (pipeline != bound) {
+                cmd.bind_pipeline(pipeline);
+                cmd.bind_group(1, constants_group_.handle());
+                bound = pipeline;
+            }
+            cmd.bind_group(0, item.material->group.handle());
+            cmd.bind_vertex_buffer(item.primitive->vertices.handle());
+            cmd.bind_index_buffer(item.primitive->indices.handle(), item.primitive->index_type);
+            cmd.push_constant_struct(push);
+            cmd.draw_indexed(item.primitive->index_count);
+            ++stats.draw_calls;
+            ++stats.blended_draws;
+        }
+        ++stats.blended_primitives;
     }
 }
 

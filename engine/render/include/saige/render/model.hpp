@@ -14,13 +14,16 @@
 
 namespace saige::render {
 
-/// Interleaved vertex: position, normal, uv (32 bytes), the layout the model pipelines declare.
+/// Interleaved vertex: position, normal, uv, tangent (48 bytes), the layout the model pipelines declare. The tangent is glTF's:
+/// xyz is the direction of increasing u, w is the bitangent's handedness (+1 or -1). w = 0 means "no tangent": normal mapping
+/// is skipped for the vertex's triangle.
 struct ModelVertex {
     Float3 position;
     Float3 normal;
     float uv[2] = {0.0f, 0.0f};
+    float tangent[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
-static_assert(sizeof(ModelVertex) == 32, "ModelVertex must match the pipeline's vertex layout");
+static_assert(sizeof(ModelVertex) == 48, "ModelVertex must match the pipeline's vertex layout");
 
 struct GpuPrimitive {
     BufferRef vertices;
@@ -28,11 +31,16 @@ struct GpuPrimitive {
     uint32_t index_count = 0;
     rhi::IndexType index_type = rhi::IndexType::Uint32;
     uint32_t material = 0;  ///< index into GpuModel::materials (always valid)
+    /// Bounding sphere in the model's local space. Blended primitives are sorted by the view-space depth of its center; the
+    /// default (the origin, radius 0) sorts a primitive by its model's origin. The importer's staging fills it from the positions.
+    Float3 bounds_center{};
+    float bounds_radius = 0.0f;
 };
 
 struct GpuMaterial {
     BindGroupRef group;       ///< set 0 of the model pipelines; keeps the textures, sampler and parameters alive
     bool double_sided = false;
+    bool blend = false;       ///< drawn source-over in the sorted phase after opaque draws (set by create_material)
 };
 
 /// One placement of a mesh within the model (a glTF node, flattened), in the model's own space.

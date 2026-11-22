@@ -6,10 +6,11 @@
 // complete candidate: activating it is moving it into place, and dropping the previous one retires its resources on the
 // device's completion timeline.
 //
-// What is uploaded in 0.2: interleaved position/normal/uv vertices, 16- or 32-bit indices, the base color texture of each
-// material (decoded, sRGB, with a full mip chain), a sampler from the glTF sampler, and the material's constant factors.
-// Normal, metallic-roughness, occlusion and emissive *textures* are parsed but not sampled; each such material is reported
-// in the warnings. Alpha-blended materials draw as opaque (warned).
+// What is uploaded: interleaved position/normal/uv/tangent vertices, 16- or 32-bit indices, each material's five textures
+// (base color and emissive decoded as sRGB, metallic-roughness, normal and occlusion as linear data, each with a full mip
+// chain and the sampler its glTF texture names) and the material's constant factors. All five are shaded (the last three
+// in metallic-roughness mode). A normal texture on a primitive without tangents is ignored and reported. Alpha-blended
+// materials draw as opaque (warned).
 #pragma once
 
 #include "saige/gfx_assets/gltf.hpp"

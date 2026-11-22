@@ -1,5 +1,6 @@
 #include "saige/gfx_test/saige_test.hpp"
 
+#include "saige/gfx_assets/tangents.hpp"
 #include "saige/gfx_scene/stage_model.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
@@ -16,9 +17,18 @@ using namespace saige::gfx;
 
 namespace {
 
+render::RendererSettings blending_settings(bool alpha_blending)
+{
+    render::RendererSettings s;
+    s.alpha_blending = alpha_blending;
+    return s;
+}
+
 struct Rig {
     rhi::NullDevice device;
-    render::SceneRenderer renderer{device, rhi::Format::RGBA8_SRGB};
+    render::SceneRenderer renderer;
+    /// Alpha blending is off by default everywhere (the 0.2 behavior); tests of sorted blending opt in.
+    explicit Rig(bool alpha_blending = false) : renderer(device, rhi::Format::RGBA8_SRGB, blending_settings(alpha_blending)) {}
 };
 
 GltfAsset load_fixture()
@@ -206,7 +216,6 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     mask.name = "leaves";
     Material blend = asset.materials[0];
     blend.alpha_mode = AlphaMode::Blend;
-    blend.normal_texture.texture = 0;  // an unsampled texture slot
     blend.name = "glass";
     asset.materials.push_back(mask);
     asset.materials.push_back(blend);
@@ -215,9 +224,98 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     REQUIRE(model.materials.size() == 4);
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
-    CHECK(has_warning(report, "alpha blending is not implemented"));
-    CHECK(has_warning(report, "not sampled in 0.2"));
-    CHECK(report.warnings.size() == 2);  // each warned about once, however many materials trigger it
+    // The default renderer has alpha blending off: BLEND draws opaque exactly as in 0.2, with a warning saying so.
+    CHECK(has_warning(report, "alpha blending is off"));
+    CHECK_FALSE(model.materials[0].blend);
+    CHECK_FALSE(model.materials[1].blend);  // the mask material
+    CHECK_FALSE(model.materials[2].blend);  // "glass": glTF BLEND, but blending was not asked for
+    // Every primitive carries a bounding sphere for sorting blended draws (used only when blending is on).
+    for (const auto& primitives : model.meshes) {
+        for (const render::GpuPrimitive& prim : primitives) {
+            CHECK(prim.bounds_radius > 0.0f);
+        }
+    }
+    // With alpha blending asked for, the same asset blends the BLEND material and needs no warning.
+    Rig blending_rig(/*alpha_blending=*/true);
+    StageReport blending_report;
+    const render::GpuModel blending_model = stage_model(blending_rig.renderer, asset, "materials", {}, &blending_report);
+    CHECK_FALSE(has_warning(blending_report, "alpha blending"));
+    CHECK_FALSE(blending_model.materials[0].blend);
+    CHECK_FALSE(blending_model.materials[1].blend);
+    CHECK(blending_model.materials[2].blend);
+}
+
+TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")
+{
+    Rig rig;
+    GltfAsset asset = load_fixture();
+    REQUIRE(!asset.textures.empty());
+    REQUIRE(!asset.images.empty());
+    // Two glTF samplers, and two glTF textures that share the fixture's one image.
+    Sampler nearest;
+    nearest.mag_filter = 9728;
+    nearest.min_filter = 9728;
+    asset.samplers.clear();
+    asset.samplers.push_back(Sampler{});  // default trilinear/repeat
+    asset.samplers.push_back(nearest);
+    asset.textures[0].sampler = 0;
+    Texture second = asset.textures[0];
+    second.sampler = 1;
+    asset.textures.push_back(second);
+
+    Material& m = asset.materials[0];
+    m.base_color_texture.texture = 0;  // sRGB, sampler 0
+    m.emissive_texture.texture = 1;    // sRGB, sampler 1, the same image as base color
+    m.occlusion_texture.texture = 1;   // linear: the same image again, a second upload
+    m.normal_texture.texture = 0;      // linear: shares the occlusion upload
+    StageReport report;
+    (void)rig.renderer.model_renderer();  // created on first use; its neutral textures are not part of this staging
+    const render::ResourceStats before = rig.renderer.registry().stats(render::ResourceKind::Texture);
+    const render::ResourceStats samplers_before = rig.renderer.registry().stats(render::ResourceKind::Sampler);
+    const render::GpuModel model = stage_model(rig.renderer, asset, "slots", {}, &report);
+    const render::ResourceStats after = rig.renderer.registry().stats(render::ResourceKind::Texture);
+    REQUIRE(!model.materials.empty());
+    CHECK(report.textures == 2);                       // one sRGB and one linear upload of the one image, not four
+    CHECK(after.created - before.created == 2);
+    // Two sampler descriptions across the five slots; the default one is the renderer's own and is shared, not created again.
+    CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created - samplers_before.created == 1);
+    // An out-of-range slot texture is rejected with the slot named.
+    asset.materials[0].emissive_texture.texture = 99;
+    bool threw = false;
+    try {
+        (void)stage_model(rig.renderer, asset, "bad slot");
+    } catch (const std::runtime_error& e) {
+        threw = std::string(e.what()).find("emissive texture index is out of range") != std::string::npos;
+    }
+    CHECK(threw);
+}
+
+TEST_CASE("Stage: tangents reach the vertices, and a normal map on a primitive without them is reported")
+{
+    Rig rig;
+    GltfAsset asset = load_fixture();
+    Primitive& primitive = asset.meshes[0].primitives[0];
+    // The loader only generates tangents for primitives whose material has a normal texture, so generate them here.
+    asset.materials[0].normal_texture.texture = 0;
+    REQUIRE(generate_tangents(primitive).result == TangentResult::Generated);
+    REQUIRE(primitive.tangents.size() == std::size_t{primitive.vertex_count()} * 4);
+    StageReport with_tangents;
+    (void)stage_model(rig.renderer, asset, "tangents", {}, &with_tangents);
+    CHECK_FALSE(has_warning(with_tangents, "no tangents"));
+
+    primitive.tangents.clear();
+    StageReport without;
+    (void)stage_model(rig.renderer, asset, "no tangents", {}, &without);
+    CHECK(has_warning(without, "its normal map is ignored"));
+
+    primitive.tangents.assign(5, 0.0f);  // a count that does not match the vertices is a malformed primitive
+    bool threw = false;
+    try {
+        (void)stage_model(rig.renderer, asset, "bad tangents");
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Stage: glTF samplers map to RHI sampler descriptions")

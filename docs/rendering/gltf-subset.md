@@ -37,7 +37,7 @@ resolves outside it, so a symlink cannot escape either.
 | Primitive `mode` | `4` (TRIANGLES) only. Other modes are skipped with a warning |
 | `POSITION` | `VEC3` `FLOAT` (required) |
 | `NORMAL` | `VEC3` `FLOAT`. If absent, **flat normals are generated** as the glTF spec requires (the primitive is de-indexed) |
-| `TANGENT` | `VEC4` `FLOAT`. Not generated yet (see limits) |
+| `TANGENT` | `VEC4` `FLOAT`. If a primitive's material has a normal texture and the file has none, tangents are **generated** at import (Lengyel-style, deterministic; not MikkTSpace, see `tangents.hpp`) with a warning. A normal texture with no `TEXCOORD_0` is warned about and generates nothing. Primitives whose material has no normal texture get none |
 | `TEXCOORD_0` | `VEC2`: `FLOAT`, or normalized `UNSIGNED_BYTE` / `UNSIGNED_SHORT` |
 | `COLOR_0` | `VEC3`/`VEC4`: `FLOAT`, or normalized `UNSIGNED_BYTE` / `UNSIGNED_SHORT` |
 | Other attributes (`TEXCOORD_n`, `JOINTS_0`, `WEIGHTS_0`, ...) | ignored with a warning |
@@ -52,11 +52,31 @@ resolves outside it, so a symlink cannot escape either.
 |---|---|
 | `pbrMetallicRoughness`: `baseColorFactor`/`Texture`, `metallicFactor`, `roughnessFactor`, `metallicRoughnessTexture` | ✅ with spec defaults (metallic 1, roughness 1) |
 | `normalTexture` (+`scale`), `occlusionTexture` (+`strength`), `emissiveFactor`/`Texture` | ✅ |
-| `alphaMode` (`OPAQUE`/`MASK`/`BLEND`), `alphaCutoff`, `doubleSided` | ✅ |
+| `alphaMode` (`OPAQUE`/`MASK`/`BLEND`), `alphaCutoff`, `doubleSided` | ✅ `BLEND` draws opaque (the 0.2 behavior) unless the renderer is created with `alpha_blending`, which composites it with sorted source-over alpha blending ([alpha-blending.md](alpha-blending.md)); a scene format that cannot blend also draws it opaque; staging warns which |
 | `KHR_materials_emissive_strength` | ✅ (folded into the emissive factor) |
 | Textures: `source`, `sampler` (filters, wrap modes); images from relative URI, `data:` URI or `bufferView` | ✅ kept as **encoded bytes plus MIME type**. PNG/JPEG decoding is a separate, bounded step: `decode_image` and `generate_mips` in `saige/gfx_assets/image.hpp` (pinned stb_image, see `docs/third-party/stb_image.md`) |
 | `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0` |
 | `KHR_texture_transform`, `KHR_materials_*` (other than emissive strength) | ⚠️ optional uses are ignored with a warning |
+
+**What the renderer shades** (`stage_model`, milestones M1 to M3 of [the material architecture](material-architecture.md)): all
+five textures are decoded and bound, each with the sampler its glTF texture names. Base color and emissive are uploaded as
+sRGB, metallic-roughness, normal and occlusion as linear data (the same image used in both roles is uploaded once per color
+space). Shaded in both modes: base color, emissive (texture times factor) and occlusion (scales the ambient term by
+`strength`). Shaded only when the renderer is created with `RendererSettings::model_shading = ModelShading::MetallicRoughness`:
+- **Metallic-roughness** (G roughness, B metallic, times the factors): GGX, height-correlated Smith and Schlick as in the glTF
+  specification, the sun, and a hemispherical ambient through a split-sum environment BRDF table.
+- **Normal mapping**: the tangent-space normal (x and y times `normalTexture.scale`, +Y up in the image) is rotated by the
+  vertex tangent frame. The frame is orthonormalized against the interpolated normal; the bitangent's handedness comes from
+  the transformed frame, so mirrored instances stay correct; the back of a double-sided surface negates the whole frame, as the
+  glTF reference viewer does. A primitive without tangents (no texture coordinates) skips the map, and staging reports it.
+  Tangents come from the file or from the importer's generator.
+
+The default is `ModelShading::Legacy`, the 0.2 look (albedo times ambient plus sun, no normal maps), so existing scenes are
+unchanged until a host opts in. Mip chains for linear data use the same box filter as color, so normal maps are not renormalized
+per level (a known softening of distant relief; Toksvig-style filtering is a later refinement). By default the target is display-referred
+and clips: highlights above 1 saturate. Setting `RendererSettings::hdr` draws the scene in linear light into an RGBA16_FLOAT
+target and resolves it to the output with a tone-map pass (ACES-inspired by default, with `tone_map.exposure_ev`; see
+`saige/render/tonemap.hpp`). Specular ambient ignores the lobe's blur until image-based lighting (M5).
 
 ## Extensions
 - Every entry of `extensionsRequired` must be supported, otherwise the load **fails** naming the extension.
@@ -82,5 +102,5 @@ Maximum file size, buffer size, vertices per primitive and node depth are checke
 hostile file cannot make the loader allocate gigabytes. All offsets are bounds-checked with overflow-safe arithmetic.
 
 ## Not yet supported (tracked)
-Tangent generation (MikkTSpace) when a normal map is present, image decoding, `KHR_texture_transform`, sparse accessors,
+MikkTSpace-exact tangents (the generator is Lengyel-style; adopting MikkTSpace means pinning a third-party dependency), image decoding, `KHR_texture_transform`, sparse accessors,
 skins/animation/morph targets, cameras and lights, `.gltf` files that reference other `.gltf` files, and Draco/meshopt.

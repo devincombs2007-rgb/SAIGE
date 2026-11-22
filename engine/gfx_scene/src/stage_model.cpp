@@ -1,6 +1,7 @@
 #include "saige/gfx_scene/stage_model.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -85,23 +86,26 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
     model.name = std::string(name);
 
     // ------------------------------------------------------------------------------------------ textures
-    // Only base color textures are sampled; one GPU texture per source image, shared by every material that uses it.
-    std::map<int32_t, render::TextureRef> textures_by_image;
-    const auto base_color_texture = [&](const Material& material, std::size_t material_index) -> std::pair<render::TextureRef, render::SamplerRef> {
-        const TextureRef& ref = material.base_color_texture;
+    // One GPU texture per (source image, color space): the same image used as base color (sRGB) and as a linear data
+    // texture is decoded and uploaded twice, because the format decides how the GPU reads it. Each slot gets the sampler
+    // its glTF texture names; identical sampler descriptions share one device sampler through the registry.
+    std::map<std::pair<int32_t, bool>, render::TextureRef> textures_by_image;
+    const auto slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref,
+                                  bool srgb) -> render::MaterialTextureSlot {
         if (!ref.valid()) {
             return {};
         }
         const std::string who = label(name, "material", material_index, material.name);
         if (static_cast<std::size_t>(ref.texture) >= asset.textures.size()) {
-            fail(who, "base color texture index is out of range");
+            fail(who, std::string(slot_name) + " texture index is out of range");
         }
         const Texture& texture = asset.textures[static_cast<std::size_t>(ref.texture)];
         if (texture.image < 0 || static_cast<std::size_t>(texture.image) >= asset.images.size()) {
-            fail(who, "base color texture has no usable source image");
+            fail(who, std::string(slot_name) + " texture has no usable source image");
         }
         render::TextureRef tex;
-        if (const auto it = textures_by_image.find(texture.image); it != textures_by_image.end()) {
+        const std::pair<int32_t, bool> key{texture.image, srgb};
+        if (const auto it = textures_by_image.find(key); it != textures_by_image.end()) {
             tex = it->second;
         } else {
             const Image& image = asset.images[static_cast<std::size_t>(texture.image)];
@@ -111,14 +115,14 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             if (!decoded.ok()) {
                 fail(image_label, decoded.error);
             }
-            const MipChain chain = generate_mips(*decoded.image, ColorSpace::Srgb);
+            const MipChain chain = generate_mips(*decoded.image, srgb ? ColorSpace::Srgb : ColorSpace::Linear);
             rhi::TextureDesc td;
-            td.format = rhi::Format::RGBA8_SRGB;
+            td.format = srgb ? rhi::Format::RGBA8_SRGB : rhi::Format::RGBA8_UNORM;
             td.width = chain.width;
             td.height = chain.height;
             td.mip_levels = chain.levels;
             td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
-            const std::string debug = image_label;
+            const std::string debug = image_label + (srgb ? " (sRGB)" : " (linear)");
             td.debug_name = debug.c_str();
             try {
                 tex = registry.create_texture(td, std::as_bytes(std::span(chain.data)));
@@ -127,11 +131,14 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             }
             ++report.textures;
             report.texture_bytes += tex.bytes();
-            textures_by_image.emplace(texture.image, tex);
+            textures_by_image.emplace(key, tex);
 #else
             (void)settings;
             fail(image_label, "this build has no image decoder (SAIGE_GFX_IMAGE_DECODE is OFF)");
 #endif
+        }
+        if (ref.tex_coord != 0) {
+            warn_once(report, "only TEXCOORD_0 is sampled: a texture that names another coordinate set reads TEXCOORD_0");
         }
         render::SamplerRef sampler;
         if (texture.sampler >= 0 && static_cast<std::size_t>(texture.sampler) < asset.samplers.size()) {
@@ -145,28 +152,38 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
     // ------------------------------------------------------------------------------------------ materials
     for (std::size_t i = 0; i < asset.materials.size(); ++i) {
         const Material& m = asset.materials[i];
-        render::MaterialParams params;
-        std::memcpy(params.base_color, m.base_color, sizeof(params.base_color));
-        std::memcpy(params.emissive, m.emissive, sizeof(params.emissive));
-        params.double_sided = m.double_sided;
+        render::MaterialData data;
+        std::memcpy(data.base_color, m.base_color, sizeof(data.base_color));
+        std::memcpy(data.emissive, m.emissive, sizeof(data.emissive));
+        data.metallic = m.metallic;
+        data.roughness = m.roughness;
+        data.normal_scale = m.normal_scale;
+        data.occlusion_strength = m.occlusion_strength;
+        data.double_sided = m.double_sided;
         if (m.alpha_mode == AlphaMode::Mask) {
             // glTF renders a fragment when alpha >= cutoff, so a cutoff of 0 passes everything, which is exactly what the
             // shader does for 0 (no test); the shader discards only alpha < cutoff.
-            params.alpha_cutoff = m.alpha_cutoff;
+            data.alpha_cutoff = m.alpha_cutoff;
         } else if (m.alpha_mode == AlphaMode::Blend) {
-            warn_once(report, "alpha blending is not implemented in 0.2: Blend materials draw as opaque");
+            data.alpha_blend = true;  // the renderer decides: sorted blending only if it was asked for and the scene format can blend
+            if (!models.alpha_blending()) {
+                warn_once(report, "alpha blending is off (RendererSettings::alpha_blending): Blend materials draw as opaque, as in 0.2");
+            } else if (!models.blending_supported()) {
+                warn_once(report, "the scene's color format cannot blend: Blend materials draw as opaque");
+            }
         }
-        if (m.normal_texture.valid() || m.metallic_roughness_texture.valid() || m.occlusion_texture.valid() ||
-            m.emissive_texture.valid()) {
-            warn_once(report, "normal, metallic-roughness, occlusion and emissive textures are not sampled in 0.2 (base color only)");
-        }
-        const auto [tex, sampler] = base_color_texture(m, i);
+        render::MaterialTextures textures;
+        textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true);
+        textures[render::MaterialSlot::MetallicRoughness] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false);
+        textures[render::MaterialSlot::Normal] = slot_texture(m, i, "normal", m.normal_texture, false);
+        textures[render::MaterialSlot::Occlusion] = slot_texture(m, i, "occlusion", m.occlusion_texture, false);
+        textures[render::MaterialSlot::Emissive] = slot_texture(m, i, "emissive", m.emissive_texture, true);
         const std::string material_label = label(name, "material", i, m.name);
-        model.materials.push_back(models.create_material(params, tex, sampler, material_label.c_str()));
+        model.materials.push_back(models.create_material(data, textures, material_label.c_str()));
     }
     // Primitives without a material use glTF's default: opaque white, single-sided.
     const uint32_t default_material = static_cast<uint32_t>(model.materials.size());
-    model.materials.push_back(models.create_material({}, {}, {}, (std::string(name) + "/default material").c_str()));
+    model.materials.push_back(models.create_material({}, render::MaterialTextures{}, (std::string(name) + "/default material").c_str()));
 
     // ------------------------------------------------------------------------------------------ meshes
     for (std::size_t mi = 0; mi < asset.meshes.size(); ++mi) {
@@ -182,6 +199,9 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             if (!p.uv0.empty() && p.uv0.size() != std::size_t{vertex_count} * 2) {
                 fail(where, "has a texture coordinate count that does not match its vertices");
             }
+            if (!p.tangents.empty() && p.tangents.size() != std::size_t{vertex_count} * 4) {
+                fail(where, "has a tangent count that does not match its vertices");
+            }
             std::vector<render::ModelVertex> vertices(vertex_count);
             for (uint32_t v = 0; v < vertex_count; ++v) {
                 vertices[v].position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
@@ -190,6 +210,15 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                     vertices[v].uv[0] = p.uv0[v * 2];
                     vertices[v].uv[1] = p.uv0[v * 2 + 1];
                 }
+                if (!p.tangents.empty()) {  // absent tangents stay w = 0: the shader skips normal mapping there
+                    for (uint32_t c = 0; c < 4; ++c) {
+                        vertices[v].tangent[c] = p.tangents[v * 4 + c];
+                    }
+                }
+            }
+            if (p.tangents.empty() && p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size() &&
+                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid()) {
+                warn_once(report, "a primitive with a normal texture has no tangents (it has no texture coordinates): its normal map is ignored");
             }
             std::vector<uint32_t> indices = p.indices;
             if (indices.empty()) {  // a non-indexed triangle list
@@ -232,6 +261,24 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                 fail(where, std::string("GPU upload failed: ") + e.what());
             }
             prim.index_count = static_cast<uint32_t>(indices.size());
+            {   // bounding sphere for sorting blended draws: the box center and the farthest vertex from it
+                float lo[3] = {p.positions[0], p.positions[1], p.positions[2]};
+                float hi[3] = {lo[0], lo[1], lo[2]};
+                for (uint32_t v = 1; v < vertex_count; ++v) {
+                    for (uint32_t c = 0; c < 3; ++c) {
+                        lo[c] = std::min(lo[c], p.positions[v * 3 + c]);
+                        hi[c] = std::max(hi[c], p.positions[v * 3 + c]);
+                    }
+                }
+                const render::Float3 center{(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
+                float radius2 = 0.0f;
+                for (uint32_t v = 0; v < vertex_count; ++v) {
+                    const float dx = p.positions[v * 3] - center.x, dy = p.positions[v * 3 + 1] - center.y, dz = p.positions[v * 3 + 2] - center.z;
+                    radius2 = std::max(radius2, dx * dx + dy * dy + dz * dz);
+                }
+                prim.bounds_center = center;
+                prim.bounds_radius = std::sqrt(radius2);
+            }
             prim.material = (p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size())
                                 ? static_cast<uint32_t>(p.material)
                                 : default_material;

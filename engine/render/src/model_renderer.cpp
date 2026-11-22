@@ -161,7 +161,7 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     sc.ambient_ground[0] = 0.20f;
     sc.ambient_ground[1] = 0.18f;
     sc.ambient_ground[2] = 0.16f;
-    sc.flags[0] = 0.0f;
+    sc.flags[0] = shading_ == ModelShading::Extended ? 1.0f : 0.0f;
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");
     BindGroupBinding binding;

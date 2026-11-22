@@ -11,6 +11,8 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <optional>
+#include <unordered_map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -305,6 +307,8 @@ struct FrameSlot {
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     std::vector<VkSemaphore> acquire_semaphores;  // one per swapchain acquired in this slot
     uint64_t timeline_value = 0;                  // signaled when this slot's last submission completes
+    uint64_t frame_number = 0;                    // the frame this slot last recorded
+    bool recorded = false;                        // the slot has been used (its timestamp queries hold a frame's results)
 };
 
 struct PendingPresent {
@@ -335,6 +339,7 @@ public:
     void set_viewport(const Viewport& viewport) override;
     void set_scissor(const Rect2D& rect) override;
     void bind_pipeline(PipelineHandle pipeline) override;
+    void write_timestamp(uint32_t index) override;
     void push_constants(std::span<const std::byte> data, uint32_t offset) override;
     void bind_vertex_buffer(BufferHandle buffer, uint64_t offset) override;
     void bind_index_buffer(BufferHandle buffer, IndexType type, uint64_t offset) override;
@@ -384,6 +389,8 @@ public:
     void wait_idle() override;
     uint64_t frame_number() const noexcept override { return frame_number_; }
     uint32_t validation_error_count() const noexcept override { return validation_errors_.load(); }
+    std::optional<GpuTimestamps> completed_timestamps() const override;
+    DeviceMemoryStats memory_stats() const override;
 
 private:
     friend class VulkanCommandList;
@@ -399,6 +406,8 @@ private:
     void create_frame_resources();
     uint32_t find_memory_type(uint32_t type_bits, VkMemoryPropertyFlags required, VkMemoryPropertyFlags preferred) const;
     VkDeviceMemory allocate(const VkMemoryRequirements& req, MemoryLocation location);
+    void free_memory(VkDeviceMemory memory);
+    void collect_timestamps(FrameSlot& slot);
     void set_name(VkObjectType type, uint64_t handle, const char* name);
     void immediate_submit(const std::function<void(VkCommandBuffer)>& record);
     uint64_t retire_value() const noexcept { return in_frame_ ? timeline_counter_ + 1 : timeline_counter_; }
@@ -427,6 +436,16 @@ private:
     std::vector<FrameSlot> slots_;
     uint32_t slot_index_ = 0;
     uint64_t frame_number_ = 0;
+    // GPU timestamps: one block of max_gpu_timestamps queries per frame slot.
+    VkQueryPool timestamp_pool_ = VK_NULL_HANDLE;
+    bool timestamps_ = false;
+    uint32_t timestamp_valid_bits_ = 0;
+    float timestamp_period_ns_ = 0.0f;
+    std::optional<GpuTimestamps> completed_timestamps_;
+    // Device memory the backend allocated, exact: every vkAllocateMemory/vkFreeMemory goes through allocate/free_memory.
+    std::unordered_map<VkDeviceMemory, uint64_t> allocation_sizes_;
+    uint64_t allocated_bytes_ = 0;
+    bool memory_budget_ = false;
     bool in_frame_ = false;
     bool anisotropy_supported_ = false;
     std::vector<PendingPresent> presents_;
@@ -699,6 +718,11 @@ void VulkanDevice::pick_physical_device()
             best_score = score;
             physical_ = pd;
             queue_family_ = static_cast<uint32_t>(family);
+            timestamp_valid_bits_ = families[static_cast<std::size_t>(family)].timestampValidBits;
+            timestamp_period_ns_ = props.limits.timestampPeriod;
+            memory_budget_ = std::any_of(exts.begin(), exts.end(), [](const VkExtensionProperties& e) {
+                return std::strcmp(e.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0;
+            });
             swapchain_extension_ = has_swapchain && surface_extensions_;
             info_.device_name = name;
             info_.api_version_major = VK_API_VERSION_MAJOR(props.apiVersion);
@@ -742,6 +766,9 @@ void VulkanDevice::create_logical_device()
     if (swapchain_extension_) {
         extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     }
+    if (memory_budget_) {
+        extensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+    }
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
@@ -769,6 +796,16 @@ void VulkanDevice::create_frame_resources()
     set_name(VK_OBJECT_TYPE_SEMAPHORE, reinterpret_cast<uint64_t>(timeline_), "FrameTimeline");
 
     slots_.resize(desc_.frames_in_flight);
+    // GPU timestamps need a graphics queue that writes timestamps (timestampValidBits > 0) and a usable tick period.
+    timestamps_ = timestamp_valid_bits_ > 0 && timestamp_period_ns_ > 0.0f;
+    if (timestamps_) {
+        VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+        qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+        qi.queryCount = static_cast<uint32_t>(slots_.size()) * max_gpu_timestamps;
+        check(vk_.vkCreateQueryPool(device_, &qi, nullptr, &timestamp_pool_), "vkCreateQueryPool(timestamps)");
+        info_.gpu_timestamps = true;
+        info_.timestamp_period_ns = static_cast<double>(timestamp_period_ns_);
+    }
     for (FrameSlot& slot : slots_) {
         VkCommandPoolCreateInfo pci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         pci.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
@@ -807,13 +844,13 @@ VulkanDevice::~VulkanDevice()
     }
     buffers_.for_each([&](BufferHandle, VkBufferRes& b) {
         vk_.vkDestroyBuffer(device_, b.buffer, nullptr);
-        vk_.vkFreeMemory(device_, b.memory, nullptr);
+        free_memory(b.memory);
     });
     textures_.for_each([&](TextureHandle, VkTextureRes& t) {
         vk_.vkDestroyImageView(device_, t.view, nullptr);
         if (!t.swapchain_image) {
             vk_.vkDestroyImage(device_, t.image, nullptr);
-            vk_.vkFreeMemory(device_, t.memory, nullptr);
+            free_memory(t.memory);
         }
     });
     samplers_.for_each([&](SamplerHandle, VkSamplerRes& s) { vk_.vkDestroySampler(device_, s.sampler, nullptr); });
@@ -830,6 +867,9 @@ VulkanDevice::~VulkanDevice()
         vk_.vkDestroyCommandPool(device_, s.pool, nullptr);
     }
     vk_.vkDestroyCommandPool(device_, upload_pool_, nullptr);
+    if (timestamp_pool_ != VK_NULL_HANDLE) {
+        vk_.vkDestroyQueryPool(device_, timestamp_pool_, nullptr);
+    }
     vk_.vkDestroySemaphore(device_, timeline_, nullptr);
     vk_.vkDestroyDevice(device_, nullptr);
     if (messenger_ != VK_NULL_HANDLE) {
@@ -888,7 +928,21 @@ VkDeviceMemory VulkanDevice::allocate(const VkMemoryRequirements& req, MemoryLoc
     ai.memoryTypeIndex = find_memory_type(req.memoryTypeBits, required, preferred);
     VkDeviceMemory memory = VK_NULL_HANDLE;
     check(vk_.vkAllocateMemory(device_, &ai, nullptr, &memory), "vkAllocateMemory");
+    allocation_sizes_.emplace(memory, req.size);
+    allocated_bytes_ += req.size;
     return memory;
+}
+
+void VulkanDevice::free_memory(VkDeviceMemory memory)
+{
+    if (memory == VK_NULL_HANDLE) {
+        return;
+    }
+    if (const auto it = allocation_sizes_.find(memory); it != allocation_sizes_.end()) {
+        allocated_bytes_ -= it->second;
+        allocation_sizes_.erase(it);
+    }
+    vk_.vkFreeMemory(device_, memory, nullptr);
 }
 
 void VulkanDevice::set_name(VkObjectType type, uint64_t handle, const char* name)
@@ -1004,7 +1058,7 @@ BufferHandle VulkanDevice::create_buffer(const BufferDesc& desc, std::span<const
     } catch (...) {
         vk_.vkDestroyBuffer(device_, res.buffer, nullptr);
         if (res.memory != VK_NULL_HANDLE) {
-            vk_.vkFreeMemory(device_, res.memory, nullptr);
+            free_memory(res.memory);
         }
         throw;
     }
@@ -1027,7 +1081,7 @@ BufferHandle VulkanDevice::create_buffer(const BufferDesc& desc, std::span<const
         // The copy has completed (immediate_submit waits); later frames are ordered after it on the queue.
         if (std::optional<VkBufferRes> s = buffers_.release(staging)) {
             vk_.vkDestroyBuffer(device_, s->buffer, nullptr);
-            vk_.vkFreeMemory(device_, s->memory, nullptr);
+            free_memory(s->memory);
         }
     }
     return buffers_.emplace(std::move(res));
@@ -1090,7 +1144,7 @@ TextureHandle VulkanDevice::create_texture(const TextureDesc& desc)
     } catch (...) {
         vk_.vkDestroyImage(device_, res.image, nullptr);
         if (res.memory != VK_NULL_HANDLE) {
-            vk_.vkFreeMemory(device_, res.memory, nullptr);
+            free_memory(res.memory);
         }
         throw;
     }
@@ -1182,7 +1236,7 @@ void VulkanDevice::upload_texture(TextureHandle texture, std::span<const std::by
     // immediate_submit waited for completion, so the staging buffer is no longer in use.
     if (std::optional<VkBufferRes> s = buffers_.release(staging)) {
         vk_.vkDestroyBuffer(device_, s->buffer, nullptr);
-        vk_.vkFreeMemory(device_, s->memory, nullptr);
+        free_memory(s->memory);
     }
 }
 
@@ -1364,7 +1418,7 @@ void VulkanDevice::destroy(BufferHandle handle)
     }
     defer([this, b = res->buffer, m = res->memory] {
         vk_.vkDestroyBuffer(device_, b, nullptr);
-        vk_.vkFreeMemory(device_, m, nullptr);
+        free_memory(m);
     });
 }
 
@@ -1379,7 +1433,7 @@ void VulkanDevice::destroy(TextureHandle handle)
     defer([this, img = res->image, view = res->view, mem = res->memory] {
         vk_.vkDestroyImageView(device_, view, nullptr);
         vk_.vkDestroyImage(device_, img, nullptr);
-        vk_.vkFreeMemory(device_, mem, nullptr);
+        free_memory(mem);
     });
 }
 
@@ -1667,6 +1721,57 @@ Format VulkanDevice::swapchain_format(SwapchainHandle handle) const
 // Frames
 // =====================================================================================================================
 
+void VulkanDevice::collect_timestamps(FrameSlot& slot)
+{
+    // Each query reports (value, availability). Queries the frame did not write stay unavailable after the reset.
+    uint64_t raw[max_gpu_timestamps * 2] = {};
+    const uint32_t first = static_cast<uint32_t>(&slot - slots_.data()) * max_gpu_timestamps;
+    const VkResult r = vk_.vkGetQueryPoolResults(device_, timestamp_pool_, first, max_gpu_timestamps, sizeof(raw), raw,
+                                                 2 * sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+    if (r != VK_SUCCESS && r != VK_NOT_READY) {
+        check(r, "vkGetQueryPoolResults(timestamps)");
+    }
+    GpuTimestamps t;
+    t.frame_number = slot.frame_number;
+    t.period_ns = static_cast<double>(timestamp_period_ns_);
+    const uint64_t mask = timestamp_valid_bits_ >= 64 ? ~uint64_t{0} : ((uint64_t{1} << timestamp_valid_bits_) - 1u);
+    for (uint32_t i = 0; i < max_gpu_timestamps; ++i) {
+        if (raw[i * 2 + 1] != 0) {
+            t.available_mask |= 1u << i;
+            t.ticks[i] = raw[i * 2] & mask;
+        }
+    }
+    if (t.available_mask != 0) {
+        completed_timestamps_ = t;
+    }
+}
+
+std::optional<GpuTimestamps> VulkanDevice::completed_timestamps() const
+{
+    return completed_timestamps_;
+}
+
+DeviceMemoryStats VulkanDevice::memory_stats() const
+{
+    DeviceMemoryStats s;
+    s.allocated_bytes = allocated_bytes_;
+    s.allocation_count = static_cast<uint32_t>(allocation_sizes_.size());
+    if (memory_budget_ && vk_.vkGetPhysicalDeviceMemoryProperties2 != nullptr) {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT budget{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT};
+        VkPhysicalDeviceMemoryProperties2 props{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2};
+        props.pNext = &budget;
+        vk_.vkGetPhysicalDeviceMemoryProperties2(physical_, &props);
+        for (uint32_t i = 0; i < props.memoryProperties.memoryHeapCount; ++i) {
+            if ((props.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0) {
+                s.budget_available = true;
+                s.budget_bytes += budget.heapBudget[i];
+                s.usage_bytes += budget.heapUsage[i];
+            }
+        }
+    }
+    return s;
+}
+
 CommandList& VulkanDevice::begin_frame()
 {
     if (in_frame_) {
@@ -1682,10 +1787,18 @@ CommandList& VulkanDevice::begin_frame()
         check(vk_.vkWaitSemaphores(device_, &wi, std::numeric_limits<uint64_t>::max()), "vkWaitSemaphores(frame)");
     }
     collect_garbage();
+    if (timestamps_ && slot.recorded) {
+        collect_timestamps(slot);  // this slot's previous frame has finished: its timestamps are final
+    }
     check(vk_.vkResetCommandPool(device_, slot.pool, 0), "vkResetCommandPool");
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check(vk_.vkBeginCommandBuffer(slot.cmd, &bi), "vkBeginCommandBuffer");
+    if (timestamps_) {
+        vk_.vkCmdResetQueryPool(slot.cmd, timestamp_pool_, slot_index_ * max_gpu_timestamps, max_gpu_timestamps);
+    }
+    slot.frame_number = frame_number_;
+    slot.recorded = true;
     presents_.clear();
     in_frame_ = true;
     command_list_.begin(slot.cmd);
@@ -1926,6 +2039,18 @@ void VulkanCommandList::bind_pipeline(PipelineHandle pipeline)
     device_.vk_.vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
     bound_layout_ = p->layout;
     bound_push_size_ = p->push_constant_size;
+}
+
+void VulkanCommandList::write_timestamp(uint32_t index)
+{
+    if (index >= max_gpu_timestamps) {
+        throw std::invalid_argument("write_timestamp: index out of range");
+    }
+    if (!device_.timestamps_) {
+        return;  // unavailable on this device: documented no-op (DeviceInfo::gpu_timestamps is false)
+    }
+    device_.vk_.vkCmdWriteTimestamp2(cmd_, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, device_.timestamp_pool_,
+                                     device_.slot_index_ * max_gpu_timestamps + index);
 }
 
 void VulkanCommandList::push_constants(std::span<const std::byte> data, uint32_t offset)

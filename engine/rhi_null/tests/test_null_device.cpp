@@ -391,3 +391,40 @@ TEST_CASE("NullDevice: depth/stencil textures cannot be uploaded")
         CHECK(device.uploaded_bytes(t) == 0);
     }
 }
+
+TEST_CASE("NullDevice: timestamps are validated and unavailable; memory is estimated from descriptions")
+{
+    NullDevice device;
+    CHECK_FALSE(device.info().gpu_timestamps);
+    CHECK_FALSE(device.completed_timestamps().has_value());
+
+    CommandList& cmd = device.begin_frame();
+    cmd.write_timestamp(0);
+    cmd.write_timestamp(max_gpu_timestamps - 1);
+    CHECK(device.validation_error_count() == 0);
+    cmd.write_timestamp(max_gpu_timestamps);  // out of range
+    CHECK(device.validation_error_count() == 1);
+    (void)device.end_frame();
+    uint32_t timestamps_recorded = 0;
+    for (const RecordedCommand& c : device.last_frame_commands()) {
+        timestamps_recorded += c.type == CommandType::Timestamp ? 1u : 0u;
+    }
+    CHECK(timestamps_recorded == 3);
+    CHECK_FALSE(device.completed_timestamps().has_value());  // a null device never invents GPU time
+
+    const DeviceMemoryStats before = device.memory_stats();
+    CHECK(before.allocated_bytes == 0);
+    CHECK_FALSE(before.budget_available);
+    BufferDesc bd;
+    bd.size = 1000;
+    bd.usage = BufferUsage::Vertex;
+    const BufferHandle b = device.create_buffer(bd);
+    const TextureHandle t = device.create_texture(sampled_texture(4, 4, 1));
+    const DeviceMemoryStats during = device.memory_stats();
+    CHECK(during.allocated_bytes == 1000 + 64);
+    CHECK(during.allocation_count == 2);
+    device.destroy(b);
+    device.destroy(t);
+    device.wait_idle();
+    CHECK(device.memory_stats().allocated_bytes == 0);
+}

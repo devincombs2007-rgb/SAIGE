@@ -49,6 +49,7 @@ namespace saige::rhi::vk {
     X(vkGetPhysicalDeviceFeatures2)                                                                                    \
     X(vkGetPhysicalDeviceQueueFamilyProperties)                                                                        \
     X(vkGetPhysicalDeviceMemoryProperties)                                                                             \
+    X(vkGetPhysicalDeviceMemoryProperties2)                                                                            \
     X(vkGetPhysicalDeviceFormatProperties)                                                                             \
     X(vkEnumerateDeviceExtensionProperties)                                                                            \
     X(vkCreateDevice)                                                                                                  \
@@ -123,6 +124,11 @@ namespace saige::rhi::vk {
     X(vkCmdDrawIndexed)                                                                                                \
     X(vkCmdCopyBuffer)                                                                                                 \
     X(vkCmdCopyBufferToImage)                                                                                          \
+    X(vkCreateQueryPool)                                                                                               \
+    X(vkDestroyQueryPool)                                                                                              \
+    X(vkCmdResetQueryPool)                                                                                             \
+    X(vkCmdWriteTimestamp2)                                                                                            \
+    X(vkGetQueryPoolResults)                                                                                           \
     X(vkCreateSampler)                                                                                                 \
     X(vkDestroySampler)                                                                                                \
     X(vkCmdCopyImageToBuffer)

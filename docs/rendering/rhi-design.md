@@ -108,6 +108,24 @@ Tests that want hazard detection set `DeviceDesc::enable_synchronization_validat
 layer's synchronization validation through `VK_EXT_validation_features` in code (environment variables are ignored by
 elevated Windows processes) and reports the outcome in `DeviceInfo::synchronization_validation_enabled`.
 
+### 4.3 GPU timing and memory accounting
+
+`CommandList::write_timestamp(index)` (index < `max_gpu_timestamps`) writes a timestamp when all earlier commands finish.
+Where the graphics queue does not write timestamps (`DeviceInfo::gpu_timestamps` is false) it is a documented no-op and
+`Device::completed_timestamps()` is empty: **an unavailable measurement is reported as absent, never as zero**. Each frame
+slot owns a block of queries; they are reset when the slot's frame is recorded and read back when the slot is reused, after
+its work has completed, with each query's availability checked, so a timestamp the frame did not write never appears as a
+measurement. `completed_timestamps()` therefore lags the latest submit by up to `frames_in_flight` frames.
+`GpuTimestamps::milliseconds_between` returns nothing for unwritten, reversed or out-of-range pairs. On a software
+rasterizer the interval is CPU time; `DeviceInfo::software_device` says so.
+
+`Device::memory_stats()` reports the device memory the backend itself allocated: exact, because every allocation and free
+goes through one accounting point, at driver-aligned sizes. Staging buffers are freed after an upload and stop counting,
+and a destroyed resource stays counted until the GPU has finished with it (deferred destruction), so compare after
+`wait_idle` and a frame. When the driver reports it (`VK_EXT_memory_budget`), the process's device-local budget and usage
+are included and `budget_available` is true; otherwise they are absent. The null backend estimates memory from resource
+descriptions and never reports timestamps.
+
 ## 6. Pipelines
 
 - Pipelines are created from compiled SPIR-V blobs produced offline by `saige-shaderc`

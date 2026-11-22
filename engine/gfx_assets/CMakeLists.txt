@@ -48,6 +48,7 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
     enable_testing()
     saige_gfx_add_test(saige_gfx_assets_tests
         SOURCES
+            tests/alloc_fault.cpp
             tests/test_gltf.cpp
             tests/test_json.cpp
             tests/test_resource_uri.cpp

@@ -110,12 +110,16 @@ if(SAIGE_BUILD_PROJECTS)
 endif()
 
 if(TARGET saige::project AND TARGET saige::gfx_assets)
-    add_library(saige_scene_project STATIC src/prepared_scene.cpp)
+    add_library(saige_scene_project STATIC src/chunk_stream.cpp src/prepared_scene.cpp)
     add_library(saige::scene_project ALIAS saige_scene_project)
     target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets)
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
     target_link_libraries(saige_scene_asset_tool PRIVATE saige::scene_project)
     if(BUILD_TESTING)
+        add_executable(chunk_stream_test tests/chunk_stream_test.cpp)
+        target_link_libraries(chunk_stream_test PRIVATE saige::scene_project)
+        add_test(NAME chunk_stream_staging COMMAND chunk_stream_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
         add_executable(prepared_scene_test tests/prepared_scene_test.cpp)
         target_link_libraries(prepared_scene_test PRIVATE saige::scene_project)
         add_test(NAME prepared_scene_replacement COMMAND prepared_scene_test

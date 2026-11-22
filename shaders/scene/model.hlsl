@@ -133,11 +133,19 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
     float3 n = normalize(input.normal);
     float3 t = float3(0.0, 0.0, 0.0);
     float3 b = float3(0.0, 0.0, 0.0);
-    if (dot(input.tangent, input.tangent) > 1e-12) {
-        // Orthonormalize against the interpolated normal; the handedness is whatever the transformed frame says.
-        t = normalize(input.tangent - n * dot(n, input.tangent));
-        const float3 cross_nt = cross(n, t);
-        b = cross_nt * (dot(cross_nt, input.bitangent) < 0.0 ? -1.0 : 1.0);
+    // Orthonormalize the interpolated tangent against the interpolated normal; the handedness is whatever the transformed frame
+    // says. The projected tangent can vanish (a tangent parallel to the normal, or interpolation cancelling the two), and
+    // normalizing it would produce NaN, so the frame is used only when the projection keeps a meaningful part of the tangent;
+    // otherwise t and b stay zero and the surface keeps its geometric normal.
+    const float tangent_len2 = dot(input.tangent, input.tangent);
+    if (tangent_len2 > 1e-12) {
+        const float3 projected = input.tangent - n * dot(n, input.tangent);
+        const float projected_len2 = dot(projected, projected);
+        if (projected_len2 > 1e-6 * tangent_len2) {
+            t = projected * rsqrt(projected_len2);
+            const float3 cross_nt = cross(n, t);
+            b = cross_nt * (dot(cross_nt, input.bitangent) < 0.0 ? -1.0 : 1.0);
+        }
     }
     if (!front) {
         n = -n; // the back of a double-sided surface lights with the reversed frame (as the glTF reference viewer does)

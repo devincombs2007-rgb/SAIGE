@@ -55,7 +55,7 @@ resolves outside it, so a symlink cannot escape either.
 | `alphaMode` (`OPAQUE`/`MASK`/`BLEND`), `alphaCutoff`, `doubleSided` | ✅ |
 | `KHR_materials_emissive_strength` | ✅ (folded into the emissive factor) |
 | Textures: `source`, `sampler` (filters, wrap modes); images from relative URI, `data:` URI or `bufferView` | ✅ kept as **encoded bytes plus MIME type**. PNG/JPEG decoding is a separate, bounded step: `decode_image` and `generate_mips` in `saige/gfx_assets/image.hpp` (pinned stb_image, see `docs/third-party/stb_image.md`) |
-| `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0` |
+| `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0`. A **normal** texture that names another set is not uploaded or applied (its tangents belong to `TEXCOORD_0`), so that surface keeps its geometric normal, with a warning |
 | `KHR_texture_transform`, `KHR_materials_*` (other than emissive strength) | ⚠️ optional uses are ignored with a warning |
 
 **What the renderer shades** (`stage_model`, milestones M1 to M3 of [the material architecture](material-architecture.md)): all

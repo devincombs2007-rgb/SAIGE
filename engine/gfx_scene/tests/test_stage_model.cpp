@@ -292,6 +292,30 @@ TEST_CASE("Stage: tangents reach the vertices, and a normal map on a primitive w
     CHECK(threw);
 }
 
+TEST_CASE("Stage: a normal texture on TEXCOORD_1 is ignored with a warning, because only TEXCOORD_0 is sampled")
+{
+    Rig rig;
+    GltfAsset asset = load_fixture();
+    Primitive& primitive = asset.meshes[0].primitives[0];
+    REQUIRE(generate_tangents(primitive).result == TangentResult::Generated);
+
+    StageReport without_normal;  // the uploads every other slot of the fixture needs
+    (void)stage_model(rig.renderer, asset, "no normal", {}, &without_normal);
+
+    asset.materials[0].normal_texture.texture = 0;
+    StageReport on_set_zero;
+    (void)stage_model(rig.renderer, asset, "uv0 normal", {}, &on_set_zero);
+    CHECK(on_set_zero.textures == without_normal.textures + 1);  // the normal map is uploaded (linear)
+    CHECK_FALSE(has_warning(on_set_zero, "TEXCOORD_1 is ignored"));
+
+    asset.materials[0].normal_texture.tex_coord = 1;
+    StageReport on_set_one;
+    (void)stage_model(rig.renderer, asset, "uv1 normal", {}, &on_set_one);
+    CHECK(on_set_one.textures == without_normal.textures);  // not uploaded: the slot stays empty, so the shader keeps the geometric normal
+    CHECK(has_warning(on_set_one, "TEXCOORD_1 is ignored"));
+    CHECK_FALSE(has_warning(on_set_one, "no tangents"));
+}
+
 TEST_CASE("Stage: glTF samplers map to RHI sampler descriptions")
 {
     Sampler s;

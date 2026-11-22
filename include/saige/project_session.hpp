@@ -13,6 +13,8 @@ public:
     explicit ProjectSession(const std::filesystem::path& path, IDesktopPlatform* desktop = nullptr);
 
     void reload(const std::filesystem::path& path);
+    // The caller owns the platform. Attaching a platform discards its buffered drag motion.
+    void attach_desktop(IDesktopPlatform* desktop) noexcept;
     [[nodiscard]] World& world() noexcept { return world_; }
     [[nodiscard]] const Project& source() const noexcept { return source_; }
     [[nodiscard]] const std::filesystem::path& root() const noexcept { return root_; }

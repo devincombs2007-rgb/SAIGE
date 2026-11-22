@@ -10,7 +10,9 @@
 #include <cstring>
 #include <functional>
 #include <iostream>
+#include <cstdint>
 #include <limits>
+#include <new>
 #include <optional>
 #include <unordered_map>
 #include <stdexcept>
@@ -21,6 +23,21 @@
 namespace saige::rhi {
 
 namespace {
+
+std::atomic<uint32_t> g_process_validation_errors{0};  // all devices, including errors reported during destruction
+std::atomic<uint32_t> g_memory_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
+
+/// True exactly once, for the registration the test asked to fail.
+bool consume_memory_bookkeeping_fault() noexcept
+{
+    uint32_t n = g_memory_bookkeeping_fault.load(std::memory_order_relaxed);
+    while (n != 0) {
+        if (g_memory_bookkeeping_fault.compare_exchange_weak(n, n - 1, std::memory_order_relaxed)) {
+            return n == 1;
+        }
+    }
+    return false;
+}
 
 using vk::Api;
 
@@ -509,6 +526,7 @@ VkBool32 VulkanDevice::debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT sev
     if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0) {
         label = "error";
         self->validation_errors_.fetch_add(1);
+        g_process_validation_errors.fetch_add(1);  // survives the device: leaks are only reported while it is destroyed
     } else if ((severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0) {
         label = "warning";
     }
@@ -972,7 +990,17 @@ VkDeviceMemory VulkanDevice::allocate(const VkMemoryRequirements& req, MemoryLoc
     ai.memoryTypeIndex = find_memory_type(req.memoryTypeBits, required, preferred);
     VkDeviceMemory memory = VK_NULL_HANDLE;
     check(vk_.vkAllocateMemory(device_, &ai, nullptr, &memory), "vkAllocateMemory");
-    allocation_sizes_.emplace(memory, req.size);
+    // The driver now owns memory nobody else knows about: if recording it throws (the ledger allocates a map node), free
+    // it before propagating, and only count the bytes once the registration has succeeded.
+    try {
+        if (consume_memory_bookkeeping_fault()) {
+            throw std::bad_alloc();
+        }
+        allocation_sizes_.emplace(memory, req.size);
+    } catch (...) {
+        vk_.vkFreeMemory(device_, memory, nullptr);
+        throw;
+    }
     allocated_bytes_ += req.size;
     return memory;
 }
@@ -1109,41 +1137,56 @@ BufferHandle VulkanDevice::create_buffer(const BufferDesc& desc, std::span<const
     set_name(VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(res.buffer), desc.debug_name);
 
     if (staged) {
-        BufferDesc staging_desc;
-        staging_desc.size = initial_data.size();
-        staging_desc.usage = BufferUsage::TransferSrc;
-        staging_desc.memory = MemoryLocation::CpuToGpu;
-        staging_desc.debug_name = "UploadStaging";
-        const BufferHandle staging = create_buffer(staging_desc, initial_data);
-        const VkBuffer src = buffers_.get(staging)->buffer;
-        const VkBuffer dst = res.buffer;
-        const VkDeviceSize size = initial_data.size();
-        immediate_submit([&](VkCommandBuffer cmd) {
-            VkBufferCopy region{0, 0, size};
-            vk_.vkCmdCopyBuffer(cmd, src, dst, 1, &region);
-            // Make the copy's writes available to everything that follows (vertex/index fetch, uniform and storage reads,
-            // later copies). Queue order alone does not make memory visible; synchronization validation reports this
-            // as READ_AFTER_WRITE without the barrier.
-            VkBufferMemoryBarrier2 bb{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
-            bb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-            bb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            bb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            bb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-            bb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            bb.buffer = dst;
-            bb.offset = 0;
-            bb.size = VK_WHOLE_SIZE;
-            VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            di.bufferMemoryBarrierCount = 1;
-            di.pBufferMemoryBarriers = &bb;
-            vk_.vkCmdPipelineBarrier2(cmd, &di);
-        });
-        // The copy has completed (immediate_submit waits); later frames are ordered after it on the queue.
-        if (std::optional<VkBufferRes> s = buffers_.release(staging)) {
-            vk_.vkDestroyBuffer(device_, s->buffer, nullptr);
-            free_memory(s->memory);
+        std::optional<BufferHandle> staging;
+        const auto release_staging = [&] {
+            if (staging) {
+                if (std::optional<VkBufferRes> s = buffers_.release(*staging)) {
+                    vk_.vkDestroyBuffer(device_, s->buffer, nullptr);
+                    free_memory(s->memory);
+                }
+                staging.reset();
+            }
+        };
+        try {
+            BufferDesc staging_desc;
+            staging_desc.size = initial_data.size();
+            staging_desc.usage = BufferUsage::TransferSrc;
+            staging_desc.memory = MemoryLocation::CpuToGpu;
+            staging_desc.debug_name = "UploadStaging";
+            staging = create_buffer(staging_desc, initial_data);
+            const VkBuffer src = buffers_.get(*staging)->buffer;
+            const VkBuffer dst = res.buffer;
+            const VkDeviceSize size = initial_data.size();
+            immediate_submit([&](VkCommandBuffer cmd) {
+                VkBufferCopy region{0, 0, size};
+                vk_.vkCmdCopyBuffer(cmd, src, dst, 1, &region);
+                // Make the copy's writes available to everything that follows (vertex/index fetch, uniform and storage reads,
+                // later copies). Queue order alone does not make memory visible; synchronization validation reports this
+                // as READ_AFTER_WRITE without the barrier.
+                VkBufferMemoryBarrier2 bb{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+                bb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+                bb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                bb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                bb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+                bb.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bb.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                bb.buffer = dst;
+                bb.offset = 0;
+                bb.size = VK_WHOLE_SIZE;
+                VkDependencyInfo di{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                di.bufferMemoryBarrierCount = 1;
+                di.pBufferMemoryBarriers = &bb;
+                vk_.vkCmdPipelineBarrier2(cmd, &di);
+            });
+            // The copy has completed (immediate_submit waits); later frames are ordered after it on the queue.
+        } catch (...) {
+            // The destination has no handle yet, so nothing else owns it: release both buffers before propagating.
+            release_staging();
+            vk_.vkDestroyBuffer(device_, res.buffer, nullptr);
+            free_memory(res.memory);
+            throw;
         }
+        release_staging();
     }
     return buffers_.emplace(std::move(res));
 }
@@ -2447,5 +2490,17 @@ bool vulkan_device_available(std::string* reason)
         return false;
     }
 }
+
+namespace testing {
+void fail_memory_bookkeeping_after(uint32_t n) noexcept
+{
+    g_memory_bookkeeping_fault.store(n, std::memory_order_relaxed);
+}
+
+uint32_t process_validation_error_count() noexcept
+{
+    return g_process_validation_errors.load(std::memory_order_relaxed);
+}
+} // namespace testing
 
 } // namespace saige::rhi

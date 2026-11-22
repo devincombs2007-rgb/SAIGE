@@ -869,6 +869,14 @@ private:
                     if (report.fallback_vertices != 0) {
                         warn("tangent generation found vertices without a usable UV mapping and gave them an arbitrary frame");
                     }
+                    if (report.split_vertices != 0) {
+                        warn("tangent generation split vertices shared by mirrored UV islands (the file did not split them)");
+                    }
+                    if (report.mixed_handedness_triangles != 0) {
+                        warn("some triangles have normals that contradict their winding: their tangent handedness is inconsistent");
+                    }
+                } else if (report.result == TangentResult::Invalid) {
+                    warn("a primitive with a normal texture has inconsistent vertex arrays: no tangents were generated");
                 } else if (report.result == TangentResult::NoUvs) {
                     warn("a primitive has a normal texture but no TEXCOORD_0: its normal map cannot be applied");
                 }

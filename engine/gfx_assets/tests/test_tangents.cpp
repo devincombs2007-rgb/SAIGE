@@ -212,3 +212,124 @@ TEST_CASE("Tangents: generation is deterministic and leaves every other array un
     CHECK(a.indices == original.indices);
     CHECK(to_string(TangentResult::Generated) == "generated");
 }
+
+// ----------------------------------------------------------------------------------------------- review findings on #46
+
+namespace {
+
+/// Two quads in the XY plane (facing +Z) sharing the edge x = 1: the left maps u = x, the right is mirrored (u = 2 - x), so the UVs are
+/// continuous across the shared vertices but the mapping's orientation flips. V runs so that world +Y is image-up (v = 1 - y).
+Primitive mirrored_strip(bool with_colors = false)
+{
+    Primitive p;
+    const float xs[3] = {0.0f, 1.0f, 2.0f};
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            p.positions.insert(p.positions.end(), {xs[col], static_cast<float>(row), 0.0f});
+            p.normals.insert(p.normals.end(), {0.0f, 0.0f, 1.0f});
+            const float u = xs[col] <= 1.0f ? xs[col] : 2.0f - xs[col];
+            p.uv0.insert(p.uv0.end(), {u, 1.0f - static_cast<float>(row)});
+            if (with_colors) p.colors.insert(p.colors.end(), {static_cast<float>(row * 3 + col), 0.0f, 0.0f, 1.0f});
+        }
+    }
+    // Vertices: row 0 = 0,1,2 (y = 0), row 1 = 3,4,5 (y = 1). Counter-clockwise seen from +Z.
+    p.indices = {0, 1, 4, 0, 4, 3,   // left quad
+                 1, 2, 5, 1, 5, 4};  // right quad
+    return p;
+}
+
+} // namespace
+
+TEST_CASE("Tangents: an unindexed triangle list gets real tangents, not the fallback frame")
+{
+    // The same two triangles as the quad helper's, written out as a plain list of six vertices (no index buffer).
+    Primitive indexed = quad();
+    Primitive flat;
+    for (const uint32_t i : indexed.indices) {
+        flat.positions.insert(flat.positions.end(), {indexed.positions[i * 3], indexed.positions[i * 3 + 1], indexed.positions[i * 3 + 2]});
+        flat.normals.insert(flat.normals.end(), {indexed.normals[i * 3], indexed.normals[i * 3 + 1], indexed.normals[i * 3 + 2]});
+        flat.uv0.insert(flat.uv0.end(), {indexed.uv0[i * 2], indexed.uv0[i * 2 + 1]});
+    }
+    REQUIRE(flat.indices.empty());
+    const TangentReport report = generate_tangents(flat);
+    CHECK(report.result == TangentResult::Generated);
+    CHECK(report.fallback_vertices == 0);  // before the fix every vertex took the arbitrary fallback frame
+    CHECK(report.split_vertices == 0);
+    CHECK(flat.indices.empty());           // still unindexed
+    REQUIRE(flat.tangents.size() == 6 * 4);
+    CHECK(generate_tangents(indexed).result == TangentResult::Generated);
+    for (uint32_t v = 0; v < 6; ++v) {
+        const Float3 t = tangent_of(flat, v);
+        CHECK(near(t.x, 1.0f) );  // the quad helper maps +X to increasing u
+        CHECK(near(t.y, 0.0f));
+        CHECK(near(flat.tangents[v * 4 + 3], 1.0f));
+    }
+    // A list that is not a whole number of triangles is invalid, and nothing changes.
+    Primitive ragged = flat;
+    ragged.tangents.clear();
+    ragged.positions.resize(5 * 3);
+    ragged.normals.resize(5 * 3);
+    ragged.uv0.resize(5 * 2);
+    CHECK(generate_tangents(ragged).result == TangentResult::Invalid);
+    CHECK(ragged.tangents.empty());
+}
+
+TEST_CASE("Tangents: vertices shared by mirrored UV islands are split, so no face has mixed handedness")
+{
+    Primitive p = mirrored_strip(/*with_colors=*/true);
+    const Primitive before = p;
+    const TangentReport report = generate_tangents(p);
+    CHECK(report.result == TangentResult::Generated);
+    CHECK(report.split_vertices == 2);                // the two vertices on the shared edge
+    CHECK(report.mixed_handedness_triangles == 0);
+    REQUIRE(p.vertex_count() == before.vertex_count() + 2);
+    CHECK(p.tangents.size() == std::size_t{p.vertex_count()} * 4);
+    CHECK(p.colors.size() == std::size_t{p.vertex_count()} * 4);
+    // Left quad: increasing u is +X, right-handed. Right quad (mirrored): increasing u is -X, left-handed. Each triangle's three corners agree.
+    for (std::size_t t = 0; t < p.indices.size(); t += 3) {
+        const bool left = t < 6;
+        for (int c = 0; c < 3; ++c) {
+            const uint32_t v = p.indices[t + static_cast<std::size_t>(c)];
+            const Float3 tg = tangent_of(p, v);
+            CHECK(near(tg.x, left ? 1.0f : -1.0f));
+            CHECK(near(tg.y, 0.0f));
+            CHECK(near(p.tangents[v * 4 + 3], left ? 1.0f : -1.0f));
+            CHECK(near(dot(tg, normal_of(p, v)), 0.0f));
+        }
+    }
+    // The left quad keeps its original vertices; the added copies carry position, normal, uv and color of their source exactly.
+    for (std::size_t k = 0; k < 6; ++k) CHECK(p.indices[k] == before.indices[k]);
+    for (uint32_t v = before.vertex_count(); v < p.vertex_count(); ++v) {
+        bool found = false;
+        for (uint32_t o = 0; o < before.vertex_count() && !found; ++o) {
+            found = p.positions[v * 3] == before.positions[o * 3] && p.positions[v * 3 + 1] == before.positions[o * 3 + 1] &&
+                    p.uv0[v * 2] == before.uv0[o * 2] && p.uv0[v * 2 + 1] == before.uv0[o * 2 + 1] && p.colors[v * 4] == before.colors[o * 4];
+        }
+        CHECK(found);
+    }
+    // Deterministic.
+    Primitive again = mirrored_strip(true);
+    generate_tangents(again);
+    CHECK(again.tangents == p.tangents);
+    CHECK(again.indices == p.indices);
+}
+
+TEST_CASE("Tangents: mirrored islands that the file already split are left alone, and a mirrored whole mesh is not split")
+{
+    Primitive whole = quad(-1.0f, 1.0f);  // every triangle mirrored the same way
+    const TangentReport r = generate_tangents(whole);
+    CHECK(r.split_vertices == 0);
+    CHECK(whole.vertex_count() == 4);
+    CHECK(near(whole.tangents[3], -1.0f));
+}
+
+TEST_CASE("Tangents: inconsistent colors are rejected before anything changes")
+{
+    Primitive p = mirrored_strip(true);
+    p.colors.pop_back();
+    const Primitive before = p;
+    CHECK(generate_tangents(p).result == TangentResult::Invalid);
+    CHECK(p.positions == before.positions);
+    CHECK(p.indices == before.indices);
+    CHECK(p.tangents.empty());
+}

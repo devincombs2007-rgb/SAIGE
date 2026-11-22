@@ -141,8 +141,10 @@ public:
     virtual void write_timestamp(uint32_t index) = 0;
     virtual void bind_pipeline(PipelineHandle pipeline) = 0;
     /// Binds `group` to descriptor set `set` of the bound pipeline. Requires a bound pipeline with a layout at `set`
-    /// and a group created from that same layout. Bound groups persist across pipeline changes only if the new
-    /// pipeline uses the same layout at that set; rebind after switching to be safe.
+    /// and a group created from that same layout; the group's resources must still be alive.
+    /// Persistence: binding a *different* pipeline handle clears every bound group, even when the new pipeline declares
+    /// identical layouts (compatibility also depends on push constant ranges and every lower set), so rebind all groups
+    /// after switching. Binding the *same* pipeline handle again keeps them. A draw needs a compatible group at every set.
     virtual void bind_group(uint32_t set, BindGroupHandle group) = 0;
     virtual void push_constants(std::span<const std::byte> data, uint32_t offset = 0) = 0;
     virtual void bind_vertex_buffer(BufferHandle buffer, uint64_t offset = 0) = 0;

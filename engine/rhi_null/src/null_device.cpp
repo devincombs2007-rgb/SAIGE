@@ -278,6 +278,17 @@ public:
         commands_.push_back(std::move(c));
     }
 
+    void write_timestamp(uint32_t index) override
+    {
+        check_frame("write_timestamp");
+        if (index >= max_gpu_timestamps) {
+            device_.error("write_timestamp(): index out of range");
+        }
+        RecordedCommand c = make(CommandType::Timestamp);
+        c.count = index;
+        commands_.push_back(std::move(c));
+    }
+
     void push_constants(std::span<const std::byte> data, uint32_t offset) override
     {
         check_frame("push_constants");
@@ -820,6 +831,27 @@ const std::vector<RecordedCommand>& NullDevice::last_frame_commands() const noex
 const std::vector<std::string>& NullDevice::validation_messages() const noexcept
 {
     return impl_->messages;
+}
+
+std::optional<GpuTimestamps> NullDevice::completed_timestamps() const
+{
+    return std::nullopt;
+}
+
+DeviceMemoryStats NullDevice::memory_stats() const
+{
+    DeviceMemoryStats s;
+    impl_->buffers.for_each([&](BufferHandle, NullBuffer& b) {
+        s.allocated_bytes += b.desc.size;
+        ++s.allocation_count;
+    });
+    impl_->textures.for_each([&](TextureHandle, NullTexture& t) {
+        if (!t.swapchain_image) {
+            s.allocated_bytes += compute_texture_data_size(t.desc);
+            ++s.allocation_count;
+        }
+    });
+    return s;
 }
 
 uint32_t NullDevice::live_resource_count() const noexcept

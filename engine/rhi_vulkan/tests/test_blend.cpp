@@ -395,3 +395,67 @@ TEST_CASE("Blend (Vulkan): pipelines with unsupported blend descriptions are rej
     }
     CHECK(rig.device->validation_error_count() == 0);
 }
+
+TEST_CASE("Blend (Vulkan): the selected device is asked, before anything is created, whether it can blend into each attachment")
+{
+    Rig rig("blend_capability");
+    {
+        // The formats the specification guarantees really do create blended pipelines on this device.
+        for (const rhi::Format f : {rhi::Format::R8_UNORM, rhi::Format::RG8_UNORM, rhi::Format::RGBA8_UNORM, rhi::Format::RGBA8_SRGB,
+                                    rhi::Format::BGRA8_UNORM, rhi::Format::BGRA8_SRGB, rhi::Format::RGB10A2_UNORM, rhi::Format::R16_FLOAT,
+                                    rhi::Format::RG16_FLOAT, rhi::Format::RGBA16_FLOAT}) {
+            rhi::GraphicsPipelineDesc pd;
+            pd.vertex_shader = rig.vs;
+            pd.pixel_shader = rig.ps;
+            pd.cull_mode = rhi::CullMode::None;
+            pd.push_constant_size = 16;
+            pd.color_formats = {f};
+            pd.blend = {rhi::BlendState::source_over()};
+            rhi::PipelineHandle p;
+            bool created = true;
+            try {
+                p = rig.device->create_graphics_pipeline(pd);
+            } catch (const std::exception&) {
+                created = false;
+            }
+            CHECK(created);
+            if (created) rig.device->destroy(p);
+        }
+
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+        // A device that cannot blend into a format (simulated by the test hook, so this runs on a device that can): the blended
+        // pipeline is refused with a clear error before any Vulkan object is created, an unblended pipeline into the same format is
+        // not affected, other formats are not affected, and cancelling the hook restores the normal behavior.
+        rhi::testing::deny_blending_into(rhi::Format::RGBA8_UNORM);
+        rhi::GraphicsPipelineDesc pd;
+        pd.vertex_shader = rig.vs;
+        pd.pixel_shader = rig.ps;
+        pd.cull_mode = rhi::CullMode::None;
+        pd.push_constant_size = 16;
+        pd.color_formats = {rhi::Format::RGBA8_UNORM};
+        pd.blend = {rhi::BlendState::source_over()};
+        std::string message;
+        try {
+            (void)rig.device->create_graphics_pipeline(pd);
+        } catch (const std::invalid_argument& e) {
+            message = e.what();
+        }
+        CHECK(message.find("cannot blend into RGBA8_UNORM") != std::string::npos);
+        pd.blend.clear();
+        rhi::PipelineHandle unblended = rig.device->create_graphics_pipeline(pd);  // not blended: not refused
+        CHECK(unblended.is_valid());
+        rig.device->destroy(unblended);
+        pd.color_formats = {rhi::Format::RGBA16_FLOAT};
+        pd.blend = {rhi::BlendState::source_over()};
+        rhi::PipelineHandle other = rig.device->create_graphics_pipeline(pd);
+        CHECK(other.is_valid());
+        rig.device->destroy(other);
+        rhi::testing::deny_blending_into(rhi::Format::Unknown);
+        pd.color_formats = {rhi::Format::RGBA8_UNORM};
+        rhi::PipelineHandle restored = rig.device->create_graphics_pipeline(pd);
+        CHECK(restored.is_valid());
+        rig.device->destroy(restored);
+#endif
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}

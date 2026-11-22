@@ -45,8 +45,9 @@ TEST_CASE("Blend: validation accepts one equal state per attachment into blendab
     const std::array<BlendState, 2> same{BlendState::source_over(), BlendState::source_over()};
     CHECK(validate_blend_state(same, two).ok());
     const std::array<BlendState, 1> one{BlendState::additive()};
-    for (const Format f : {Format::RGBA8_UNORM, Format::RGBA8_SRGB, Format::BGRA8_UNORM, Format::BGRA8_SRGB, Format::RGBA16_FLOAT,
-                           Format::RG16_FLOAT, Format::R16_FLOAT, Format::RG11B10_FLOAT, Format::RGB10A2_UNORM}) {
+    // Exactly the formats for which the Vulkan specification's mandatory-format tables guarantee VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT.
+    for (const Format f : {Format::R8_UNORM, Format::RG8_UNORM, Format::RGBA8_UNORM, Format::RGBA8_SRGB, Format::BGRA8_UNORM,
+                           Format::BGRA8_SRGB, Format::RGB10A2_UNORM, Format::R16_FLOAT, Format::RG16_FLOAT, Format::RGBA16_FLOAT}) {
         const std::array<Format, 1> formats{f};
         CHECK(validate_blend_state(one, formats).ok());
         CHECK(is_blendable_color_format(f));
@@ -57,8 +58,12 @@ TEST_CASE("Blend: validation rejects what no backend can honor portably")
 {
     const std::array<BlendState, 1> blend{BlendState::source_over()};
     // Formats outside the portable subset.
+    // Not guaranteed by the specification on every implementation (some are still very common): 16-bit UNORM and packed RG11B10 float
+    // among them, which an earlier revision of this list wrongly accepted.
     for (const Format f : {Format::RGBA8_UINT, Format::R32_SINT, Format::RGBA8_SNORM, Format::RGBA32_FLOAT, Format::R32_FLOAT,
-                           Format::RGB9E5_UFLOAT, Format::D32_FLOAT, Format::BC7_UNORM, Format::Unknown}) {
+                           Format::RGB9E5_UFLOAT, Format::D32_FLOAT, Format::BC7_UNORM, Format::Unknown, Format::RG11B10_FLOAT,
+                           Format::R16_UNORM, Format::RG16_UNORM, Format::RGBA16_UNORM, Format::R16_SNORM, Format::RGB10A2_UINT,
+                           Format::RGB32_FLOAT}) {
         const std::array<Format, 1> formats{f};
         CHECK_FALSE(validate_blend_state(blend, formats).ok());
         CHECK_FALSE(is_blendable_color_format(f));

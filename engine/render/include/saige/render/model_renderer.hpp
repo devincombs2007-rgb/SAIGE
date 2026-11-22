@@ -12,7 +12,7 @@
 // are shaded (occlusion scales the ambient term, as glTF defines it). ModelShading::MetallicRoughness shades all of those and
 // additionally the metallic-roughness slot with glTF's physically based model and tangent-space normal mapping (with the
 // material's normal scale and the vertex tangents). Alpha-mask materials discard below their cutoff; alpha
-// blending is not implemented (a Blend material draws as opaque).
+// blending composites `alpha_blend` materials source-over in a sorted phase after all opaque draws (see MaterialData).
 #pragma once
 
 #include "saige/render/gpu_resources.hpp"
@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace saige::render {
 
@@ -40,6 +41,11 @@ struct MaterialData {
     float normal_scale = 1.0f;                       ///< scales the normal texture's x and y (MetallicRoughness shading)
     float occlusion_strength = 1.0f;                 ///< 0 ignores the occlusion texture, 1 applies it fully
     bool double_sided = false;
+    /// glTF `BLEND`: the surface (base color alpha times the factor) is composited source-over with straight alpha in a sorted
+    /// phase after all opaque and masked draws, testing but not writing depth. Only when the renderer was created with
+    /// `ModelRenderSettings::alpha_blending` (off by default: the 0.2 behavior, BLEND drawn opaque) and a blendable scene format
+    /// (see rhi/blend.hpp); otherwise the material is drawn opaque.
+    bool alpha_blend = false;
 };
 /// The 0.2 name, kept so existing callers compile.
 using MaterialParams = MaterialData;
@@ -61,6 +67,8 @@ struct ModelFrameStats {
     uint32_t draw_calls = 0;
     uint32_t instances_drawn = 0;
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
+    uint32_t blended_primitives = 0; ///< primitives drawn in the sorted blended phase
+    uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
 };
 
 /// How imported models are shaded. Legacy is the 0.2 look exactly: base color texture and factor, the emissive factor, alpha mask,
@@ -74,6 +82,9 @@ enum class ModelShading : uint8_t { Legacy, Extended, MetallicRoughness };
 
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
+    /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
+    /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
+    bool alpha_blending = false;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
 };
@@ -101,6 +112,17 @@ public:
               ModelFrameStats& stats);
 
     [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
+    /// Whether the scene format can blend (the portable subset of rhi/blend.hpp). Fixed at construction.
+    [[nodiscard]] bool blending_supported() const noexcept { return blending_supported_; }
+    /// Whether the host asked for alpha blending (`ModelRenderSettings::alpha_blending`). Fixed at construction.
+    [[nodiscard]] bool alpha_blending() const noexcept { return alpha_blending_; }
+    /// Whether `alpha_blend` materials are really blended: asked for and supported. Otherwise they draw opaque, as in 0.2.
+    [[nodiscard]] bool blending_enabled() const noexcept { return alpha_blending_ && blending_supported_; }
+
+    /// The key blended primitives are sorted by, larger = farther = drawn first: the view-space depth of `world_center`, which for a
+    /// perspective projection is the clip-space w. (Orthographic projections give every point the same w and would not sort; the
+    /// renderer has perspective cameras only.)
+    [[nodiscard]] static float blend_sort_depth(const Mat4& view_proj, Float3 world_center) noexcept;
 
     /// GPU textures the renderer itself keeps alive: three neutral slot textures and the environment BRDF table (visible in the
     /// registry's texture counters).
@@ -110,6 +132,17 @@ public:
 
 private:
     [[nodiscard]] rhi::PipelineHandle pipeline_for(bool mirrored, bool double_sided) const noexcept;
+    void ensure_blend_pipelines();
+
+    /// One primitive waiting for the sorted phase. Kept in a member vector that is cleared, not freed, each frame.
+    struct BlendedDraw {
+        float depth = 0.0f;
+        uint32_t sequence = 0;  ///< submission order: the deterministic tie-break
+        const GpuPrimitive* primitive = nullptr;
+        const GpuMaterial* material = nullptr;
+        Mat4 world;
+        bool mirrored = false;
+    };
 
     rhi::Device& device_;
     GpuResourceRegistry& registry_;
@@ -117,6 +150,12 @@ private:
     rhi::ShaderHandle vs_, ps_;
     rhi::BindGroupLayoutHandle material_layout_, constants_layout_;
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]
+    rhi::GraphicsPipelineDesc pipeline_template_;  ///< everything but cull, winding and blend, kept to create blend variants lazily
+    rhi::PipelineHandle blend_pipelines_[4];       ///< [mirrored][pass]: pass 0 culls back faces (draws front faces), pass 1 culls front faces
+    bool blend_pipelines_ready_ = false;
+    bool blending_supported_ = false;
+    bool alpha_blending_ = false;
+    std::vector<BlendedDraw> blended_;
     BindGroupRef constants_group_;
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading

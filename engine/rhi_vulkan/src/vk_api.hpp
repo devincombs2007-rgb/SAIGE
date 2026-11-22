@@ -122,6 +122,9 @@ namespace saige::rhi::vk {
     X(vkCmdDraw)                                                                                                       \
     X(vkCmdDrawIndexed)                                                                                                \
     X(vkCmdCopyBuffer)                                                                                                 \
+    X(vkCmdCopyBufferToImage)                                                                                          \
+    X(vkCreateSampler)                                                                                                 \
+    X(vkDestroySampler)                                                                                                \
     X(vkCmdCopyImageToBuffer)
 
 #define SAIGE_VK_SWAPCHAIN_FUNCTIONS(X)                                                                                \

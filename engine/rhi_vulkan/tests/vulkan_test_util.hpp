@@ -11,10 +11,13 @@
 
 namespace saige::test {
 
-inline std::unique_ptr<rhi::Device> make_validated_device(const char* name)
+/// `synchronization`: also enable the layer's synchronization (hazard) validation. Check
+/// `device->info().synchronization_validation_enabled`; it is unavailable without VK_EXT_validation_features.
+inline std::unique_ptr<rhi::Device> make_validated_device(const char* name, bool synchronization = false)
 {
     rhi::DeviceDesc desc;
     desc.enable_validation = true;
+    desc.enable_synchronization_validation = synchronization;
     const char* require = std::getenv("SAIGE_REQUIRE_VALIDATION");  // CI: a missing validation layer is a failure
     desc.require_validation = require != nullptr && require[0] != '\0' && require[0] != '0';
     desc.application_name = name;

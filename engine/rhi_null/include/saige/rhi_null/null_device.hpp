@@ -59,10 +59,13 @@ public:
 
     BufferHandle create_buffer(const BufferDesc& desc, std::span<const std::byte> initial_data = {}) override;
     TextureHandle create_texture(const TextureDesc& desc) override;
+    void upload_texture(TextureHandle texture, std::span<const std::byte> data) override;
+    SamplerHandle create_sampler(const SamplerDesc& desc) override;
     ShaderHandle create_shader(const ShaderDesc& desc) override;
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
     void destroy(BufferHandle handle) override;
     void destroy(TextureHandle handle) override;
+    void destroy(SamplerHandle handle) override;
     void destroy(ShaderHandle handle) override;
     void destroy(PipelineHandle handle) override;
     [[nodiscard]] std::span<std::byte> map(BufferHandle handle) override;
@@ -88,6 +91,8 @@ public:
     [[nodiscard]] uint32_t live_resource_count() const noexcept;
     /// Objects destroyed by the caller but still waiting for their frame to retire.
     [[nodiscard]] uint32_t pending_destruction_count() const noexcept;
+    /// Bytes handed to upload_texture for `texture` (0 if never uploaded or invalid).
+    [[nodiscard]] uint64_t uploaded_bytes(TextureHandle texture) const noexcept;
     [[nodiscard]] Extent3D swapchain_extent(SwapchainHandle handle) const;
     [[nodiscard]] uint32_t swapchain_recreate_count(SwapchainHandle handle) const;
     [[nodiscard]] uint32_t present_count() const noexcept;

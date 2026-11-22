@@ -77,6 +77,37 @@ Instance/Adapter enumeration ─► Device ─┬─► Queue (Graphics | Comput
 - Push constants (≤128 bytes) carry per-dispatch and per-draw parameters.
 - A single global pipeline layout makes pipelines layout-compatible and avoids rebinding.
 
+### 4.1 Texture upload and samplers (0.2)
+
+`Device::upload_texture(texture, data)` is the load-time upload path: synchronous, one staging buffer, one
+transfer-and-barrier submission that waits for completion. `data` is tightly packed with the mip level outermost, then
+array layer, then rows (the order `compute_texture_data_size` already sums), and must match that size exactly. The
+texture needs `Sampled | TransferDst`, one sample and a 2D dimension. Afterwards the texture is in
+`sampled_texture_state`, so an immutable uploaded texture never needs another barrier before it is sampled.
+Only color formats are uploadable: depth/stencil textures need per-aspect copy regions and layouts, which 0.2 does not
+need, so `validate_texture_upload` rejects them (shared by every backend). Re-uploading a texture that earlier, possibly
+still-executing frames read or wrote is supported: the upload's first transition is a full dependency on all prior work,
+with every earlier write as its source access. The validation layer's synchronization validation reports
+`SYNC-HAZARD-WRITE-AFTER-READ` if the execution dependency is removed and `SYNC-HAZARD-WRITE-AFTER-WRITE` if the source
+access is (rendering into a texture that also has attachment usage, then overwriting it, is the case that shows it).
+Shader-read ordering is argued from the same barrier, not shown by a test: the layer version in use does not track
+descriptor reads. Uploading is not allowed between `begin_frame()` and
+`end_frame()` (it throws `std::logic_error`). It blocks the
+calling thread by design: 0.2 loads synchronously on one thread, and an asynchronous transfer-queue path is added only
+after upload cost is measured.
+
+`Device::create_sampler` creates immutable samplers (`hash_sampler_desc` lets callers deduplicate). Requested
+anisotropy degrades to trilinear on devices without `samplerAnisotropy` instead of failing the load. Destruction of
+samplers and textures is deferred until in-flight frames retire, like every other resource. A texture whose usage allows
+no shader or attachment access (transfer only) has no image view.
+
+Binding textures and samplers to draws (bind groups, one descriptor set per material first, bindless optional later)
+is the next RHI step and is specified separately before it lands.
+
+Tests that want hazard detection set `DeviceDesc::enable_synchronization_validation`. The Vulkan backend then enables the
+layer's synchronization validation through `VK_EXT_validation_features` in code (environment variables are ignored by
+elevated Windows processes) and reports the outcome in `DeviceInfo::synchronization_validation_enabled`.
+
 ## 6. Pipelines
 
 - Pipelines are created from compiled SPIR-V blobs produced offline by `saige-shaderc`

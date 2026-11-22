@@ -6,9 +6,14 @@
 #pragma once
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <vector>
+
+#if defined(_MSC_VER)
+#include <crtdbg.h>
+#endif
 
 namespace saige::test {
 
@@ -47,6 +52,18 @@ inline void report_failure(const char* macro, const char* expr, const char* file
 /// Runs all registered tests. An optional argv[1] filters tests by substring.
 inline int run_all(int argc, char** argv)
 {
+#if defined(_MSC_VER)
+    // A crashing test must fail the run, never wait for a person: without these the debug CRT (assertions, abort, terminate)
+    // opens a modal dialog that a headless CI runner cannot dismiss, and the job hangs until its timeout.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _set_error_mode(_OUT_TO_STDERR);
+#if defined(_DEBUG)  // the report functions only exist in the debug CRT (they are no-op macros otherwise)
+    for (const int kind : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT}) {
+        _CrtSetReportMode(kind, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(kind, _CRTDBG_FILE_STDERR);
+    }
+#endif
+#endif
     const char* filter = argc > 1 ? argv[1] : nullptr;
     int passed = 0;
     int failed = 0;
@@ -55,6 +72,8 @@ inline int run_all(int argc, char** argv)
             continue;
         }
         current_failures() = 0;
+        std::printf("[  RUN   ] %s\n", tc.name);
+        std::fflush(stdout);  // if a test hangs or the process dies, the last line names it
         try {
             tc.fn();
         } catch (const RequireFailure&) {

@@ -13,8 +13,8 @@
 // restores the outward direction for a mirrored instance. Which side is "front" for a mirrored instance is decided by the
 // pipeline's front-face winding (the renderer picks a clockwise variant), so the pixel shader only needs SV_IsFrontFace.
 //
-// Two shading modes, chosen per renderer (SceneConstants.sc_flags.x): 0 is the 0.2 look (albedo times ambient plus sun);
-// 1 is metallic-roughness physically based shading (pbr.hlsli), still written to the display-referred target until HDR (M4).
+// Renderer modes: 0 preserves SAIGE 0.2, 1 adds emissive/occlusion textures to the same lighting,
+// and 2 uses metallic-roughness shading (pbr.hlsli).
 //
 // @shader   SceneModel
 // @entry    VSMain vs
@@ -54,7 +54,7 @@ struct ModelPush {
     float4 sc_sun_direction;  // unit vector toward the sun
     float4 sc_sun_color;
     float4 sc_ambient_ground; // ambient light from below (+Z up is the sky color)
-    float4 sc_flags;          // x: shading mode (0 legacy, 1 metallic-roughness)
+    float4 sc_flags;          // x: shading mode (0 legacy, 1 extended, 2 metallic-roughness)
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
@@ -65,11 +65,10 @@ float3 ambient_radiance(float3 direction)
 }
 
 /// The material contract made concrete at one pixel: factors times textures, in the color space each slot is stored in.
-SurfaceData evaluate_surface(float2 uv, float3 normal)
+SurfaceData evaluate_surface(float2 uv, float4 base, float3 normal, bool pbr)
 {
     SurfaceData s;
-    const float4 base = g_base_color.Sample(g_base_color_sampler, uv) * mat_base_color;
-    const float4 mr = g_metallic_roughness.Sample(g_metallic_roughness_sampler, uv);
+    const float4 mr = pbr ? g_metallic_roughness.Sample(g_metallic_roughness_sampler, uv) : 1.0;
     s.base_color = base.rgb;
     s.alpha = base.a;
     s.roughness = mat_mr_normal_occ.y * mr.g;
@@ -116,24 +115,29 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
     if (!front) {
         n = -n; // the back of a double-sided surface lights with the reversed normal
     }
-    const SurfaceData surface = evaluate_surface(input.uv, n);
-    if (mat_emissive_cutoff.w > 0.0 && surface.alpha < mat_emissive_cutoff.w) {
+    const float4 base = g_base_color.Sample(g_base_color_sampler, input.uv) * mat_base_color;
+    if (mat_emissive_cutoff.w > 0.0 && base.a < mat_emissive_cutoff.w) {
         discard;
     }
     const float3 to_camera = pc.camera_sign.xyz - input.world_pos;
     const float distance_m = length(to_camera);
+    const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
     float3 lit;
     if (sc_flags.x < 0.5) {
-        const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
-        const float3 ambient = ambient_radiance(n) * surface.occlusion;
-        lit = surface.base_color * (ambient + sc_sun_color.rgb * n_dot_l) + surface.emissive;
+        lit = base.rgb * (ambient_radiance(n) + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb;
     } else {
-        const float3 v = to_camera / max(distance_m, 1e-6);
-        const float3 r = reflect(-v, n);
-        const float2 table_uv = float2(saturate(dot(n, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
-        const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
-        lit = shade_directional(surface, v, sc_sun_direction.xyz, sc_sun_color.rgb) +
-              shade_ambient(surface, env_brdf, ambient_radiance(n), ambient_radiance(r)) + surface.emissive;
+        const bool pbr = sc_flags.x >= 1.5;
+        const SurfaceData surface = evaluate_surface(input.uv, base, n, pbr);
+        if (pbr) {
+            const float3 v = to_camera / max(distance_m, 1e-6);
+            const float3 r = reflect(-v, n);
+            const float2 table_uv = float2(saturate(dot(n, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
+            const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
+            lit = shade_directional(surface, v, sc_sun_direction.xyz, sc_sun_color.rgb) +
+                  shade_ambient(surface, env_brdf, ambient_radiance(n), ambient_radiance(r)) + surface.emissive;
+        } else {
+            lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;
+        }
     }
     const float fog = 1.0 - exp(-distance_m * sc_fog_color.w);
     return float4(lerp(lit, sc_fog_color.rgb, saturate(fog)), 1.0);

@@ -237,3 +237,36 @@ TEST_CASE("BRDF reference: directional shading applies the cosine and the light,
     CHECK(shade_directional(s, up, v, l, light).x == out.x);
     CHECK(shade_directional(s, up, v, Float3{0.0f, 0.0f, -1.0f}, light).x == 0.0f);
 }
+
+TEST_CASE("BRDF reference: the environment BRDF integral matches the BRDF it integrates and obeys energy bounds")
+{
+    // A metal with base color 1 reflects scale + bias, and with base color 0 reflects bias alone (F = weight). The independent
+    // quadrature over the BRDF itself must agree with the specialised integral.
+    for (const float roughness : {0.3f, 0.6f, 1.0f}) {
+        for (const float theta_v : {0.2f, 0.8f, 1.3f}) {
+            const double bias = albedo_by_half_vector(Surface{{0.0f, 0.0f, 0.0f}, 1.0f, roughness}, theta_v);
+            const double total = albedo_by_half_vector(Surface{{1.0f, 1.0f, 1.0f}, 1.0f, roughness}, theta_v);
+            const EnvBrdf ab = integrate_env_brdf(roughness, std::cos(theta_v));
+            CHECK(std::fabs(total - bias - static_cast<double>(ab.scale)) < 0.01);
+            CHECK(std::fabs(bias - static_cast<double>(ab.bias)) < 0.01);
+            CHECK(ab.scale >= 0.0f);
+            CHECK(ab.bias >= 0.0f);
+            CHECK(ab.scale + ab.bias <= 1.0f + 1e-3f);  // a white f0 cannot reflect more than it receives
+        }
+    }
+}
+
+TEST_CASE("BRDF reference: ambient shading is zero in the dark, scales with occlusion, and a rough dielectric reflects its albedo")
+{
+    const Float3 v = direction(0.4f, 0.0f);
+    const Surface dielectric{{0.6f, 0.4f, 0.2f}, 0.0f, 1.0f};
+    const EnvBrdf ab = integrate_env_brdf(1.0f, std::cos(0.4f));
+    CHECK(shade_ambient(dielectric, 1.0f, ab, {}, {}).x == 0.0f);
+    const Float3 lit = shade_ambient(dielectric, 1.0f, ab, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f});
+    const Float3 half = shade_ambient(dielectric, 0.5f, ab, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f});
+    CHECK(std::fabs(half.y - 0.5f * lit.y) < 1e-6f);
+    // Under a uniform white environment a rough dielectric reflects about its albedo plus a small specular term.
+    CHECK(lit.x > 0.6f);
+    CHECK(lit.x < 0.75f);
+    (void)v;
+}

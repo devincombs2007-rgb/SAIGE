@@ -420,11 +420,11 @@ TEST_CASE("Scene: replacing the scene while frames are in flight retires the old
     CHECK(orangeish == 0);  // nothing of the old orange texture remains
 
     // Counters balance after idle: exactly one scene's worth of textures remains (the new checker plus the renderer's
-    // neutral slot textures).
-    constexpr uint64_t kNeutral = render::ModelRenderer::kNeutralTextureCount;
+    // neutral slot textures and the environment BRDF table).
+    constexpr uint64_t kNeutral = render::ModelRenderer::kOwnedTextureCount;
     const ResourceStats textures = sink.renderer_mutable().registry().stats(ResourceKind::Texture);
     CHECK(textures.live == kNeutral + 1);
-    CHECK(textures.created == kNeutral + 2);  // neutral textures, old checker, new checker
+    CHECK(textures.created == kNeutral + 2);  // renderer-owned textures, old checker, new checker
     CHECK(textures.destroyed == 1);  // the old checker, released at the swap
     CHECK(sink.device().validation_error_count() == 0);
 }

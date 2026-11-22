@@ -7,9 +7,9 @@
 //
 // A material has five texture slots (base color, metallic-roughness, normal, occlusion, emissive), each with its own
 // sampler, plus a parameter block (docs/rendering/material-architecture.md). Slots a material leaves empty are bound to
-// neutral defaults, so one shader serves every material. Shaded so far: base color, emissive and occlusion (occlusion
-// scales the ambient term, as glTF defines it). The metallic-roughness and normal slots and their factors are bound and
-// stored but not yet read by the shader (milestones M2 and M3). Alpha-mask materials discard below their cutoff; alpha
+// neutral defaults, so one shader serves every material. Shaded: base color, emissive and occlusion (occlusion scales the
+// ambient term, as glTF defines it) in both modes, and metallic-roughness in `ModelShading::MetallicRoughness`. The normal
+// slot and its scale are bound and stored but not yet read by the shader (milestone M3). Alpha-mask materials discard below their cutoff; alpha
 // blending is not implemented (a Blend material draws as opaque).
 #pragma once
 
@@ -33,8 +33,8 @@ struct MaterialData {
     float base_color[4] = {1.0f, 1.0f, 1.0f, 1.0f};  ///< linear factor
     float emissive[3] = {0.0f, 0.0f, 0.0f};          ///< linear, may exceed 1
     float alpha_cutoff = 0.0f;                       ///< > 0 discards fragments below it (alpha mask); 0 = opaque
-    float metallic = 1.0f;                           ///< factor (not yet shaded)
-    float roughness = 1.0f;                          ///< factor (not yet shaded)
+    float metallic = 1.0f;                           ///< factor, multiplies the texture's B (MetallicRoughness shading)
+    float roughness = 1.0f;                          ///< factor, multiplies the texture's G (MetallicRoughness shading)
     float normal_scale = 1.0f;                       ///< (not yet shaded)
     float occlusion_strength = 1.0f;                 ///< 0 ignores the occlusion texture, 1 applies it fully
     bool double_sided = false;
@@ -61,7 +61,13 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
 };
 
+/// How imported models are lit. Legacy is the 0.2 look: albedo times (ambient plus sun). MetallicRoughness is glTF's physically
+/// based model (GGX, Smith, Schlick) with the sun and a hemispherical ambient, still written to a display-referred target
+/// until HDR output (M4). The mode is fixed per renderer.
+enum class ModelShading : uint8_t { Legacy, MetallicRoughness };
+
 struct ModelRenderSettings {
+    ModelShading shading = ModelShading::Legacy;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
 };
@@ -88,8 +94,9 @@ public:
     void draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 camera_position, std::span<const ModelDraw> draws,
               ModelFrameStats& stats);
 
-    /// GPU textures the renderer itself keeps alive for neutral slots (visible in the registry's texture counters).
-    static constexpr uint32_t kNeutralTextureCount = 3;
+    /// GPU textures the renderer itself keeps alive: three neutral slot textures and the environment BRDF table (visible in the
+    /// registry's texture counters).
+    static constexpr uint32_t kOwnedTextureCount = 4;
 
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }
 
@@ -103,7 +110,8 @@ private:
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]
     BindGroupRef constants_group_;
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
-    SamplerRef default_sampler_;
+    TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading
+    SamplerRef default_sampler_, env_brdf_sampler_;
 };
 
 } // namespace saige::render

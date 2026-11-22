@@ -246,12 +246,14 @@ TEST_CASE("Stage: every slot gets its own texture upload per color space and the
     StageReport report;
     (void)rig.renderer.model_renderer();  // created on first use; its neutral textures are not part of this staging
     const render::ResourceStats before = rig.renderer.registry().stats(render::ResourceKind::Texture);
+    const render::ResourceStats samplers_before = rig.renderer.registry().stats(render::ResourceKind::Sampler);
     const render::GpuModel model = stage_model(rig.renderer, asset, "slots", {}, &report);
     const render::ResourceStats after = rig.renderer.registry().stats(render::ResourceKind::Texture);
     REQUIRE(!model.materials.empty());
     CHECK(report.textures == 2);                       // one sRGB and one linear upload of the one image, not four
     CHECK(after.created - before.created == 2);
-    CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created == 2);  // two descriptions, shared across slots
+    // Two sampler descriptions across the five slots; the default one is the renderer's own and is shared, not created again.
+    CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created - samplers_before.created == 1);
     CHECK(has_warning(report, "not shaded yet"));      // normal is bound but not shaded
     // An out-of-range slot texture is rejected with the slot named.
     asset.materials[0].emissive_texture.texture = 99;

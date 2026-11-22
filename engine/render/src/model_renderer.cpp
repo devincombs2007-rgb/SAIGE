@@ -186,18 +186,21 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     rhi::SamplerDesc sampler;  // trilinear, repeat
     default_sampler_ = registry_.get_sampler(sampler);
 
-    // The split-sum environment BRDF table (metallic-roughness shading's ambient specular). Legacy shading never reads it, so
-    // it gets one zero texel instead of paying for the integration.
+    // The split-sum environment BRDF table (metallic-roughness shading's ambient specular): the embedded, versioned asset.
+    // Legacy shading never reads it, so it gets one zero texel.
     {
         const bool needed = settings.shading == ModelShading::MetallicRoughness;
-        const EnvBrdfTable zero{1, {0, 0}};
-        const EnvBrdfTable& table = needed ? default_env_brdf_table() : zero;
+        const uint16_t zero[2] = {0, 0};  // Legacy shading never reads the table: one zero texel
+        const EnvBrdfAsset& asset = precomputed_env_brdf();
+        const uint32_t table_size = needed ? asset.size : 1u;
+        const uint16_t* table_texels = needed ? asset.texels : zero;
+        const std::size_t table_values = needed ? asset.texel_count : 2u;
         rhi::TextureDesc d;
         d.format = rhi::Format::RG16_FLOAT;
-        d.width = d.height = table.size;
+        d.width = d.height = table_size;
         d.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
         d.debug_name = "ModelEnvBrdf";
-        env_brdf_ = registry_.create_texture(d, std::as_bytes(std::span(table.texels)));
+        env_brdf_ = registry_.create_texture(d, std::as_bytes(std::span(table_texels, table_values)));
         rhi::SamplerDesc s;
         s.address_u = s.address_v = rhi::AddressMode::ClampToEdge;
         s.mipmap_mode = rhi::MipmapMode::Nearest;

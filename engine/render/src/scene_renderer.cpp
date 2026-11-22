@@ -4,7 +4,6 @@
 #include "saige/shaders/scene_ground.spv.hpp"
 
 #include <cmath>
-#include <new>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -14,19 +13,6 @@ namespace saige::render {
 namespace {
 
 constexpr rhi::Format depth_format = rhi::Format::D32_FLOAT;
-
-#if defined(SAIGE_RENDER_TESTING)
-thread_local uint32_t target_creation_countdown = 0;
-
-void target_creation_fault_point()
-{
-    if (target_creation_countdown != 0 && --target_creation_countdown == 0) {
-        throw std::bad_alloc();
-    }
-}
-#else
-void target_creation_fault_point() noexcept {}
-#endif
 
 void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
                      rhi::BindGroupHandle hdr_input)
@@ -174,7 +160,6 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
     rhi::TextureHandle next_hdr;
     rhi::BindGroupHandle next_input;
     try {
-        target_creation_fault_point();
         next_depth = device_.create_texture(depth_desc);
 
         if (settings_.hdr) {
@@ -184,9 +169,7 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
             hdr_desc.height = height;
             hdr_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
             hdr_desc.debug_name = "SceneHdr";
-            target_creation_fault_point();
             next_hdr = device_.create_texture(hdr_desc);
-            target_creation_fault_point();
             next_input = tone_mapper_->create_input(next_hdr);
         }
     } catch (...) {
@@ -417,14 +400,5 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     }
     return stats;
 }
-
-#if defined(SAIGE_RENDER_TESTING)
-namespace testing {
-void fail_scene_target_creation_after(uint32_t count) noexcept
-{
-    target_creation_countdown = count;
-}
-} // namespace testing
-#endif
 
 } // namespace saige::render

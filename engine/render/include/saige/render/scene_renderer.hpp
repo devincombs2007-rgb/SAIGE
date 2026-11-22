@@ -160,10 +160,4 @@ private:
     std::unique_ptr<ModelRenderer> models_;
 };
 
-#if defined(SAIGE_RENDER_TESTING)
-namespace testing {
-void fail_scene_target_creation_after(uint32_t count) noexcept;
-} // namespace testing
-#endif
-
 } // namespace saige::render

@@ -50,7 +50,10 @@ inline GpuPrimitive make_primitive(GpuResourceRegistry& registry, const std::vec
 
 /// A quad in the plane x = `x`, centered on (y, z) = (0, `zc`), half extent 1, facing -X. uv (0,0) is the corner at screen
 /// top-left for a camera looking along +X (screen left is +Y).
-inline GpuModel make_quad(GpuResourceRegistry& registry, GpuMaterial material, float x, float zc, float half = 1.0f)
+/// With `tangents`, each vertex carries glTF's tangent for this layout: u increases toward -Y, so the tangent is -Y, and the
+/// bitangent (up in the image, +Z) is cross(normal, tangent), so the handedness is +1.
+inline GpuModel make_quad(GpuResourceRegistry& registry, GpuMaterial material, float x, float zc, float half = 1.0f,
+                          bool tangents = false)
 {
     const Float3 n{-1, 0, 0};
     std::vector<ModelVertex> v = {
@@ -59,6 +62,12 @@ inline GpuModel make_quad(GpuResourceRegistry& registry, GpuMaterial material, f
         {{x, +half, zc - half}, n, {0, 1}},  // bottom-left
         {{x, -half, zc - half}, n, {1, 1}},  // bottom-right
     };
+    if (tangents) {
+        for (ModelVertex& vertex : v) {
+            vertex.tangent[1] = -1.0f;
+            vertex.tangent[3] = 1.0f;
+        }
+    }
     GpuModel m;
     m.name = "quad";
     m.materials.push_back(std::move(material));

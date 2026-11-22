@@ -19,8 +19,10 @@ enum class ToneMapOperator : uint32_t {
     AcesFitted = 2,  ///< Narkowicz's fit of the ACES curve
 };
 
+/// The default operator is the ACES fit (owner decision for the 0.3 HDR path); Linear stays available for the LDR look and other
+/// operators can be added to the enum without changing callers. The 0.2 renderer does not use this pass at all.
 struct ToneMapSettings {
-    ToneMapOperator op = ToneMapOperator::Linear;
+    ToneMapOperator op = ToneMapOperator::AcesFitted;
     float exposure_ev = 0.0f;  ///< exposure in stops; the scene color is scaled by 2^EV before the operator
     float white_point = 4.0f;  ///< Reinhard only: the scene luminance that maps to white (must be positive)
 };

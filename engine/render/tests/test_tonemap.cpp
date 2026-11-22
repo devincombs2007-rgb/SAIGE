@@ -22,6 +22,15 @@ ToneMapSettings settings(ToneMapOperator op, float ev = 0.0f, float white = 4.0f
 
 } // namespace
 
+TEST_CASE("Tone map: the default settings use the ACES fit with no exposure offset")
+{
+    const ToneMapSettings defaults;
+    CHECK(defaults.op == ToneMapOperator::AcesFitted);
+    CHECK(defaults.exposure_ev == 0.0f);
+    const Float3 mapped = tone_map({1.0f, 1.0f, 1.0f}, defaults);
+    CHECK(near(mapped.x, 2.54f / 3.16f, 1e-5f));
+}
+
 TEST_CASE("Tone map: Linear is the identity inside [0, 1] and clips above")
 {
     const ToneMapSettings s = settings(ToneMapOperator::Linear);

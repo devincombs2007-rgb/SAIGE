@@ -216,8 +216,52 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
     CHECK(has_warning(report, "alpha blending is not implemented"));
-    CHECK(has_warning(report, "not sampled in 0.2"));
+    CHECK(has_warning(report, "not shaded yet"));
     CHECK(report.warnings.size() == 2);  // each warned about once, however many materials trigger it
+}
+
+TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")
+{
+    Rig rig;
+    GltfAsset asset = load_fixture();
+    REQUIRE(!asset.textures.empty());
+    REQUIRE(!asset.images.empty());
+    // Two glTF samplers, and two glTF textures that share the fixture's one image.
+    Sampler nearest;
+    nearest.mag_filter = 9728;
+    nearest.min_filter = 9728;
+    asset.samplers.clear();
+    asset.samplers.push_back(Sampler{});  // default trilinear/repeat
+    asset.samplers.push_back(nearest);
+    asset.textures[0].sampler = 0;
+    Texture second = asset.textures[0];
+    second.sampler = 1;
+    asset.textures.push_back(second);
+
+    Material& m = asset.materials[0];
+    m.base_color_texture.texture = 0;  // sRGB, sampler 0
+    m.emissive_texture.texture = 1;    // sRGB, sampler 1, the same image as base color
+    m.occlusion_texture.texture = 1;   // linear: the same image again, a second upload
+    m.normal_texture.texture = 0;      // linear: shares the occlusion upload
+    StageReport report;
+    (void)rig.renderer.model_renderer();  // created on first use; its neutral textures are not part of this staging
+    const render::ResourceStats before = rig.renderer.registry().stats(render::ResourceKind::Texture);
+    const render::GpuModel model = stage_model(rig.renderer, asset, "slots", {}, &report);
+    const render::ResourceStats after = rig.renderer.registry().stats(render::ResourceKind::Texture);
+    REQUIRE(!model.materials.empty());
+    CHECK(report.textures == 2);                       // one sRGB and one linear upload of the one image, not four
+    CHECK(after.created - before.created == 2);
+    CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created == 2);  // two descriptions, shared across slots
+    CHECK(has_warning(report, "not shaded yet"));      // normal is bound but not shaded
+    // An out-of-range slot texture is rejected with the slot named.
+    asset.materials[0].emissive_texture.texture = 99;
+    bool threw = false;
+    try {
+        (void)stage_model(rig.renderer, asset, "bad slot");
+    } catch (const std::runtime_error& e) {
+        threw = std::string(e.what()).find("emissive texture index is out of range") != std::string::npos;
+    }
+    CHECK(threw);
 }
 
 TEST_CASE("Stage: glTF samplers map to RHI sampler descriptions")

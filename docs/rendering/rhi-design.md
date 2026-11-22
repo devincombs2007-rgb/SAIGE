@@ -194,9 +194,12 @@ factors and an operation for color and for alpha separately, plus presets (`sour
 
 Portable subset, enforced identically by every backend through `validate_blend_state` before any native object is created:
 - the same state for all color attachments (independent per-attachment blending is not exposed);
-- blending only into UNORM, sRGB and 16-bit float color formats (plus packed RG11B10 float), the formats that blend on every
-  Vulkan implementation; integer, SNORM, 32-bit float, shared-exponent and block-compressed formats are rejected when a state is
-  enabled (a disabled state is accepted for any format);
+- blending only into the formats for which the Vulkan specification guarantees `COLOR_ATTACHMENT_BLEND` (its mandatory-format
+  tables): R8, RG8, RGBA8 and BGRA8 in UNORM and sRGB, RGB10A2 UNORM, and R16, RG16 and RGBA16 float. Everything else (integer, SNORM,
+  16-bit UNORM, packed RG11B10 float, 32-bit float, shared-exponent, compressed) is rejected when a state is enabled, whatever a
+  device might allow; a disabled state is accepted for any format. The Vulkan backend also asks the selected device
+  (`vkGetPhysicalDeviceFormatProperties`, optimal tiling) before creating a blended pipeline, and refuses with a clear error before
+  any native object exists if it cannot blend into an attachment;
 - factors: zero, one, source/destination color and alpha and their complements; operations: add, subtract, reverse subtract,
   min, max. Dual-source blending and a constant blend color are not part of the contract yet and extend the enums when needed.
 

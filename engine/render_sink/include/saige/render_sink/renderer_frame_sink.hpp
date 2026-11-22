@@ -47,6 +47,8 @@ struct SceneAssetRef {
     std::string name;  ///< prefixes the GPU debug names so a leak report points at the asset
 };
 
+class RendererFrameSink;
+
 /// A complete set of GPU models, staged but not yet shown. Move-only. Dropping it (for example after a failed staging
 /// elsewhere, or a replaced scene) releases its GPU resources through the registry; the device retires them when the GPU
 /// is done with any frame still using them. It must not outlive the sink that created it.
@@ -72,6 +74,7 @@ private:
     };
     std::vector<Entry> models_;  ///< sorted by id
     gfx::StageReport report_;
+    const RendererFrameSink* owner_ = nullptr;  ///< the sink whose registry owns the GPU resources (activation checks it)
 };
 
 /// Converts Core's frame snapshot into renderer instances (positions in world meters, stable per-entity colors).
@@ -103,7 +106,8 @@ public:
     /// and image or mesh, nothing is retained, and the currently active scene keeps drawing untouched. Duplicate asset IDs
     /// or the built-in (all-zero) ID throw std::invalid_argument. Call between submits (it uploads synchronously).
     [[nodiscard]] StagedScene stage_scene(std::span<const SceneAssetRef> assets, const gfx::StageSettings& settings = {});
-    /// Makes a staged scene the active one. The previous scene's references are released here; frames still in flight keep
+    /// Makes a staged scene the active one. A scene staged by a different sink throws std::invalid_argument (its resources
+    /// belong to another device); a default-constructed (empty) scene is allowed and clears the active scene. The previous scene's references are released here; frames still in flight keep
     /// their resources until the device retires them. An empty scene is allowed (instances then fall back to cubes).
     void activate_scene(StagedScene&& scene);
     [[nodiscard]] std::size_t active_model_count() const noexcept { return active_.model_count(); }

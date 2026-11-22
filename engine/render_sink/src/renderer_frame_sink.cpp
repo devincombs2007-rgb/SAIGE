@@ -181,6 +181,7 @@ StagedScene RendererFrameSink::stage_scene(std::span<const SceneAssetRef> assets
         }
     }
     StagedScene staged;
+    staged.owner_ = this;
     for (const SceneAssetRef& ref : assets) {
         gfx::StageReport report;
         const std::string name = ref.name.empty() ? saige::format_asset_id(ref.id) : ref.name;
@@ -204,6 +205,9 @@ StagedScene RendererFrameSink::stage_scene(std::span<const SceneAssetRef> assets
 
 void RendererFrameSink::activate_scene(StagedScene&& scene)
 {
+    if (scene.owner_ != nullptr && scene.owner_ != this) {
+        throw std::invalid_argument("activate_scene: the scene was staged by a different RendererFrameSink");
+    }
     active_ = std::move(scene);  // the previous scene's references are released here
 }
 

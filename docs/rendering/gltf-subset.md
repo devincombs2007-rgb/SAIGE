@@ -81,8 +81,10 @@ renderer by `RendererSettings::model_shading`:
     degenerate frame (tangent parallel to the normal) keeps the geometric normal.
 
 Mip chains for linear data use the same box filter as color, so normal maps are not renormalized per level (a known softening of distant
-relief; Toksvig-style filtering is a later refinement). The display-referred target still clips: highlights above 1 saturate until HDR
-output (M4). Specular ambient ignores the lobe's blur until image-based lighting (M5).
+relief; Toksvig-style filtering is a later refinement). By default the target is display-referred and clips: highlights above 1
+saturate. Setting `RendererSettings::hdr` draws the scene in linear light into an RGBA16_FLOAT target and resolves it to the output
+with a tone-map pass (ACES-inspired by default, with `tone_map.exposure_ev`; see `saige/render/tonemap.hpp`). Specular ambient ignores
+the lobe's blur until image-based lighting (M5).
 
 ## Extensions
 - Every entry of `extensionsRequired` must be supported, otherwise the load **fails** naming the extension.

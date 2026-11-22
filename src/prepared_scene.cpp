@@ -55,7 +55,7 @@ const gfx::GltfAsset* PreparedScene::find_asset(AssetId id) const noexcept {
 }
 
 RunStats PreparedScene::run(IDesktopPlatform& desktop, IFrameSink& sink,
-                            std::optional<std::uint64_t> frame_budget) {
+                            std::optional<std::uint64_t> frame_budget, ICpuFrameObserver* observer) {
     if (frame_budget == 0) return {};
 
     struct InputBinding {
@@ -63,7 +63,7 @@ RunStats PreparedScene::run(IDesktopPlatform& desktop, IFrameSink& sink,
         ~InputBinding() { session.attach_desktop(nullptr); }
     } binding{session_};
     session_.attach_desktop(&desktop);
-    return saige::run(session_.world(), desktop, session_, sink, frame_budget);
+    return saige::run(session_.world(), desktop, session_, sink, frame_budget, {}, observer);
 }
 
 } // namespace saige

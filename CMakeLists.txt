@@ -120,6 +120,13 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
         target_link_libraries(prepared_scene_test PRIVATE saige::scene_project)
         add_test(NAME prepared_scene_replacement COMMAND prepared_scene_test
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
+        if(WIN32)
+            add_executable(win32_prepared_scene_test tests/win32_prepared_scene_test.cpp)
+            target_link_libraries(win32_prepared_scene_test PRIVATE saige::desktop saige::scene_project user32)
+            add_test(NAME win32_prepared_scene COMMAND win32_prepared_scene_test
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
+            set_tests_properties(win32_prepared_scene PROPERTIES TIMEOUT 30)
+        endif()
         find_package(Python3 COMPONENTS Interpreter)
         if(Python3_Interpreter_FOUND)
             add_test(NAME scene_asset_preflight COMMAND "${Python3_EXECUTABLE}"

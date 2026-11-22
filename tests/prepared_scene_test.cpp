@@ -44,6 +44,20 @@ private:
     std::chrono::steady_clock::time_point time_{};
 };
 
+class Observer final : public saige::ICpuFrameObserver {
+public:
+    int records{};
+    void record(const saige::CpuFrameMetrics& frame) override {
+        require(frame.instance_count == 3, "CPU observer lost scene instances");
+        ++records;
+    }
+};
+
+class FailingSink final : public saige::IFrameSink {
+public:
+    void submit(const saige::FrameView&) override { throw std::runtime_error("Sink failed"); }
+};
+
 class Sink final : public saige::IFrameSink {
 public:
     explicit Sink(saige::AssetId mesh) : mesh_(mesh) {}
@@ -85,9 +99,10 @@ void test_scene(const fs::path& fixture) {
     require_failure([&] { (void)saige::PreparedScene(fixture, 0); }, "Scene ignored the payload budget");
 
     Sink sink(id);
+    Observer observer;
     require(active->run(desktop, sink, 0).frames == 0 && desktop.input_reads == 0,
             "Zero-budget run consumed input");
-    require(active->run(desktop, sink, 2).ticks == 2, "Scene did not advance camera input");
+    require(active->run(desktop, sink, 2, &observer).ticks == 2 && observer.records == 2, "Scene did not advance camera input");
     const float moved = sink.camera_x;
     const int input_reads = desktop.input_reads;
 
@@ -107,12 +122,20 @@ void test_scene(const fs::path& fixture) {
     require(active->run(desktop, sink, 1).frames == 1 && sink.camera_x > moved,
             "Failed staging interrupted the running scene");
 
+    FailingSink failing_sink;
+    require_failure([&] { active->run(desktop, failing_sink, 1, &observer); },
+                    "Runtime swallowed the sink error");
+    Desktop recovered_desktop;
+    require(observer.records == 2 && active->run(recovered_desktop, sink, 1).frames == 1 &&
+                recovered_desktop.input_reads == 2,
+            "Prepared scene could not rebind input after a failed submission");
+
     fs::copy_file(fixture.parent_path() / asset_path.filename(), asset_path, fs::copy_options::overwrite_existing);
     auto replacement = std::make_unique<saige::PreparedScene>(candidate);
     require(replacement->find_asset(id) != nullptr, "Recovered project lost its stable asset identity");
     active.swap(replacement);
     desktop.should_run = false;
-    require(active->run(desktop, sink, 2).frames == 0 && sink.frames == 3,
+    require(active->run(desktop, sink, 2).frames == 0 && sink.frames == 4,
             "Prepared scene submitted a frame after quit");
 }
 } // namespace

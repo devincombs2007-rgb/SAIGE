@@ -29,7 +29,8 @@ public:
     // Input is borrowed only while run is active. Bind the sink after successful
     // GPU preparation and destroy its resources before destroying its platform.
     RunStats run(IDesktopPlatform& desktop, IFrameSink& sink,
-                 std::optional<std::uint64_t> frame_budget = std::nullopt);
+                 std::optional<std::uint64_t> frame_budget = std::nullopt,
+                 ICpuFrameObserver* observer = nullptr);
 
 private:
     ProjectSession session_;

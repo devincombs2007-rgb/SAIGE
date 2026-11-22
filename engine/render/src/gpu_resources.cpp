@@ -1,18 +1,12 @@
 #include "saige/render/gpu_resources.hpp"
 
 #include <algorithm>
-#include <cstddef>
-#include <cstdint>
-#include <functional>
+#include <atomic>
+#include <deque>
 #include <iostream>
-#include <memory>
-#include <span>
+#include <new>
 #include <sstream>
-#include <stdexcept>
-#include <string>
-#include <string_view>
 #include <utility>
-#include <vector>
 
 namespace saige::render {
 
@@ -31,6 +25,7 @@ namespace detail {
 
 struct Entry {
     bool live = false;
+    bool claimed = false;  ///< a slot reserved for a registration in progress: invisible to every lookup and report
     ResourceKind kind = ResourceKind::Buffer;
     uint32_t generation = 1;
     uint32_t refs = 0;
@@ -38,9 +33,26 @@ struct Entry {
     uint32_t raw = 0;  ///< the device handle's raw value; the typed handle is rebuilt from it on destruction
     std::string name;
     /// References this entry holds on other entries (a bind group's textures, samplers and buffers): (slot, generation).
-    /// Kept as raw slots, not RefCore objects, so the state does not own a shared_ptr to itself.
+    /// Kept as raw slots, not RefCore objects, so the state does not own a shared_ptr to itself. Filled while the slot is
+    /// claimed (the fallible phase); read, never reallocated, when the entry dies.
     std::vector<std::pair<uint32_t, uint32_t>> deps;
 };
+
+std::atomic<uint32_t> g_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
+
+/// A point where registration bookkeeping may fail for lack of memory. Production: free. Tests can make the n-th one throw.
+void fault_point()
+{
+    uint32_t n = g_bookkeeping_fault.load(std::memory_order_relaxed);
+    while (n != 0) {
+        if (g_bookkeeping_fault.compare_exchange_weak(n, n - 1, std::memory_order_relaxed)) {
+            if (n == 1) {
+                throw std::bad_alloc();
+            }
+            return;
+        }
+    }
+}
 
 struct SamplerEntry {
     rhi::SamplerDesc desc;
@@ -51,8 +63,10 @@ struct SamplerEntry {
 struct RegistryState {
     rhi::Device* device = nullptr;
     bool closed = false;  ///< the registry is gone: remaining references are inert
-    std::vector<Entry> entries;
-    std::vector<uint32_t> free_slots;
+    // A deque: growing it never relocates an element, so nothing is moved while the registry is in a half-built state
+    // (moving a std::string or std::vector can allocate under MSVC's checked iterators even where it is declared noexcept).
+    std::deque<Entry> entries;
+    std::vector<uint32_t> free_slots;  // sized (before a registration) for every slot that will ever exist
     ResourceStats stats[resource_kind_count];
     uint64_t peak_total_bytes = 0;  ///< highest sum of live bytes across all kinds
     std::vector<SamplerEntry> samplers;  ///< live samplers, for sharing
@@ -67,41 +81,71 @@ struct RegistryState {
         return (e.live && e.generation == generation) ? &e : nullptr;
     }
 
-    /// Makes the next `add` (and the later release of what it registers) infallible: every allocation the bookkeeping
-    /// needs happens here, before any device resource exists. Throws std::bad_alloc with nothing changed but capacity.
-    /// Invariant afterwards: entries and free_slots have room for one more slot, and free_slots can hold every slot that
-    /// will ever exist, so `release` never allocates.
-    void reserve_slot()
+    /// Phase 1 of a registration. Does every operation that can fail for lack of memory, before the device is touched: it
+    /// reserves room in the free list for every slot that will ever exist (so recycling a slot never allocates), picks a slot,
+    /// and copies `name` into it. Throws with the registry unchanged (an unused slot may remain, free). On success the slot is
+    /// `claimed`: invisible to lookups and reports until `commit`, or released again by `unclaim`.
+    uint32_t claim(std::string_view name, std::span<const std::pair<uint32_t, uint32_t>> deps = {})
     {
-        if (free_slots.empty() && entries.size() == entries.capacity()) {
-            entries.reserve(std::max<std::size_t>(16, entries.size() * 2));
+        fault_point();
+        if (free_slots.capacity() < entries.size() + 1) {
+            free_slots.reserve(std::max<std::size_t>(16, (entries.size() + 1) * 2));
         }
-        if (free_slots.capacity() < entries.capacity()) {
-            free_slots.reserve(entries.capacity());
+        uint32_t slot = 0;
+        bool fresh = false;
+        if (!free_slots.empty()) {
+            slot = free_slots.back();
+        } else {
+            fault_point();
+            entries.emplace_back();
+            slot = static_cast<uint32_t>(entries.size() - 1);
+            fresh = true;
+        }
+        Entry& e = entries[slot];
+        try {
+            fault_point();
+            e.name.assign(name.data(), name.size());
+            fault_point();
+            e.deps.assign(deps.begin(), deps.end());
+        } catch (...) {
+            if (fresh) {
+                entries.pop_back();
+            } else {
+                e.name.clear();
+                e.deps.clear();
+            }
+            throw;
+        }
+        if (!fresh) {
+            free_slots.pop_back();
+        }
+        e.claimed = true;
+        return slot;
+    }
+
+    /// Gives a claimed slot back (the device resource could not be created). Cannot throw or allocate.
+    void unclaim(uint32_t slot) noexcept
+    {
+        Entry& e = entries[slot];
+        e.claimed = false;
+        e.name.clear();
+        e.deps.clear();
+        if (free_slots.size() < free_slots.capacity()) {
+            free_slots.push_back(slot);
         }
     }
 
-    /// Registers a device resource. Cannot throw after `reserve_slot` (moves and arithmetic only).
-    uint32_t add(ResourceKind kind, uint32_t raw, uint64_t bytes, std::string name, uint32_t& generation_out,
-                 std::vector<std::pair<uint32_t, uint32_t>> deps = {}) noexcept
+    /// Phase 2: registers the device resource in a claimed slot. Scalar writes only (no STL object is constructed, moved or
+    /// assigned), so it cannot fail. Returns the generation to build the reference from.
+    uint32_t commit(uint32_t slot, ResourceKind kind, uint32_t raw, uint64_t bytes) noexcept
     {
-        uint32_t slot;
-        if (!free_slots.empty()) {
-            slot = free_slots.back();
-            free_slots.pop_back();
-        } else {
-            slot = static_cast<uint32_t>(entries.size());
-            entries.emplace_back();
-        }
         Entry& e = entries[slot];
+        e.claimed = false;
         e.live = true;
         e.kind = kind;
         e.refs = 1;
         e.bytes = bytes;
         e.raw = raw;
-        e.name = std::move(name);
-        e.deps = std::move(deps);
-        generation_out = e.generation;
         ResourceStats& s = stats[static_cast<std::size_t>(kind)];
         ++s.live;
         ++s.created;
@@ -112,7 +156,7 @@ struct RegistryState {
             total_live += k.live_bytes;
         }
         peak_total_bytes = std::max(peak_total_bytes, total_live);
-        return slot;
+        return e.generation;
     }
 
     void destroy_on_device(const Entry& e) noexcept
@@ -157,8 +201,6 @@ struct RegistryState {
         if (!closed) {
             destroy_on_device(*e);
         }
-        std::vector<std::pair<uint32_t, uint32_t>> deps = std::move(e->deps);
-        e->deps.clear();
         e->live = false;
         e->name.clear();
         e->generation = e->generation == 0xFFFFFFFFu ? 1u : e->generation + 1u;  // stale references no longer match
@@ -167,10 +209,14 @@ struct RegistryState {
         if (free_slots.size() < free_slots.capacity()) {
             free_slots.push_back(slot);
         }
-        // The group is gone first; now let go of what it bound (which may in turn be destroyed).
-        for (const auto& [dep_slot, dep_generation] : deps) {
-            release(dep_slot, dep_generation);
+        // The group is gone first; now let go of what it bound (which may in turn be destroyed). The list is read in place
+        // (a move would construct a container, which can allocate under checked iterators) and cleared afterwards, which
+        // keeps its capacity for the slot's next use.
+        for (std::size_t i = 0; i < e->deps.size(); ++i) {
+            const std::pair<uint32_t, uint32_t> dep = e->deps[i];
+            release(dep.first, dep.second);
         }
+        e->deps.clear();
     }
 };
 
@@ -280,32 +326,41 @@ GpuResourceRegistry::~GpuResourceRegistry()
 
 BufferRef GpuResourceRegistry::create_buffer(const rhi::BufferDesc& desc, std::span<const std::byte> initial_data)
 {
-    // Transactional: everything that can fail for lack of memory happens before the device resource exists, and the
-    // registration after it cannot fail, so there is no window in which a device handle exists without an owner.
-    std::string name = desc.debug_name != nullptr ? desc.debug_name : "";
-    state_->reserve_slot();
-    const rhi::BufferHandle handle = device_.create_buffer(desc, initial_data);
-    uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::Buffer, handle.raw(), desc.size, std::move(name), generation);
+    // Transactional, in three steps. claim: everything that can fail for lack of memory, before any device resource exists.
+    // create: the device call (on failure the claim is returned). commit: scalar writes only, which cannot fail; so there is
+    // no window in which a device handle exists without an owner, and a failure anywhere leaves both sides untouched.
+    const uint32_t slot = state_->claim(desc.debug_name != nullptr ? desc.debug_name : "");
+    rhi::BufferHandle handle;
+    try {
+        handle = device_.create_buffer(desc, initial_data);
+    } catch (...) {
+        state_->unclaim(slot);
+        throw;
+    }
+    const uint32_t generation = state_->commit(slot, ResourceKind::Buffer, handle.raw(), desc.size);
     return BufferRef(RefCore(state_, slot, generation), handle);
 }
 
 TextureRef GpuResourceRegistry::create_texture(const rhi::TextureDesc& desc, std::span<const std::byte> data)
 {
-    std::string name = desc.debug_name != nullptr ? desc.debug_name : "";
     const uint64_t bytes = rhi::compute_texture_data_size(desc);  // may throw for an invalid description: nothing exists yet
-    state_->reserve_slot();
-    const rhi::TextureHandle handle = device_.create_texture(desc);
-    if (!data.empty()) {
-        try {
-            device_.upload_texture(handle, data);
-        } catch (...) {
-            device_.destroy(handle);
-            throw;
+    const uint32_t slot = state_->claim(desc.debug_name != nullptr ? desc.debug_name : "");
+    rhi::TextureHandle handle;
+    try {
+        handle = device_.create_texture(desc);
+        if (!data.empty()) {
+            try {
+                device_.upload_texture(handle, data);
+            } catch (...) {
+                device_.destroy(handle);
+                throw;
+            }
         }
+    } catch (...) {
+        state_->unclaim(slot);
+        throw;
     }
-    uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::Texture, handle.raw(), bytes, std::move(name), generation);
+    const uint32_t generation = state_->commit(slot, ResourceKind::Texture, handle.raw(), bytes);
     return TextureRef(RefCore(state_, slot, generation), handle);
 }
 
@@ -318,12 +373,17 @@ SamplerRef GpuResourceRegistry::get_sampler(const rhi::SamplerDesc& desc)
             return SamplerRef(RefCore(state_, se.slot, se.generation), rhi::SamplerHandle::from_raw(e.raw));
         }
     }
-    std::string name = "sampler";
-    state_->reserve_slot();
-    state_->samplers.reserve(state_->samplers.size() + 1);  // the push_back below cannot allocate
-    const rhi::SamplerHandle handle = device_.create_sampler(desc);
-    uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::Sampler, handle.raw(), 0, std::move(name), generation);
+    const uint32_t slot = state_->claim("sampler");
+    rhi::SamplerHandle handle;
+    try {
+        detail::fault_point();
+        state_->samplers.reserve(state_->samplers.size() + 1);  // the push_back after commit cannot allocate
+        handle = device_.create_sampler(desc);
+    } catch (...) {
+        state_->unclaim(slot);
+        throw;
+    }
+    const uint32_t generation = state_->commit(slot, ResourceKind::Sampler, handle.raw(), 0);
     state_->samplers.push_back({desc, slot, generation});
     return SamplerRef(RefCore(state_, slot, generation), handle);
 }
@@ -359,19 +419,30 @@ BindGroupRef GpuResourceRegistry::create_bind_group(rhi::BindGroupLayoutHandle l
         }
         entries.push_back(e);
     }
-    // Transactional (see the header): everything that can fail for lack of memory has happened by the time the device
-    // creates the group; the retains and the registration that follow cannot throw, so there is no window in which the
-    // group exists without an owner or its dependencies hold references nobody will release.
-    std::string group_name = name != nullptr ? name : "";
-    state_->reserve_slot();
-    const rhi::BindGroupHandle handle = device_.create_bind_group(layout, entries);
-    for (const auto& [slot, generation] : deps) {
-        state_->retain(slot, generation);  // the group's own hold on each resource (noexcept)
+    // Transactional (see the header): claim (name and dependency list copied into the slot) before the device creates the
+    // group; then the retains and the commit, which are scalar writes and cannot throw. No window exists in which the group has
+    // no owner or the dependencies hold references nobody will release.
+    const uint32_t slot = state_->claim(name != nullptr ? name : "", deps);
+    rhi::BindGroupHandle handle;
+    try {
+        handle = device_.create_bind_group(layout, entries);
+    } catch (...) {
+        state_->unclaim(slot);
+        throw;
     }
-    uint32_t generation = 0;
-    const uint32_t slot = state_->add(ResourceKind::BindGroup, handle.raw(), 0, std::move(group_name), generation, std::move(deps));
+    for (const auto& [dep_slot, dep_generation] : deps) {
+        state_->retain(dep_slot, dep_generation);  // the group's own hold on each resource (noexcept)
+    }
+    const uint32_t generation = state_->commit(slot, ResourceKind::BindGroup, handle.raw(), 0);
     return BindGroupRef(RefCore(state_, slot, generation), handle);
 }
+
+namespace testing {
+void fail_registry_bookkeeping_after(uint32_t n) noexcept
+{
+    detail::g_bookkeeping_fault.store(n, std::memory_order_relaxed);
+}
+} // namespace testing
 
 ResourceStats GpuResourceRegistry::stats(ResourceKind kind) const noexcept
 {

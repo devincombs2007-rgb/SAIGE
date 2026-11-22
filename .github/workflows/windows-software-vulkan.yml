@@ -92,6 +92,7 @@ jobs:
           Copy-Item tools/windows-demo/README.md, tools/windows-demo/Launch.cmd $demo
           Copy-Item examples/textured-scene/saige.scene.json, examples/textured-scene/checker-box.gltf "$demo/scene"
           Copy-Item docs/rendering/diagnostics.md "$demo/renderer-diagnostics.md"
+          Copy-Item examples/textured-scene/README.md "$demo/notices/textured-scene.md"
           Copy-Item docs/third-party/stb_image.md "$demo/notices/stb_image.md"
           Copy-Item build/windows-release/_deps/saige_json-src/LICENSE.MIT "$demo/notices/nlohmann-json-LICENSE.MIT"
           git rev-parse HEAD | Set-Content "$demo/evidence/source-commit.txt"

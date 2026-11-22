@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -38,6 +39,24 @@ struct FrameSinkStats {
     uint64_t model_instances_skipped = 0;   ///< non-finite or degenerate world matrices (the renderer skips them)
     uint64_t unresolved_instances = 0;      ///< instances naming an asset that is not staged: drawn as a fallback cube
 };
+
+/// What the renderer can report about itself, versioned for the app's diagnostics output. Every value that the device cannot
+/// measure is absent (`null` in JSON), never zero: a software rasterizer's timestamps measure the CPU, and a device
+/// without timestamp support reports none.
+struct RendererDiagnostics {
+    static constexpr int schema_version = 1;
+    std::string adapter;                       ///< device name, so a software adapter is identified by name
+    bool software_device = false;              ///< CPU implementation (e.g. lavapipe): timings are not GPU timings
+    bool gpu_timestamps_supported = false;
+    std::optional<double> gpu_scene_pass_ms;   ///< scene pass duration of the latest completed, collected frame
+    uint64_t gpu_timing_frame = 0;             ///< which frame that is (valid only with gpu_scene_pass_ms)
+    rhi::DeviceMemoryStats device_memory;      ///< backend allocations (exact) and, if reported, the driver's budget
+    ResourceStats resources;                   ///< registry totals: live resources and their estimated bytes
+    uint32_t validation_errors = 0;
+};
+
+/// Stable JSON for `RendererDiagnostics`: `{"schema_version":1,...}` with `null` for anything unavailable.
+[[nodiscard]] std::string to_json(const RendererDiagnostics& diagnostics);
 
 /// One asset to stage: its stable ID (Core's `RenderInstance::mesh`) and its imported CPU data. The data is only read
 /// during `stage_scene`.
@@ -112,6 +131,9 @@ public:
     void activate_scene(StagedScene&& scene);
     [[nodiscard]] std::size_t active_model_count() const noexcept { return active_.model_count(); }
     [[nodiscard]] SceneRenderer& renderer_mutable() noexcept { return *renderer_; }
+    /// Snapshot of timing and memory. GPU timing lags the latest submit by up to `frames_in_flight` frames and is absent
+    /// until a frame has completed on a device that supports timestamps.
+    [[nodiscard]] RendererDiagnostics diagnostics() const;
 
     [[nodiscard]] const FrameSinkStats& stats() const noexcept { return stats_; }
     [[nodiscard]] rhi::Device& device() noexcept { return *device_; }

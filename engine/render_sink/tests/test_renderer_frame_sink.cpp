@@ -192,3 +192,53 @@ TEST_CASE("FrameSink: offscreen mode renders and reads back")
     CHECK(count(device->last_frame_commands(), rhi::CommandType::CopyTextureToBuffer) == 1);
     CHECK(device->validation_error_count() == 0);
 }
+
+TEST_CASE("Diagnostics: JSON is versioned, escapes the adapter name, and prints null for what is unavailable")
+{
+    RendererDiagnostics d;
+    d.adapter = "Acme \"Fast\" GPU\\1";
+    d.software_device = true;
+    std::string json = to_json(d);
+    CHECK(json.find("\"schema_version\":1") != std::string::npos);
+    CHECK(json.find("\"adapter\":\"Acme \\\"Fast\\\" GPU\\\\1\"") != std::string::npos);
+    CHECK(json.find("\"software_device\":true") != std::string::npos);
+    CHECK(json.find("\"gpu_timestamps_supported\":false") != std::string::npos);
+    CHECK(json.find("\"gpu_scene_pass_ms\":null") != std::string::npos);  // absent, not zero
+    CHECK(json.find("\"gpu_timing_frame\":null") != std::string::npos);
+    CHECK(json.find("\"budget_bytes\":null") != std::string::npos);
+    CHECK(json.find("\"usage_bytes\":null") != std::string::npos);
+
+    d.gpu_timestamps_supported = true;
+    d.gpu_scene_pass_ms = 1.25;
+    d.gpu_timing_frame = 42;
+    d.device_memory.allocated_bytes = 4096;
+    d.device_memory.allocation_count = 3;
+    d.device_memory.budget_available = true;
+    d.device_memory.budget_bytes = 1000000;
+    d.device_memory.usage_bytes = 2000;
+    d.resources.live = 5;
+    d.resources.live_bytes = 777;
+    json = to_json(d);
+    CHECK(json.find("\"gpu_scene_pass_ms\":1.250000") != std::string::npos);
+    CHECK(json.find("\"gpu_timing_frame\":42") != std::string::npos);
+    CHECK(json.find("\"allocated_bytes\":4096") != std::string::npos);
+    CHECK(json.find("\"budget_bytes\":1000000") != std::string::npos);
+    CHECK(json.find("\"live\":5") != std::string::npos);
+    CHECK(json.find("null") == std::string::npos);  // everything is available now
+    CHECK((json.front() == '{' && json.back() == '}'));
+}
+
+TEST_CASE("Diagnostics: a null-device sink reports timestamps unavailable and tracks resources")
+{
+    RendererFrameSink sink(std::make_unique<rhi::NullDevice>(), 64, 36);
+    const RendererDiagnostics before = sink.diagnostics();
+    CHECK_FALSE(before.gpu_timestamps_supported);
+    CHECK_FALSE(before.gpu_scene_pass_ms.has_value());
+    CHECK(before.validation_errors == 0);
+    saige::FrameView view{0, 0.0, {}, std::nullopt};
+    for (int i = 0; i < 4; ++i) sink.submit(view);
+    const RendererDiagnostics after = sink.diagnostics();
+    CHECK_FALSE(after.gpu_scene_pass_ms.has_value());  // still no invented number
+    CHECK(after.device_memory.allocated_bytes > 0);     // the renderer's own buffers and targets
+    CHECK(to_json(after).find("\"gpu_scene_pass_ms\":null") != std::string::npos);
+}

@@ -9,7 +9,7 @@ describe, never what the adapter demands.
 
 | Component | Before | Now | How it is selected | Notes |
 |---|---|---|---|---|
-| Vulkan-Headers | pin `v1.3.296`, **but only when no system headers were found** | `vulkan-sdk-1.4.363.0` (commit `6802bb4733b63ed5efd3adb308a6c885ef180ea1`), minimum accepted `VK_HEADER_VERSION` 303 | system headers if new enough, else fetched (`SAIGE_VULKAN_FETCH_HEADERS=ON`), else a configure error | The tag is the newest SDK-aligned tag in the repository at the time of writing (`git ls-remote`); `v1.4.369` is newer but not an SDK release |
+| Vulkan-Headers | pin `v1.3.296`, **but only when no system headers were found** | `vulkan-sdk-1.4.363.0`, **fetched by its full commit** `6802bb4733b63ed5efd3adb308a6c885ef180ea1` (the tag resolves to it; a tag can move, a commit cannot), minimum accepted `VK_HEADER_VERSION` 303 | installed headers if a translation unit including that exact directory compiles with the Vulkan 1.4 API, else fetched (`SAIGE_VULKAN_FETCH_HEADERS=ON`), else a configure error | The release is the newest SDK-aligned tag in the repository at the time of writing (`git ls-remote`); `v1.4.369` is newer but not an SDK release |
 | Loader (`vulkan-1.dll`, `libvulkan.so.1`) | opened at run time | unchanged | OS or SDK install | No link dependency; the adapter negotiates the instance version with whatever the loader offers |
 | Validation layer | distro/msys2 package | unchanged | CI installs it | Not upgraded here: that means a new download source in CI. See section 4 |
 | Lavapipe (software ICD) | Linux: distro Mesa; Windows: pinned Mesa 26.3.0 (SHA-256 checked) | unchanged | CI | Reports Vulkan 1.4 in both lanes, which is what makes a 1.4 path testable without a physical GPU |
@@ -19,9 +19,15 @@ describe, never what the adapter demands.
 ### What the header change surfaced
 
 - **The old pin was dormant on Linux.** `find_package(Vulkan)` found the distro's `libvulkan-dev` (headers 1.3.275 in the Ubuntu 24.04 package, confirmed on a machine with the same package), so
-  `v1.3.296` was only ever used by the Windows lanes. Linux compiled against different headers than Windows. The gate now
-  compares `VK_HEADER_VERSION` and the Linux lane fetches the pinned headers explicitly, so every lane builds against the same
-  ones.
+  `v1.3.296` was only ever used by the Windows lanes. Linux compiled against different headers than Windows. The Linux lane now
+  fetches the pinned headers explicitly, so every lane builds against the same ones.
+- **The version check inspects the tree that is used (review of #44).** An earlier revision read `VK_HEADER_VERSION` from one
+  `vulkan_core.h` and then let `find_package` select an include tree, possibly a different one, and a patch number alone does not
+  prove the 1.4 API is there. `cmake/SaigeVulkanHeaders.cmake` now compiles a probe against the exact directory the build will use
+  (`VK_VERSION_1_4`, the minimum `VK_HEADER_VERSION`, `VkPhysicalDeviceVulkan14Features`), for installed headers and for the
+  fetched ones, and the build is given that same directory through its own interface target (no `find_package`, so no clash with the
+  fetched `Vulkan::Headers`). Three CTest cases run the probe on stand-in header sets: one that predates 1.4, one whose patch number
+  looks new but that lacks the API (the old check would have accepted it), and a good one.
 - **Fetched headers must be system includes.** Khronos's version macros use C-style casts, which this project's
   `-Wold-style-cast -Werror` rejects when the include path is not a system path (installed SDK headers always are). The fetched
   target is marked `SYSTEM`.

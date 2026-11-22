@@ -98,8 +98,9 @@ struct Rig {
     std::unique_ptr<OffscreenTarget> target;
     RendererSettings settings = pbr_settings();
 
-    explicit Rig(const char* name)
+    explicit Rig(const char* name, ModelShading shading = ModelShading::MetallicRoughness)
     {
+        settings.model_shading = shading;
         device = make_validated_device(name, /*synchronization=*/true);
         renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, settings);
         target = std::make_unique<OffscreenTarget>(*device, kW, kH);
@@ -398,4 +399,277 @@ TEST_CASE("PBR: binary16 conversion is exact for every half value and rounds to 
     CHECK(float_to_half(5.960464477539063e-8f) == 0x0001);  // the smallest subnormal
     CHECK(float_to_half(1.0f + 1.0f / 2048.0f) == 0x3C00);  // halfway between 1 and 1 + 2^-10: ties to even (down)
     CHECK(float_to_half(1.0f + 3.0f / 2048.0f) == 0x3C02);  // halfway between 1 + 2^-10 and 1 + 2^-9: ties to even (up)
+}
+
+// ------------------------------------------------------------------------------------------ normal mapping (M3)
+namespace {
+
+constexpr int kCells = 4;
+
+/// The tangent-space normal stored in cell (i, j) of the 4x4 test map: tilts grow away from the center, i counts from the
+/// image's left and j from its top (glTF: +Y in the image is up). Bytes are what the texture holds; the oracle decodes them.
+void cell_bytes(int i, int j, uint8_t out[3])
+{
+    const float x = (static_cast<float>(i) - 1.5f) / 1.5f * 0.55f;
+    const float y = (1.5f - static_cast<float>(j)) / 1.5f * 0.55f;
+    const float z = std::sqrt(1.0f - x * x - y * y);
+    const float v[3] = {x, y, z};
+    for (int c = 0; c < 3; ++c) {
+        out[c] = static_cast<uint8_t>(std::lround((v[c] * 0.5f + 0.5f) * 255.0f));
+    }
+}
+Float3 decode_cell(int i, int j)
+{
+    uint8_t b[3];
+    cell_bytes(i, j, b);
+    return {static_cast<float>(b[0]) / 255.0f * 2.0f - 1.0f, static_cast<float>(b[1]) / 255.0f * 2.0f - 1.0f,
+            static_cast<float>(b[2]) / 255.0f * 2.0f - 1.0f};
+}
+
+TextureRef normal_map(Rig& rig)
+{
+    std::vector<std::byte> texels;
+    for (int j = 0; j < kCells; ++j) {
+        for (int i = 0; i < kCells; ++i) {
+            uint8_t b[3];
+            cell_bytes(i, j, b);
+            texels.push_back(std::byte{b[0]});
+            texels.push_back(std::byte{b[1]});
+            texels.push_back(std::byte{b[2]});
+            texels.push_back(std::byte{255});
+        }
+    }
+    rhi::TextureDesc td;
+    td.format = rhi::Format::RGBA8_UNORM;  // linear data
+    td.width = td.height = kCells;
+    td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+    td.debug_name = "test.normal_map";
+    return rig.renderer->registry().create_texture(td, texels);
+}
+
+SamplerRef nearest_clamp(Rig& rig)
+{
+    rhi::SamplerDesc sd;
+    sd.min_filter = sd.mag_filter = rhi::Filter::Nearest;
+    sd.mipmap_mode = rhi::MipmapMode::Nearest;
+    sd.address_u = sd.address_v = rhi::AddressMode::ClampToEdge;
+    return rig.renderer->registry().get_sampler(sd);
+}
+
+/// World position of cell (i, j)'s center on the unmirrored quad (x = 0, centered on z = 1.5, half extent 1): u grows toward -Y.
+Float3 cell_center(int i, int j)
+{
+    return {0.0f, 1.0f - (static_cast<float>(i) + 0.5f) * 0.5f, 1.5f + 1.0f - (static_cast<float>(j) + 0.5f) * 0.5f};
+}
+
+struct Frame {
+    Float3 t, b, n;  ///< world-space tangent (increasing u), bitangent (up in the image) and outward normal
+};
+
+/// The expected shading normal for cell (i, j) with a world frame: x*T + y*B + z*N, x and y scaled by the material's scale.
+Float3 mapped_normal(const Frame& f, int i, int j, float scale)
+{
+    const Float3 d = decode_cell(i, j);
+    return normalize(f.t * (d.x * scale) + f.b * (d.y * scale) + f.n * d.z);
+}
+
+struct MappedResult {
+    size_t compared = 0;
+    size_t bad = 0;
+    size_t differs_from_flat = 0;  ///< cells where mapping changes the expected color: the check is not vacuous
+};
+
+/// Renders the quad (its `world` placement, optional mirror) with the normal map and checks every cell against the oracle.
+MappedResult check_normal_map(Rig& rig, Float3 camera_position, const Mat4& world_matrix, Float3 cell_mirror, const Frame& frame,
+                              bool double_sided, bool flip_for_back_face, float normal_scale, brdf::Surface surface)
+{
+    const Camera camera = look_at_camera(camera_position, {0.0f, 0.0f, 1.5f});
+    const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+    MaterialData data;
+    data.base_color[0] = surface.base_color.x;
+    data.base_color[1] = surface.base_color.y;
+    data.base_color[2] = surface.base_color.z;
+    data.metallic = surface.metallic;
+    data.roughness = surface.roughness;
+    data.normal_scale = normal_scale;
+    data.double_sided = double_sided;
+    MaterialTextures textures;
+    textures[MaterialSlot::Normal] = {normal_map(rig), nearest_clamp(rig)};
+    const GpuModel quad = make_quad(rig.renderer->registry(), rig.material(data, textures), 0.0f, 1.5f, 1.0f, /*tangents=*/true);
+    const ModelDraw draw{&quad, world_matrix};
+    const Image img = rig.target->render(*rig.renderer, {}, camera, 0, std::span(&draw, 1));
+
+    MappedResult result;
+    for (int j = 0; j < kCells; ++j) {
+        for (int i = 0; i < kCells; ++i) {
+            const Float3 local = cell_center(i, j);
+            const Float3 center{local.x * cell_mirror.x, local.y * cell_mirror.y, local.z * cell_mirror.z};
+            Probe p;
+            p.surface = surface;
+            p.view = normalize(camera_position - center);
+            Float3 n = mapped_normal(frame, i, j, normal_scale);
+            if (flip_for_back_face) {
+                n = n * -1.0f;
+            }
+            p.normal = n;
+            const Float3 want = expected_color(p, rig.settings);
+            Probe flat = p;
+            flat.normal = flip_for_back_face ? frame.n * -1.0f : frame.n;
+            const Float3 unmapped = expected_color(flat, rig.settings);
+            if (std::fabs(want.x - unmapped.x) + std::fabs(want.y - unmapped.y) + std::fabs(want.z - unmapped.z) > 0.04f) {
+                ++result.differs_from_flat;
+            }
+            if (std::max({want.x, want.y, want.z}) > 0.9f) {
+                continue;
+            }
+            const Float3 got = linear_at(img, to_pixel(vp, center));
+            const float tolerance = 0.012f + 0.015f * std::max({want.x, want.y, want.z});
+            ++result.compared;
+            if (std::fabs(got.x - want.x) > tolerance || std::fabs(got.y - want.y) > tolerance || std::fabs(got.z - want.z) > tolerance) {
+                ++result.bad;
+                std::printf("  cell (%d,%d): got (%.3f %.3f %.3f) want (%.3f %.3f %.3f)\n", i, j, static_cast<double>(got.x),
+                            static_cast<double>(got.y), static_cast<double>(got.z), static_cast<double>(want.x),
+                            static_cast<double>(want.y), static_cast<double>(want.z));
+            }
+        }
+    }
+    return result;
+}
+
+const brdf::Surface kDielectric{{0.8f, 0.6f, 0.4f}, 0.0f, 0.6f};
+const brdf::Surface kMetal{{0.95f, 0.64f, 0.54f}, 1.0f, 0.5f};
+
+} // namespace
+
+TEST_CASE("PBR: a tangent-space normal map follows the glTF frame, scale and color space")
+{
+    Rig rig("pbr_normal_map");
+    {
+        const Frame frame{{0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f}};
+        for (const brdf::Surface& surface : {kDielectric, kMetal}) {
+            for (const float scale : {1.0f, 0.5f}) {
+                const MappedResult r = check_normal_map(rig, {-6.0f, 0.0f, 1.5f}, Mat4::identity(), {1, 1, 1}, frame, false, false, scale, surface);
+                std::printf("  metallic %.0f scale %.1f: compared %zu cells, %zu differ from the unmapped shading\n",
+                            static_cast<double>(surface.metallic), static_cast<double>(scale), r.compared, r.differs_from_flat);
+                CHECK(r.compared >= 12);
+                CHECK(r.differs_from_flat >= 10);
+                CHECK(r.bad == 0);
+            }
+        }
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("PBR: a mirrored instance keeps a consistent frame, so the relief is the mirror image and lit correctly")
+{
+    Rig rig("pbr_normal_map_mirror");
+    {
+        // Mirroring Y maps the tangent (-Y) to +Y, the bitangent and normal stay put, and the image appears mirrored.
+        const Frame frame{{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f}};
+        const Mat4 mirror = scale_matrix({1.0f, -1.0f, 1.0f});
+        for (const brdf::Surface& surface : {kDielectric, kMetal}) {
+            const MappedResult r = check_normal_map(rig, {-6.0f, 0.0f, 1.5f}, mirror, {1, -1, 1}, frame, false, false, 1.0f, surface);
+            CHECK(r.compared >= 12);
+            CHECK(r.differs_from_flat >= 10);
+            CHECK(r.bad == 0);
+        }
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("PBR: the back of a double-sided quad uses the reversed frame")
+{
+    Rig rig("pbr_normal_map_back");
+    {
+        // Seen from +X the quad's back faces the camera: tangent, bitangent and normal are all negated (as the glTF reference
+        // viewer does), so the shading normal is the front's mapped normal reversed.
+        const Frame frame{{0.0f, -1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, {-1.0f, 0.0f, 0.0f}};
+        for (const brdf::Surface& surface : {kDielectric, kMetal}) {
+            const MappedResult r = check_normal_map(rig, {6.0f, 0.0f, 1.5f}, Mat4::identity(), {1, 1, 1}, frame, true, true, 1.0f, surface);
+            CHECK(r.compared >= 12);
+            CHECK(r.differs_from_flat >= 8);
+            CHECK(r.bad == 0);
+        }
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("PBR: without tangents, or in Legacy shading, a normal map changes nothing")
+{
+    const Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
+    for (const ModelShading shading : {ModelShading::MetallicRoughness, ModelShading::Legacy}) {
+        Rig rig("pbr_normal_map_ignored", shading);
+        {
+            MaterialData data;
+            data.base_color[0] = 0.8f; data.base_color[1] = 0.6f; data.base_color[2] = 0.4f;
+            data.metallic = 0.0f;
+            data.roughness = 0.6f;
+            MaterialTextures with_map;
+            with_map[MaterialSlot::Normal] = {normal_map(rig), nearest_clamp(rig)};
+            GpuResourceRegistry& registry = rig.renderer->registry();
+            const GpuModel plain = make_quad(registry, rig.material(data), 0.0f, 1.5f, 1.0f, true);
+            const GpuModel mapped = make_quad(registry, rig.material(data, with_map), 0.0f, 1.5f, 1.0f, true);
+            const GpuModel no_tangents = make_quad(registry, rig.material(data, with_map), 0.0f, 1.5f, 1.0f, false);
+            const auto render = [&](const GpuModel& m) {
+                const ModelDraw d{&m, Mat4::identity()};
+                return rig.target->render(*rig.renderer, {}, camera, 0, std::span(&d, 1)).rgba;
+            };
+            const auto baseline = render(plain);
+            CHECK(render(no_tangents) == baseline);  // no tangent frame: the map is skipped
+            if (shading == ModelShading::Legacy) {
+                CHECK(render(mapped) == baseline);   // the 0.2 look never reads a normal map
+            } else {
+                CHECK(render(mapped) != baseline);   // not vacuous: with tangents the map does change the image
+            }
+        }
+        CHECK(rig.device->validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("PBR: a tangent parallel to the normal has no frame, so the surface keeps its geometric normal (no NaN)")
+{
+    const Camera camera = look_at_camera({-6.0f, 0.0f, 1.5f}, {0.0f, 0.0f, 1.5f});
+    Rig rig("pbr_degenerate_tangent", ModelShading::MetallicRoughness);
+    MaterialData data;
+    data.base_color[0] = 0.8f; data.base_color[1] = 0.6f; data.base_color[2] = 0.4f;
+    data.metallic = 0.0f;
+    data.roughness = 0.6f;
+    MaterialTextures with_map;
+    with_map[MaterialSlot::Normal] = {normal_map(rig), nearest_clamp(rig)};
+    GpuResourceRegistry& registry = rig.renderer->registry();
+
+    // The quad faces -X (normal n = (-1, 0, 0)); a tangent along n projects to zero against it.
+    const auto quad_with_tangent = [&](const GpuMaterial& material, Float3 tangent) {
+        const Float3 n{-1, 0, 0};
+        std::vector<ModelVertex> v = {
+            {{0.0f, +1.0f, 2.5f}, n, {0, 0}}, {{0.0f, -1.0f, 2.5f}, n, {1, 0}},
+            {{0.0f, +1.0f, 0.5f}, n, {0, 1}}, {{0.0f, -1.0f, 0.5f}, n, {1, 1}},
+        };
+        for (ModelVertex& vertex : v) {
+            vertex.tangent[0] = tangent.x;
+            vertex.tangent[1] = tangent.y;
+            vertex.tangent[2] = tangent.z;
+            vertex.tangent[3] = 1.0f;
+        }
+        GpuModel m;
+        m.name = "degenerate quad";
+        m.materials.push_back(material);
+        m.meshes.push_back({make_primitive(registry, v, {0, 2, 3, 0, 3, 1}, 0)});
+        m.placements.push_back({0, Mat4::identity()});
+        return m;
+    };
+    const auto render = [&](const GpuModel& m) {
+        const ModelDraw d{&m, Mat4::identity()};
+        return rig.target->render(*rig.renderer, {}, camera, 0, std::span(&d, 1)).rgba;
+    };
+
+    const GpuMaterial plain = rig.material(data);
+    const GpuMaterial mapped = rig.material(data, with_map);
+    const auto baseline = render(quad_with_tangent(plain, {0.0f, -1.0f, 0.0f}));
+    // Not vacuous: with a proper tangent the map changes the image.
+    CHECK(render(quad_with_tangent(mapped, {0.0f, -1.0f, 0.0f})) != baseline);
+    // Exactly parallel to the normal, and parallel to within 1e-4: both fall back to the unmapped surface.
+    CHECK(render(quad_with_tangent(mapped, {-1.0f, 0.0f, 0.0f})) == baseline);
+    CHECK(render(quad_with_tangent(mapped, {-1.0f, -1.0e-4f, 0.0f})) == baseline);
+    CHECK(rig.device->validation_error_count() == 0);
 }

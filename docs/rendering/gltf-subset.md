@@ -55,10 +55,10 @@ resolves outside it, so a symlink cannot escape either.
 | `alphaMode` (`OPAQUE`/`MASK`/`BLEND`), `alphaCutoff`, `doubleSided` | ✅ |
 | `KHR_materials_emissive_strength` | ✅ (folded into the emissive factor) |
 | Textures: `source`, `sampler` (filters, wrap modes); images from relative URI, `data:` URI or `bufferView` | ✅ kept as **encoded bytes plus MIME type**. PNG/JPEG decoding is a separate, bounded step: `decode_image` and `generate_mips` in `saige/gfx_assets/image.hpp` (pinned stb_image, see `docs/third-party/stb_image.md`) |
-| `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0` |
+| `texCoord` other than 0 | ⚠️ kept in the data, warned: the renderer only samples `TEXCOORD_0`. A **normal** texture that names another set is not uploaded or applied (its tangents belong to `TEXCOORD_0`), so that surface keeps its geometric normal, with a warning |
 | `KHR_texture_transform`, `KHR_materials_*` (other than emissive strength) | ⚠️ optional uses are ignored with a warning |
 
-**What the renderer shades** (`stage_model`, milestones M1 and M2 of [the material architecture](material-architecture.md)). Three modes, chosen per
+**What the renderer shades** (`stage_model`, milestones M1 to M3 of [the material architecture](material-architecture.md)). Three modes, chosen per
 renderer by `RendererSettings::model_shading`:
 - `ModelShading::Legacy` (the default everywhere): the 0.2 behavior exactly. Staging decodes and uploads the base color texture only, so
   0.2 content loads as it did (including content whose other textures cannot be decoded, which 0.2 never read); the shader uses base color
@@ -70,13 +70,19 @@ renderer by `RendererSettings::model_shading`:
   (scales the ambient term by `strength`). The metallic-roughness and normal textures are uploaded and bound but not shaded; a material that
   has one is reported. A slot that cannot be used (bad texture index, no source image, undecodable image) stays neutral with a warning; a bad
   base color texture fails the staging in every mode, as in 0.2.
-- `ModelShading::MetallicRoughness` (opt in): staged like Extended, and lit with glTF's physically based model: metallic-roughness (G
-  roughness, B metallic, times the factors), GGX, height-correlated Smith and Schlick as in the glTF specification, the sun, and a
-  hemispherical ambient through a split-sum environment BRDF table. Emissive and occlusion are shaded as in Extended.
+- `ModelShading::MetallicRoughness` (opt in): staged like Extended, and lit with glTF's physically based model. Emissive and occlusion
+  are shaded as in Extended, plus:
+  - **Metallic-roughness** (G roughness, B metallic, times the factors): GGX, height-correlated Smith and Schlick as in the glTF
+    specification, the sun, and a hemispherical ambient through a split-sum environment BRDF table.
+  - **Normal mapping**: the tangent-space normal (x and y times `normalTexture.scale`, +Y up in the image) is rotated by the
+    vertex tangent frame. The frame is orthonormalized against the interpolated normal; the bitangent's handedness comes from
+    the transformed frame, so mirrored instances stay correct; the back of a double-sided surface negates the whole frame, as the
+    glTF reference viewer does. A primitive without tangents (no texture coordinates) skips the map, and staging reports it. A
+    degenerate frame (tangent parallel to the normal) keeps the geometric normal.
 
-Bound but not yet shaded in any mode: the normal texture (milestone M3). Mip chains for linear data use the same box filter as color, so
-normal maps are not renormalized per level (revisited with M3). The display-referred target still clips: highlights above 1 saturate
-until HDR output (M4). Specular ambient ignores the lobe's blur until image-based lighting (M5).
+Mip chains for linear data use the same box filter as color, so normal maps are not renormalized per level (a known softening of distant
+relief; Toksvig-style filtering is a later refinement). The display-referred target still clips: highlights above 1 saturate until HDR
+output (M4). Specular ambient ignores the lobe's blur until image-based lighting (M5).
 
 ## Extensions
 - Every entry of `extensionsRequired` must be supported, otherwise the load **fails** naming the extension.

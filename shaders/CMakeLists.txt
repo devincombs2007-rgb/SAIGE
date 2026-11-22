@@ -9,6 +9,7 @@
 set(SAIGE_SHADER_SOURCES
     scene/cube.hlsl
     scene/ground.hlsl
+    test/textured_fullscreen.hlsl
 )
 
 add_library(saige_shaders INTERFACE)

@@ -176,6 +176,115 @@ ValidationResult validate(const SamplerDesc& desc) noexcept
     return {};
 }
 
+ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept
+{
+    if (desc.entries.empty() || desc.entries.size() > max_bindings_per_group) {
+        return {"A bind group layout needs between 1 and 16 entries"};
+    }
+    for (std::size_t i = 0; i < desc.entries.size(); ++i) {
+        for (std::size_t j = i + 1; j < desc.entries.size(); ++j) {
+            if (desc.entries[i].binding == desc.entries[j].binding) {
+                return {"A bind group layout must not repeat a binding number"};
+            }
+        }
+    }
+    return {};
+}
+
+ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts) noexcept
+{
+    uint32_t textures = 0;
+    uint32_t samplers = 0;
+    uint32_t uniforms = 0;
+    uint32_t storages = 0;
+    for (const BindGroupLayoutDesc* layout : layouts) {
+        for (const BindGroupLayoutEntry& e : layout->entries) {
+            switch (e.type) {
+            case BindingType::SampledTexture: ++textures; break;
+            case BindingType::Sampler: ++samplers; break;
+            case BindingType::UniformBuffer: ++uniforms; break;
+            case BindingType::StorageBuffer: ++storages; break;
+            }
+        }
+    }
+    if (textures > max_pipeline_sampled_textures) {
+        return {"A pipeline's bind group layouts exceed the portable total of 16 sampled textures"};
+    }
+    if (samplers > max_pipeline_samplers) {
+        return {"A pipeline's bind group layouts exceed the portable total of 16 samplers"};
+    }
+    if (uniforms > max_pipeline_uniform_buffers) {
+        return {"A pipeline's bind group layouts exceed the portable total of 12 uniform buffers"};
+    }
+    if (storages > max_pipeline_storage_buffers) {
+        return {"A pipeline's bind group layouts exceed the portable total of 4 storage buffers"};
+    }
+    return {};
+}
+
+ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const BindGroupEntry> entries,
+                          const BindGroupResolver& resolver)
+{
+    if (entries.size() != layout.entries.size()) {
+        return {"A bind group needs exactly one entry for every layout binding"};
+    }
+    for (const BindGroupLayoutEntry& expected : layout.entries) {
+        const BindGroupEntry* found = nullptr;
+        for (const BindGroupEntry& e : entries) {
+            if (e.binding == expected.binding) {
+                if (found != nullptr) {
+                    return {"A bind group entry binding is repeated"};
+                }
+                found = &e;
+            }
+        }
+        if (found == nullptr) {
+            return {"A bind group has no entry for one of its layout bindings"};
+        }
+        if (expected.type == BindingType::SampledTexture) {
+            const std::optional<TextureDesc> t = resolver.texture(found->texture);
+            if (!t) {
+                return {"A sampled-texture binding refers to an invalid or destroyed texture"};
+            }
+            if (!has_any(t->usage, TextureUsage::Sampled)) {
+                return {"A sampled-texture binding needs a texture with Sampled usage"};
+            }
+            if (t->sample_count != 1) {
+                return {"A sampled-texture binding does not accept multisampled textures"};
+            }
+        } else if (expected.type == BindingType::Sampler) {
+            if (!resolver.sampler_exists(found->sampler)) {
+                return {"A sampler binding refers to an invalid or destroyed sampler"};
+            }
+        } else {
+            const std::optional<BufferDesc> b = resolver.buffer(found->buffer);
+            if (!b) {
+                return {"A buffer binding refers to an invalid or destroyed buffer"};
+            }
+            const BufferUsage need = expected.type == BindingType::UniformBuffer ? BufferUsage::Uniform : BufferUsage::Storage;
+            if (!has_any(b->usage, need)) {
+                return {"A buffer binding needs a buffer with Uniform or Storage usage matching the binding type"};
+            }
+            if (found->offset % bind_group_buffer_alignment != 0) {
+                return {"A buffer binding offset must be a multiple of 256 bytes"};
+            }
+            if (found->offset >= b->size) {
+                return {"A buffer binding offset is outside the buffer"};
+            }
+            const uint64_t available = b->size - found->offset;
+            if (found->size == 0 || (found->size != ~uint64_t{0} && found->size > available)) {
+                return {"A buffer binding range is empty or extends past the end of the buffer"};
+            }
+            const uint64_t range = found->size == ~uint64_t{0} ? available : found->size;
+            const uint64_t limit = expected.type == BindingType::UniformBuffer ? max_uniform_binding_range : max_storage_binding_range;
+            if (range > limit) {
+                return {"A buffer binding range exceeds the portable per-binding limit (16 KiB uniform, 128 MiB storage)"};
+            }
+        }
+    }
+    return {};
+}
+
 std::size_t hash_sampler_desc(const SamplerDesc& desc) noexcept
 {
     // FNV-1a over the fields (not raw struct bytes, so padding never affects the hash).

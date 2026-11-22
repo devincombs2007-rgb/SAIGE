@@ -3,10 +3,15 @@
 
 #include "saige/rhi/flags.hpp"
 #include "saige/rhi/format.hpp"
+#include "saige/rhi/handle.hpp"
 
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <optional>
+#include <span>
+#include <vector>
 
 namespace saige::rhi {
 
@@ -176,6 +181,82 @@ struct SamplerDesc {
 };
 
 [[nodiscard]] ValidationResult validate(const SamplerDesc& desc) noexcept;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Bind groups (plain descriptor sets; bindless is a later, capability-gated optimization)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// What a binding holds. All bindings are visible to the vertex and pixel stages in 0.2.
+enum class BindingType : uint8_t {
+    SampledTexture,  ///< A texture (HLSL `Texture2D`); read through a separate `Sampler` binding.
+    Sampler,         ///< A sampler (HLSL `SamplerState`). Textures and samplers are separate bindings, as in HLSL.
+    UniformBuffer,
+    StorageBuffer,
+};
+
+inline constexpr uint32_t max_bindings_per_group = 16;
+inline constexpr uint32_t max_bind_groups_per_pipeline = 4;  ///< Vulkan guarantees at least 4 descriptor sets.
+/// Buffer offsets in a bind group must be a multiple of this (the portable worst case of uniform/storage alignment).
+inline constexpr uint64_t bind_group_buffer_alignment = 256;
+/// Largest buffer range one binding may cover: the portable minimums every Vulkan device guarantees
+/// (maxUniformBufferRange, maxStorageBufferRange). Larger data belongs in a storage buffer or several bindings.
+inline constexpr uint64_t max_uniform_binding_range = 16384;
+inline constexpr uint64_t max_storage_binding_range = uint64_t{128} << 20;
+
+struct BindGroupLayoutEntry {
+    uint32_t binding = 0;
+    BindingType type = BindingType::SampledTexture;
+
+    friend bool operator==(const BindGroupLayoutEntry&, const BindGroupLayoutEntry&) noexcept = default;
+};
+
+struct BindGroupLayoutDesc {
+    std::vector<BindGroupLayoutEntry> entries;
+    const char* debug_name = nullptr;
+};
+
+/// One resource bound to one layout entry. Set `texture` for SampledTexture, `sampler` for Sampler, `buffer` (+ range)
+/// for buffers.
+/// The group does not own what it references: the referenced resources must stay alive until every submission that uses
+/// the group has retired. Destroying a group and its resources in any order is safe because destruction is deferred.
+struct BindGroupEntry {
+    uint32_t binding = 0;
+    TextureHandle texture;
+    SamplerHandle sampler;
+    BufferHandle buffer;
+    uint64_t offset = 0;
+    uint64_t size = ~uint64_t{0};  ///< Bytes from `offset`; the default means "to the end of the buffer".
+};
+
+/// Per-pipeline totals across all of its bind group layouts. Every binding is visible to the vertex and pixel stages, so
+/// each total counts against both stages. These are Vulkan's guaranteed minimums for the per-stage limits
+/// (maxPerStageDescriptorSamplers/SampledImages/UniformBuffers/StorageBuffers); a pipeline within them is valid on every
+/// conforming device. Four 16-binding groups could exceed them, which is why the totals are checked, not just each group.
+inline constexpr uint32_t max_pipeline_sampled_textures = 16;
+inline constexpr uint32_t max_pipeline_samplers = 16;
+inline constexpr uint32_t max_pipeline_uniform_buffers = 12;
+inline constexpr uint32_t max_pipeline_storage_buffers = 4;
+
+/// Checks the per-pipeline totals above over `layouts` (the pipeline's layouts, in set order).
+[[nodiscard]] ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts) noexcept;
+
+/// Backend-independent layout rules: 1..max_bindings_per_group entries and unique binding numbers.
+[[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept;
+
+/// How a backend looks resources up, so bind group entries are validated by one shared rule set.
+struct BindGroupResolver {
+    std::function<std::optional<TextureDesc>(TextureHandle)> texture;  ///< nullopt = invalid or destroyed
+    std::function<bool(SamplerHandle)> sampler_exists;
+    std::function<std::optional<BufferDesc>(BufferHandle)> buffer;
+};
+
+/// Checks `entries` against `layout`: exactly one entry per layout entry (no extras, no repeats), each holding live
+/// resources of the right kind (SampledTexture: a texture with `Sampled` usage and one sample; Sampler: a live sampler;
+/// buffers: `Uniform` / `Storage` usage, offset aligned to `bind_group_buffer_alignment`, non-empty range inside the
+/// buffer and within `max_uniform_binding_range` / `max_storage_binding_range`; a whole-buffer binding of a larger
+/// buffer is therefore rejected, and the caller must give an explicit size).
+[[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const BindGroupEntry> entries,
+                                        const BindGroupResolver& resolver);
 
 /// Stable hash for sampler deduplication (the bindless sampler table is small and shared).
 [[nodiscard]] std::size_t hash_sampler_desc(const SamplerDesc& desc) noexcept;

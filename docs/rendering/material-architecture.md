@@ -1,9 +1,30 @@
 # Material and lighting boundary for PBR (proposal, 0.3)
 
-Status: proposal for review, no implementation. #43 asks for the material and diagnostics boundary to be decided before any
+Status: **approved by the owner** (three-contract split and the M1 to M6 order), with the decisions recorded below. Originally a
+proposal for review, with no implementation at the time. #43 asks for the material and diagnostics boundary to be decided before any
 HDR, IBL, cascaded-shadow or new RHI work, and for 0.2 to stay unchanged meanwhile. This document is that decision, built on
 what exists on main after 0.2, and written so the later phases it must not block (ray tracing, volumetric atmosphere,
 virtualized geometry, a visibility-buffer renderer, a material editor) stay possible.
+
+## Approved decisions
+
+Recorded from the owner's direction; each is reflected in the sections that follow.
+
+1. **Tone mapping:** the ACES-inspired operator is the initial default; the operator is an enum so others can be added later
+   without changing callers. (Implemented as the default in the tone-map pass.)
+2. **Transparency:** proper sorted alpha blending. Blend materials are not drawn opaque. This adds a blend pipeline variant and
+   a sort policy (section 3), after the opaque path (see section 6).
+3. **Per-instance material overrides:** the architecture must leave room for them (a per-instance override block that layers over
+   `MaterialData`). Whether and how a project file stores them is **Core's** schema decision and is not assumed here.
+4. **Tangents:** the Lengyel-style generator is the interim solution. Reference MikkTSpace is to be evaluated for
+   production-quality asset compatibility (section 3 records the evaluation criteria).
+5. **Samplers and color space:** every texture slot keeps the independent sampler its glTF texture names, not one sampler per
+   material, and color space is a property of the slot. The architecture must not restrict either unnecessarily.
+6. **Temporal rendering:** requirements are established with Core: stable instance identities, previous rendered-frame
+   transforms, camera history, motion vectors, and history invalidation after teleports, camera cuts and scene replacements
+   (section 7).
+7. **Future techniques:** ray tracing, path tracing, DLSS, FSR, Ray Reconstruction and frame generation stay possible. None of
+   their infrastructure is built ahead of need.
 
 ## 1. What exists
 
@@ -48,20 +69,34 @@ side.
   normal (linear), occlusion (linear, R), emissive (sRGB). Color space is a property of the *slot*, set once; the existing mip
   generator already takes a `ColorSpace`, so mips of linear data are not averaged in sRGB. A missing texture binds a 1x1
   neutral default (white; normal = flat), so the shader has no per-slot branches.
-- **Sampler:** one per material from the glTF sampler (filter and wrap), shared through the registry as today.
+- **Samplers:** one per texture slot, each from the glTF sampler that slot's texture names (filter and wrap), so a material may
+  use different samplers for its base color and its normal map. Samplers are deduplicated through the registry, so identical
+  descriptions share one device sampler. A material's bind group then has up to five textures, five samplers and the parameter
+  block: 11 bindings, within the portable per-stage limits (16 sampled textures, 16 samplers, 12 uniform buffers). Bindless
+  indexing later replaces the bind group, not this per-slot structure. Per-instance overrides (decision 3) layer a small override
+  block over `MaterialData` at draw time; they never edit the shared material.
 - **Parameter block:** `float4 base_color; float4 emissive_cutoff; float4 mr_normal_occlusion (metallic, roughness, normal
   scale, occlusion strength); uint flags`. Scalar block layout (`VK_EXT_scalar_block_layout`, core since 1.2, so available on
   the 1.3 baseline wherever the feature bit is set; probed by the capability work) lets the HLSL and C++ structs match without
   padding. Where the bit is missing, the same block is declared with explicit 16-byte alignment: the layout is a build-time
   choice of the shader, not a branch in the renderer.
 - **Alpha and sidedness select pipeline state, not parameters:** the existing mirrored/cull variants extend to a key of
-  (alpha mode, double-sided, mirrored, color format, depth format). Blend gets its own variant and a sort policy; it is no
-  longer drawn opaque.
+  (alpha mode, double-sided, mirrored, color format, depth format). Blend gets its own variant and a sort policy: **sorted alpha
+  blending** (approved). Blended draws come after all opaque and masked draws, depth-tested but not depth-writing, sorted
+  back to front by view-space distance of the instance origin (a per-instance approximation: sorting individual triangles or
+  order-independent transparency is not part of this change), with a stable tie-break on instance identity so frames are
+  deterministic and testable. Premultiplied versus straight alpha follows glTF (straight alpha, blended with source-over).
 - **Tangents:** use the asset's tangents when present, otherwise generate them in the asset pipeline (CPU, deterministic,
   tested), never in the shader. The generator (branch `claude/pbr-tangent-generation`) is Lengyel-style: per-triangle,
   angle-weighted, orthogonalized, with the handedness sign in w. It is **not** MikkTSpace, which the glTF specification names
   as the reference, so it can differ at UV seams. Pinning MikkTSpace itself (zlib licence) is a separate dependency decision and
-  is not assumed here. (An earlier draft of this document said MikkTSpace; that was wrong about what was implemented.) Vertex format grows from 32 to 48 bytes (adds a float4 tangent); this is the one
+  is not assumed here. (An earlier draft of this document said MikkTSpace; that was wrong about what was implemented.) The
+  owner's direction is to evaluate reference MikkTSpace for production asset compatibility. **Evaluation criteria**, to be
+  answered with evidence before any decision: licence compatibility (the reference is zlib licensed, which allows vendoring with
+  its notice); how it is pinned (a single C source pair with a recorded hash, like stb_image); build and warning impact on the
+  `-Werror` and MSVC `/W4 /WX` lanes (it is third-party C and would be isolated like stb); determinism across compilers; and a
+  comparison of results with the Lengyel generator on glTF sample assets with normal maps, reported as the angular difference
+  distribution and where it concentrates (UV seams). The Lengyel generator stays until that comparison is in. Vertex format grows from 32 to 48 bytes (adds a float4 tangent); this is the one
   change to a persisted-in-memory layout, and it is isolated to `ModelVertex` and the staging code.
 - **Project format:** nothing changes. Materials stay in the glTF. If the project later overrides a parameter, that is a Core
   schema change proposed on its own (see decision 3 below).
@@ -102,6 +137,9 @@ Each is a separately reviewable change with its own tests and no dependency on a
 | M5 | **Image-based lighting.** Prefiltered environment and BRDF lookup | cube textures, compute or fragment prefilter (RHI additions) | furnace test with the environment; reference images with stated tolerance and provenance |
 | M6 | **Cascaded sun shadows** | depth-only and array targets | shadow-acne and peter-panning fixtures; validation clean |
 
+Sorted alpha blending (decision 2) is its own change after M2 and is independent of M3 to M6: the blend pipeline variant, the
+sort, and fixtures where draw order and instance order are permuted and the output is identical.
+
 M1 and M2 need no RHI additions. M4 uses an existing format. Cube textures, storage images and compute (M5) are the first RHI
 growth, and each is additive. Ray tracing, clouds and virtualized geometry plug in behind `SurfaceData` and the diagnostics
 sections above; nothing in M1 to M6 closes them off.
@@ -125,6 +163,14 @@ renderer must be given it; this is the one interface that crosses into Core:
   frame only. Without both, per-pixel motion vectors cannot be computed correctly for moving objects or a moving camera, and any
   temporal technique falls back to camera-only reprojection (wrong for dynamic objects). Core owns `FrameView` and the world
   matrices; this is a request, not a change made here (see issue #17).
+- *Stable instance identity across frames*: `RenderInstance` already carries a generation-checked entity handle; temporal
+  history is keyed on it, so a recycled entity slot must not inherit the previous occupant's history. The renderer treats a
+  different generation as a new instance (no previous transform, zero motion, history invalid for that instance).
+- *History invalidation*: three events invalidate history and must be explicit, not inferred from a large jump: a **teleport**
+  of the camera or an instance, a **camera cut**, and a **scene replacement**. Scene replacement is observable by the renderer
+  itself (`activate_scene`), so the renderer resets history there with no Core change. Teleports and cuts are gameplay events,
+  so Core needs to flag them in the frame snapshot (a per-frame "camera discontinuity" flag and a per-instance
+  "discontinuity" flag); until then the renderer can only guess from a threshold, which is the wrong layer.
 - *Sub-pixel projection jitter* applied by the renderer to its own projection (a renderer-internal parameter, no Core change),
   with the un-jittered matrices kept for motion vectors.
 - *A motion-vector and depth output* from the scene pass, and *history resources* with explicit lifetime in the render graph
@@ -135,15 +181,16 @@ renderer must be given it; this is the one interface that crosses into Core:
 
 None of these touch `MaterialData` or `SurfaceData`; they extend the frame data, the render graph and the buffers' usage flags.
 
-## 8. Decisions needed
+## 8. Decisions
 
-1. **Owner and Core:** approve the three-contract split and the M1 to M6 order, or reorder (for example HDR before
-   normal maps).
-2. **Owner:** which tone-mapping operator is the documented default (the choice is visible in every capture).
-3. **Core:** whether the project format may later carry per-instance material overrides (it would be a versioned schema
-   addition owned by Core; none is assumed here).
-4. **Review:** that Blend materials move from opaque to sorted blending in this track, which changes pixels only for assets that
-   use Blend; the 0.2 fixture does not declare an alpha mode, so it is unaffected.
-5. **Process:** physical-GPU measurement (#9) before any performance target is set for M2 to M6.
-6. **Core:** whether `FrameView` can carry the previous frame's world matrix per instance and the previous camera pose (section
-   7). It is not needed for 0.3's milestones, but it is the earliest point where deferring it starts to cost design freedom.
+Resolved by the owner (see "Approved decisions" above): the three-contract split and the M1 to M6 order; the ACES-inspired default
+operator; sorted alpha blending; per-instance overrides preserved with the schema left to Core; MikkTSpace to be evaluated;
+independent per-slot samplers and color-space handling; the temporal requirements to be established with Core; compatibility
+with ray tracing, path tracing and upscaling or frame-generation techniques without building their infrastructure early.
+
+Still open and owned elsewhere:
+
+1. **Core:** the project-format question for per-instance material overrides (schema and versioning).
+2. **Core:** the temporal frame data in section 7: whether `FrameView` can carry previous-frame world matrices, the previous
+   camera, stable instance identity, and explicit history-invalidation signals (teleport, camera cut). Raised on #17.
+3. **Process:** physical-GPU measurement (#9) before any performance target is set for M2 to M6.

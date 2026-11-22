@@ -47,6 +47,8 @@ target_link_libraries(saige_render PUBLIC saige::rhi)
 saige_gfx_configure_target(saige_render)
 
 if(SAIGE_RENDER_BUILD_TESTS)
+    # The registry's fault-injection hook (render::testing) exists only in builds that build the tests.
+    target_compile_definitions(saige_render PUBLIC SAIGE_RENDER_TESTING)
     enable_testing()
     saige_gfx_add_test(saige_render_tests
         SOURCES

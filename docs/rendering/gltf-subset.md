@@ -73,8 +73,7 @@ resolves outside it, so a symlink cannot escape either.
 
 Both opt-in modes stage all five textures. An unusable optional slot stays neutral and produces a warning. Base color and emissive
 use sRGB, while metallic-roughness, normal and occlusion use linear data. Mip chains for linear data use the same box filter as
-color, so normal maps are not renormalized per level (a known softening of distant relief). HDR output in M4 preserves highlights
-above 1.0. Renderer mode is selected by the host and requires no project-format change. In the pixel shader every slot after the
+color, so normal maps are not renormalized per level (a known softening of distant relief). Opt-in HDR output preserves highlights above 1.0 and tone maps them to the display. Renderer mode is selected by the host and requires no project-format change. In the pixel shader every slot after the
 alpha-mask test is read with explicit UV gradients taken before the test, so no implicit derivative depends on discarded or
 divergent neighbours.
 

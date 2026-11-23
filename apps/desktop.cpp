@@ -1,5 +1,5 @@
 #include "saige/win32_platform.hpp"
-#include "saige/capsule_character.hpp"
+#include "desktop_game.hpp"
 
 #if defined(SAIGE_DESKTOP_VULKAN)
 #include "saige/render_sink/renderer_frame_sink.hpp"
@@ -14,7 +14,6 @@
 #include <filesystem>
 #endif
 
-#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
@@ -25,55 +24,6 @@
 #include <string_view>
 
 namespace {
-
-class DesktopGame final : public saige::IGame {
-public:
-    DesktopGame(saige::World& world, const saige::IDesktopPlatform& platform, bool course)
-        : marker_(world.create()), platform_(platform) {
-        if (!course) return;
-        constexpr std::array geometry{
-            saige::Aabb{{-32, -32, -1}, {32, 32, 0}},
-            saige::Aabb{{2.5f, -0.5f, 0}, {3.5f, 0.5f, 1}},
-            saige::Aabb{{4.5f, 0.5f, 0}, {5.5f, 1.5f, 1}},
-            saige::Aabb{{5.5f, -1.5f, 0}, {6.5f, -0.5f, 1}},
-        };
-        motor_.emplace(saige::Vec3{}, geometry);
-        for (std::size_t i = 1; i < geometry.size(); ++i) {
-            const auto& box = geometry[i];
-            (void)world.create({(box.min.x + box.max.x) * 0.5f, (box.min.y + box.max.y) * 0.5f, box.min.z});
-        }
-    }
-
-    void fixed_update(saige::World& world, std::chrono::nanoseconds step) override {
-        using saige::Key;
-        const int right = platform_.key_down(Key::d) || platform_.key_down(Key::right);
-        const int left = platform_.key_down(Key::a) || platform_.key_down(Key::left);
-        const int forward = platform_.key_down(Key::w) || platform_.key_down(Key::up);
-        const int back = platform_.key_down(Key::s) || platform_.key_down(Key::down);
-        if (motor_) {
-            if (platform_.key_down(Key::r)) {
-                motor_->reset();
-            } else {
-                motor_->step({static_cast<float>(forward - back), static_cast<float>(left - right),
-                              platform_.key_down(Key::space), platform_.key_down(Key::shift)}, step);
-                if (motor_->state().feet.z < -8.0f) motor_->reset();
-            }
-            world.set_position(marker_, motor_->state().feet);
-            return;
-        }
-        const float seconds = std::chrono::duration<float>(step).count();
-        // The marker drifts one world unit per second so unattended runs exercise simulation.
-        position_.x += seconds * (1.0f + 4.0f * static_cast<float>(forward - back));
-        position_.y += seconds * 4.0f * static_cast<float>(left - right);
-        world.set_position(marker_, position_);
-    }
-
-private:
-    saige::Entity marker_;
-    const saige::IDesktopPlatform& platform_;
-    saige::Vec3 position_{};
-    std::optional<saige::CapsuleCharacter> motor_;
-};
 
 // The sample reports the submitted pose until a graphics adapter is selected.
 class DesktopFrameProbe final : public saige::IFrameSink {
@@ -226,7 +176,7 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
-        DesktopGame game(world, platform, course);
+        saige::sample::DesktopGame game(world, platform, course);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
         // The sink releases its swapchain and surface before the HWND goes away.

@@ -3,6 +3,7 @@
 #include "saige/rhi_null/null_device.hpp"
 
 #include <array>
+#include <limits>
 #include <cmath>
 #include <cstdint>
 #include <span>
@@ -97,6 +98,38 @@ TEST_CASE("NullDevice: pipeline creation checks shaders, formats and push consta
     bad.push_constant_size = 0;
     bad.depth.test = true;  // no depth format
     CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
+}
+
+TEST_CASE("NullDevice: depth-only pipelines (no pixel shader) and depth bias are validated like the Vulkan backend")
+{
+    PipelineFixture f;
+    GraphicsPipelineDesc pd;
+    pd.vertex_shader = f.vs;  // a shadow pass: no pixel shader, no color target, a depth target
+    pd.depth.test = true;
+    pd.depth.write = true;
+    pd.depth_format = Format::D32_FLOAT;
+    pd.depth_bias = {-4.0f, -1.5f};
+    CHECK(f.device.create_graphics_pipeline(pd).is_valid());
+    CHECK(pd.depth_bias.enabled());
+    CHECK(!DepthBias{}.enabled());
+
+    GraphicsPipelineDesc bad = pd;
+    bad.color_formats = {Format::RGBA8_SRGB};  // color output needs a pixel shader
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
+    bad = pd;
+    bad.depth_format = Format::Unknown;  // nothing would be written
+    bad.depth.test = bad.depth.write = false;
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
+    bad = pd;
+    bad.depth_bias.constant_factor = std::numeric_limits<float>::quiet_NaN();
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
+    bad = pd;
+    bad.depth_bias.slope_factor = -std::numeric_limits<float>::infinity();
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
+    bad = pd;
+    bad.pixel_shader = f.vs;  // a vertex shader in the pixel slot is still an error
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_graphics_pipeline(bad); }));
+    CHECK(f.device.validation_error_count() == 0);
 }
 
 TEST_CASE("NullDevice: blend state is optional, validated, and kept with the pipeline")

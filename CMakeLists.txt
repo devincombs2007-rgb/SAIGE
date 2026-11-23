@@ -129,11 +129,17 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
                 --frames 8 --validate)
             set_tests_properties(win32_character_course_file_vulkan PROPERTIES
                 TIMEOUT 60 PASS_REGULAR_EXPRESSION "instances=3([^0-9]|$)")
+            add_executable(streamed_course_vulkan_test tests/streamed_course_vulkan_test.cpp)
+            target_include_directories(streamed_course_vulkan_test PRIVATE apps)
+            target_link_libraries(streamed_course_vulkan_test PRIVATE saige::scene_project saige::render_sink saige::rhi_vulkan)
+            add_test(NAME streamed_course_pixels_vulkan COMMAND streamed_course_vulkan_test
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/course-world.json")
+            set_tests_properties(streamed_course_pixels_vulkan PROPERTIES TIMEOUT 60)
             add_test(NAME win32_character_course_stream_vulkan COMMAND saige_desktop --character-course
                 --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/course-world.json"
                 --frames 30 --validate)
             set_tests_properties(win32_character_course_stream_vulkan PROPERTIES
-                TIMEOUT 60 PASS_REGULAR_EXPRESSION "resident_chunks=2([^0-9]|$)")
+                TIMEOUT 60 PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=1 model_draws=[1-9][0-9]* unresolved=0")
         endif()
     endif()
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)

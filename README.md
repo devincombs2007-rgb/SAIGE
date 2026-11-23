@@ -65,5 +65,6 @@ saige_desktop --character-course --course-world examples/textured-scene/course-w
 The host starts in cell `[0, 0]` and keeps its reset floor resident. It stages nearby scene and collision files one chunk per
 simulation tick. A completed candidate takes effect before movement on the next fixed step. Boundary guards keep the capsule
 inside the current set while loading. If a neighbor fails to load or overlaps the capsule or spawn, the course keeps its last
-working set. Press R to reset and retry nearby loads. This sample draws the player marker over the built-in ground. Streamed
-scene assets are prepared on the CPU for this slice.
+working set. Press R to reset and retry nearby loads. The Vulkan course draws imported nodes from all resident chunks alongside the player marker. The host offsets project nodes
+by the owning cell and publishes their GPU models with collision. Uploads are synchronous and stage the complete asset set at
+a transition.

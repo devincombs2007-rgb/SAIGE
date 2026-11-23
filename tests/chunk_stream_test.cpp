@@ -258,6 +258,23 @@ public:
     bool reset{};
 };
 
+class CourseOutputProbe final : public saige::sample::CourseSceneOutput {
+public:
+    void stage(std::span<const saige::sample::CourseAsset> assets) override {
+        require(assets.size() == 1 && assets.front().model, "shared assets stage once per set");
+        if (fail) throw std::runtime_error("forced GPU staging failure");
+        staged = true;
+    }
+    void publish() noexcept override {
+        if (staged) ++publications;
+        staged = false;
+    }
+    void discard() noexcept override { staged = false; }
+    bool fail{};
+    bool staged{};
+    int publications{};
+};
+
 void test_native_streamed_course(const fs::path& fixture) {
     using namespace std::chrono_literals;
     Workspace workspace;
@@ -280,8 +297,11 @@ void test_native_streamed_course(const fs::path& fixture) {
 
     saige::World world;
     CourseKeys keys;
-    saige::sample::StreamedCourse course(world, keys, manifest);
+    CourseOutputProbe output;
+    saige::sample::StreamedCourse course(world, keys, manifest, &output);
     const auto player = [&] { return world.snapshot().front().position; };
+    const auto original = world.snapshot();
+    require(original.size() == 4 && output.publications == 1, "initial scene is published with the reset chunk");
     const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
     const saige::Vec3 spawn{4, 4, 0};
     require(course.resident_count() == 1 && player() == spawn, "start with a supported resident reset point");
@@ -308,9 +328,24 @@ void test_native_streamed_course(const fs::path& fixture) {
     tick();
 
     write_chunk_fixture(east, R"({"schema_version":1,"boxes":[{"min":[8,0,-1],"max":[16,8,0]}]})");
+    output.fail = true;
     keys.reset = true;
     tick();
-    require(course.resident_count() == 2 && player() == spawn, "retry publishes resident collision at the tick boundary");
+    require(course.resident_count() == 1 && player() == spawn && output.publications == 1 && !output.staged &&
+                world.snapshot().size() == original.size(),
+            "GPU staging failure preserves the published collision, residency and render world");
+    keys.reset = false;
+    tick();
+
+    output.fail = false;
+    keys.reset = true;
+    tick();
+    require(course.resident_count() == 2 && player() == spawn && output.publications == 2,
+            "retry publishes resident collision and GPU models at the tick boundary");
+    const auto composed = world.snapshot();
+    require(composed.size() == 7 && composed[1].entity == original[1].entity &&
+                composed[4].position.x == original[1].position.x + 8.0f && composed[4].mesh == original[1].mesh,
+            "resident identity, cell translation and shared asset identity survive composition");
     keys.reset = false;
     for (int frame = 0; frame < 140; ++frame) tick();
     require(player().x > 8 && player().z >= 0, "player walks across the streamed seam");

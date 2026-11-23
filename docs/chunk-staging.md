@@ -50,5 +50,8 @@ an empty array. An absent or invalid file fails the load so the host can keep it
 
 The native streamed course requires a collision file for every entry. It uses 8 m square cells at `coord * 8` in XY and a reset
 point at `(4, 4, 0)` inside cell `[0, 0]`. Course coordinates are bounded to `[-31, 30]` on each axis. Neighbor selection keeps a
-one-cell radius plus the reset cell. Collision files share a simulation origin, and their box tops may reach at most Z=240 m. GPU scene composition and asynchronous IO are
-outside this course slice.
+one-cell radius plus the reset cell. Collision files share a simulation origin, and their box tops may reach at most Z=240 m. Imported scene transforms are chunk-local. On a transition the host stages one GPU model per asset ID and adopts the composed render
+world with collision and residency. Resident render entities keep their identities. If two chunks use the same asset ID they
+must name the same normalized project-relative source. Assets at those paths are treated as immutable for the session. The
+renderer currently stages the full candidate asset set synchronously. Incremental GPU staging and asynchronous IO remain
+future work.

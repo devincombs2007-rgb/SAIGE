@@ -14,6 +14,9 @@
 
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
 #include "streamed_course.hpp"
+#if defined(SAIGE_DESKTOP_SCENE)
+#include "streamed_course_renderer.hpp"
+#endif
 
 #include <vector>
 #endif
@@ -83,6 +86,8 @@ public:
     void show(const saige::PreparedScene& scene) {
         renderer_->activate_scene(saige::render::stage_prepared_scene(*renderer_, scene));
     }
+
+    [[nodiscard]] saige::render::RendererFrameSink* renderer() noexcept { return renderer_.get(); }
 
     [[nodiscard]] std::string diagnostics_json() const {
         return renderer_ ? saige::render::to_json(renderer_->diagnostics()) : std::string{};
@@ -218,17 +223,24 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
+        DesktopFrameProbe probe;
+#if defined(SAIGE_DESKTOP_VULKAN)
+        // Games and staged resources are destroyed before the sink, which owns the GPU.
+        DesktopFrameSink sink(probe, platform, strict, validate, course);
+#endif
         std::optional<saige::sample::DesktopGame> local_game;
         saige::IGame* game = nullptr;
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
+        saige::sample::CourseSceneOutput* output = nullptr;
+#if defined(SAIGE_DESKTOP_SCENE)
+        std::optional<saige::sample::StreamedCourseRenderer> composition;
+        if (course_world && sink.renderer()) output = &composition.emplace(*sink.renderer());
+#endif
         std::optional<saige::sample::StreamedCourse> streamed_game;
-        if (course_world) game = &streamed_game.emplace(world, platform, *course_world);
+        if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output);
 #endif
         if (!game) game = &local_game.emplace(world, platform, course, course_boxes);
-        DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
-        // The sink releases its swapchain and surface before the HWND goes away.
-        DesktopFrameSink sink(probe, platform, strict, validate, course);
 #if defined(SAIGE_DESKTOP_SCENE)
         if (prepared) {
             sink.show(*prepared);
@@ -253,7 +265,17 @@ int main(int argc, char** argv) {
         const auto stats = saige::run(world, platform, *game, probe, frames);
 #endif
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
-        if (streamed_game) std::cout << "SAIGE course resident_chunks=" << streamed_game->resident_count() << '\n';
+        if (streamed_game) {
+            std::cout << "SAIGE course resident_chunks=" << streamed_game->resident_count();
+#if defined(SAIGE_DESKTOP_SCENE)
+            if (auto* renderer = sink.renderer()) {
+                std::cout << " gpu_models=" << renderer->active_model_count()
+                          << " model_draws=" << renderer->stats().model_instances_drawn
+                          << " unresolved=" << renderer->stats().unresolved_instances;
+            }
+#endif
+            std::cout << '\n';
+        }
 #endif
         std::cout << "SAIGE desktop frames=" << stats.frames << " ticks=" << stats.ticks
                   << " instances=" << probe.instances << " marker_x=" << probe.position.x

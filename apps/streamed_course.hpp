@@ -6,13 +6,31 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <map>
+#include <type_traits>
 
 namespace saige::sample {
 
+struct CourseAsset {
+    AssetId id;
+    const gfx::GltfAsset* model;
+    std::filesystem::path source;
+};
+
+// Native host adapter. Staging may throw. Publication only adopts resources staged by this adapter.
+class CourseSceneOutput {
+public:
+    virtual ~CourseSceneOutput() = default;
+    virtual void stage(std::span<const CourseAsset> assets) = 0;
+    virtual void publish() noexcept = 0;
+    virtual void discard() noexcept = 0;
+};
+
 class StreamedCourse final : public IGame {
 public:
-    StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest)
-        : platform_(platform), sources_(load_chunk_manifest(manifest)) {
+    StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
+                   CourseSceneOutput* output = nullptr)
+        : platform_(platform), sources_(load_chunk_manifest(manifest)), output_(output) {
         const auto spawn_chunk = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
         if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at [0, 0]");
         for (const auto& source : sources_) {
@@ -28,6 +46,11 @@ public:
         CapsuleCharacter controller({4, 4, 0}, candidate_geometry(initial));
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
         game_.emplace(world, platform_, std::move(controller));
+        if (output_) {
+            World candidate = world;
+            auto entities = stage_visuals(candidate, initial);
+            publish_visuals(world, std::move(candidate), std::move(entities));
+        }
         stream_.commit_frame();
     }
 
@@ -48,13 +71,22 @@ public:
 
             stream_.stage_next(); // At most one new disk payload per fixed update.
             if (stream_.ready_to_commit()) {
-                if (!game_->replace_course_collision(candidate_geometry(requested_))) {
+                auto geometry = candidate_geometry(requested_);
+                std::optional<World> candidate_world;
+                ChunkEntities entities;
+                if (output_) {
+                    candidate_world = world;
+                    entities = stage_visuals(*candidate_world, requested_);
+                }
+                if (!game_->replace_course_collision(geometry)) {
                     throw std::runtime_error("Staged course collision overlaps the player or reset point");
                 }
+                if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
                 // No intervening operation can invalidate readiness; commit is noexcept.
                 stream_.commit_frame();
             }
         } catch (const std::exception& error) {
+            if (output_) output_->discard();
             stream_.cancel();
             std::clog << "SAIGE course streaming kept the active chunks: " << error.what() << '\n';
         }
@@ -66,6 +98,64 @@ public:
     [[nodiscard]] std::size_t resident_count() const noexcept { return stream_.active_count(); }
 
 private:
+    using ChunkEntities = std::map<ChunkCoord, std::vector<Entity>>;
+
+    [[nodiscard]] ChunkEntities stage_visuals(World& candidate, std::span<const ChunkSource> requested) {
+        ChunkEntities entities = chunk_entities_;
+        for (auto it = entities.begin(); it != entities.end();) {
+            if (std::ranges::find(requested, it->first, &ChunkSource::coord) == requested.end()) {
+                for (const Entity entity : it->second) (void)candidate.destroy(entity);
+                it = entities.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        std::map<std::pair<std::uint64_t, std::uint64_t>, CourseAsset> unique_assets;
+        for (const ChunkSource& chunk : requested) {
+            const PreparedScene& prepared = *stream_.staged_chunk(chunk.coord);
+            const auto& project = prepared.project();
+            for (const auto& asset : project.assets) {
+                const auto relative = std::filesystem::path(
+                    std::u8string(asset.relative_path.begin(), asset.relative_path.end()));
+                const auto source = (chunk.project.parent_path() / relative).lexically_normal();
+                const auto [it, inserted] = unique_assets.try_emplace(
+                    std::pair{asset.id.high, asset.id.low}, CourseAsset{asset.id, prepared.find_asset(asset.id), source});
+                if (!inserted && it->second.source != source) {
+                    throw std::invalid_argument("Streamed chunks bind the same asset ID to different files");
+                }
+            }
+
+            const auto [it, inserted] = entities.try_emplace(chunk.coord);
+            if (!inserted) continue; // Keep the render identity of resident nodes.
+            const auto matrices = resolve_project_matrices(project);
+            for (std::size_t i = 0; i < project.nodes.size(); ++i) {
+                auto matrix = matrices[i];
+                matrix[12] += static_cast<float>(chunk.coord.x) * cell_size;
+                matrix[13] += static_cast<float>(chunk.coord.y) * cell_size;
+                const auto entity = candidate.create();
+                if (!candidate.set_render_pose(entity, matrix, project.nodes[i].mesh)) {
+                    throw std::invalid_argument("Invalid streamed chunk render transform");
+                }
+                it->second.push_back(entity);
+            }
+        }
+
+        std::vector<CourseAsset> assets;
+        assets.reserve(unique_assets.size());
+        for (auto& entry : unique_assets) assets.push_back(std::move(entry.second));
+        output_->stage(assets);
+        return entities;
+    }
+
+    void publish_visuals(World& world, World&& candidate, ChunkEntities&& entities) noexcept {
+        static_assert(std::is_nothrow_move_assignable_v<World>);
+        static_assert(std::is_nothrow_move_assignable_v<ChunkEntities>);
+        output_->publish();
+        world = std::move(candidate);
+        chunk_entities_ = std::move(entities);
+    }
+
     [[nodiscard]] std::vector<Aabb> candidate_geometry(std::span<const ChunkSource> requested) const {
         std::vector<Aabb> geometry;
         for (const auto& chunk : requested) {
@@ -104,6 +194,8 @@ private:
     static constexpr ChunkCoord reset_cell{0, 0};
     IDesktopPlatform& platform_;
     std::vector<ChunkSource> sources_;
+    CourseSceneOutput* output_;
+    ChunkEntities chunk_entities_;
     ChunkStream stream_{{10}};
     std::optional<DesktopGame> game_;
     std::optional<ChunkCoord> requested_center_;

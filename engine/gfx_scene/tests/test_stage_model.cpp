@@ -1,5 +1,6 @@
 #include "saige/gfx_test/saige_test.hpp"
 
+#include "saige/gfx_assets/tangents.hpp"
 #include "saige/gfx_scene/stage_model.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
@@ -375,6 +376,58 @@ TEST_CASE("Stage: an undecodable or missing base color texture still fails the s
             CHECK(threw);
         }
     }
+}
+
+TEST_CASE("Stage: tangents reach the vertices, and a normal map on a primitive without them is reported")
+{
+    Rig rig;
+    GltfAsset asset = load_fixture();
+    Primitive& primitive = asset.meshes[0].primitives[0];
+    // The loader only generates tangents for primitives whose material has a normal texture, so generate them here.
+    asset.materials[0].normal_texture.texture = 0;
+    REQUIRE(generate_tangents(primitive).result == TangentResult::Generated);
+    REQUIRE(primitive.tangents.size() == std::size_t{primitive.vertex_count()} * 4);
+    StageReport with_tangents;
+    (void)stage_model(rig.renderer, asset, "tangents", {}, &with_tangents);
+    CHECK_FALSE(has_warning(with_tangents, "no tangents"));
+
+    primitive.tangents.clear();
+    StageReport without;
+    (void)stage_model(rig.renderer, asset, "no tangents", {}, &without);
+    CHECK(has_warning(without, "its normal map is ignored"));
+
+    primitive.tangents.assign(5, 0.0f);  // a count that does not match the vertices is a malformed primitive
+    bool threw = false;
+    try {
+        (void)stage_model(rig.renderer, asset, "bad tangents");
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
+TEST_CASE("Stage: a normal texture on TEXCOORD_1 is ignored with a warning, because only TEXCOORD_0 is sampled")
+{
+    Rig rig(render::ModelShading::MetallicRoughness);  // the normal map is staged (and shaded) only in this mode
+    GltfAsset asset = load_fixture();
+    Primitive& primitive = asset.meshes[0].primitives[0];
+    REQUIRE(generate_tangents(primitive).result == TangentResult::Generated);
+
+    StageReport without_normal;  // the uploads every other slot of the fixture needs
+    (void)stage_model(rig.renderer, asset, "no normal", {}, &without_normal);
+
+    asset.materials[0].normal_texture.texture = 0;
+    StageReport on_set_zero;
+    (void)stage_model(rig.renderer, asset, "uv0 normal", {}, &on_set_zero);
+    CHECK(on_set_zero.textures == without_normal.textures + 1);  // the normal map is uploaded (linear)
+    CHECK_FALSE(has_warning(on_set_zero, "TEXCOORD_1 is ignored"));
+
+    asset.materials[0].normal_texture.tex_coord = 1;
+    StageReport on_set_one;
+    (void)stage_model(rig.renderer, asset, "uv1 normal", {}, &on_set_one);
+    CHECK(on_set_one.textures == without_normal.textures);  // not uploaded: the slot stays empty, so the shader keeps the geometric normal
+    CHECK(has_warning(on_set_one, "TEXCOORD_1 is ignored"));
+    CHECK_FALSE(has_warning(on_set_one, "no tangents"));
 }
 
 TEST_CASE("Stage: glTF samplers map to RHI sampler descriptions")

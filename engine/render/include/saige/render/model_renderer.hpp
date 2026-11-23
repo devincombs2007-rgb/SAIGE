@@ -8,8 +8,8 @@
 // A material has five texture slots (base color, metallic-roughness, normal, occlusion, emissive), each with its own
 // sampler, plus a parameter block (docs/rendering/material-architecture.md). Slots a material leaves empty are bound to
 // neutral defaults, so one shader serves every material. Shaded: base color, emissive and occlusion (occlusion scales the
-// ambient term, as glTF defines it) in both modes, and metallic-roughness in `ModelShading::MetallicRoughness`. The normal
-// slot and its scale are bound and stored but not yet read by the shader (milestone M3). Alpha-mask materials discard below their cutoff; alpha
+// ambient term, as glTF defines it) in both modes; metallic-roughness and tangent-space normal mapping (with the material's
+// normal scale and the vertex tangents) only in `ModelShading::MetallicRoughness`. Alpha-mask materials discard below their cutoff; alpha
 // blending is not implemented (a Blend material draws as opaque).
 #pragma once
 
@@ -35,7 +35,7 @@ struct MaterialData {
     float alpha_cutoff = 0.0f;                       ///< > 0 discards fragments below it (alpha mask); 0 = opaque
     float metallic = 1.0f;                           ///< factor, multiplies the texture's B (MetallicRoughness shading)
     float roughness = 1.0f;                          ///< factor, multiplies the texture's G (MetallicRoughness shading)
-    float normal_scale = 1.0f;                       ///< (not yet shaded)
+    float normal_scale = 1.0f;                       ///< scales the normal texture's x and y (MetallicRoughness shading)
     float occlusion_strength = 1.0f;                 ///< 0 ignores the occlusion texture, 1 applies it fully
     bool double_sided = false;
 };

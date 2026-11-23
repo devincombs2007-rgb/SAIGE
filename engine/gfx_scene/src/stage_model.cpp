@@ -187,19 +187,30 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             warn_once(report, "alpha blending is not implemented in 0.2: Blend materials draw as opaque");
         }
         // Legacy (the default) stages what 0.2 staged: the base color texture only, so 0.2 content loads and looks as it did, including
-        // content whose other textures could not be decoded. Extended stages all five slots; an optional slot that cannot be used stays neutral.
-        const bool extended = models.shading() != render::ModelShading::Legacy;
+        // content whose other textures could not be decoded. Extended and MetallicRoughness stage all five slots; an optional slot that
+        // cannot be used stays neutral.
+        const render::ModelShading shading = models.shading();
+        const bool extended = shading != render::ModelShading::Legacy;
         const bool other_slots = m.normal_texture.valid() || m.metallic_roughness_texture.valid() || m.occlusion_texture.valid() || m.emissive_texture.valid();
         if (!extended && other_slots) {
             warn_once(report, "normal, metallic-roughness, occlusion and emissive textures are not sampled in 0.2 (base color only)");
-        } else if (extended && m.normal_texture.valid()) {
-            warn_once(report, "normal textures are uploaded and bound but not shaded yet");
+        } else if (shading == render::ModelShading::Extended && m.normal_texture.valid()) {
+            warn_once(report, "normal textures are uploaded and bound but not shaded yet");  // only MetallicRoughness shades them
         }
         render::MaterialTextures textures;
         textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true, /*optional=*/false);
         if (extended) {
             textures[render::MaterialSlot::MetallicRoughness] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false, true);
-            textures[render::MaterialSlot::Normal] = slot_texture(m, i, "normal", m.normal_texture, false, true);
+            // The tangents are generated for TEXCOORD_0, and only TEXCOORD_0 is sampled. A normal map that names another coordinate
+            // set cannot be shaded correctly (it would be read with the wrong UVs and a frame that does not belong to them), so
+            // the slot is left empty and the surface keeps its geometric normal.
+            TextureRef normal_ref = m.normal_texture;
+            if (normal_ref.valid() && normal_ref.tex_coord != 0) {
+                warn_once(report, "a normal texture that names TEXCOORD_" + std::to_string(normal_ref.tex_coord) +
+                                      " is ignored: only TEXCOORD_0 is sampled, so the surface keeps its geometric normal");
+                normal_ref = TextureRef{};
+            }
+            textures[render::MaterialSlot::Normal] = slot_texture(m, i, "normal", normal_ref, false, true);
             textures[render::MaterialSlot::Occlusion] = slot_texture(m, i, "occlusion", m.occlusion_texture, false, true);
             textures[render::MaterialSlot::Emissive] = slot_texture(m, i, "emissive", m.emissive_texture, true, true);
         }
@@ -224,6 +235,9 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             if (!p.uv0.empty() && p.uv0.size() != std::size_t{vertex_count} * 2) {
                 fail(where, "has a texture coordinate count that does not match its vertices");
             }
+            if (!p.tangents.empty() && p.tangents.size() != std::size_t{vertex_count} * 4) {
+                fail(where, "has a tangent count that does not match its vertices");
+            }
             std::vector<render::ModelVertex> vertices(vertex_count);
             for (uint32_t v = 0; v < vertex_count; ++v) {
                 vertices[v].position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
@@ -232,6 +246,16 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                     vertices[v].uv[0] = p.uv0[v * 2];
                     vertices[v].uv[1] = p.uv0[v * 2 + 1];
                 }
+                if (!p.tangents.empty()) {  // absent tangents stay w = 0: the shader skips normal mapping there
+                    for (uint32_t c = 0; c < 4; ++c) {
+                        vertices[v].tangent[c] = p.tangents[v * 4 + c];
+                    }
+                }
+            }
+            if (p.tangents.empty() && p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size() &&
+                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid() &&
+                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.tex_coord == 0) {
+                warn_once(report, "a primitive with a normal texture has no tangents (it has no texture coordinates): its normal map is ignored");
             }
             std::vector<uint32_t> indices = p.indices;
             if (indices.empty()) {  // a non-indexed triangle list

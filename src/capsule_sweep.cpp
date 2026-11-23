@@ -141,7 +141,48 @@ D3 axis_contact_point(const D3& center, double segment_length, const Aabb& box) 
     return p;
 }
 
+struct Overlap {
+    D3 normal;
+    double depth;  // distance to move along `normal` for the capsule to just touch the box
+};
+
+// The push-out for a lowest sphere center `start` against the box grown downward to [lo, hi], or nothing if the capsule is not
+// penetrating deeper than the contact tolerance.
+std::optional<Overlap> overlap_push(const D3& start, const D3& lo, const D3& hi, double radius) noexcept {
+    const D3 nearest = clamp3(start, lo, hi);
+    const D3 offset = sub(start, nearest);
+    const double distance2 = dot(offset, offset);
+    const double shallow = std::max(0.0, radius - touch_tolerance);
+    if (distance2 != 0.0 && distance2 >= shallow * shallow) return std::nullopt;
+    if (distance2 > 0.0) {
+        return Overlap{normalized_or(offset, {0.0, 0.0, 1.0}), radius - std::sqrt(distance2)};
+    }
+    // The center is inside the grown box: leave through the nearest face (ties: x, y, z; negative before positive).
+    double best = std::numeric_limits<double>::infinity();
+    D3 normal{0.0, 0.0, 1.0};
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        const double to_min = start[axis] - lo[axis];
+        const double to_max = hi[axis] - start[axis];
+        if (to_min < best) { best = to_min; normal = {0.0, 0.0, 0.0}; normal[axis] = -1.0; }
+        if (to_max < best) { best = to_max; normal = {0.0, 0.0, 0.0}; normal[axis] = 1.0; }
+    }
+    return Overlap{normal, best + radius};
+}
+
 } // namespace
+
+std::optional<Vec3> capsule_box_push_out(const Capsule& capsule, const Aabb& box) {
+    validate(capsule, box);
+    const double r = capsule.radius;
+    const double segment = static_cast<double>(capsule.height) - 2.0 * r;
+    const D3 start{capsule.feet.x, capsule.feet.y, static_cast<double>(capsule.feet.z) + r};
+    const D3 lo{box.min.x, box.min.y, static_cast<double>(box.min.z) - segment};
+    const D3 hi{box.max.x, box.max.y, box.max.z};
+    const auto overlap = overlap_push(start, lo, hi, r);
+    if (!overlap) return std::nullopt;
+    return Vec3{static_cast<float>(overlap->normal[0] * overlap->depth), static_cast<float>(overlap->normal[1] * overlap->depth),
+                static_cast<float>(overlap->normal[2] * overlap->depth)};
+}
 
 float capsule_box_gap(const Capsule& capsule, const Aabb& box) {
     validate(capsule, box);
@@ -168,9 +209,6 @@ std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displac
     const D3 lo{box.min.x, box.min.y, static_cast<double>(box.min.z) - segment};
     const D3 hi{box.max.x, box.max.y, box.max.z};
 
-    const D3 nearest = clamp3(start, lo, hi);
-    const D3 offset = sub(start, nearest);
-    const double distance2 = dot(offset, offset);
 
     const auto make_hit = [&](double t, const D3& normal, bool overlapping) {
         CapsuleHit hit;
@@ -182,23 +220,8 @@ std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displac
     };
 
     // Penetrating at the start: report the push-out direction and stop the move there.
-    const double shallow = std::max(0.0, r - touch_tolerance);
-    if (distance2 < shallow * shallow || (distance2 == 0.0)) {
-        D3 normal;
-        if (distance2 > 0.0) {
-            normal = normalized_or(offset, {0.0, 0.0, 1.0});
-        } else {
-            // The center is inside the grown box: leave through the nearest face (ties: x, y, z; negative before positive).
-            double best = std::numeric_limits<double>::infinity();
-            normal = {0.0, 0.0, 1.0};
-            for (std::size_t axis = 0; axis < 3; ++axis) {
-                const double to_min = start[axis] - lo[axis];
-                const double to_max = hi[axis] - start[axis];
-                if (to_min < best) { best = to_min; normal = {0.0, 0.0, 0.0}; normal[axis] = -1.0; }
-                if (to_max < best) { best = to_max; normal = {0.0, 0.0, 0.0}; normal[axis] = 1.0; }
-            }
-        }
-        return make_hit(0.0, normal, true);
+    if (const auto overlap = overlap_push(start, lo, hi, r)) {
+        return make_hit(0.0, overlap->normal, true);
     }
 
     // Slab test against the box grown by the radius on every side.

@@ -228,6 +228,72 @@ void test_touching_and_overlap() {
     require(saige::capsule_box_gap(sunk, floor) < 0.0f, "negative gap while overlapping");
 }
 
+Capsule moved(Capsule c, Vec3 by) {
+    c.feet = {c.feet.x + by.x, c.feet.y + by.y, c.feet.z + by.z};
+    return c;
+}
+
+void test_push_out() {
+    Random random(77);
+    int overlapping = 0, clear = 0;
+    for (int n = 0; n < 3000; ++n) {
+        const Vec3 box_min{static_cast<float>(random.range(-2, 2)), static_cast<float>(random.range(-2, 2)), static_cast<float>(random.range(-1, 1))};
+        const Aabb box{box_min, {box_min.x + static_cast<float>(random.range(0.3, 3)), box_min.y + static_cast<float>(random.range(0.3, 3)),
+                                 box_min.z + static_cast<float>(random.range(0.3, 3))}};
+        const float radius = static_cast<float>(random.range(0.1, 0.5));
+        const float height = 2.0f * radius + static_cast<float>(random.range(0, 1.5));
+        // Close to the box on every side, so roughly half the scenes overlap.
+        const Capsule capsule{{static_cast<float>(random.range(box.min.x - 1.5, box.max.x + 1.5)),
+                               static_cast<float>(random.range(box.min.y - 1.5, box.max.y + 1.5)),
+                               static_cast<float>(random.range(box.min.z - height - 0.8, box.max.z + 0.8))},
+                              radius, height};
+        const double gap = reference_gap(capsule, {}, box);
+        const auto push = saige::capsule_box_push_out(capsule, box);
+        if (gap >= -1e-5) {
+            ++clear;
+            require(!push, "a capsule that is not overlapping needs no push");
+            continue;
+        }
+        // The reference gap saturates once the capsule axis is inside the box, so only judge depth when it is outside.
+        ++overlapping;
+        require(push.has_value(), "an overlapping capsule needs a push");
+        const double length = std::sqrt(static_cast<double>(push->x) * push->x + static_cast<double>(push->y) * push->y +
+                                        static_cast<double>(push->z) * push->z);
+        // Applying the push leaves the capsule touching (not overlapping, and not floating away).
+        const double after = reference_gap(moved(capsule, *push), {}, box);
+        require(after > -2e-4 && after < 2e-4, "after the push the capsule touches the box");
+        // Minimal: no axis-aligned push of the six that clears the box is shorter than the reported one.
+        double best_axis = std::numeric_limits<double>::infinity();
+        for (int axis = 0; axis < 3; ++axis) {
+            for (const double sign : {-1.0, 1.0}) {
+                for (double d = 0.0; d < 8.0; d += 0.001) {
+                    Vec3 by{0, 0, 0};
+                    (axis == 0 ? by.x : axis == 1 ? by.y : by.z) = static_cast<float>(sign * d);
+                    if (reference_gap(moved(capsule, by), {}, box) >= -1e-9) {
+                        best_axis = std::min(best_axis, d);
+                        break;
+                    }
+                }
+            }
+        }
+        require(length <= best_axis + 2e-3, "the push is no longer than the best axis-aligned alternative");
+    }
+    require(overlapping >= 400 && clear >= 400, "push-out test needs both overlapping and clear scenes: " + std::to_string(overlapping) + "/" + std::to_string(clear));
+
+    // Exact cases: sunk into a floor, and into a wall.
+    const Aabb floor{{-10, -10, -1}, {10, 10, 0}};
+    auto push = saige::capsule_box_push_out({{0, 0, -0.1f}, 0.3f, 1.7f}, floor);
+    require(push && push->x == 0.0f && push->y == 0.0f && near(push->z, 0.1, 1e-6), "sunk 0.1 into a floor: push up 0.1");
+    const Aabb wall{{1, -5, 0}, {2, 5, 3}};
+    push = saige::capsule_box_push_out({{0.9f, 0, 0}, 0.3f, 1.7f}, wall);  // surface reaches x = 1.2, 0.2 into the wall
+    require(push && near(push->x, -0.2, 1e-6) && push->y == 0.0f && push->z == 0.0f, "into a wall: push back out along x");
+    require(!saige::capsule_box_push_out({{0.7f, 0, 0}, 0.3f, 1.7f}, wall), "touching is not overlapping");
+    // A capsule whose axis is inside the box leaves through the nearest face, deterministically.
+    push = saige::capsule_box_push_out({{1.5f, 0, 0.4f}, 0.3f, 1.7f}, wall);
+    require(push.has_value(), "axis inside the box");
+    require(!saige::capsule_box_push_out({{50, 0, 0}, 0.3f, 1.7f}, wall), "far away");
+}
+
 void test_multiple_boxes_and_ties() {
     const std::vector<Aabb> boxes{{{5, -1, 0}, {6, 1, 2}}, {{2, -1, 0}, {3, 1, 2}}, {{2, -1, 0}, {3, 1, 2}}};
     const Capsule c{{0, 0, 0}, 0.3f, 1.7f};
@@ -296,6 +362,7 @@ int main() {
     try {
         test_exact_cases();
         test_touching_and_overlap();
+        test_push_out();
         test_multiple_boxes_and_ties();
         test_slopes();
         test_invalid_input_is_rejected();

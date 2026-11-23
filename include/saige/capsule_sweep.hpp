@@ -53,6 +53,11 @@ struct CapsuleHit {
 // The earliest hit over all boxes; ties go to the lowest index. The result's `index` identifies the box.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displacement, std::span<const Aabb> boxes);
 
+// The smallest translation that separates an overlapping capsule from a box so that they just touch, or no value when they do not
+// overlap (within 1e-5). The direction is the push-out normal `sweep_capsule_box` reports for a capsule that starts overlapping.
+// Contact recovery for a controller: apply the push, plus a small skin, then continue. Throws like sweep_capsule_box.
+[[nodiscard]] std::optional<Vec3> capsule_box_push_out(const Capsule& capsule, const Aabb& box);
+
 // Whether a contact normal is ground the character may stand on: its angle from +Z is at most `max_slope_radians`.
 // A non-unit or non-finite normal is not walkable.
 [[nodiscard]] bool is_walkable(Vec3 normal, float max_slope_radians) noexcept;

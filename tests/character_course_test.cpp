@@ -1,3 +1,4 @@
+#include "desktop_game.hpp"
 #include "saige/capsule_character.hpp"
 #include "saige/runtime.hpp"
 
@@ -88,6 +89,83 @@ void test_geometry_replacement() {
     require(motor.state().feet.z < stopped.feet.z, "unloaded floor no longer prevents gravity");
 }
 
+class CourseInput final : public IDesktopPlatform {
+public:
+    std::chrono::steady_clock::time_point now() override { return {}; }
+    bool poll_events() override { return true; }
+    NativeWindowHandle native_window() const noexcept override { return {}; }
+    SurfaceState surface() const noexcept override { return {}; }
+    bool key_down(Key key) const noexcept override {
+        return (key == Key::w && forward) || (key == Key::space && jump) || (key == Key::r && reset);
+    }
+    LookDelta consume_look_delta() noexcept override { return std::exchange(look, {}); }
+
+    LookDelta look{};
+    bool forward{}, jump{}, reset{};
+};
+
+void test_desktop_course() {
+    World world;
+    CourseInput input;
+    sample::DesktopGame game(world, input, true);
+    const auto player = [&] { return world.snapshot().front().position; };
+    const auto advance = [&] { game.fixed_update(world, tick); };
+    const auto spawn_camera = game.camera_view().value();
+    const auto camera_position = [&] { return game.camera_view().value().position; };
+
+    input.look = {-524.0f, 60.0f}; // About a quarter-turn left, plus down.
+    advance();
+    const auto turned = camera_position();
+    require(turned.y < -4.9f && turned.z > spawn_camera.position.z, "look orbits in yaw and pitch");
+    advance();
+    require(camera_position() == turned, "a fixed update must consume mouse input only once");
+
+    input.forward = true;
+    for (int i = 0; i < 30; ++i) advance();
+    const auto moved = player();
+    require(std::abs(moved.x) < 0.01f && moved.y > 1.0f, "forward follows the orbit heading");
+    require(std::abs(camera_position().y - turned.y - moved.y) < 0.001f, "camera follows the player");
+
+    input.forward = false;
+    input.jump = true;
+    advance();
+    require(player().z > 0.02f, "course jump works");
+    input.reset = true;
+    input.look = {100.0f, 100.0f};
+    advance();
+    require(player() == Vec3{} && camera_position() == spawn_camera.position, "reset restores player and orbit");
+    input.reset = false;
+    advance();
+    require(player().z < 0.001f && camera_position().y == spawn_camera.position.y,
+            "held jump and discarded drag must not replay after reset");
+    input.jump = false;
+    advance();
+    input.jump = true;
+    advance();
+    require(player().z > 0.02f, "released jump can be pressed again");
+
+    input.jump = false;
+    input.look = {-524.0f, 0.0f};
+    input.forward = true;
+    bool fell = false;
+    bool recovered = false;
+    for (int i = 0; i < 900; ++i) {
+        advance();
+        fell = fell || player().z < -0.1f;
+        if (fell && player() == Vec3{}) {
+            recovered = camera_position() == spawn_camera.position;
+            break;
+        }
+    }
+    require(fell && recovered, "walking off the floor restores the spawn and camera");
+
+    World preview_world;
+    sample::DesktopGame preview(preview_world, input, false);
+    preview.fixed_update(preview_world, tick);
+    require(!preview.camera_view() && preview_world.snapshot().size() == 1,
+            "default renderer preview retains its original camera and marker");
+}
+
 class ScriptClock final : public IPlatform {
 public:
     std::chrono::steady_clock::time_point now() override { return time_; }
@@ -150,6 +228,7 @@ int main() {
         test_contacts();
         test_replay();
         test_geometry_replacement();
+        test_desktop_course();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

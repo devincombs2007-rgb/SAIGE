@@ -37,6 +37,8 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND ${suite}_test)
     endforeach()
 
+    target_include_directories(character_course_test PRIVATE apps)
+
     add_test(NAME headless_boot COMMAND saige_headless --frames 3)
     set_tests_properties(headless_boot PROPERTIES
         PASS_REGULAR_EXPRESSION "frames=3([^0-9]|$)"

@@ -167,7 +167,7 @@ int main(int argc, char** argv) {
         }
 #endif
 #if defined(SAIGE_DESKTOP_VULKAN)
-        const auto title = course ? L"SAIGE course | WASD | Shift sprint | Space jump | R reset"
+        const auto title = course ? L"SAIGE course | WASD | Shift sprint | Space jump | Right drag camera | R reset"
                                   : L"SAIGE | WASD to move | Right drag to look | Esc to quit";
         const bool strict = require_rendered || validate;
         saige::Win32Platform platform(title, 960, 540, strict ? saige::DesktopPresentation::renderer_paced

@@ -38,6 +38,7 @@ void test_course_input(saige::Win32Platform& platform, HWND window) {
 
     advance();
     const auto spawn = player_pose();
+    const auto initial_camera = game.camera_view().value();
     const auto at_spawn = [&] {
         const auto pose = player_pose();
         return std::abs(pose.x - spawn.x) < 0.001f && std::abs(pose.y - spawn.y) < 0.001f &&
@@ -66,6 +67,26 @@ void test_course_input(saige::Win32Platform& platform, HWND window) {
     post(window, WM_KILLFOCUS);
     advance();
     require(at_spawn(), "A pending key must not move the course player after focus loss");
+
+    require(PostMessageW(window, WM_RBUTTONDOWN, MK_RBUTTON, MAKELPARAM(20, 20)) != FALSE &&
+                PostMessageW(window, WM_MOUSEMOVE, MK_RBUTTON, MAKELPARAM(180, 60)) != FALSE &&
+                PostMessageW(window, WM_RBUTTONUP, 0, MAKELPARAM(180, 60)) != FALSE,
+            "Could not queue a course camera drag");
+    advance();
+    require(game.camera_view().value().position.y > initial_camera.position.y + 1.0f,
+            "The Win32 right drag must reach the course camera");
+    post(window, WM_KEYDOWN, 'W');
+    advance();
+    for (int tick = 0; tick < 15; ++tick) game.fixed_update(world, step);
+    require(player_pose().x > 0.2f && player_pose().y < -0.1f,
+            "Win32 walking follows the turned view");
+    post(window, WM_KEYUP, 'W');
+    post(window, WM_KEYDOWN, 'R');
+    advance();
+    require(at_spawn() && std::abs(game.camera_view().value().position.y - initial_camera.position.y) < 0.001f,
+            "Course reset must also restore the camera");
+    post(window, WM_KEYUP, 'R');
+    require(platform.poll_events(), "Course window exited during reset");
 }
 
 } // namespace

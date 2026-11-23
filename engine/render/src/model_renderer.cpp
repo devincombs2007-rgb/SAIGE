@@ -106,6 +106,23 @@ uint64_t GpuModel::triangle_count() const noexcept
     return triangles;
 }
 
+namespace {
+
+// Unit vector along `v` computed without squaring the components: dividing by the largest magnitude first keeps the sum of squares in
+// [1, 3] for any finite v (a plain squared length overflows above about 1.8e19 and underflows below about 1e-19, which used to turn a
+// valid direction into a zero or an infinity). Returns false for a zero vector.
+bool unit_direction(Float3 v, Float3& out)
+{
+    const float m = std::max({std::abs(v.x), std::abs(v.y), std::abs(v.z)});
+    if (!(m > 0.0f) || !std::isfinite(m)) return false;
+    const Float3 s{v.x / m, v.y / m, v.z / m};
+    const float len = std::sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
+    out = {s.x / len, s.y / len, s.z / len};
+    return true;
+}
+
+} // namespace
+
 void validate_lighting(const SceneLighting& lighting)
 {
     const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
@@ -114,9 +131,8 @@ void validate_lighting(const SceneLighting& lighting)
         !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground)) {
         throw std::invalid_argument("SceneLighting must be finite, with non-negative colors");
     }
-    const float length2 = lighting.sun_direction.x * lighting.sun_direction.x + lighting.sun_direction.y * lighting.sun_direction.y +
-                          lighting.sun_direction.z * lighting.sun_direction.z;
-    if (!(length2 > 1e-12f)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
+    Float3 unit;
+    if (!unit_direction(lighting.sun_direction, unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
 }
 
 ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry, rhi::Format color_format,
@@ -169,16 +185,16 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 
     // Immutable scene constants. The default lighting is the same sun, ambient and fog as the 0.1 cube and ground shaders.
     const SceneLighting& light = settings.lighting;
-    const float sun_len = std::sqrt(light.sun_direction.x * light.sun_direction.x + light.sun_direction.y * light.sun_direction.y +
-                                    light.sun_direction.z * light.sun_direction.z);
+    Float3 sun_unit{};
+    if (!unit_direction(light.sun_direction, sun_unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
     SceneConstants sc{};
     sc.fog_color_density[0] = settings.sky.r;
     sc.fog_color_density[1] = settings.sky.g;
     sc.fog_color_density[2] = settings.sky.b;
     sc.fog_color_density[3] = settings.fog_density;
-    sc.sun_direction[0] = light.sun_direction.x / sun_len;
-    sc.sun_direction[1] = light.sun_direction.y / sun_len;
-    sc.sun_direction[2] = light.sun_direction.z / sun_len;
+    sc.sun_direction[0] = sun_unit.x;
+    sc.sun_direction[1] = sun_unit.y;
+    sc.sun_direction[2] = sun_unit.z;
     sc.sun_color[0] = light.sun_color.x;
     sc.sun_color[1] = light.sun_color.y;
     sc.sun_color[2] = light.sun_color.z;

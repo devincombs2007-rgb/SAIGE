@@ -194,6 +194,15 @@ TEST_CASE("Models: scene lighting is configurable, and the default is the long-s
     SceneLighting grazing_unit = front;
     grazing_unit.sun_direction = {-0.5f, 0.866025f, 0.0f};
     CHECK(near3(center_pixel(grazing_long), expected(grazing_unit), 0.02f));
+    // Magnitudes at the ends of the float range are directions too: the squared length of 3e38 overflows to infinity, and of 1e-30 underflows
+    // to zero, which used to write a zero sun (an unlit face) instead of the grazing one.
+    SceneLighting huge = front;
+    huge.sun_direction = {-1.5e38f, 2.598076e38f, 0.0f};
+    SceneLighting tiny = front;
+    tiny.sun_direction = {-0.5e-30f, 0.866025e-30f, 0.0f};
+    SceneLighting scaled_far = front;
+    scaled_far.sun_direction = {-0.5e19f, 0.866025e19f, 0.0f};
+    for (const SceneLighting& l : {huge, tiny, scaled_far}) CHECK(near3(center_pixel(l), expected(grazing_unit), 0.02f));
     // The lit and unlit pictures differ by exactly the sun term, so the sun color really is what lights the face.
     const Float3 lit = center_pixel(front), unlit = center_pixel(behind);
     CHECK(near3(lit - unlit, front.sun_color * 0.5f, 0.02f));

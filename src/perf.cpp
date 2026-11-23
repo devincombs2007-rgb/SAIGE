@@ -93,10 +93,15 @@ std::size_t count_over(std::span<const std::int64_t> nanoseconds, std::int64_t t
                                                   [threshold_ns](std::int64_t v) { return v > threshold_ns; }));
 }
 
-void Zones::record(std::string_view name, std::chrono::nanoseconds duration) {
+Series& Zones::series(std::string_view name) {
     auto it = zones_.find(name);
     if (it == zones_.end()) it = zones_.emplace(std::string(name), Series{}).first;
-    it->second.add(duration);
+    return it->second;
+}
+
+void Zones::reserve(std::string_view name, std::size_t samples) {
+    Series& s = series(name);
+    s.reserve(s.size() + samples);
 }
 
 const Series* Zones::find(std::string_view name) const {
@@ -146,6 +151,10 @@ FrameRecorder::FrameRecorder(Options options) : options_(options) {
 }
 
 void FrameRecorder::record(const CpuFrameMetrics& frame) {
+    // Make room everywhere before changing anything, so a failed allocation leaves the recorder exactly as it was.
+    for (Series* s : {&total_, &input_, &simulation_, &extraction_, &submission_, &per_tick_simulation_, &wall_interval_}) {
+        s->ensure_room_for_one();
+    }
     ++frames_;
     ticks_ += frame.ticks;
     peak_instances_ = std::max(peak_instances_, frame.instance_count);
@@ -166,10 +175,15 @@ void FrameRecorder::record(const CpuFrameMetrics& frame) {
         last_frame_end_ = now;
     }
     if (options_.memory_every_frames != 0 && (frames_ == 1 || frames_ % options_.memory_every_frames == 0)) {
-        const ProcessMemory sample = sample_process_memory();
-        if (sample.resident_bytes) memory_.resident_bytes = sample.resident_bytes;
-        if (sample.peak_resident_bytes) {
-            memory_.peak_resident_bytes = std::max(memory_.peak_resident_bytes.value_or(0), *sample.peak_resident_bytes);
+        // Best effort: reading the process size allocates (a stream and strings), and a failure there must not fail a frame
+        // that has already been recorded.
+        try {
+            const ProcessMemory sample = sample_process_memory();
+            if (sample.resident_bytes) memory_.resident_bytes = sample.resident_bytes;
+            if (sample.peak_resident_bytes) {
+                memory_.peak_resident_bytes = std::max(memory_.peak_resident_bytes.value_or(0), *sample.peak_resident_bytes);
+            }
+        } catch (...) {
         }
     }
 }
@@ -183,19 +197,28 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
     const Summary total = frames.total().summary();
     const Summary wall = frames.wall_interval().summary();
     const auto budget_ns = static_cast<std::int64_t>(context.budget_ms * ns_per_ms);
-    const std::size_t over_budget = count_over(frames.total().samples(), budget_ns);
-    const std::size_t over_double = count_over(frames.total().samples(), budget_ns * 2);
+    // The goal is about delivered intervals; CPU frame time is reported next to it, never in its place.
+    const std::size_t over_budget = count_over(frames.wall_interval().samples(), budget_ns);
+    const std::size_t over_double = count_over(frames.wall_interval().samples(), budget_ns * 2);
+    const std::size_t cpu_over_budget = count_over(frames.total().samples(), budget_ns);
 
-    // The verdict is deliberately hard to earn: only a run marked as qualified target hardware on a physical GPU gets one.
+    // The verdict is deliberately hard to earn. The goal is the p99 of the *delivered frame interval* on the documented target
+    // hardware, so it needs a physical adapter, a paced run, the qualified flag and a versioned preset and course.
     std::string verdict = "not_evaluated";
     std::string reason;
     if (context.adapter_class != "physical") {
         reason = "adapter class '" + context.adapter_class + "' does not measure real GPU hardware";
+    } else if (!context.paced) {
+        reason = "the run was not paced by presentation, so frame intervals do not show delivered pacing";
     } else if (!context.qualified_target_hardware) {
-        reason = "the target hardware, resolution and graphics preset are not documented for this run";
+        reason = "the run is not marked as the documented target hardware";
+    } else if (context.preset_version.empty() || context.course_version.empty()) {
+        reason = "the graphics preset and the scripted course are not both versioned";
+    } else if (wall.count == 0) {
+        reason = "no frame intervals were recorded";
     } else {
-        verdict = total.p99_ms <= context.budget_ms ? "within_budget" : "over_budget";
-        reason = "p99 CPU frame time against the budget on the qualified target hardware";
+        verdict = wall.p99_ms <= context.budget_ms ? "within_budget" : "over_budget";
+        reason = "p99 delivered frame interval against the budget on the qualified target hardware";
     }
 
     out << "{\"schema_version\":1"
@@ -208,9 +231,12 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
     out << ",\"frame_ms\":";
     write_summary(out, total);
     out << ",\"cpu_average_fps\":" << (total.mean_ms > 0.0 ? 1000.0 / total.mean_ms : 0.0);
-    out << ",\"wall_interval_ms\":";
+    out << ",\"frame_interval_ms\":";
     write_summary(out, wall);
-    out << ",\"wall_average_fps\":" << (wall.mean_ms > 0.0 ? 1000.0 / wall.mean_ms : 0.0);
+    out << ",\"interval_average_fps\":" << (wall.mean_ms > 0.0 ? 1000.0 / wall.mean_ms : 0.0);
+    out << ",\"run\":{\"paced\":" << (context.paced ? "true" : "false") << ",\"hardware\":" << json_string(context.hardware)
+        << ",\"preset_version\":" << json_string(context.preset_version)
+        << ",\"course_version\":" << json_string(context.course_version) << ",\"dropped_timing_samples\":" << zones.dropped_samples() << '}';
     out << ",\"phases_ms\":{\"input\":";
     write_summary(out, frames.input().summary());
     out << ",\"simulation\":";
@@ -223,8 +249,8 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
     write_summary(out, frames.per_tick_simulation().summary());
     out << '}';
 
-    out << ",\"budget\":{\"budget_ms\":" << context.budget_ms << ",\"frames_over_budget\":" << over_budget
-        << ",\"frames_over_2x_budget\":" << over_double << ",\"verdict\":" << json_string(verdict)
+    out << ",\"budget\":{\"statistic\":\"p99_frame_interval\",\"budget_ms\":" << context.budget_ms << ",\"intervals_over_budget\":" << over_budget
+        << ",\"intervals_over_2x_budget\":" << over_double << ",\"cpu_frames_over_budget\":" << cpu_over_budget << ",\"verdict\":" << json_string(verdict)
         << ",\"verdict_reason\":" << json_string(reason) << '}';
 
     out << ",\"zones_ms\":{";

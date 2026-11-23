@@ -12,6 +12,7 @@
 
 #include "saige/runtime.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -46,8 +47,15 @@ struct Summary {
 
 class Series {
 public:
+    // May throw std::bad_alloc when the series must grow; never throws while size() < capacity().
     void add(std::chrono::nanoseconds duration) { samples_.push_back(duration.count()); }
     void reserve(std::size_t n) { samples_.reserve(n); }
+    // Makes room for one more sample with geometric growth (so repeated calls stay cheap); throws std::bad_alloc if it cannot.
+    void ensure_room_for_one() {
+        if (samples_.size() == samples_.capacity()) samples_.reserve(std::max<std::size_t>(64, samples_.capacity() * 2));
+    }
+    [[nodiscard]] std::size_t size() const noexcept { return samples_.size(); }
+    [[nodiscard]] std::size_t capacity() const noexcept { return samples_.capacity(); }
     [[nodiscard]] std::span<const std::int64_t> samples() const noexcept { return samples_; }
     [[nodiscard]] Summary summary() const { return summarize(samples_); }
 
@@ -56,28 +64,53 @@ private:
 };
 
 // Named duration series ("fixed_step", "physics.step", "chunk.stage_next", ...), listed in name order for stable reports.
+//
+// Exception safety: a Scope resolves its series when it is created, which may allocate and may throw, before anything is timed.
+// Its destructor never throws and never allocates when the series has spare capacity (see reserve()): if growing the series
+// fails, the sample is dropped and counted in dropped_samples() rather than terminating the process, which matters most when the
+// scope is unwinding because the timed code threw. Reserve every zone used in a fixed-step loop up front and recording is
+// allocation-free there.
 class Zones {
 public:
     class Scope {
     public:
-        Scope(Zones& zones, std::string_view name) : zones_(&zones), name_(name), start_(std::chrono::steady_clock::now()) {}
+        // Throws (std::bad_alloc) only here, before the timed region starts.
+        Scope(Zones& zones, std::string_view name) : zones_(&zones), series_(&zones.series(name)) {
+            start_ = std::chrono::steady_clock::now();
+        }
         Scope(const Scope&) = delete;
         Scope& operator=(const Scope&) = delete;
-        ~Scope() { zones_->record(name_, std::chrono::steady_clock::now() - start_); }
+        ~Scope() noexcept {
+            const auto elapsed = std::chrono::steady_clock::now() - start_;
+            try {
+                series_->add(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed));
+            } catch (...) {
+                zones_->note_dropped();
+            }
+        }
 
     private:
         Zones* zones_;
-        std::string name_;
+        Series* series_;
         std::chrono::steady_clock::time_point start_;
     };
 
-    void record(std::string_view name, std::chrono::nanoseconds duration);
+    // Strong guarantee: if it throws, the zone's samples are unchanged.
+    void record(std::string_view name, std::chrono::nanoseconds duration) { series(name).add(duration); }
+    // Creates the zone if needed and makes room for `samples` more records so that scopes on it cannot allocate.
+    void reserve(std::string_view name, std::size_t samples);
     [[nodiscard]] Scope scope(std::string_view name) { return Scope(*this, name); }
     [[nodiscard]] const Series* find(std::string_view name) const;
     [[nodiscard]] const std::map<std::string, Series, std::less<>>& all() const noexcept { return zones_; }
+    // Samples a Scope had to discard because its series could not grow. Zero in a healthy run; reports include it.
+    [[nodiscard]] std::uint64_t dropped_samples() const noexcept { return dropped_; }
 
 private:
+    Series& series(std::string_view name);
+    void note_dropped() noexcept { ++dropped_; }
+
     std::map<std::string, Series, std::less<>> zones_;
+    std::uint64_t dropped_{};
 };
 
 struct ProcessMemory {
@@ -100,7 +133,13 @@ public:
     FrameRecorder() : FrameRecorder(Options{}) {}
     explicit FrameRecorder(Options options);
 
+    // All-or-nothing: room is made in every series first, so if that throws (std::bad_alloc) no counter or series has changed;
+    // after it, recording cannot fail.
     void record(const CpuFrameMetrics& frame) override;
+
+    // Records one delivered frame interval measured by the host (for example from presentation timestamps). Use it instead of,
+    // not in addition to, Options::measure_wall_interval. Strong guarantee.
+    void add_frame_interval(std::chrono::nanoseconds interval) { wall_interval_.add(interval); }  // vector::push_back: strong
 
     [[nodiscard]] std::uint64_t frames() const noexcept { return frames_; }
     [[nodiscard]] std::uint64_t ticks() const noexcept { return ticks_; }
@@ -112,7 +151,8 @@ public:
     [[nodiscard]] const Series& submission() const noexcept { return submission_; }
     // Per frame: simulation time divided by the number of fixed ticks that frame ran (frames with no ticks are skipped).
     [[nodiscard]] const Series& per_tick_simulation() const noexcept { return per_tick_simulation_; }
-    // Wall-clock time between the ends of consecutive frames (the first frame has none).
+    // Delivered frame intervals: by default the wall-clock time between the ends of consecutive frames (the first frame has none),
+    // or whatever the host supplied through add_frame_interval().
     [[nodiscard]] const Series& wall_interval() const noexcept { return wall_interval_; }
     [[nodiscard]] const ProcessMemory& memory() const noexcept { return memory_; }
     // Frames that ran no fixed tick (render faster than the simulation rate), and the most ticks any frame ran.
@@ -150,13 +190,23 @@ private:
 };
 
 // What a report needs to know about the run so its numbers are not misread.
+//
+// The goal recorded on issue #62 is a p99 *delivered frame interval* of at most 16.67 ms on the provisional baseline: Windows 11,
+// Ryzen 5 5600, RTX 3060 12 GB, 16 GB RAM, SSD, native 1920x1080, High preset, ray tracing, upscaling and frame generation off,
+// on a documented repeatable course. A verdict therefore needs ALL of: a physical adapter, a paced (presented) run, the
+// qualified_target_hardware flag, and a named preset and course version. Anything less is "not_evaluated".
 struct ReportContext {
     std::string workload;                // e.g. "character_course_replay"
     std::string build;                   // e.g. the CMake build type
     std::string adapter_class = "none";  // "none" (no renderer), "software", "physical" or "unknown"
-    // Set only for a run on the documented target hardware at the documented resolution and preset (issue #62 leaves that
-    // choice open). Without it, and for any adapter class other than "physical", the verdict is "not_evaluated".
+    // True when frames were presented at the display's pace, so the interval between frames is what a player sees. An unpaced loop
+    // (as the headless course benchmark is) produces intervals that say nothing about delivered frame pacing.
+    bool paced = false;
+    // Set only for a run on the documented target hardware at the documented resolution and preset.
     bool qualified_target_hardware = false;
+    std::string hardware;       // free text describing the machine and display settings the run actually used
+    std::string preset_version; // versioned graphics preset name; empty while no preset is versioned
+    std::string course_version; // versioned scripted course fixture; empty while none is versioned
     double budget_ms = target_frame_ms;
     std::int64_t fixed_step_ns = 0;
 };

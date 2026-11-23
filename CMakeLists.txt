@@ -5,6 +5,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(saige_core STATIC
     src/asset_id.cpp
+    src/character_motor.cpp
     src/free_camera.cpp
     src/perf.cpp
     src/runtime.cpp
@@ -34,7 +35,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera perf)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera perf character_motor)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)
@@ -81,7 +82,9 @@ if(SAIGE_TEST_WIN32_VULKAN)
     add_executable(win32_vulkan_test tests/win32_vulkan_test.cpp)
     target_link_libraries(win32_vulkan_test PRIVATE saige::desktop saige::rhi_vulkan saige::render_sink user32)
     add_test(NAME win32_vulkan_lifecycle COMMAND win32_vulkan_test)
-    set_tests_properties(win32_vulkan_lifecycle PROPERTIES TIMEOUT 60)
+    add_test(NAME win32_character_course_vulkan COMMAND saige_desktop --character-course --frames 8 --validate)
+    set_tests_properties(win32_vulkan_lifecycle win32_character_course_vulkan PROPERTIES TIMEOUT 60)
+    set_tests_properties(win32_character_course_vulkan PROPERTIES PASS_REGULAR_EXPRESSION "instances=4([^0-9]|$)")
 endif()
 
 option(SAIGE_BUILD_PROJECTS "Build the project format and tools" ON)

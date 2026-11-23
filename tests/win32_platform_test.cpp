@@ -84,11 +84,22 @@ int main() {
             require(platform.poll_events() && !platform.key_down(saige::Key::w),
                     "A queued key release left movement active");
 
+            post(handle, WM_KEYDOWN, VK_SPACE);
+            post(handle, WM_KEYDOWN, VK_SHIFT);
+            post(handle, WM_KEYDOWN, 'R');
+            require(platform.poll_events() && platform.key_down(saige::Key::space) &&
+                        platform.key_down(saige::Key::shift) && platform.key_down(saige::Key::r),
+                    "Course controls did not reach the input state");
+            post(handle, WM_KEYUP, VK_SPACE);
+            require(platform.poll_events() && !platform.key_down(saige::Key::space),
+                    "The jump key stayed active after release");
+
             post(handle, WM_KEYDOWN, VK_LEFT);
             require(platform.poll_events() && platform.key_down(saige::Key::left),
                     "A queued arrow key did not reach the input state");
             post(handle, WM_KILLFOCUS);
-            require(platform.poll_events() && !platform.key_down(saige::Key::left),
+            require(platform.poll_events() && !platform.key_down(saige::Key::left) &&
+                        !platform.key_down(saige::Key::shift) && !platform.key_down(saige::Key::r),
                     "A held movement key survived focus loss");
 
             post(handle, WM_CLOSE);

@@ -98,7 +98,12 @@ bool CapsuleCharacter::recover_from_overlap() {
     // Normally a no-op. It exists for float rounding at large coordinates and for geometry that changed under the character. A bounded
     // number of passes resolves surfaces one after another; a capsule squeezed between surfaces that are closer than its width cannot be
     // separated from both, so the result says whether it ended up clear.
-    const auto apply = [&](const std::optional<Vec3>& push) {
+    //
+    // A triangle has no thickness, so pushing out of one surface can carry the capsule straight through a thin one beside it and
+    // report success on the wrong side of a wall. A push that would move the capsule to the other side of a triangle than the one it
+    // started the recovery on is therefore a failure, not a solution (boxes have thickness, so they cannot be crossed this way).
+    const Vec3 origin = state_.feet;
+    const auto apply_push = [&](const std::optional<Vec3>& push) {
         if (!push) return false;
         const float length = std::sqrt(length2(*push));
         state_.feet = state_.feet + *push + (length > 0.0f ? *push * (skin / length) : Vec3{});
@@ -106,8 +111,16 @@ bool CapsuleCharacter::recover_from_overlap() {
     };
     for (int pass = 0; pass < 4; ++pass) {
         bool moved = false;
-        for (const Aabb& box : geometry_) moved = apply(capsule_box_push_out(capsule(), box)) || moved;
-        for (const Triangle& triangle : triangles_) moved = apply(capsule_triangle_push_out(capsule(), triangle)) || moved;
+        for (const Aabb& box : geometry_) moved = apply_push(capsule_box_push_out(capsule(), box)) || moved;
+        for (const Triangle& triangle : triangles_) {
+            const auto push = capsule_triangle_push_out(capsule(), triangle);
+            if (!push) continue;
+            const Vec3 normal = triangle_normal(triangle);
+            const float half = config_.height * 0.5f;
+            const float started_on = dot(normal, Vec3{origin.x, origin.y, origin.z + half} - triangle.a);
+            if (started_on != 0.0f && dot(*push, normal) * started_on < 0.0f) return false;  // would cross the triangle
+            moved = apply_push(push) || moved;
+        }
         if (!moved) return true;
     }
     return !overlaps(state_.feet, geometry_, triangles_);

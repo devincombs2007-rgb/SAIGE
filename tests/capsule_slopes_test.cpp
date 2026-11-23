@@ -271,6 +271,52 @@ void test_ceiling_made_of_triangles() {
     require(c.state().grounded, "and the character comes back down");
 }
 
+void test_teleport_into_a_gap_between_triangle_walls_fails_and_changes_nothing() {
+    // The transactional teleport (Core review of #70) with triangle geometry: two vertical triangle walls 0.30 m apart.
+    const std::vector<Aabb> boxes{floor_box};
+    std::vector<Triangle> walls;
+    const auto wall = [&](float x) {
+        walls.push_back({{x, -5, 0}, {x, 5, 0}, {x, 5, 4}});
+        walls.push_back({{x, -5, 0}, {x, 5, 4}, {x, -5, 4}});
+    };
+    wall(-0.15f);
+    wall(0.15f);
+    CapsuleCharacter c({0, -8, 0}, boxes, walls);
+    run(c, {0.0f, 1.0f, false, false}, 12);
+    const saige::CapsuleCharacterState before = c.state();
+    require(!c.teleport({0, 0, 0}), "a teleport into a gap between triangle walls narrower than the capsule fails");
+    require(c.state() == before, "and changes nothing");
+    require(c.teleport({3.0f, 0.0f, 0.0f}), "a teleport to open ground still works");
+    require(c.state().grounded && min_gap(c, boxes, walls) > -1e-4f, "and lands clear");
+
+    // A thin wall has no thickness, so recovery must not carry the capsule through it: a capsule dropped 0.1 m from a single wall is pushed
+    // back out on the side it was on, never across (the recovery used to be able to land on the far side of the second wall above).
+    std::vector<Triangle> one;
+    one.push_back({{0.15f, -5, 0}, {0.15f, 5, 0}, {0.15f, 5, 4}});
+    one.push_back({{0.15f, -5, 0}, {0.15f, 5, 4}, {0.15f, -5, 4}});
+    CapsuleCharacter near_wall({-3.0f, 0, 0}, boxes, one);
+    require(near_wall.teleport({0.05f, 0.0f, 0.0f}), "a capsule overlapping a single thin wall is recovered");
+    require(near_wall.state().feet.x < -0.14f && min_gap(near_wall, boxes, one) > -1e-4f, "on the side it started on (x = " + std::to_string(near_wall.state().feet.x) + ")");
+    CapsuleCharacter other_side({3.0f, 0, 0}, boxes, one);
+    require(other_side.teleport({0.25f, 0.0f, 0.0f}), "and from the other side");
+    require(other_side.state().feet.x > 0.44f && min_gap(other_side, boxes, one) > -1e-4f, "it is pushed out to the far side of the wall it started on");
+}
+
+void test_reset_and_replacement_probe_triangle_ledges() {
+    // A character resting exactly on the crest edge of a ramp (a steep rim contact on triangles): replacing the geometry with an identical
+    // set, or resetting, keeps it supported (the ground probe slides past the steep contact it already touches).
+    const std::vector<Aabb> boxes{floor_box};
+    std::vector<Triangle> tris = ramp(30.0f, 0.0f, 4.0f);
+    append(tris, slab(4.0f, 8.0f, -3.0f, 3.0f, 4.0f * std::tan(rad(30.0f))));
+    CapsuleCharacter c({6.0f, 0.0f, 4.0f * std::tan(rad(30.0f)) + 0.5f}, boxes, tris);
+    run(c, idle, 60);
+    require(c.state().grounded, "standing on the landing");
+    require(c.replace_static_geometry(boxes, tris), "an identical set is accepted");
+    require(c.state().grounded, "and support survives the swap");
+    c.reset();
+    require(c.state().grounded || c.state().feet.z > 0.0f, "reset places the character (supported when it is over ground)");
+}
+
 void test_air_control_still_brakes_a_fall_without_input() {
     // The steep-slope fix must not change the long-standing behavior in the open air: with no input, horizontal speed decays at the
     // air acceleration (7 m/s^2 by default), exactly as before.
@@ -299,7 +345,7 @@ void test_overlap_recovery_and_geometry_replacement() {
     const std::vector<Aabb> boxes{floor_box};
     const std::vector<Triangle> tris = ramp(30.0f, 0.0f, 10.0f);
     CapsuleCharacter c({-2.0f, 0.0f, 0.0f}, boxes, tris);
-    c.teleport({3.0f, 0.0f, 0.2f});  // inside the ramp
+    require(c.teleport({3.0f, 0.0f, 0.2f}), "a teleport into a ramp is recovered");  // inside the ramp
     require(min_gap(c, boxes, tris) > -2e-4f, "teleporting into a ramp pushes the capsule out");
     run(c, idle, 60);
     require(c.state().grounded && min_gap(c, boxes, tris) > -2e-4f, "and it settles on the surface");
@@ -452,6 +498,8 @@ int main() {
         {"test_crease_and_crest_stay_on_the_ground", test_crease_and_crest_stay_on_the_ground},
         {"test_landing_and_jumping_on_slopes", test_landing_and_jumping_on_slopes},
         {"test_ceiling_made_of_triangles", test_ceiling_made_of_triangles},
+        {"test_teleport_into_a_gap_between_triangle_walls_fails_and_changes_nothing", test_teleport_into_a_gap_between_triangle_walls_fails_and_changes_nothing},
+        {"test_reset_and_replacement_probe_triangle_ledges", test_reset_and_replacement_probe_triangle_ledges},
         {"test_air_control_still_brakes_a_fall_without_input", test_air_control_still_brakes_a_fall_without_input},
         {"test_walking_off_the_side_of_a_ramp_falls", test_walking_off_the_side_of_a_ramp_falls},
         {"test_overlap_recovery_and_geometry_replacement", test_overlap_recovery_and_geometry_replacement},

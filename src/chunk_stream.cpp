@@ -52,10 +52,18 @@ void ChunkStream::cancel() noexcept {
     pending_.reset();
 }
 
+bool ChunkStream::ready_to_commit() const noexcept {
+    return pending_ && std::ranges::all_of(*pending_, [](const auto& item) { return bool(item.second.scene); });
+}
+
+const PreparedScene* ChunkStream::staged_chunk(ChunkCoord coord) const noexcept {
+    if (!pending_) return nullptr;
+    const auto it = pending_->find(coord);
+    return it == pending_->end() ? nullptr : it->second.scene.get();
+}
+
 bool ChunkStream::commit_frame() noexcept {
-    if (!pending_ || std::ranges::any_of(*pending_, [](const auto& item) { return !item.second.scene; })) {
-        return false;
-    }
+    if (!ready_to_commit()) return false;
     active_.swap(*pending_);
     pending_.reset();
     return true;

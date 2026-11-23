@@ -218,16 +218,32 @@ Bounds triangle_bounds(const Tri& t) noexcept {
     return b;
 }
 
-CapsuleHit make_hit(double t, const D3& normal, const D3& point, bool overlapping) noexcept {
-    CapsuleHit hit;
-    hit.t = static_cast<float>(std::clamp(t, 0.0, 1.0));
-    hit.normal = to_vec3(normal);
-    hit.point = to_vec3(point);
-    hit.started_overlapping = overlapping;
-    return hit;
+struct RawHit {
+    CapsuleHit hit;  // t is the float of exact_t; stop is not set yet
+    double exact_t{};
+};
+
+RawHit make_hit(double t, const D3& normal, const D3& point, bool overlapping, bool converged = true) noexcept {
+    RawHit raw;
+    raw.exact_t = std::clamp(t, 0.0, 1.0);
+    raw.hit.t = static_cast<float>(raw.exact_t);
+    raw.hit.normal = to_vec3(normal);
+    raw.hit.point = to_vec3(point);
+    raw.hit.started_overlapping = overlapping;
+    raw.hit.converged = converged;
+    return raw;
 }
 
-std::optional<CapsuleHit> sweep_validated(const Capsule& capsule, const D3& displacement, const Tri& tri) noexcept {
+// Signed gap for a capsule whose feet are `feet` (the pose is judged in double, exactly as the caller will hold it in float).
+double triangle_gap(const Capsule& capsule, Vec3 feet, const Tri& tri) noexcept {
+    Capsule posed = capsule;
+    posed.feet = feet;
+    const Core core = core_at(posed, {0, 0, 0}, 0.0);
+    const Closest c = closest_core_triangle(core, tri);
+    return c.crosses ? -core.radius : c.distance - core.radius;
+}
+
+std::optional<RawHit> sweep_validated(const Capsule& capsule, const D3& displacement, const Tri& tri) noexcept {
     const double speed = length(displacement);
     const double r = capsule.radius;
     {   // Overlap at the start.
@@ -254,10 +270,37 @@ std::optional<CapsuleHit> sweep_validated(const Capsule& capsule, const D3& disp
         if (next > 1.0) return std::nullopt;  // rigorous: the gap cannot close before t = next
         t = next;
     }
-    // Converged (or out of iterations, in which case this is a safe, slightly early stop).
+    // Out of iterations. Conservative advancement never passes the contact, so t is a clear position, but the gap there did not close
+    // to the tolerance: report it as a hit that did not converge (a stop short of the contact) rather than as a contact.
     const Core core = core_at(capsule, displacement, t);
     const Closest c = closest_core_triangle(core, tri);
-    return make_hit(t, separating_direction(c, core, tri), c.on_triangle, false);
+    return make_hit(t, separating_direction(c, core, tri), c.on_triangle, false, false);
+}
+
+// Fixes `raw.hit.stop` and `raw.hit.t` (see detail::conservative_stop). The triangle that was hit is held to its start gap exactly; the
+// other triangles near the path to half the contact tolerance, so a rounding step along a touched surface does not block the motion.
+CapsuleHit finalize(const Capsule& capsule, Vec3 displacement, RawHit raw, std::span<const Triangle> triangles, std::size_t hit_index) {
+    CapsuleHit hit = raw.hit;
+    if (hit.started_overlapping || raw.exact_t <= 0.0) {
+        hit.t = 0.0f;
+        hit.stop = capsule.feet;
+        return hit;
+    }
+    const Bounds near_path = swept_bounds(capsule, to_d3(displacement));
+    const auto clear = [&](Vec3 pose) {
+        for (std::size_t i = 0; i < triangles.size(); ++i) {
+            Tri tri;
+            if (!make_tri(triangles[i], tri) || !bounds_overlap(near_path, triangle_bounds(tri))) continue;
+            const double allowed = std::min(triangle_gap(capsule, capsule.feet, tri), 0.0) - (i == hit_index ? 0.0 : 0.5 * touch_tolerance);
+            if (triangle_gap(capsule, pose, tri) < allowed) return false;
+        }
+        return true;
+    };
+    hit.stop = detail::conservative_stop(capsule.feet, displacement, raw.exact_t, clear);
+    const D3 d = to_d3(displacement);
+    const double along = dot(d, d) > 0.0 ? dot(sub(to_d3(hit.stop), to_d3(capsule.feet)), d) / dot(d, d) : 0.0;
+    hit.t = static_cast<float>(std::clamp(along, 0.0, raw.exact_t));
+    return hit;
 }
 
 } // namespace
@@ -281,30 +324,39 @@ float capsule_triangle_gap(const Capsule& capsule, const Triangle& triangle) {
 
 std::optional<CapsuleHit> sweep_capsule_triangle(const Capsule& capsule, Vec3 displacement, const Triangle& triangle) {
     validate(capsule);
-    if (!finite(displacement)) throw std::invalid_argument("Displacement must be finite");
+    check_sweep_envelope(capsule, displacement);
     const Tri tri = require_tri(triangle);
-    return sweep_validated(capsule, to_d3(displacement), tri);
+    const auto raw = sweep_validated(capsule, to_d3(displacement), tri);
+    if (!raw) return std::nullopt;
+    return finalize(capsule, displacement, *raw, std::span<const Triangle>(&triangle, 1), 0);
 }
 
 std::optional<CapsuleHit> sweep_capsule_triangles(const Capsule& capsule, Vec3 displacement, std::span<const Triangle> triangles) {
     validate(capsule);
-    if (!finite(displacement)) throw std::invalid_argument("Displacement must be finite");
+    check_sweep_envelope(capsule, displacement);
     const D3 d = to_d3(displacement);
     const Bounds sweep_box = swept_bounds(capsule, d);
-    std::optional<CapsuleHit> best;
+    std::optional<RawHit> best;
+    std::size_t best_index = 0;
     for (std::size_t i = 0; i < triangles.size(); ++i) {
         const Tri tri = require_tri(triangles[i]);
         if (!bounds_overlap(sweep_box, triangle_bounds(tri))) continue;
-        if (auto hit = sweep_validated(capsule, d, tri)) {
-            hit->index = i;
-            if (!best || hit->t < best->t) best = hit;
+        if (auto raw = sweep_validated(capsule, d, tri)) {
+            if (!best || raw->hit.t < best->hit.t) {  // ties go to the lowest index
+                best = raw;
+                best_index = i;
+            }
         }
     }
-    return best;
+    if (!best) return std::nullopt;
+    CapsuleHit hit = finalize(capsule, displacement, *best, triangles, best_index);
+    hit.index = best_index;
+    return hit;
 }
 
 std::optional<Vec3> capsule_triangle_push_out(const Capsule& capsule, const Triangle& triangle) {
     validate(capsule);
+    check_sweep_envelope(capsule, Vec3{0.0f, 0.0f, 0.0f});
     const Tri tri = require_tri(triangle);
     const Core core = core_at(capsule, {0, 0, 0}, 0.0);
     if (const auto push = push_out(core, tri, touch_tolerance)) return to_vec3(*push);

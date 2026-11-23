@@ -6,6 +6,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -84,6 +85,17 @@ double ref_gap_at(const Capsule& c, Vec3 d, double t, const Triangle& tri) {
     const D3 p0{feet[0], feet[1], feet[2] + c.radius};
     const D3 p1{feet[0], feet[1], feet[2] + (c.height - c.radius)};
     return ref_axis_distance(p0, p1, tri) - c.radius;
+}
+
+// The independent reference gap for a capsule whose feet are at `feet`, used on stops exactly as the caller applies them.
+// The ternary-search reference is only accurate to about 4e-8 at some vertex contacts (an independent Ericson closest-point computation
+// of such a case gives +4.5e-9 where the reference gives -1.2e-8, and the implementation agrees with the former), so clearance is asserted
+// to 1e-7: a thirtieth of the 3e-6 that rounding the contact to the nearest float produces, so the tests still tell the two apart.
+constexpr double reference_accuracy = 1e-7;
+
+double ref_gap_feet(Capsule c, Vec3 feet, const Triangle& tri) {
+    c.feet = feet;
+    return ref_gap_at(c, {0, 0, 0}, 0.0, tri);
 }
 
 Triangle random_triangle(Rng& rng, double extent, double size) {
@@ -222,14 +234,25 @@ void test_ramp_contact_normal_and_landing_height() {
 
 void test_tunneling_is_impossible() {
     const Triangle sheet{{-0.5f, -0.5f, 0}, {0.5f, -0.5f, 0}, {0, 0.5f, 0}};
-    for (const float speed : {10.0f, 1000.0f, 100000.0f}) {
-        const auto hit = saige::sweep_capsule_triangle({{0, 0, 500.0f}, 0.1f, 0.4f}, {0, 0, -speed}, sheet);
-        if (speed >= 500.0f) {
+    for (const float speed : {10.0f, 64.0f}) {  // 64 m is the longest supported sweep
+        const auto hit = saige::sweep_capsule_triangle({{0, 0, 60.0f}, 0.1f, 0.4f}, {0, 0, -speed}, sheet);
+        if (speed >= 60.0f) {
             require(hit && !hit->started_overlapping, "a very long sweep still stops at a thin sheet");
-            require(std::abs(hit->t * speed - 500.0f) < 1e-2f, "and at the right place (the feet reach the sheet after 500 m)");
+            require(std::abs(hit->t * speed - 60.0f) < 1e-2f, "and at the right place (the feet reach the sheet after 60 m)");
+            require(ref_gap_feet({{0, 0, 60.0f}, 0.1f, 0.4f}, hit->stop, sheet) >= -reference_accuracy, "with the stop clear of the sheet");
         } else {
             require(!hit, "a short sweep that does not reach the sheet does not hit it");
         }
+    }
+    // Longer sweeps are outside the envelope: rejected, never answered from a low-precision fraction.
+    for (const float speed : {64.5f, 1000.0f, 100000.0f}) {
+        bool rejected = false;
+        try {
+            (void)saige::sweep_capsule_triangle({{0, 0, 60.0f}, 0.1f, 0.4f}, {0, 0, -speed}, sheet);
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+        require(rejected, "a sweep of " + std::to_string(speed) + " m is rejected");
     }
     // A grazing pass just above the surface (0.5 mm of clearance) is not a hit; 0.5 mm lower it is.
     const Triangle floor{{-50, -50, 0}, {50, -50, 0}, {0, 50, 0}};
@@ -406,10 +429,10 @@ void test_determinism_and_numerical_range() {
         require(a.has_value() == b.has_value(), "repeatable");
         if (a) require(std::memcmp(&*a, &*b, sizeof(CapsuleHit)) == 0 || (a->t == b->t && a->normal == b->normal && a->point == b->point), "bit-identical hits");
     }
-    // Far from the origin, with the same relative geometry, the answer shifts by the offset (float coordinates limit this: 1e4 m).
+    // Far from the origin, with the same relative geometry, the answer shifts by the offset (float coordinates limit this: the supported envelope is +-256 m).
     const Triangle near_tri{{-5, -5, 0}, {5, -5, 0}, {0, 6, 0}};
     const auto reference = saige::sweep_capsule_triangle({{0, 0, 1.0f}, 0.3f, 1.7f}, {0, 0, -2}, near_tri);
-    const float off = 8192.0f;  // exactly representable
+    const float off = 128.0f;  // exactly representable, and inside the supported range with the geometry around it
     const Triangle far_tri{{near_tri.a.x + off, near_tri.a.y + off, near_tri.a.z}, {near_tri.b.x + off, near_tri.b.y + off, near_tri.b.z},
                            {near_tri.c.x + off, near_tri.c.y + off, near_tri.c.z}};
     const auto shifted = saige::sweep_capsule_triangle({{off, off, 1.0f}, 0.3f, 1.7f}, {0, 0, -2}, far_tri);
@@ -445,6 +468,160 @@ void test_cost_of_a_ramp_sized_mesh() {
 
 } // namespace
 
+
+bool triangle_sweep_throws(const Capsule& capsule, Vec3 displacement, const Triangle& triangle) {
+    try {
+        (void)saige::sweep_capsule_triangle(capsule, displacement, triangle);
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
+void test_envelope_is_enforced() {
+    // Core's reproducer on #73: a capsule at x = -1e8 moving +2e8 into a triangle on x = 0 used to report t = 0.5 and a 0.30 m penetration.
+    const Triangle wall{{0, -2, -2}, {0, 2, -2}, {0, 0, 4}};
+    require(triangle_sweep_throws({{-1e8f, 0, 0}, 0.30f, 1.70f}, {2e8f, 0, 0}, wall), "a sweep from -1e8 m is outside the envelope");
+    const Capsule edge{{-255.5f, 0, 0}, 0.30f, 1.70f};
+    const Triangle far_wall{{-200, -2, -2}, {-200, 2, -2}, {-200, 0, 4}};
+    require(!triangle_sweep_throws(edge, {64.0f, 0, 0}, far_wall), "a 64 m sweep at the extent limit is supported");
+    require(triangle_sweep_throws(edge, {64.01f, 0, 0}, far_wall), "a sweep just over 64 m is rejected");
+    require(triangle_sweep_throws({{-255.8f, 0, 0}, 0.30f, 1.70f}, {1.0f, 0, 0}, far_wall), "a capsule whose radius crosses -256 is rejected");
+    require(triangle_sweep_throws({{0, 0, 254.4f}, 0.30f, 1.70f}, {0, 0, -1.0f}, far_wall), "a capsule whose top crosses +256 is rejected");
+    // The same rule applies to the set query (also with no triangles) and to push-out; the obstacles themselves may be huge.
+    bool set_throws = false, push_throws = false;
+    try {
+        (void)saige::sweep_capsule_triangles({{-1e8f, 0, 0}, 0.30f, 1.70f}, {2e8f, 0, 0}, {});
+    } catch (const std::invalid_argument&) {
+        set_throws = true;
+    }
+    try {
+        (void)saige::capsule_triangle_push_out({{300.0f, 0, 0}, 0.30f, 1.70f}, wall);
+    } catch (const std::invalid_argument&) {
+        push_throws = true;
+    }
+    require(set_throws && push_throws, "an out-of-range set query and push-out throw");
+    const Triangle huge{{-1e6f, -1e6f, 0}, {1e6f, -1e6f, 0}, {0, 1e6f, 0}};
+    const auto hit = saige::sweep_capsule_triangle({{3, 4, 10}, 0.3f, 1.0f}, {0, 0, -20}, huge);
+    require(hit && ref_gap_feet({{3, 4, 10}, 0.3f, 1.0f}, hit->stop, huge) >= -reference_accuracy, "a huge ground triangle is supported");
+}
+
+void test_long_sweeps_at_the_limits_stop_clear() {
+    struct Case {
+        Vec3 feet;
+        Vec3 move;
+        Triangle tri;
+    };
+    const Case cases[] = {
+        {{-255.5f, 0.0f, 0.0f}, {64.0f, 0, 0}, {{-200, -3, -2}, {-200, 3, -2}, {-200, 0, 4}}},                    // axis-aligned, +x from the limit
+        {{255.5f, 0.0f, 0.0f}, {-64.0f, 0, 0}, {{199, -3, -2}, {199, 3, -2}, {199, 0, 4}}},                       // -x
+        {{0.0f, 0.0f, 200.0f}, {0, 0, -64.0f}, {{-5, -5, 140}, {5, -5, 140}, {0, 5, 140}}},                      // fall onto a floor
+        {{-250.0f, -250.0f, 0.0f}, {44.0f, 44.0f, 0.0f}, {{-208, -208, -2}, {-200, -216, -2}, {-204, -204, 6}}}, // oblique
+        {{199.7f, 100.3f, 40.0f}, {20.0f, 20.0f, -50.0f}, {{210, 110, 0}, {230, 110, -2}, {220, 130, 10}}},      // oblique, descending, a slope
+        {{250.1f, -249.9f, 3.0f}, {-30.0f, 40.0f, -10.0f}, {{218.1f, -215.9f, -12}, {228.1f, -215.9f, -12}, {223.1f, -213.9f, 2}}},
+    };
+    for (const Case& c : cases) {
+        const Capsule capsule{c.feet, 0.30f, 1.70f};
+        const auto hit = saige::sweep_capsule_triangle(capsule, c.move, c.tri);
+        require(hit.has_value(), "the long sweep reaches the triangle (case at x=" + std::to_string(c.feet.x) + ")");
+        const double gap = ref_gap_feet(capsule, hit->stop, c.tri);
+        require(gap >= -reference_accuracy, "the applied stop is clear: gap " + std::to_string(gap));
+        require(gap < 1e-4, "and close to the contact: gap " + std::to_string(gap));
+        require(hit->converged, "the search converged");
+    }
+}
+
+void test_stop_is_clear_for_random_hits_across_the_range() {
+    Rng rng(20260102);
+    int hits = 0;
+    for (int i = 0; i < 1500; ++i) {
+        const Vec3 center{rng.f(-190, 190), rng.f(-190, 190), rng.f(-100, 100)};
+        // A small mesh: the target quad and two neighbours at random nearby places, so stops are judged against several triangles.
+        std::vector<Triangle> mesh;
+        for (int piece = 0; piece < 3; ++piece) {
+            const Vec3 o{center.x + (piece == 0 ? 0.0f : rng.f(-6, 6)), center.y + (piece == 0 ? 0.0f : rng.f(-6, 6)), center.z + (piece == 0 ? 0.0f : rng.f(-6, 6))};
+            const Vec3 u{rng.f(-3, 3), rng.f(-3, 3), rng.f(-3, 3)}, v{rng.f(-3, 3), rng.f(-3, 3), rng.f(-3, 3)};
+            const Triangle a{o, {o.x + u.x, o.y + u.y, o.z + u.z}, {o.x + v.x, o.y + v.y, o.z + v.z}};
+            if (!saige::is_valid_triangle(a)) continue;
+            mesh.push_back(a);
+        }
+        if (mesh.empty()) continue;
+        Capsule capsule{{0, 0, 0}, rng.f(0.2, 0.6), 0.0f};
+        capsule.height = capsule.radius * 2.0f + rng.f(0.0, 1.5);
+        const double distance = rng.uniform(1.0, 60.0), azimuth = rng.uniform(0.0, 6.283185307179586), elevation = rng.uniform(-0.8, 0.8);
+        const Vec3 direction{static_cast<float>(std::cos(azimuth) * std::cos(elevation)), static_cast<float>(std::sin(azimuth) * std::cos(elevation)),
+                             static_cast<float>(std::sin(elevation))};
+        capsule.feet = {center.x + direction.x * static_cast<float>(distance), center.y + direction.y * static_cast<float>(distance),
+                        center.z + direction.z * static_cast<float>(distance)};
+        const double length = std::min(distance + 2.0, 64.0);
+        const Vec3 move{static_cast<float>(-direction.x * length), static_cast<float>(-direction.y * length), static_cast<float>(-direction.z * length)};
+        bool start_clear = true;
+        for (const Triangle& tri : mesh) start_clear = start_clear && ref_gap_feet(capsule, capsule.feet, tri) > 0.001;
+        if (!start_clear) continue;
+        const auto hit = saige::sweep_capsule_triangles(capsule, move, mesh);
+        if (!hit) continue;
+        ++hits;
+        const double hit_gap = ref_gap_feet(capsule, hit->stop, mesh[hit->index]);
+        require(hit_gap >= -reference_accuracy, "scenario " + std::to_string(i) + ": the hit triangle is cleared, gap " + std::to_string(hit_gap));
+        require(hit_gap < 1e-4, "scenario " + std::to_string(i) + ": the stop is close to the contact, gap " + std::to_string(hit_gap));
+        for (const Triangle& tri : mesh) {
+            require(ref_gap_feet(capsule, hit->stop, tri) >= -0.5e-5, "scenario " + std::to_string(i) + ": every triangle is cleared within the tolerance");
+        }
+        require(hit->converged, "the search converged");
+    }
+    require(hits >= 600, "too few hits for a meaningful sample: " + std::to_string(hits));
+}
+
+void test_stop_is_clear_of_every_triangle_at_an_inner_corner() {
+    // A path into an inner corner of two walls reaches both at almost the same time, and their faces sit at unrelated float coordinates.
+    // Whichever is reported, the rounded stop must not enter the other.
+    Rng rng(7);
+    int hits = 0;
+    for (int i = 0; i < 3000; ++i) {
+        const float fx = rng.f(130, 200) * (rng.uniform(0, 1) < 0.5 ? -1.0f : 1.0f);
+        const float fy = rng.f(30, 200) * (rng.uniform(0, 1) < 0.5 ? -1.0f : 1.0f);
+        const float osx = fx < 0 ? 1.0f : -1.0f;  // the side of each wall facing the capsule (toward the origin)
+        const float osy = fy < 0 ? 1.0f : -1.0f;
+        // Wall A is the plane x = fx, wall B the plane y = fy, each a 20 m x 8 m quad (two triangles) extending away from the other.
+        const std::vector<Triangle> walls{
+            {{fx, fy - 10, -2}, {fx, fy + 10, -2}, {fx, fy + 10, 6}}, {{fx, fy - 10, -2}, {fx, fy + 10, 6}, {fx, fy - 10, 6}},
+            {{fx - 10, fy, -2}, {fx + 10, fy, -2}, {fx + 10, fy, 6}}, {{fx - 10, fy, -2}, {fx + 10, fy, 6}, {fx - 10, fy, 6}}};
+        const float radius = rng.f(0.2, 0.6);  // varies where the contact falls between two float coordinates
+        const double a = rng.uniform(3.0, 30.0), b = rng.uniform(3.0, 30.0);
+        const Capsule c{{static_cast<float>(fx + osx * radius + osx * a), static_cast<float>(fy + osy * radius + osy * b), 0.0f}, radius, 1.70f};
+        bool start_clear = true;
+        for (const Triangle& wall : walls) start_clear = start_clear && ref_gap_feet(c, c.feet, wall) > 0.001;
+        if (!start_clear) continue;
+        const Vec3 move{static_cast<float>(-osx * a * 1.2), static_cast<float>(-osy * b * 1.2), 0.0f};
+        const auto hit = saige::sweep_capsule_triangles(c, move, walls);
+        if (!hit) continue;
+        ++hits;
+        for (const Triangle& wall : walls) {
+            require(ref_gap_feet(c, hit->stop, wall) >= -0.5e-5 - reference_accuracy, "scenario " + std::to_string(i) + ": the stop is clear of both walls");
+        }
+        require(ref_gap_feet(c, hit->stop, walls[hit->index]) >= -reference_accuracy, "and the triangle that was hit is cleared");
+    }
+    require(hits >= 1000, "too few corner hits: " + std::to_string(hits));
+}
+
+void test_grazing_paths_converge_and_stop_clear() {
+    // Paths that pass a vertex within a millimeter of the contact distance are the slowest case for conservative advancement. None
+    // of them reaches the iteration cap (a capped search would report converged = false and a clear stop short of the contact).
+    Rng rng(99);
+    int hits = 0;
+    for (int i = 0; i < 20000; ++i) {
+        const Triangle tri = random_triangle(rng, 3.0, 3.0);
+        Capsule c = random_capsule(rng);
+        c.feet = {tri.a.x - 5.0f, tri.a.y - c.radius + rng.f(-1e-3, 1e-3), tri.a.z - c.height * 0.5f};
+        const auto hit = saige::sweep_capsule_triangle(c, {10.0f, 0, 0}, tri);
+        if (!hit || hit->started_overlapping) continue;
+        ++hits;
+        require(hit->converged, "a grazing sweep converged");
+        require(ref_gap_feet(c, hit->stop, tri) >= -reference_accuracy, "and its stop is clear");
+    }
+    require(hits > 5000, "too few grazing hits: " + std::to_string(hits));
+}
+
 int main() {
     try {
         test_validation();
@@ -460,6 +637,11 @@ int main() {
         test_random_cases_against_the_brute_force_reference();
         test_push_out_against_the_reference();
         test_determinism_and_numerical_range();
+        test_envelope_is_enforced();
+        test_long_sweeps_at_the_limits_stop_clear();
+        test_stop_is_clear_for_random_hits_across_the_range();
+        test_stop_is_clear_of_every_triangle_at_an_inner_corner();
+        test_grazing_paths_converge_and_stop_clear();
         test_cost_of_a_ramp_sized_mesh();
     } catch (const std::exception& error) {
         std::cerr << "capsule triangle test failed: " << error.what() << '\n';

@@ -41,6 +41,7 @@ struct GpuMaterial {
     BindGroupRef group;       ///< set 0 of the model pipelines; keeps the textures, sampler and parameters alive
     bool double_sided = false;
     bool blend = false;       ///< drawn source-over in the sorted phase after opaque draws (set by create_material)
+    bool casts_sun_shadow = true;  ///< from MaterialData::casts_sun_shadow: false for authored MASK and BLEND materials
 };
 
 /// One placement of a mesh within the model (a glTF node, flattened), in the model's own space.

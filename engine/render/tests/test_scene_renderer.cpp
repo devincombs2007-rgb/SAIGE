@@ -1,10 +1,15 @@
 #include "saige/gfx_test/saige_test.hpp"
 
+#include "saige/render/model.hpp"
 #include "saige/render/scene_renderer.hpp"
+#include "saige/render/transform.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
 #include <cmath>
 #include <cstring>
+#include <limits>
+#include <span>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -224,6 +229,218 @@ TEST_CASE("SceneRenderer: destruction releases every GPU resource it created")
     }
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == baseline);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+
+TEST_CASE("SceneRenderer: invalid lighting is rejected before any GPU object is created")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const auto rejected = [&](const SceneLighting& light) {
+        RendererSettings settings;
+        settings.lighting = light;
+        try {
+            SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    SceneLighting bad;
+    bad.sun_direction = {0.0f, 0.0f, 0.0f};
+    CHECK(rejected(bad));  // no direction
+    bad = {};
+    bad.sun_direction = {nan, 0.0f, 1.0f};
+    CHECK(rejected(bad));
+    bad = {};
+    bad.sun_color = {-0.1f, 0.5f, 0.5f};
+    CHECK(rejected(bad));  // negative light
+    bad = {};
+    bad.ambient_ground = {0.1f, std::numeric_limits<float>::infinity(), 0.1f};
+    CHECK(rejected(bad));
+    bad = {};
+    bad.sun_direction = {-0.0f, 0.0f, -0.0f};
+    CHECK(rejected(bad));  // negative zero is still no direction
+    CHECK(o.device.live_resource_count() == baseline);  // nothing was acquired by the failed constructions
+    CHECK(o.device.validation_error_count() == 0);
+
+    // HDR-bright and zero-ambient lighting are valid.
+    RendererSettings settings;
+    settings.lighting.sun_color = {8.0f, 7.0f, 6.0f};
+    settings.lighting.ambient_ground = {0.0f, 0.0f, 0.0f};
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    (void)renderer.model_renderer();  // the lazily created model renderer takes the same lighting without throwing
+    CHECK(o.device.validation_error_count() == 0);
+
+    // Finite directions of any magnitude are valid: the squared length of FLT_MAX overflows and of 1e-30 underflows, the direction does not.
+    const float fmax = std::numeric_limits<float>::max();
+    for (const Float3 direction : {Float3{fmax, 0.0f, 0.0f}, Float3{-fmax, fmax, fmax}, Float3{1e-30f, 0.0f, 0.0f}, Float3{0.0f, 0.0f, 1e-40f} /* denormal */}) {
+        RendererSettings s2;
+        s2.lighting.sun_direction = direction;
+        SceneRenderer r2(o.device, rhi::Format::RGBA8_SRGB, s2);
+        (void)r2.model_renderer();
+    }
+}
+
+namespace {
+
+/// One triangle with one material, built on whatever device the renderer has.
+GpuModel tiny_model(SceneRenderer& renderer, MaterialData data = {})
+{
+    GpuModel model;
+    model.name = "tiny";
+    model.materials.push_back(renderer.model_renderer().create_material(data, {}, {}, "tiny.material"));
+    const std::vector<ModelVertex> vertices = {{{0, 0, 0}, {0, 0, 1}, {0, 0}}, {{1, 0, 0}, {0, 0, 1}, {1, 0}}, {{0, 1, 0}, {0, 0, 1}, {0, 1}}};
+    const std::vector<uint32_t> indices = {0, 1, 2};
+    rhi::BufferDesc vb;
+    vb.size = vertices.size() * sizeof(ModelVertex);
+    vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
+    rhi::BufferDesc ib;
+    ib.size = indices.size() * sizeof(uint32_t);
+    ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
+    GpuPrimitive p;
+    p.vertices = renderer.registry().create_buffer(vb, std::as_bytes(std::span(vertices)));
+    p.indices = renderer.registry().create_buffer(ib, std::as_bytes(std::span(indices)));
+    p.index_count = 3;
+    p.material = 0;
+    model.meshes.push_back({std::move(p)});
+    model.placements.push_back({0, Mat4::identity()});
+    return model;
+}
+
+RendererSettings shadow_settings(bool enabled)
+{
+    RendererSettings s;
+    s.shadows.enabled = enabled;
+    s.shadows.map_size = 64;
+    return s;
+}
+
+uint32_t scene_pass_count(const std::vector<rhi::RecordedCommand>& cmds)
+{
+    return static_cast<uint32_t>(of_type(cmds, rhi::CommandType::BeginRendering).size());
+}
+
+} // namespace
+
+TEST_CASE("Sun shadows (null device): off acquires nothing for shadows and schedules no pass; on adds exactly the shadow resources")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    uint32_t off_count = 0, on_count = 0;
+    uint32_t off_passes = 0, on_first_passes = 0, on_second_passes = 0;
+    {
+        SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(false));
+        CHECK(!off.model_renderer().shadows_enabled());
+        CHECK(!off.model_renderer().shadow_map().is_valid());
+        const GpuModel model = tiny_model(off);
+        const ModelDraw draws[] = {{&model, Mat4::identity()}};
+        SceneFrame frame;
+        frame.models = draws;
+        const FrameStats stats = off.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        CHECK(stats.shadow_draw_calls == 0);
+        off_passes = scene_pass_count(o.device.last_frame_commands());
+        off_count = o.device.live_resource_count() - baseline;
+        // Setting the shadow frame, or recording shadow draws, on a renderer without shadows is a misuse, not a silent no-op.
+        bool threw_frame = false, threw_draw = false;
+        try {
+            off.model_renderer().set_shadow_frame(nullptr);
+        } catch (const std::logic_error&) {
+            threw_frame = true;
+        }
+        try {
+            ModelFrameStats ms;
+            off.model_renderer().draw_shadow(o.device.begin_frame(), Mat4::identity(), draws, ms);
+        } catch (const std::logic_error&) {
+            threw_draw = true;
+        }
+        (void)o.device.end_frame();
+        CHECK(threw_frame && threw_draw);
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    {
+        SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(true));
+        CHECK(on.model_renderer().shadows_enabled());
+        CHECK(on.model_renderer().shadow_map().is_valid());
+        const GpuModel model = tiny_model(on);
+        const ModelDraw draws[] = {{&model, Mat4::identity()}};
+        SceneFrame frame;
+        frame.models = draws;
+        FrameStats stats = on.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        on_first_passes = scene_pass_count(o.device.last_frame_commands());
+        on_count = o.device.live_resource_count() - baseline;
+        stats = on.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        on_second_passes = scene_pass_count(o.device.last_frame_commands());
+        CHECK(stats.shadow_draw_calls == 1);  // the one opaque triangle casts
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    CHECK(on_count > off_count);  // the map, comparison sampler, per-frame blocks and groups, the shadow pipeline and shader
+    CHECK(off_passes == 1);       // the scene pass only: no SunShadow pass is scheduled
+    CHECK(on_first_passes == 2);  // SunShadow, then Scene
+    CHECK(on_second_passes == 2);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Sun shadows (null device): a failed acquisition at any step releases everything and the renderer can be used afterwards")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(true));  // the model renderer (and every shadow resource) is lazy
+    const uint32_t baseline = o.device.live_resource_count();
+    uint32_t failures = 0;
+    for (uint32_t n = 1; n <= 120; ++n) {
+        bool threw = false;
+        o.device.fail_creation_after(n);
+        try {
+            (void)renderer.model_renderer();  // shader, layouts, pipelines, shadow shader and pipeline, map, sampler, ring buffers, groups
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        o.device.fail_creation_after(0);
+        if (!threw) {
+            CHECK(renderer.model_renderer().shadows_enabled());  // n is beyond the number of creations: every step has been failed in turn
+            break;
+        }
+        ++failures;
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);  // the failed constructor released every partial acquisition (raw handles included)
+    }
+    CHECK(failures >= 20);  // 23 creations on the enabled path today
+    // The renderer is still usable after every failed attempt: the model renderer exists now and draws with shadows.
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    SceneFrame frame;
+    frame.models = draws;
+    CHECK(renderer.render(o.device.begin_frame(), frame, o.target()).shadow_draw_calls == 1);
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Sun shadows (null device): the shadow block is written once per renderer per frame, checked before anything changes")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(true));
+    ModelRenderer& models = renderer.model_renderer();
+    ModelShadowFrame sf;
+    (void)o.device.begin_frame();
+    models.set_shadow_frame(&sf);
+    bool threw = false;
+    try {
+        models.set_shadow_frame(nullptr);  // a second view in the same frame would overwrite the first one's block
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    (void)o.device.end_frame();
+    (void)o.device.begin_frame();  // the next frame: allowed again
+    models.set_shadow_frame(nullptr);
+    (void)o.device.end_frame();
     CHECK(o.device.validation_error_count() == 0);
 }
 

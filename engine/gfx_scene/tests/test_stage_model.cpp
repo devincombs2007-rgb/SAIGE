@@ -236,6 +236,11 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     CHECK_FALSE(model.materials[0].blend);
     CHECK_FALSE(model.materials[1].blend);  // the mask material
     CHECK_FALSE(model.materials[2].blend);  // "glass": glTF BLEND, but blending was not asked for
+    // Shadow casting follows the authored alpha mode, not how the surface is drawn: the opaque material casts; the MASK (even with cutoff 0)
+    // and the BLEND (even though it is drawn opaque here) do not.
+    CHECK(model.materials[0].casts_sun_shadow);
+    CHECK_FALSE(model.materials[1].casts_sun_shadow);
+    CHECK_FALSE(model.materials[2].casts_sun_shadow);
     // Every primitive carries a bounding sphere for sorting blended draws (used only when blending is on).
     for (const auto& primitives : model.meshes) {
         for (const render::GpuPrimitive& prim : primitives) {

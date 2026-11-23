@@ -10,6 +10,8 @@ set(SAIGE_SHADER_SOURCES
     scene/cube.hlsl
     scene/ground.hlsl
     scene/model.hlsl
+    scene/model_shadowed.hlsl
+    scene/shadow_depth.hlsl
     test/blend_color.hlsl
     test/depth_only.hlsl
     test/shadow_probe.hlsl

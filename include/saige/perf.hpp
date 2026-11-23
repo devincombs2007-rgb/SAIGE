@@ -19,6 +19,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -152,8 +153,14 @@ public:
     void record(const CpuFrameMetrics& frame) override;
 
     // Records one delivered frame interval measured by the host from presentation timestamps. These, and only these, feed the
-    // verdict. Strong guarantee. May throw std::bad_alloc; reserve with Options::reserve_frames to avoid it in a frame loop.
-    void add_presentation_interval(std::chrono::nanoseconds interval) { presentation_interval_.add(interval); }
+    // verdict. A delivered interval is positive by definition: zero or negative (a clock that did not advance, or timestamps out
+    // of order) is rejected with std::invalid_argument before anything is recorded, so it can never contribute to a verdict.
+    // Strong guarantee. May throw std::bad_alloc; reserve with Options::reserve_frames to avoid it in a frame loop.
+    void add_presentation_interval(std::chrono::nanoseconds interval)
+    {
+        if (interval <= std::chrono::nanoseconds::zero()) throw std::invalid_argument("a presentation interval must be positive");
+        presentation_interval_.add(interval);
+    }
 
     [[nodiscard]] std::uint64_t frames() const noexcept { return frames_; }
     [[nodiscard]] std::uint64_t ticks() const noexcept { return ticks_; }

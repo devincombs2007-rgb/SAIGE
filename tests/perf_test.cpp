@@ -307,6 +307,37 @@ void test_a_paced_run_needs_measured_presentation_intervals() {
     require(verdict_is(saige::perf::to_json(slow_present, zones, qualified_context()), "over_budget"), "the verdict uses presentation intervals, not the observer's");
 }
 
+void test_non_positive_presentation_intervals_are_rejected() {
+    // Core re-review of #68: one add_presentation_interval(-1ns) in an otherwise qualified run produced verdict "within_budget".
+    Zones zones;
+    const auto rejects = [](FrameRecorder& recorder, std::chrono::nanoseconds interval) {
+        try {
+            recorder.add_presentation_interval(interval);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    // An empty series stays empty after rejected samples, so the qualified run is still not evaluated.
+    FrameRecorder empty({.measure_wall_interval = false, .memory_every_frames = 0});
+    for (std::uint64_t i = 1; i <= 20; ++i) empty.record(frame(i, 1, 1ms, 3ms));
+    for (const std::chrono::nanoseconds bad : {-1ns, 0ns, std::chrono::nanoseconds(-16ms), std::chrono::nanoseconds::min()}) {
+        require(rejects(empty, bad), "an interval of " + std::to_string(bad.count()) + " ns is rejected");
+    }
+    require(empty.presentation_interval().size() == 0, "rejected samples record nothing");
+    const auto json = saige::perf::to_json(empty, zones, qualified_context());
+    require(verdict_is(json, "not_evaluated") && contains(json, "no presentation intervals were recorded"), "a qualified run with only rejected samples is not evaluated");
+
+    // A rejected sample does not disturb a series that already has samples, and the smallest positive interval is accepted.
+    auto recorder = recorder_with_intervals(16ms, 50);
+    const auto before = recorder.presentation_interval().size();
+    require(rejects(recorder, -1ns) && rejects(recorder, 0ns), "rejected after valid samples");
+    require(recorder.presentation_interval().size() == before, "the series is unchanged by a rejected sample");
+    require(verdict_is(saige::perf::to_json(recorder, zones, qualified_context()), "within_budget"), "valid samples still qualify");
+    recorder.add_presentation_interval(1ns);
+    require(recorder.presentation_interval().size() == before + 1, "one nanosecond is a valid interval");
+}
+
 void test_budget_is_validated_before_it_is_converted() {
     // Core review of #68: a NaN budget was cast to int64 (undefined behavior) and doubled.
     const auto recorder = recorder_with_intervals(16ms, 20);
@@ -533,6 +564,7 @@ int main() {
         test_report_contents();
         test_a_paced_run_needs_measured_presentation_intervals();
         test_budget_is_validated_before_it_is_converted();
+        test_non_positive_presentation_intervals_are_rejected();
         test_zones_cannot_move_under_a_scope();
         test_scope_teardown_never_throws_and_is_allocation_free_when_reserved();
         test_recording_is_all_or_nothing();

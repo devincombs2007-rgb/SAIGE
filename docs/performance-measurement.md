@@ -65,7 +65,7 @@ it stays comparable when the render rate changes the number of ticks per frame.
   allocation-free as well as non-throwing.
 - `FrameRecorder::record` makes room in every series before it changes anything: if it throws, the recorder is exactly as it was,
   and afterwards recording cannot fail. Process-memory sampling is best effort and cannot fail a frame. `add_presentation_interval` has the
-  strong guarantee.
+  strong guarantee and rejects zero or negative intervals (`std::invalid_argument`) before recording, so a bad timestamp cannot qualify a run.
 - `tests/perf_test.cpp` proves these with allocation-failure injection (not built on MSVC, where replacing the global operator new in
   a test executable is skipped); disabling the destructor guard makes the test abort.
 

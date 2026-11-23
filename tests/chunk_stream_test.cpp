@@ -300,6 +300,13 @@ void test_native_streamed_course(const fs::path& fixture) {
     keys.reset = false;
     tick();
 
+    write_chunk_fixture(east, R"({"schema_version":1,"boxes":[{"min":[8,0,-1],"max":[16,8,241]}]})");
+    keys.reset = true;
+    tick();
+    require(course.resident_count() == 1 && player() == spawn, "reject collision above the supported height");
+    keys.reset = false;
+    tick();
+
     write_chunk_fixture(east, R"({"schema_version":1,"boxes":[{"min":[8,0,-1],"max":[16,8,0]}]})");
     keys.reset = true;
     tick();

@@ -70,6 +70,9 @@ private:
         std::vector<Aabb> geometry;
         for (const auto& chunk : requested) {
             const auto boxes = stream_.staged_collision(chunk.coord).value();
+            if (std::ranges::any_of(boxes, [](const Aabb& box) { return box.max.z > max_ground_height; })) {
+                throw std::invalid_argument("Course collision exceeds the supported gameplay height");
+            }
             geometry.insert(geometry.end(), boxes.begin(), boxes.end());
 
             // Guard the resident perimeter. A delayed or failed load cannot strand the player in a missing chunk.
@@ -81,10 +84,10 @@ private:
                 ChunkCoord{chunk.coord.x, chunk.coord.y - 1}, ChunkCoord{chunk.coord.x, chunk.coord.y + 1},
             };
             const std::array guards{
-                Aabb{{x - edge, y, -8}, {x, y + cell_size, 8}},
-                Aabb{{x + cell_size, y, -8}, {x + cell_size + edge, y + cell_size, 8}},
-                Aabb{{x, y - edge, -8}, {x + cell_size, y, 8}},
-                Aabb{{x, y + cell_size, -8}, {x + cell_size, y + cell_size + edge, 8}},
+                Aabb{{x - edge, y, -local_extent}, {x, y + cell_size, local_extent}},
+                Aabb{{x + cell_size, y, -local_extent}, {x + cell_size + edge, y + cell_size, local_extent}},
+                Aabb{{x, y - edge, -local_extent}, {x + cell_size, y, local_extent}},
+                Aabb{{x, y + cell_size, -local_extent}, {x + cell_size, y + cell_size + edge, local_extent}},
             };
             for (std::size_t side = 0; side < neighbors.size(); ++side) {
                 if (std::ranges::find(requested, neighbors[side], &ChunkSource::coord) == requested.end()) {
@@ -96,6 +99,8 @@ private:
     }
 
     static constexpr float cell_size = 8;
+    static constexpr float local_extent = 256;
+    static constexpr float max_ground_height = 240; // Leave room for capsule height and jumping.
     static constexpr ChunkCoord reset_cell{0, 0};
     IDesktopPlatform& platform_;
     std::vector<ChunkSource> sources_;

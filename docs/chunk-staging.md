@@ -50,5 +50,5 @@ an empty array. An absent or invalid file fails the load so the host can keep it
 
 The native streamed course requires a collision file for every entry. It uses 8 m square cells at `coord * 8` in XY and a reset
 point at `(4, 4, 0)` inside cell `[0, 0]`. Course coordinates are bounded to `[-31, 30]` on each axis. Neighbor selection keeps a
-one-cell radius plus the reset cell. Collision files share a simulation origin. GPU scene composition and asynchronous IO are
+one-cell radius plus the reset cell. Collision files share a simulation origin, and their box tops may reach at most Z=240 m. GPU scene composition and asynchronous IO are
 outside this course slice.

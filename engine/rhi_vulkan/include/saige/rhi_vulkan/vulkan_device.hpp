@@ -7,6 +7,7 @@
 
 #include "saige/rhi/device.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -30,6 +31,18 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept;
 /// Validation errors reported by every Vulkan device in this process since start, including those a device reports while
 /// it is being destroyed (leaked child objects), which no per-device counter can be read after.
 [[nodiscard]] uint32_t process_validation_error_count() noexcept;
+/// Makes the n-th (1-based) create_bind_group made after this call throw std::bad_alloc immediately after the backend has acquired
+/// its descriptor set, as a failed host allocation there would. 0 cancels. Process-wide; consumed by the call it fails.
+void fail_bind_group_after_acquisition(uint32_t n) noexcept;
+/// The same for the step after the descriptor writes, immediately before the group's handle is published (the handle pool's own
+/// allocation). 0 cancels.
+void fail_bind_group_before_publication(uint32_t n) noexcept;
+/// Makes the n-th (1-based) creation of a new descriptor pool made after this call throw std::bad_alloc at the point where the backend
+/// makes room to track it (before the native pool exists), as a failed vector growth there would. 0 cancels. Process-wide; consumed by
+/// the creation it fails.
+void fail_descriptor_pool_tracking_after(uint32_t n) noexcept;
+/// Descriptor sets a Vulkan device has acquired from the driver and not yet freed (0 for any other device).
+[[nodiscard]] std::size_t descriptor_sets_in_use(const Device& device);
 /// Makes every Vulkan device in this process report that it cannot blend into `format` (as a device lacking
 /// VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT for it would), so the rejection path can be tested on a device that supports it.
 /// Format::Unknown cancels.

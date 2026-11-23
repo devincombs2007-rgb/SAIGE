@@ -323,8 +323,41 @@ void test_slopes() {
     require(saige::is_walkable(tilted(20), gentle_limit) && !saige::is_walkable(tilted(40), gentle_limit), "a 30 degree limit");
     require(saige::is_walkable({0, 0, 1}, 0.0f) && !saige::is_walkable(tilted(1), 0.0f), "a zero limit allows only level ground");
     require(!saige::is_walkable({0, 0, 1}, -0.1f), "a negative limit is invalid");
+    // The defined range of a slope limit is [0, pi/2): outside it nothing is ground, and a ceiling never is.
+    constexpr float pi = 3.14159265f;
+    const saige::Vec3 ceiling{0, 0, -1}, wall{1, 0, 0}, nearly_flat{0, 0, 1};
+    for (const float bad_limit : {pi / 2.0f, 1.6f, pi, 4.0f, 1e6f, std::numeric_limits<float>::infinity()}) {
+        require(!saige::is_walkable(ceiling, bad_limit) && !saige::is_walkable(wall, bad_limit) && !saige::is_walkable(nearly_flat, bad_limit),
+                "a limit of " + std::to_string(bad_limit) + " (outside [0, pi/2)) makes nothing walkable");
+    }
+    for (const float ok_limit : {0.0f, 0.3f, 0.87266463f, 1.5f, 1.5707f}) {
+        require(!saige::is_walkable(ceiling, ok_limit), "a ceiling is never ground (limit " + std::to_string(ok_limit) + ")");
+        require(!saige::is_walkable(wall, ok_limit), "a vertical wall is never ground (limit " + std::to_string(ok_limit) + ")");
+        require(saige::is_walkable(nearly_flat, ok_limit), "level ground is ground under any valid limit (" + std::to_string(ok_limit) + ")");
+    }
     require(!saige::is_walkable({0, 0, 0.5f}, limit), "a non-unit normal is rejected");
     require(!saige::is_walkable({std::nanf(""), 0, 1}, limit), "NaN is rejected");
+}
+
+void test_query_is_validated_even_for_an_empty_set() {
+    const Capsule good{{-2, 0, 0}, 0.3f, 1.7f};
+    const auto throws = [](auto&& call) {
+        try {
+            call();
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    const std::span<const Aabb> none{};
+    require(!saige::sweep_capsule_boxes(good, {1, 0, 0}, none).has_value(), "a valid query against no boxes is simply clear");
+    require(throws([&] { (void)saige::sweep_capsule_boxes({{0, 0, 0}, 0.0f, 1.0f}, {1, 0, 0}, none); }), "an invalid capsule throws against an empty set");
+    require(throws([&] { (void)saige::sweep_capsule_boxes({{std::nanf(""), 0, 0}, 0.3f, 1.7f}, {1, 0, 0}, none); }), "a NaN capsule throws against an empty set");
+    require(throws([&] { (void)saige::sweep_capsule_boxes({{0, 0, 0}, 0.3f, 0.4f}, {1, 0, 0}, none); }), "a capsule shorter than its diameter throws against an empty set");
+    require(throws([&] { (void)saige::sweep_capsule_boxes(good, {std::nanf(""), 0, 0}, none); }), "a NaN displacement throws against an empty set");
+    require(throws([&] { (void)saige::sweep_capsule_boxes(good, {0, INFINITY, 0}, none); }), "an infinite displacement throws against an empty set");
+    const std::vector<Aabb> far_box{{{50, 50, 50}, {51, 51, 51}}};
+    require(throws([&] { (void)saige::sweep_capsule_boxes(good, {std::nanf(""), 0, 0}, far_box); }), "and against a set whose boxes are nowhere near");
 }
 
 void test_invalid_input_is_rejected() {
@@ -365,6 +398,7 @@ int main() {
         test_push_out();
         test_multiple_boxes_and_ties();
         test_slopes();
+        test_query_is_validated_even_for_an_empty_set();
         test_invalid_input_is_rejected();
         test_results_are_reproducible();
         test_randomized_against_reference();

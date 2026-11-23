@@ -4,6 +4,8 @@
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
+#include <type_traits>
 #include <new>
 #include <functional>
 #include <numeric>
@@ -213,7 +215,7 @@ FrameRecorder recorder_with_intervals(std::chrono::nanoseconds interval, int cou
     auto recorder = synthetic_recorder();
     for (int i = 1; i <= count; ++i) {
         recorder.record(frame(static_cast<std::uint64_t>(i), 1, 1ms, 3ms));
-        recorder.add_frame_interval(i <= slow ? slow_interval : interval);
+        recorder.add_presentation_interval(i <= slow ? slow_interval : interval);
     }
     return recorder;
 }
@@ -266,7 +268,7 @@ void test_report_never_claims_the_target_without_a_qualified_paced_run() {
     auto cpu_heavy = synthetic_recorder();
     for (std::uint64_t i = 1; i <= 100; ++i) {
         cpu_heavy.record(frame(i, 1, 1ms, 30ms));
-        cpu_heavy.add_frame_interval(16ms);
+        cpu_heavy.add_presentation_interval(16ms);
     }
     require(verdict_is(saige::perf::to_json(cpu_heavy, zones, qualified_context()), "within_budget"), "the verdict follows the interval, not the CPU time");
 
@@ -281,11 +283,71 @@ void test_report_never_claims_the_target_without_a_qualified_paced_run() {
     require(verdict_is(saige::perf::to_json(recorder_with_intervals(16ms, 50), zones, exact), "within_budget"), "an interval equal to the budget is within it");
 }
 
+void test_a_paced_run_needs_measured_presentation_intervals() {
+    // Core review of #68: paced = true with the default observer timing used to be enough for a qualified verdict, although no
+    // presentation interval was ever measured. The observer's own wall-clock intervals are kept in a different series and never count.
+    FrameRecorder observed({.measure_wall_interval = true, .memory_every_frames = 0});
+    for (std::uint64_t i = 1; i <= 50; ++i) observed.record(frame(i, 1, 1ms, 3ms));
+    require(observed.wall_interval().size() == 49 && observed.presentation_interval().size() == 0, "observer intervals and presentation intervals are separate series");
+    Zones zones;
+    const auto json = saige::perf::to_json(observed, zones, qualified_context());
+    require(verdict_is(json, "not_evaluated"), "a paced, qualified run with no presentation interval has no verdict");
+    require(contains(json, "no presentation intervals were recorded"), "and the reason says so");
+    require(contains(json, "\"observer_interval_ms\":{\"count\":49") && contains(json, "\"presentation_interval_ms\":{\"count\":0"),
+            "the report lists both series with their own counts");
+    // Adding the host's presentation intervals is the only thing that changes it.
+    for (int i = 0; i < 50; ++i) observed.add_presentation_interval(16ms);
+    require(verdict_is(saige::perf::to_json(observed, zones, qualified_context()), "within_budget"), "with presentation intervals the verdict is evaluated");
+    // The verdict follows the presentation series: slow presentation over fast observer intervals is over budget.
+    FrameRecorder slow_present({.measure_wall_interval = true, .memory_every_frames = 0});
+    for (std::uint64_t i = 1; i <= 50; ++i) {
+        slow_present.record(frame(i, 1, 1ms, 3ms));
+        slow_present.add_presentation_interval(40ms);
+    }
+    require(verdict_is(saige::perf::to_json(slow_present, zones, qualified_context()), "over_budget"), "the verdict uses presentation intervals, not the observer's");
+}
+
+void test_budget_is_validated_before_it_is_converted() {
+    // Core review of #68: a NaN budget was cast to int64 (undefined behavior) and doubled.
+    const auto recorder = recorder_with_intervals(16ms, 20);
+    Zones zones;
+    const auto rejected = [&](double budget) {
+        ReportContext context = qualified_context();
+        context.budget_ms = budget;
+        try {
+            (void)saige::perf::to_json(recorder, zones, context);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    const double nan = std::numeric_limits<double>::quiet_NaN(), inf = std::numeric_limits<double>::infinity();
+    for (const double bad : {nan, inf, -inf, 0.0, -0.0, -1.0, -16.67, 1e300, saige::perf::max_budget_ms * 1.0001, 1e19}) {
+        require(rejected(bad), "budget_ms = " + std::to_string(bad) + " is rejected");
+    }
+    for (const double ok : {0.001, 1.0, 16.6667, 33.3333, 1000.0, saige::perf::max_budget_ms}) {
+        require(!rejected(ok), "budget_ms = " + std::to_string(ok) + " is accepted");
+    }
+}
+
+void test_zones_cannot_move_under_a_scope() {
+    // A Scope keeps a pointer into its Zones, so copying, moving or assigning a Zones would leave live scopes dangling.
+    static_assert(!std::is_copy_constructible_v<Zones> && !std::is_copy_assignable_v<Zones>, "Zones must not be copyable");
+    static_assert(!std::is_move_constructible_v<Zones> && !std::is_move_assignable_v<Zones>, "Zones must not be movable");
+    Zones zones;
+    zones.reserve("a", 4);
+    {
+        const auto scope = zones.scope("a");
+        (void)scope;
+    }
+    require(zones.find("a") != nullptr && zones.find("a")->size() == 1, "a scope records into its zone");
+}
+
 void test_report_contents() {
     auto recorder = synthetic_recorder();
     for (std::uint64_t i = 1; i <= 10; ++i) {
         recorder.record(frame(i, 1, 2ms, i <= 8 ? 10ms : 20ms));
-        recorder.add_frame_interval(i <= 8 ? 10ms : 20ms);
+        recorder.add_presentation_interval(i <= 8 ? 10ms : 20ms);
     }
     Zones zones;
     zones.record("chunk.stage_next", 40ms);
@@ -297,10 +359,10 @@ void test_report_contents() {
     require(contains(json, "\"workload\":\"quote\\\"and\\\\slash\""), "strings are escaped");
     require(contains(json, "\"fixed_step_ns\":16666667"), "fixed step");
     // 8 frames of 10 ms and 2 of 20 ms average 12 ms, which is 83.3333 FPS; only the two 20 ms intervals exceed 16.67 ms.
-    require(contains(json, "\"cpu_average_fps\":83.3333") && contains(json, "\"interval_average_fps\":83.3333"), "average fps follows the mean");
+    require(contains(json, "\"cpu_average_fps\":83.3333") && contains(json, "\"presentation_average_fps\":83.3333"), "average fps follows the mean");
     require(contains(json, "\"intervals_over_budget\":2") && contains(json, "\"intervals_over_2x_budget\":0") &&
                 contains(json, "\"cpu_frames_over_budget\":2"), "budget counters");
-    require(contains(json, "\"statistic\":\"p99_frame_interval\"") && contains(json, "\"paced\":false") && contains(json, "\"dropped_timing_samples\":0"),
+    require(contains(json, "\"statistic\":\"p99_presentation_interval\"") && contains(json, "\"paced\":false") && contains(json, "\"dropped_timing_samples\":0"),
             "the statistic, the pacing and the dropped-sample count are reported");
     require(contains(json, "\"chunk.stage_next\":{\"count\":1,\"mean_ms\":40.0000"), "zones are listed with their statistics");
     require(json.find("chunk.stage_next") < json.find("physics.step"), "zones appear in name order");
@@ -413,17 +475,17 @@ void test_recording_is_all_or_nothing() {
 
     // Delivered intervals added by the host have the same guarantee.
     FrameRecorder recorder({.measure_wall_interval = false, .memory_every_frames = 0});
-    for (int i = 0; i < 64; ++i) recorder.add_frame_interval(16ms);
-    const auto count = recorder.wall_interval().size();
+    for (int i = 0; i < 64; ++i) recorder.add_presentation_interval(16ms);
+    const auto count = recorder.presentation_interval().size();
     fail_allocation_after(1);
     bool threw = false;
     try {
-        recorder.add_frame_interval(16ms);
+        recorder.add_presentation_interval(16ms);
     } catch (const std::bad_alloc&) {
         threw = true;
     }
     fail_allocation_after(0);
-    require(threw && recorder.wall_interval().size() == count, "a failed add_frame_interval changed nothing");
+    require(threw && recorder.presentation_interval().size() == count, "a failed add_presentation_interval changed nothing");
 
     // Sampling process memory is best effort: failing it must not fail or alter a recorded frame.
     FrameRecorder sampling({.measure_wall_interval = false, .memory_every_frames = 1});
@@ -469,6 +531,9 @@ int main() {
         test_recording_a_real_run_does_not_change_it();
         test_report_never_claims_the_target_without_a_qualified_paced_run();
         test_report_contents();
+        test_a_paced_run_needs_measured_presentation_intervals();
+        test_budget_is_validated_before_it_is_converted();
+        test_zones_cannot_move_under_a_scope();
         test_scope_teardown_never_throws_and_is_allocation_free_when_reserved();
         test_recording_is_all_or_nothing();
         test_process_memory();

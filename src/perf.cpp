@@ -6,6 +6,7 @@
 #include <fstream>
 #include <locale>
 #include <sstream>
+#include <stdexcept>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -144,7 +145,7 @@ ProcessMemory sample_process_memory() {
 
 FrameRecorder::FrameRecorder(Options options) : options_(options) {
     if (options.reserve_frames != 0) {
-        for (Series* s : {&total_, &input_, &simulation_, &extraction_, &submission_, &per_tick_simulation_, &wall_interval_}) {
+        for (Series* s : {&total_, &input_, &simulation_, &extraction_, &submission_, &per_tick_simulation_, &wall_interval_, &presentation_interval_}) {
             s->reserve(options.reserve_frames);
         }
     }
@@ -152,7 +153,7 @@ FrameRecorder::FrameRecorder(Options options) : options_(options) {
 
 void FrameRecorder::record(const CpuFrameMetrics& frame) {
     // Make room everywhere before changing anything, so a failed allocation leaves the recorder exactly as it was.
-    for (Series* s : {&total_, &input_, &simulation_, &extraction_, &submission_, &per_tick_simulation_, &wall_interval_}) {
+    for (Series* s : {&total_, &input_, &simulation_, &extraction_, &submission_, &per_tick_simulation_, &wall_interval_, &presentation_interval_}) {
         s->ensure_room_for_one();
     }
     ++frames_;
@@ -189,17 +190,24 @@ void FrameRecorder::record(const CpuFrameMetrics& frame) {
 }
 
 std::string to_json(const FrameRecorder& frames, const Zones& zones, const ReportContext& context) {
+    // Reject a budget that cannot be converted to integer nanoseconds before converting it (casting NaN, infinity or an out-of-range
+    // double to an integer is undefined behavior).
+    if (!std::isfinite(context.budget_ms) || !(context.budget_ms > 0.0) || context.budget_ms > max_budget_ms) {
+        throw std::invalid_argument("ReportContext::budget_ms must be finite, positive and at most max_budget_ms");
+    }
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out.setf(std::ios::fixed);
     out.precision(4);
 
     const Summary total = frames.total().summary();
-    const Summary wall = frames.wall_interval().summary();
+    const Summary observer = frames.wall_interval().summary();
+    const Summary presented = frames.presentation_interval().summary();
     const auto budget_ns = static_cast<std::int64_t>(context.budget_ms * ns_per_ms);
-    // The goal is about delivered intervals; CPU frame time is reported next to it, never in its place.
-    const std::size_t over_budget = count_over(frames.wall_interval().samples(), budget_ns);
-    const std::size_t over_double = count_over(frames.wall_interval().samples(), budget_ns * 2);
+    // The goal is about delivered (presented) intervals; CPU frame time and the observer's own interval are reported next to it, never
+    // in its place.
+    const std::size_t over_budget = count_over(frames.presentation_interval().samples(), budget_ns);
+    const std::size_t over_double = count_over(frames.presentation_interval().samples(), budget_ns * 2);
     const std::size_t cpu_over_budget = count_over(frames.total().samples(), budget_ns);
 
     // The verdict is deliberately hard to earn. The goal is the p99 of the *delivered frame interval* on the documented target
@@ -214,11 +222,11 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
         reason = "the run is not marked as the documented target hardware";
     } else if (context.preset_version.empty() || context.course_version.empty()) {
         reason = "the graphics preset and the scripted course are not both versioned";
-    } else if (wall.count == 0) {
-        reason = "no frame intervals were recorded";
+    } else if (presented.count == 0) {
+        reason = "no presentation intervals were recorded (the observer's own wall-clock intervals are not evidence of presentation)";
     } else {
-        verdict = wall.p99_ms <= context.budget_ms ? "within_budget" : "over_budget";
-        reason = "p99 delivered frame interval against the budget on the qualified target hardware";
+        verdict = presented.p99_ms <= context.budget_ms ? "within_budget" : "over_budget";
+        reason = "p99 presentation interval against the budget on the qualified target hardware";
     }
 
     out << "{\"schema_version\":1"
@@ -231,9 +239,11 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
     out << ",\"frame_ms\":";
     write_summary(out, total);
     out << ",\"cpu_average_fps\":" << (total.mean_ms > 0.0 ? 1000.0 / total.mean_ms : 0.0);
-    out << ",\"frame_interval_ms\":";
-    write_summary(out, wall);
-    out << ",\"interval_average_fps\":" << (wall.mean_ms > 0.0 ? 1000.0 / wall.mean_ms : 0.0);
+    out << ",\"observer_interval_ms\":";
+    write_summary(out, observer);
+    out << ",\"presentation_interval_ms\":";
+    write_summary(out, presented);
+    out << ",\"presentation_average_fps\":" << (presented.mean_ms > 0.0 ? 1000.0 / presented.mean_ms : 0.0);
     out << ",\"run\":{\"paced\":" << (context.paced ? "true" : "false") << ",\"hardware\":" << json_string(context.hardware)
         << ",\"preset_version\":" << json_string(context.preset_version)
         << ",\"course_version\":" << json_string(context.course_version) << ",\"dropped_timing_samples\":" << zones.dropped_samples() << '}';
@@ -249,7 +259,7 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
     write_summary(out, frames.per_tick_simulation().summary());
     out << '}';
 
-    out << ",\"budget\":{\"statistic\":\"p99_frame_interval\",\"budget_ms\":" << context.budget_ms << ",\"intervals_over_budget\":" << over_budget
+    out << ",\"budget\":{\"statistic\":\"p99_presentation_interval\",\"budget_ms\":" << context.budget_ms << ",\"intervals_over_budget\":" << over_budget
         << ",\"intervals_over_2x_budget\":" << over_double << ",\"cpu_frames_over_budget\":" << cpu_over_budget << ",\"verdict\":" << json_string(verdict)
         << ",\"verdict_reason\":" << json_string(reason) << '}';
 

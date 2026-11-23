@@ -72,6 +72,15 @@ private:
 // allocation-free there.
 class Zones {
 public:
+    Zones() = default;
+    // Scopes hold pointers into the zone table, so a Zones object must stay where it is while any Scope exists. Copying, moving and
+    // assigning are therefore not allowed at all (a move or an assignment would leave live scopes pointing at freed or replaced series).
+    Zones(const Zones&) = delete;
+    Zones& operator=(const Zones&) = delete;
+    Zones(Zones&&) = delete;
+    Zones& operator=(Zones&&) = delete;
+    ~Zones() = default;
+
     class Scope {
     public:
         // Throws (std::bad_alloc) only here, before the timed region starts.
@@ -120,8 +129,13 @@ struct ProcessMemory {
 // Linux: /proc/self/status (VmRSS, VmHWM). Windows: GetProcessMemoryInfo. Elsewhere both fields are empty.
 [[nodiscard]] ProcessMemory sample_process_memory();
 
-// An ICpuFrameObserver that keeps every frame's phase times, the wall-clock interval between consecutive frames (which includes
-// any presentation pacing wait, unlike the CPU total) and the process memory high-water mark.
+// An ICpuFrameObserver that keeps every frame's phase times, the observer's wall-clock interval between consecutive frames, the
+// presentation intervals a host reports, and the process memory high-water mark.
+//
+// The two interval series are deliberately separate. The observer interval is what this process can see by itself (the time between
+// the ends of two record() calls): it includes any pacing wait the loop performs, but it is not evidence of what the display showed.
+// A presentation interval is supplied by the host from real presentation timestamps (add_presentation_interval). Only the latter
+// can support a verdict; a run that claims to be paced but never recorded one cannot be qualified.
 class FrameRecorder final : public ICpuFrameObserver {
 public:
     struct Options {
@@ -137,9 +151,9 @@ public:
     // after it, recording cannot fail.
     void record(const CpuFrameMetrics& frame) override;
 
-    // Records one delivered frame interval measured by the host (for example from presentation timestamps). Use it instead of,
-    // not in addition to, Options::measure_wall_interval. Strong guarantee.
-    void add_frame_interval(std::chrono::nanoseconds interval) { wall_interval_.add(interval); }  // vector::push_back: strong
+    // Records one delivered frame interval measured by the host from presentation timestamps. These, and only these, feed the
+    // verdict. Strong guarantee. May throw std::bad_alloc; reserve with Options::reserve_frames to avoid it in a frame loop.
+    void add_presentation_interval(std::chrono::nanoseconds interval) { presentation_interval_.add(interval); }
 
     [[nodiscard]] std::uint64_t frames() const noexcept { return frames_; }
     [[nodiscard]] std::uint64_t ticks() const noexcept { return ticks_; }
@@ -151,9 +165,10 @@ public:
     [[nodiscard]] const Series& submission() const noexcept { return submission_; }
     // Per frame: simulation time divided by the number of fixed ticks that frame ran (frames with no ticks are skipped).
     [[nodiscard]] const Series& per_tick_simulation() const noexcept { return per_tick_simulation_; }
-    // Delivered frame intervals: by default the wall-clock time between the ends of consecutive frames (the first frame has none),
-    // or whatever the host supplied through add_frame_interval().
+    // The observer's wall-clock time between the ends of consecutive frames (the first frame has none). Never used for a verdict.
     [[nodiscard]] const Series& wall_interval() const noexcept { return wall_interval_; }
+    // Presentation intervals supplied by the host through add_presentation_interval().
+    [[nodiscard]] const Series& presentation_interval() const noexcept { return presentation_interval_; }
     [[nodiscard]] const ProcessMemory& memory() const noexcept { return memory_; }
     // Frames that ran no fixed tick (render faster than the simulation rate), and the most ticks any frame ran.
     [[nodiscard]] std::uint64_t frames_without_tick() const noexcept { return frames_without_tick_; }
@@ -166,7 +181,7 @@ private:
     std::uint64_t frames_without_tick_{};
     std::uint64_t max_ticks_in_frame_{};
     std::size_t peak_instances_{};
-    Series total_, input_, simulation_, extraction_, submission_, per_tick_simulation_, wall_interval_;
+    Series total_, input_, simulation_, extraction_, submission_, per_tick_simulation_, wall_interval_, presentation_interval_;
     std::optional<std::chrono::steady_clock::time_point> last_frame_end_;
     ProcessMemory memory_;
 };
@@ -207,9 +222,13 @@ struct ReportContext {
     std::string hardware;       // free text describing the machine and display settings the run actually used
     std::string preset_version; // versioned graphics preset name; empty while no preset is versioned
     std::string course_version; // versioned scripted course fixture; empty while none is versioned
+    // Must be finite, positive and at most max_budget_ms; to_json throws std::invalid_argument otherwise (a NaN or a huge value cannot be
+    // converted to the integer nanoseconds the counters compare against).
     double budget_ms = target_frame_ms;
     std::int64_t fixed_step_ns = 0;
 };
+
+inline constexpr double max_budget_ms = 1.0e6;  // 1000 s: far beyond any frame budget, small enough that 2x in nanoseconds fits in int64
 
 // Machine-readable report, schema_version 1, numbers in milliseconds with a classic locale. Zones are included in name order.
 [[nodiscard]] std::string to_json(const FrameRecorder& frames, const Zones& zones, const ReportContext& context);

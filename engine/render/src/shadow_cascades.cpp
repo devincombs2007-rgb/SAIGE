@@ -8,23 +8,33 @@ namespace saige::render {
 std::array<float, kMaxShadowCascades + 1> cascade_splits(float n, float f, uint32_t count, float lambda) noexcept
 {
     std::array<float, kMaxShadowCascades + 1> splits{};
-    if (count == 0 || count > kMaxShadowCascades || !(n > 0.0f) || !(f > n) || !std::isfinite(n) || !std::isfinite(f)) {
+    if (count == 0 || count > kMaxShadowCascades || !std::isfinite(n) || !std::isfinite(f) || !std::isfinite(lambda) || !(n > 0.0f) ||
+        !(f > n)) {
         return splits;
     }
-    const float l = std::clamp(lambda, 0.0f, 1.0f);
+    // In double: f / n can overflow a float for finite extreme ratios, and the blend of two float splits can round to equal neighbours.
+    const double dn = n, df = f, l = std::clamp(static_cast<double>(lambda), 0.0, 1.0);
+    std::array<float, kMaxShadowCascades + 1> result{};
     for (uint32_t i = 0; i <= count; ++i) {
-        const float t = static_cast<float>(i) / static_cast<float>(count);
-        const float uniform = n + (f - n) * t;
-        const float logarithmic = n * std::pow(f / n, t);
-        splits[i] = uniform + (logarithmic - uniform) * l;
+        const double t = static_cast<double>(i) / static_cast<double>(count);
+        const double uniform = dn + (df - dn) * t;
+        const double logarithmic = dn * std::pow(df / dn, t);
+        result[i] = static_cast<float>((1.0 - l) * uniform + l * logarithmic);  // not uniform + (log - uniform) * l: that cancels at wide ratios
     }
-    splits[0] = n;
-    splits[count] = f;  // exact ends, whatever the rounding in between
-    return splits;
+    result[0] = n;
+    result[count] = f;  // exact ends, whatever the rounding in between
+    for (uint32_t i = 1; i <= count; ++i) {
+        if (!std::isfinite(result[i]) || !(result[i] > result[i - 1])) return splits;  // not strictly increasing in float: no split set
+    }
+    return result;
 }
 
 SliceSphere slice_bounding_sphere(float n, float f, float fov_y_radians, float aspect) noexcept
 {
+    if (!std::isfinite(n) || !std::isfinite(f) || !std::isfinite(fov_y_radians) || !std::isfinite(aspect) || !(n > 0.0f) || !(f > n) ||
+        !(aspect > 0.0f) || !(fov_y_radians > 0.0f) || !(fov_y_radians < 3.1f)) {
+        return {};
+    }
     const float tan_half = std::tan(fov_y_radians * 0.5f);
     const float k2 = (1.0f + aspect * aspect) * tan_half * tan_half;  // squared ratio of a corner's offset from the axis to its depth
     // Equal distance to the nearest and farthest corners puts the center at (n + f)(1 + k^2) / 2 along the axis; when that lies beyond
@@ -38,12 +48,13 @@ SliceSphere slice_bounding_sphere(float n, float f, float fov_y_radians, float a
 
 ShadowCascades fit_shadow_cascades(const CascadeCamera& camera, Float3 to_sun, const CascadeSettings& s) noexcept
 {
-    ShadowCascades out;
+    ShadowCascades out;  // stays empty (count 0, all zero) unless every cascade is complete and finite
     const std::array<float, kMaxShadowCascades + 1> splits = cascade_splits(s.near_plane, s.shadow_distance, s.count, s.split_lambda);
     const float forward_len = length(camera.forward);
     const float sun_len = length(to_sun);
     if (splits[s.count > kMaxShadowCascades ? 0 : s.count] <= 0.0f || s.resolution == 0 || !(forward_len > 0.5f) || !(sun_len > 0.5f) ||
-        !(camera.aspect > 0.0f) || !(camera.fov_y_radians > 0.0f) || !(camera.fov_y_radians < 3.1f) || !std::isfinite(forward_len) ||
+        !(camera.aspect > 0.0f) || !std::isfinite(camera.aspect) || !std::isfinite(camera.fov_y_radians) || !std::isfinite(s.caster_margin) ||
+        !(s.caster_margin >= 0.0f) || !(camera.fov_y_radians > 0.0f) || !(camera.fov_y_radians < 3.1f) || !std::isfinite(forward_len) ||
         !std::isfinite(sun_len) || !std::isfinite(camera.position.x) || !std::isfinite(camera.position.y) || !std::isfinite(camera.position.z)) {
         return out;
     }
@@ -56,14 +67,16 @@ ShadowCascades fit_shadow_cascades(const CascadeCamera& camera, Float3 to_sun, c
     const Float3 right = normalize(cross(light_forward, helper));
     const Float3 up = cross(right, light_forward);
 
-    out.count = s.count;
+    ShadowCascades built;  // published to `out` only when every cascade is valid
     for (uint32_t i = 0; i < s.count; ++i) {
-        ShadowCascade& c = out.cascades[i];
+        ShadowCascade& c = built.cascades[i];
         c.split_near = splits[i];
         c.split_far = splits[i + 1];
         const SliceSphere sphere = slice_bounding_sphere(c.split_near, c.split_far, camera.fov_y_radians, camera.aspect);
+        if (!std::isfinite(sphere.radius) || !(sphere.radius > 0.0f) || !std::isfinite(sphere.axis_distance)) return out;
         c.radius = sphere.radius;
         c.texel_world_size = 2.0f * sphere.radius / static_cast<float>(s.resolution);
+        if (!std::isfinite(c.texel_world_size) || !(c.texel_world_size > 0.0f)) return out;
         Float3 center = camera.position + forward * sphere.axis_distance;
         if (s.stabilize) {
             // Snap the center to whole texels in light space (x and y; the depth axis does not shimmer).
@@ -98,8 +111,19 @@ ShadowCascades fit_shadow_cascades(const CascadeCamera& camera, Float3 to_sun, c
         proj.at(2, 3) = 1.0f;
         proj.at(3, 3) = 1.0f;
         c.view_proj = proj * view;
+
+        // A derived extent or matrix that is not finite (an overflowing radius, a vanishing depth range) is no cascade at all.
+        bool finite_matrix = true;
+        for (int row = 0; row < 4; ++row) {
+            for (int col = 0; col < 4; ++col) finite_matrix = finite_matrix && std::isfinite(c.view_proj.at(row, col));
+        }
+        if (!finite_matrix || !std::isfinite(c.center.x) || !std::isfinite(c.center.y) || !std::isfinite(c.center.z) ||
+            !std::isfinite(c.depth_range) || !(c.depth_range > 0.0f)) {
+            return out;
+        }
     }
-    return out;
+    built.count = s.count;
+    return built;
 }
 
 uint32_t select_cascade(const ShadowCascades& cascades, float depth) noexcept

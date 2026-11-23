@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
+#include <utility>
 
 using namespace saige::render;
 
@@ -204,4 +206,125 @@ TEST_CASE("Cascades: a light straight overhead or straight below works, and inva
     CascadeCamera no_dir = cam;
     no_dir.forward = {};
     CHECK(fit_shadow_cascades(no_dir, {0.0f, 0.0f, 1.0f}, settings).count == 0);
+}
+
+namespace {
+
+bool all_finite(const ShadowCascades& c)
+{
+    for (uint32_t i = 0; i < c.count; ++i) {
+        const ShadowCascade& k = c.cascades[i];
+        if (!std::isfinite(k.center.x) || !std::isfinite(k.center.y) || !std::isfinite(k.center.z) || !std::isfinite(k.radius) || !(k.radius > 0.0f) ||
+            !std::isfinite(k.split_near) || !std::isfinite(k.split_far) || !(k.split_far > k.split_near) || !std::isfinite(k.texel_world_size) ||
+            !(k.texel_world_size > 0.0f) || !std::isfinite(k.depth_range) || !(k.depth_range > 0.0f)) {
+            return false;
+        }
+        for (int r = 0; r < 4; ++r) {
+            for (int col = 0; col < 4; ++col) {
+                if (!std::isfinite(k.view_proj.at(r, col))) return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool is_empty(const ShadowCascades& c)
+{
+    if (c.count != 0) return false;
+    for (const ShadowCascade& k : c.cascades) {
+        if (k.radius != 0.0f || k.split_far != 0.0f || k.texel_world_size != 0.0f) return false;
+    }
+    return true;
+}
+
+} // namespace
+
+TEST_CASE("Cascades: non-finite and degenerate inputs publish no cascade, and extreme finite inputs publish only finite ones")
+{
+    const float inf = std::numeric_limits<float>::infinity(), nan = std::numeric_limits<float>::quiet_NaN();
+    const Float3 sun = normalize(Float3{0.3f, 0.2f, 0.9f});
+    const CascadeCamera good = camera_at({0.0f, 0.0f, 2.0f}, {1.0f, 0.0f, 0.0f});
+    CHECK(all_finite(fit_shadow_cascades(good, sun, {})) && fit_shadow_cascades(good, sun, {}).count == 4);
+
+    // Core review of #77: aspect = +inf and caster_margin = NaN used to report count = 4 (the latter with a NaN depth projection).
+    const auto rejected = [&](CascadeCamera camera, CascadeSettings settings) { return is_empty(fit_shadow_cascades(camera, sun, settings)); };
+    CascadeCamera cam = good;
+    cam.aspect = inf;
+    CHECK(rejected(cam, {}));
+    cam = good;
+    cam.aspect = nan;
+    CHECK(rejected(cam, {}));
+    cam = good;
+    cam.fov_y_radians = nan;
+    CHECK(rejected(cam, {}));
+    for (const float margin : {nan, inf, -inf, -1.0f}) {
+        CascadeSettings s;
+        s.caster_margin = margin;
+        CHECK(rejected(good, s));
+    }
+    CascadeSettings zero_margin;
+    zero_margin.caster_margin = 0.0f;
+    CHECK(all_finite(fit_shadow_cascades(good, sun, zero_margin)) && fit_shadow_cascades(good, sun, zero_margin).count == 4);
+    for (const float lambda : {nan, inf, -inf}) {
+        CascadeSettings s;
+        s.split_lambda = lambda;
+        CHECK(rejected(good, s));
+    }
+    cam = good;
+    cam.position = {nan, 0.0f, 0.0f};
+    CHECK(rejected(cam, {}));
+    cam = good;
+    cam.forward = {0.0f, 0.0f, 0.0f};
+    CHECK(rejected(cam, {}));
+    CHECK(is_empty(fit_shadow_cascades(good, Float3{nan, 0.0f, 1.0f}, {})));
+    CHECK(is_empty(fit_shadow_cascades(good, Float3{0.0f, 0.0f, 0.0f}, {})));
+    for (const auto& bad_range : {std::pair<float, float>{nan, 100.0f}, {0.1f, nan}, {0.1f, inf}, {0.0f, 100.0f}, {-1.0f, 100.0f}, {50.0f, 50.0f}, {60.0f, 50.0f}}) {
+        CascadeSettings s;
+        s.near_plane = bad_range.first;
+        s.shadow_distance = bad_range.second;
+        CHECK(rejected(good, s));
+    }
+    for (const uint32_t count : {0u, 5u, 1000u}) {
+        CascadeSettings s;
+        s.count = count;
+        CHECK(rejected(good, s));
+    }
+    CascadeSettings no_resolution;
+    no_resolution.resolution = 0;
+    CHECK(rejected(good, no_resolution));
+
+    // Finite but extreme ranges: f / n overflows a float, and derived radii or matrices can overflow. Whatever comes back is either empty
+    // or entirely finite with strictly increasing splits; a partial cascade count is never published.
+    const float max = std::numeric_limits<float>::max(), tiny = std::numeric_limits<float>::min();
+    int accepted = 0, refused = 0;
+    for (const float near_plane : {tiny, 1e-30f, 1e-10f, 0.1f, 1e10f}) {
+        for (const float far_plane : {1.0f, 1e10f, 1e30f, max}) {
+            for (const float aspect : {1e-6f, 1.0f, 1e6f, max}) {
+                for (const uint32_t count : {1u, 4u}) {
+                    CascadeSettings s;
+                    s.near_plane = near_plane;
+                    s.shadow_distance = far_plane;
+                    s.count = count;
+                    CascadeCamera camera = good;
+                    camera.aspect = aspect;
+                    const auto splits = cascade_splits(near_plane, far_plane, count, s.split_lambda);
+                    if (splits[count] != 0.0f) {
+                        for (uint32_t i = 1; i <= count; ++i) CHECK(std::isfinite(splits[i]) && splits[i] > splits[i - 1]);
+                    }
+                    const ShadowCascades fitted = fit_shadow_cascades(camera, sun, s);
+                    if (fitted.count == 0) {
+                        CHECK(is_empty(fitted));
+                        ++refused;
+                    } else {
+                        CHECK(fitted.count == count && all_finite(fitted));
+                        ++accepted;
+                    }
+                }
+            }
+        }
+    }
+    CHECK(accepted > 0 && refused > 0);  // the sweep exercises both outcomes
+    // An extreme but representable ratio is split robustly rather than overflowing f / n.
+    const auto wide = cascade_splits(1e-30f, 1e30f, 4, 1.0f);
+    CHECK(wide[4] == 1e30f && wide[0] == 1e-30f && wide[1] > wide[0] && wide[2] > wide[1] && wide[3] > wide[2] && wide[4] > wide[3]);
 }

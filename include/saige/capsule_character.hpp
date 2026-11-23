@@ -17,6 +17,12 @@
 // The ground probe slides down along a steep contact it already touches (the top edge of a low ledge the character is sliding along)
 // instead of stopping at it, so such a contact does not hide the floor beneath: grounded does not flicker and the feet do not bounce.
 //
+// Supported range. Positions are chunk-local meters (capsule_sweep.hpp): the capsule must stay within +-max_local_extent on every axis, and
+// the configuration must keep every sweep within max_sweep_length (checked at construction). The constructor and teleport throw for a
+// position outside the range; a step that would carry the capsule across it throws and changes nothing. The host rebases larger world
+// coordinates and streams chunks; the controller never answers from a lower-precision sweep. Contacts are applied from
+// CapsuleHit::stop (the sweep's float position clear of the geometry), never from `feet + displacement * t`.
+//
 // What boxes cannot express is not covered here: ramps need a non-box collider. The slope logic acts on contact normals, so it
 // carries over unchanged when one exists.
 
@@ -61,13 +67,15 @@ struct CapsuleCharacterState {
 
 class CapsuleCharacter {
 public:
-    // Throws std::invalid_argument for an invalid config, a non-finite spawn, invalid boxes, or a spawn that overlaps geometry.
+    // Throws std::invalid_argument for an invalid config (including one whose reach exceeds the sweep envelope), a non-finite or out-of-range
+    // spawn, invalid boxes, or a spawn that overlaps geometry.
     CapsuleCharacter(Vec3 spawn, std::span<const Aabb> geometry, CapsuleCharacterConfig config = {});
     // The same with static triangles (ramps and other non-box surfaces, see capsule_triangle.hpp) alongside the boxes. Invalid triangles
     // throw. Triangles are two-sided; the slope, step and ground rules below apply to their contact normals unchanged.
     CapsuleCharacter(Vec3 spawn, std::span<const Aabb> boxes, std::span<const Triangle> triangles, CapsuleCharacterConfig config = {});
 
-    // One fixed step. Throws std::invalid_argument for non-finite input or a step that is not in (0, 100 ms].
+    // One fixed step. Throws std::invalid_argument for non-finite input or a step that is not in (0, 100 ms], and for a character whose
+    // capsule has reached the edge of the supported envelope (capsule_sweep.hpp). Strong guarantee: a throwing step changes nothing.
     void step(CapsuleInput input, std::chrono::nanoseconds dt);
 
     // Replaces the static collision between ticks. Returns false, and changes nothing, if the new set overlaps the character or the
@@ -82,7 +90,7 @@ public:
     // Places the character at rest at `feet`, for example where it leaves a vehicle. A position that overlaps geometry is pushed
     // out the shortest way (several boxes are resolved in passes). Returns false, and changes nothing, if bounded recovery cannot
     // leave the capsule clear (for example a gap narrower than the capsule between two tall boxes), so a blocked exit keeps the rider's
-    // previous state. Throws std::invalid_argument for a non-finite position.
+    // previous state. Throws std::invalid_argument for a non-finite position or one outside the supported range, changing nothing.
     [[nodiscard]] bool teleport(Vec3 feet);
 
     [[nodiscard]] const CapsuleCharacterState& state() const noexcept { return state_; }
@@ -94,6 +102,7 @@ private:
     [[nodiscard]] std::optional<CapsuleHit> sweep(Vec3 feet, Vec3 displacement) const;
     [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
     bool recover_from_overlap();  // false if the capsule is still overlapping after the bounded passes
+    void step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt);
     void slide(Vec3 displacement, bool can_step);
     bool try_step_up(Vec3 leftover);
     void snap_to_ground();

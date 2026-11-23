@@ -51,6 +51,26 @@ void validate(const Capsule& capsule, const Aabb& box) {
     }
 }
 
+// Signed gap between the capsule surface and the box for a capsule whose feet are at (x, y, z), all in double. A vertical segment and a
+// box are separable per axis: x and y distances, and the gap between the z intervals. Saturates at -radius once the axis is inside.
+double box_gap(double x, double y, double z, double radius, double height, const Aabb& box) noexcept {
+    const double bottom = z + radius;
+    const double top = z + height - radius;
+    const double dx = std::max({static_cast<double>(box.min.x) - x, 0.0, x - static_cast<double>(box.max.x)});
+    const double dy = std::max({static_cast<double>(box.min.y) - y, 0.0, y - static_cast<double>(box.max.y)});
+    const double dz = std::max({static_cast<double>(box.min.z) - top, 0.0, bottom - static_cast<double>(box.max.z)});
+    return std::sqrt(dx * dx + dy * dy + dz * dz) - radius;
+}
+
+double box_gap(const Capsule& capsule, Vec3 feet, const Aabb& box) noexcept {
+    return box_gap(feet.x, feet.y, feet.z, capsule.radius, capsule.height, box);
+}
+
+struct RawHit {
+    CapsuleHit hit;  // t is the float of exact_t; stop is not set yet
+    double exact_t{};
+};
+
 // Smallest t >= 0 at which origin + t * direction enters the sphere; 0 if already inside and moving toward the center.
 std::optional<double> ray_sphere(const D3& origin, const D3& direction, const D3& center, double radius) noexcept {
     const D3 m = sub(origin, center);
@@ -177,6 +197,7 @@ std::optional<Overlap> overlap_push(const D3& start, const D3& lo, const D3& hi,
 
 std::optional<Vec3> capsule_box_push_out(const Capsule& capsule, const Aabb& box) {
     validate(capsule, box);
+    check_sweep_envelope(capsule, Vec3{0.0f, 0.0f, 0.0f});
     const double r = capsule.radius;
     const double segment = static_cast<double>(capsule.height) - 2.0 * r;
     const D3 start{capsule.feet.x, capsule.feet.y, static_cast<double>(capsule.feet.z) + r};
@@ -190,19 +211,35 @@ std::optional<Vec3> capsule_box_push_out(const Capsule& capsule, const Aabb& box
 
 float capsule_box_gap(const Capsule& capsule, const Aabb& box) {
     validate(capsule, box);
-    const double radius = capsule.radius;
-    const double bottom = static_cast<double>(capsule.feet.z) + radius;
-    const double top = static_cast<double>(capsule.feet.z) + capsule.height - radius;
-    // A vertical segment and a box are separable per axis: x and y distances, and the gap between the z intervals.
-    const double dx = std::max({static_cast<double>(box.min.x) - capsule.feet.x, 0.0, static_cast<double>(capsule.feet.x) - box.max.x});
-    const double dy = std::max({static_cast<double>(box.min.y) - capsule.feet.y, 0.0, static_cast<double>(capsule.feet.y) - box.max.y});
-    const double dz = std::max({static_cast<double>(box.min.z) - top, 0.0, bottom - static_cast<double>(box.max.z)});
-    return static_cast<float>(std::sqrt(dx * dx + dy * dy + dz * dz) - radius);
+    return static_cast<float>(box_gap(capsule, capsule.feet, box));
 }
 
-std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displacement, const Aabb& box) {
-    validate(capsule, box);
+void check_sweep_envelope(const Capsule& capsule, Vec3 displacement) {
+    validate(capsule);
     if (!finite(displacement)) throw std::invalid_argument("Capsule displacement must be finite");
+    const double length = std::sqrt(dot(to_d3(displacement), to_d3(displacement)));
+    if (!(length <= static_cast<double>(max_sweep_length))) {
+        throw std::invalid_argument("Capsule displacement exceeds max_sweep_length: subdivide the motion");
+    }
+    const double r = capsule.radius;
+    const D3 feet = to_d3(capsule.feet);
+    const D3 d = to_d3(displacement);
+    constexpr double extent = static_cast<double>(max_local_extent);
+    for (std::size_t axis = 0; axis < 3; ++axis) {
+        // The capsule's bounding box: radius around the axis in x and y, the full height in z.
+        const double low = axis == 2 ? feet[2] : feet[axis] - r;
+        const double high = axis == 2 ? feet[2] + capsule.height : feet[axis] + r;
+        if (std::min(low, low + d[axis]) < -extent || std::max(high, high + d[axis]) > extent) {
+            throw std::invalid_argument("Capsule sweep leaves the supported +-max_local_extent range: rebase to chunk-local coordinates");
+        }
+    }
+}
+
+namespace {
+
+// The exact first contact (in double) with one box. The caller has validated the capsule and the envelope.
+std::optional<RawHit> raw_sweep_box(const Capsule& capsule, Vec3 displacement, const Aabb& box) {
+    validate(capsule, box);
 
     const double r = capsule.radius;
     const double segment = static_cast<double>(capsule.height) - 2.0 * r;
@@ -215,12 +252,13 @@ std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displac
 
 
     const auto make_hit = [&](double t, const D3& normal, bool overlapping) {
-        CapsuleHit hit;
-        hit.t = static_cast<float>(t);
-        hit.normal = to_vec3(normal);
-        hit.point = to_vec3(axis_contact_point({start[0] + t * d[0], start[1] + t * d[1], start[2] + t * d[2]}, segment, box));
-        hit.started_overlapping = overlapping;
-        return hit;
+        RawHit raw;
+        raw.exact_t = t;
+        raw.hit.t = static_cast<float>(t);
+        raw.hit.normal = to_vec3(normal);
+        raw.hit.point = to_vec3(axis_contact_point({start[0] + t * d[0], start[1] + t * d[1], start[2] + t * d[2]}, segment, box));
+        raw.hit.started_overlapping = overlapping;
+        return raw;
     };
 
     // Penetrating at the start: report the push-out direction and stop the move there.
@@ -280,20 +318,61 @@ std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displac
     return make_hit(t, normal, false);
 }
 
+// Fixes `raw.hit.stop` and `raw.hit.t`: the float feet position to adopt, clear of every box in `boxes` (see detail::conservative_stop).
+// A box that is already within the contact tolerance at the start may not be entered any deeper; the box that was hit is held to
+// that exactly, the others to half the contact tolerance so a rounding step along a touched wall does not block the motion.
+CapsuleHit finalize(const Capsule& capsule, Vec3 displacement, RawHit raw, std::span<const Aabb> boxes, std::size_t hit_index) {
+    CapsuleHit hit = raw.hit;
+    if (hit.started_overlapping || raw.exact_t <= 0.0) {
+        hit.t = 0.0f;
+        hit.stop = capsule.feet;
+        return hit;
+    }
+    const auto clear = [&](Vec3 pose) {
+        for (std::size_t i = 0; i < boxes.size(); ++i) {
+            const double start_gap = box_gap(capsule, capsule.feet, boxes[i]);
+            const double allowed = std::min(start_gap, 0.0) - (i == hit_index ? 0.0 : 0.5 * touch_tolerance);
+            if (box_gap(capsule, pose, boxes[i]) < allowed) return false;
+        }
+        return true;
+    };
+    hit.stop = detail::conservative_stop(capsule.feet, displacement, raw.exact_t, clear);
+    const D3 moved = sub(to_d3(hit.stop), to_d3(capsule.feet));
+    const D3 d = to_d3(displacement);
+    const double along = dot(d, d) > 0.0 ? dot(moved, d) / dot(d, d) : 0.0;
+    hit.t = static_cast<float>(std::clamp(along, 0.0, raw.exact_t));
+    return hit;
+}
+
+} // namespace
+
+std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displacement, const Aabb& box) {
+    validate(capsule, box);
+    check_sweep_envelope(capsule, displacement);
+    const auto raw = raw_sweep_box(capsule, displacement, box);
+    if (!raw) return std::nullopt;
+    return finalize(capsule, displacement, *raw, std::span<const Aabb>(&box, 1), 0);
+}
+
 std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displacement, std::span<const Aabb> boxes) {
-    // The query is validated once, up front, so an invalid capsule or displacement throws whatever the set holds (an empty set
-    // included); each box is validated by the single-box sweep.
+    // The query (capsule, displacement, envelope) is validated once, up front, so an invalid or out-of-range query throws whatever
+    // the set holds (an empty set included); each box is validated by the single-box sweep.
     validate(capsule);
-    if (!finite(displacement)) throw std::invalid_argument("Capsule displacement must be finite");
-    std::optional<CapsuleHit> best;
+    check_sweep_envelope(capsule, displacement);
+    std::optional<RawHit> best;
+    std::size_t best_index = 0;
     for (std::size_t i = 0; i < boxes.size(); ++i) {
-        auto hit = sweep_capsule_box(capsule, displacement, boxes[i]);
-        if (hit && (!best || hit->t < best->t)) {
-            hit->index = i;
-            best = hit;
+        auto raw = raw_sweep_box(capsule, displacement, boxes[i]);
+        if (raw && (!best || raw->hit.t < best->hit.t)) {  // ties go to the lowest index
+            raw->hit.index = i;
+            best = raw;
+            best_index = i;
         }
     }
-    return best;
+    if (!best) return std::nullopt;
+    CapsuleHit hit = finalize(capsule, displacement, *best, boxes, best_index);
+    hit.index = best_index;
+    return hit;
 }
 
 bool is_walkable(Vec3 normal, float max_slope_radians) noexcept {

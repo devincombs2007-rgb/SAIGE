@@ -71,15 +71,18 @@ public:
     // spawn, invalid boxes, or a spawn that overlaps geometry.
     CapsuleCharacter(Vec3 spawn, std::span<const Aabb> geometry, CapsuleCharacterConfig config = {});
     // The same with static triangles (ramps and other non-box surfaces, see capsule_triangle.hpp) alongside the boxes. Invalid triangles
-    // throw. Triangles are two-sided; the slope, step and ground rules below apply to their contact normals unchanged.
-    CapsuleCharacter(Vec3 spawn, std::span<const Aabb> boxes, std::span<const Triangle> triangles, CapsuleCharacterConfig config = {});
+    // throw. Triangles are two-sided; the slope, step and ground rules below apply to their contact normals unchanged. The configuration
+    // is required (no default): with one, `CapsuleCharacter({}, {}, {})` would be ambiguous between this and the box constructor taking
+    // a configuration, which existing code writes. Pass `{}` or `CapsuleCharacterConfig{}` for the defaults.
+    CapsuleCharacter(Vec3 spawn, std::span<const Aabb> boxes, std::span<const Triangle> triangles, CapsuleCharacterConfig config);
 
     // One fixed step. Throws std::invalid_argument for non-finite input or a step that is not in (0, 100 ms], and for a character whose
     // capsule has reached the edge of the supported envelope (capsule_sweep.hpp). Strong guarantee: a throwing step changes nothing.
     void step(CapsuleInput input, std::chrono::nanoseconds dt);
 
     // Replaces the static collision between ticks. Returns false, and changes nothing, if the new set overlaps the character or the
-    // reset position. Invalid boxes throw. Grounded state is recomputed against the new geometry.
+    // reset position. Invalid boxes throw. Grounded state is recomputed against the new geometry. Replacing with boxes alone is a
+    // complete-set replacement: it clears the triangles (and the two-argument form replaces both).
     bool replace_static_geometry(std::span<const Aabb> geometry);
     // The same for boxes and triangles together.
     bool replace_static_geometry(std::span<const Aabb> boxes, std::span<const Triangle> triangles);
@@ -101,7 +104,7 @@ private:
     [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, config_.height}; }
     [[nodiscard]] std::optional<CapsuleHit> sweep(Vec3 feet, Vec3 displacement) const;
     [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
-    bool recover_from_overlap();  // false if the capsule is still overlapping after the bounded passes
+    bool recover_from_overlap();  // false (and the feet restored to where they were) if the capsule is still overlapping after the bounded passes
     void step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt);
     void slide(Vec3 displacement, bool can_step);
     bool try_step_up(Vec3 leftover);

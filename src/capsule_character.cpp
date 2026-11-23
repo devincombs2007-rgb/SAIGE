@@ -96,8 +96,39 @@ std::optional<CapsuleHit> CapsuleCharacter::sweep(Vec3 feet, Vec3 displacement) 
     auto hit = sweep_capsule_boxes(capsule, displacement, geometry_);
     if (triangles_.empty()) return hit;
     // The earliest contact over both kinds of surface; a box wins a tie (it is checked first, and is the exact analytic result).
+    bool from_triangle = false;
     if (const auto tri = sweep_capsule_triangles(capsule, displacement, triangles_)) {
-        if (!hit || tri->t < hit->t) hit = tri;
+        if (!hit || tri->t < hit->t) {
+            hit = tri;
+            from_triangle = true;
+        }
+    }
+    if (!hit || geometry_.empty() || hit->started_overlapping || hit->t <= 0.0f) return hit;
+    // Each primitive made its stop clear of its own kind of surface only. The stop of the surface that was hit must also be clear of the
+    // other kind (a ramp meeting a wall), so judge it against both and back off if needed, the same rule the primitives use: the surface
+    // that was hit exactly, the others within half the contact tolerance, none deeper than where the capsule started.
+    constexpr double tolerance = 1e-5;
+    const std::size_t hit_index = hit->index;
+    const auto clear = [&](Vec3 pose) {
+        Capsule posed = capsule;
+        posed.feet = pose;
+        for (std::size_t i = 0; i < geometry_.size(); ++i) {
+            const double allowed = std::min(static_cast<double>(capsule_box_gap(capsule, geometry_[i])), 0.0) -
+                                   ((!from_triangle && i == hit_index) ? 0.0 : 0.5 * tolerance);
+            if (capsule_box_gap(posed, geometry_[i]) < allowed) return false;
+        }
+        for (std::size_t i = 0; i < triangles_.size(); ++i) {
+            const double allowed = std::min(static_cast<double>(capsule_triangle_gap(capsule, triangles_[i])), 0.0) -
+                                   ((from_triangle && i == hit_index) ? 0.0 : 0.5 * tolerance);
+            if (capsule_triangle_gap(posed, triangles_[i]) < allowed) return false;
+        }
+        return true;
+    };
+    if (!clear(hit->stop)) {
+        hit->stop = detail::conservative_stop(feet, displacement, hit->t, clear);
+        const float length = std::sqrt(length2(displacement));
+        const Vec3 moved = hit->stop - feet;
+        hit->t = length > 0.0f ? std::clamp(dot(moved, displacement) / (length * length), 0.0f, hit->t) : 0.0f;
     }
     return hit;
 }
@@ -117,6 +148,12 @@ bool CapsuleCharacter::recover_from_overlap() {
     // report success on the wrong side of a wall. A push that would move the capsule to the other side of a triangle than the one it
     // started the recovery on is therefore a failure, not a solution (boxes have thickness, so they cannot be crossed this way).
     const Vec3 origin = state_.feet;
+    // Transactional: a recovery that fails (it would cross a triangle, or cannot clear the capsule) leaves the feet where they were,
+    // never at a half-resolved pose.
+    const auto fail = [&] {
+        state_.feet = origin;
+        return false;
+    };
     const auto apply_push = [&](const std::optional<Vec3>& push) {
         if (!push) return false;
         const float length = std::sqrt(length2(*push));
@@ -132,12 +169,12 @@ bool CapsuleCharacter::recover_from_overlap() {
             const Vec3 normal = triangle_normal(triangle);
             const float half = config_.height * 0.5f;
             const float started_on = dot(normal, Vec3{origin.x, origin.y, origin.z + half} - triangle.a);
-            if (started_on != 0.0f && dot(*push, normal) * started_on < 0.0f) return false;  // would cross the triangle
+            if (started_on != 0.0f && dot(*push, normal) * started_on < 0.0f) return fail();  // would cross the triangle
             moved = apply_push(push) || moved;
         }
         if (!moved) return true;
     }
-    return !overlaps(state_.feet, geometry_, triangles_);
+    return !overlaps(state_.feet, geometry_, triangles_) || fail();
 }
 
 std::optional<CapsuleCharacter::GroundContact> CapsuleCharacter::probe_ground(Vec3 feet) const {

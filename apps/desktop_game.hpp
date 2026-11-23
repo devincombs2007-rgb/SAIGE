@@ -9,25 +9,33 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <numeric>
 #include <optional>
+#include <span>
+#include <stdexcept>
 
 namespace saige::sample {
 
 class DesktopGame final : public IGame {
 public:
-    DesktopGame(World& world, IDesktopPlatform& platform, bool course)
+    DesktopGame(World& world, IDesktopPlatform& platform, bool course,
+                std::optional<std::span<const Aabb>> course_boxes = {})
         : marker_(world.create()), platform_(platform) {
         if (!course) return;
-        constexpr std::array geometry{
+        constexpr std::array default_boxes{
             Aabb{{-32, -32, -1}, {32, 32, 0}},
             Aabb{{2.5f, -0.5f, 0}, {3.5f, 0.5f, 1}},
             Aabb{{4.5f, 0.5f, 0}, {5.5f, 1.5f, 1}},
             Aabb{{5.5f, -1.5f, 0}, {6.5f, -0.5f, 1}},
         };
+        const auto geometry = course_boxes.value_or(std::span<const Aabb>(default_boxes));
+        if (geometry.empty() || geometry.front().min.x >= 0 || geometry.front().max.x <= 0 ||
+            geometry.front().min.y >= 0 || geometry.front().max.y <= 0 || geometry.front().max.z != 0) {
+            throw std::invalid_argument("The first course box must be a floor with the origin inside its top face");
+        }
         motor_.emplace(Vec3{}, geometry);
-        for (std::size_t i = 1; i < geometry.size(); ++i) {
-            const auto& box = geometry[i];
-            (void)world.create({(box.min.x + box.max.x) * 0.5f, (box.min.y + box.max.y) * 0.5f, box.min.z});
+        for (const auto& box : geometry.subspan(1)) {
+            (void)world.create({std::midpoint(box.min.x, box.max.x), std::midpoint(box.min.y, box.max.y), box.min.z});
         }
     }
 

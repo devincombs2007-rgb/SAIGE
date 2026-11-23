@@ -166,6 +166,34 @@ void test_desktop_course() {
             "default renderer preview retains its original camera and marker");
 }
 
+void test_authored_course_geometry() {
+    constexpr std::array boxes{
+        Aabb{{-8, -4, -1}, {8, 4, 0}},
+        Aabb{{1.5f, -1, 0}, {2.0f, 1, 1}},
+    };
+    World world;
+    CourseInput input;
+    sample::DesktopGame game(world, input, true, std::span<const Aabb>(boxes));
+    input.forward = true;
+    for (int i = 0; i < 80; ++i) game.fixed_update(world, tick);
+    const auto snapshot = world.snapshot();
+    require(snapshot.size() == 2 && snapshot[1].position == Vec3{1.75f, 0, 0},
+            "authored obstacles appear at their box centers");
+    require(std::abs(snapshot.front().position.x - 1.2f) < 0.001f,
+            "the capsule stops at the authored wall");
+    input.reset = true;
+    game.fixed_update(world, tick);
+    require(world.snapshot().front().position == Vec3{}, "the authored course retains the supported reset");
+
+    World invalid_world;
+    try {
+        sample::DesktopGame invalid(invalid_world, input, true, std::span<const Aabb>{});
+        throw std::runtime_error("an empty course was accepted");
+    } catch (const std::invalid_argument&) {
+        // The course requires support at the reset point.
+    }
+}
+
 class ScriptClock final : public IPlatform {
 public:
     std::chrono::steady_clock::time_point now() override { return time_; }
@@ -229,6 +257,7 @@ int main() {
         test_replay();
         test_geometry_replacement();
         test_desktop_course();
+        test_authored_course_geometry();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

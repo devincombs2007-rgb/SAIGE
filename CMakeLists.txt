@@ -120,6 +120,17 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
     add_library(saige_scene_project STATIC src/chunk_manifest.cpp src/chunk_stream.cpp src/prepared_scene.cpp)
     add_library(saige::scene_project ALIAS saige_scene_project)
     target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets PRIVATE nlohmann_json::nlohmann_json)
+    if(TARGET saige_desktop)
+        target_link_libraries(saige_desktop PRIVATE saige::scene_project)
+        target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_COURSE_FILES)
+        if(SAIGE_TEST_WIN32_VULKAN)
+            add_test(NAME win32_character_course_file_vulkan COMMAND saige_desktop --character-course
+                --course-collision "${CMAKE_CURRENT_SOURCE_DIR}/examples/character-course/course.collision.json"
+                --frames 8 --validate)
+            set_tests_properties(win32_character_course_file_vulkan PROPERTIES
+                TIMEOUT 60 PASS_REGULAR_EXPRESSION "instances=3([^0-9]|$)")
+        endif()
+    endif()
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
     target_link_libraries(saige_scene_asset_tool PRIVATE saige::scene_project)
     if(BUILD_TESTING)

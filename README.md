@@ -47,3 +47,10 @@ Shift to sprint, and Space to jump. Drag with the right mouse button to orbit th
 Press R to reset both the player and camera. Falling off the course also resets both. The prototype uses a fixed-step capsule
 controller against static box geometry. The camera can pass through obstacles. The player and obstacles use the sample cube
 renderer. The course runs separately from saved scene projects.
+
+
+With project and graphics support enabled, launch `saige_desktop --character-course --course-collision
+examples/character-course/course.collision.json --require-rendered` to play an authored course. The first box is the floor, with
+the origin inside its top face at Z=0. The other boxes get cube markers at their base centers. Markers use the sample renderer’s
+default dimensions. The course loads its collision file at startup. Live chunk loading is exercised separately by the streaming
+tests.

@@ -10,7 +10,15 @@
 #if defined(SAIGE_DESKTOP_SCENE)
 #include "saige/prepared_scene.hpp"
 #include "saige/render_sink/prepared_scene.hpp"
+#endif
 
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+#include "saige/chunk_manifest.hpp"
+
+#include <vector>
+#endif
+
+#if defined(SAIGE_DESKTOP_SCENE) || defined(SAIGE_DESKTOP_COURSE_FILES)
 #include <filesystem>
 #endif
 
@@ -20,6 +28,7 @@
 #include <exception>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -103,6 +112,9 @@ private:
 int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
     bool course = false;
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+    std::optional<std::filesystem::path> course_path;
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
     bool require_rendered = false;
     bool validate = false;
@@ -116,6 +128,12 @@ int main(int argc, char** argv) {
             course = true;
             continue;
         }
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (argument == "--course-collision" && !course_path && i + 1 < argc) {
+            course_path = std::filesystem::path(argv[++i]);
+            continue;
+        }
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
         if (argument == "--require-rendered" && !require_rendered) {
             require_rendered = true;
@@ -134,6 +152,9 @@ int main(int argc, char** argv) {
 #endif
         if (argument != "--frames" || frames || ++i == argc) {
             std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course]"
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+                      << " [--course-collision FILE.json]"
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
 #endif
@@ -154,6 +175,18 @@ int main(int argc, char** argv) {
     }
 
     try {
+        std::optional<std::span<const saige::Aabb>> course_boxes;
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        std::vector<saige::Aabb> collision;
+        if (course_path) {
+            if (!course) {
+                std::cerr << "--course-collision requires --character-course\n";
+                return 2;
+            }
+            collision = saige::load_chunk_collision(*course_path);
+            course_boxes = std::span<const saige::Aabb>(collision);
+        }
+#endif
 #if defined(SAIGE_DESKTOP_SCENE)
         // Validate the saved project and its CPU assets before opening a window.
         std::optional<saige::PreparedScene> prepared;
@@ -176,7 +209,7 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
-        saige::sample::DesktopGame game(world, platform, course);
+        saige::sample::DesktopGame game(world, platform, course, course_boxes);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
         // The sink releases its swapchain and surface before the HWND goes away.

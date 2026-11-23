@@ -1,3 +1,4 @@
+#include "saige/capsule_character.hpp"
 #include "saige/chunk_manifest.hpp"
 
 #include <array>
@@ -116,6 +117,64 @@ void test_stream(const std::filesystem::path& fixture) {
     require(stream.commit_frame() && stream.active_count() == 0 && stream.retained_asset_bytes() == 0, "empty desired set unloads all chunks");
 }
 
+void test_collision_handoff(const std::filesystem::path& fixture) {
+    using namespace std::chrono_literals;
+    constexpr auto tick = 16'666'667ns;
+    const ChunkSource west{{-1, 0}, fixture};
+    const ChunkSource east{{0, 0}, fixture};
+    constexpr saige::Aabb west_floor{{-8, -4, -1}, {0, 4, 0}};
+    constexpr saige::Aabb east_floor{{0, -4, -1}, {8, 4, 0}};
+    constexpr saige::Aabb blocked_spawn{{-1.5f, -1, 0}, {0, 1, 2}};
+    constexpr std::array joined{west_floor, east_floor};
+
+    // Use representative local collision fixtures until chunk collision files have a format.
+    saige::CapsuleCharacter player({-0.8f, 0, 0}, std::span(joined).first(1));
+    ChunkStream stream;
+    stream.request(std::array{west});
+    require(stream.stage_next() && stream.commit_frame(), "publish the initial west chunk");
+    const auto* resident_west = stream.active_chunk(west.coord);
+
+    stream.request(std::array{east, west});
+    require(!stream.ready_to_commit() && !stream.commit_frame(), "unprepared neighbor cannot publish");
+    require(stream.stage_next() && stream.ready_to_commit() &&
+                stream.staged_chunk(west.coord) == resident_west && stream.staged_chunk(east.coord),
+            "candidate waits for every desired chunk");
+    const auto original_player = player.state();
+    require(!player.replace_static_geometry(std::array{west_floor, east_floor, blocked_spawn}),
+            "candidate collision overlapping the player must be rejected");
+    stream.cancel();
+    require(player.state() == original_player && stream.active_chunk(west.coord) == resident_west &&
+                !stream.active_chunk(east.coord) && !stream.commit_frame(),
+            "rejecting collision preserves both player state and residency");
+
+    stream.request(std::array{west, east});
+    require(stream.stage_next() && stream.ready_to_commit(), "restage the desired neighbor");
+    require(player.replace_static_geometry(joined) && stream.commit_frame(),
+            "publish accepted collision and residency at the same simulation boundary");
+    const auto* resident_east = stream.active_chunk(east.coord);
+    require(resident_east, "publish the eastern neighbor");
+    for (int step = 0; step < 40; ++step) {
+        player.step({1.0f}, tick);
+        require(player.state().grounded, "player must stay supported crossing the chunk seam");
+    }
+    require(player.state().feet.x > 1.0f, "player reaches the east chunk");
+
+    stream.request(std::array{east});
+    require(stream.ready_to_commit() && stream.staged_chunk(east.coord) == resident_east,
+            "retiring west reuses the east payload without staging");
+    require(player.replace_static_geometry(std::span(joined).last(1)) && stream.commit_frame(),
+            "retire west collision when the player is supported by east");
+    require(!stream.active_chunk(west.coord) && stream.active_chunk(east.coord) == resident_east &&
+                player.state().grounded,
+            "retiring a chunk preserves support and identity in the retained neighbor");
+
+    // Once the original spawn has unloaded, the host must choose a resident reset point.
+    // The handoff itself must not silently clamp the live character to the old chunk.
+    for (int step = 0; step < 140 && player.state().feet.z > -0.1f; ++step) player.step({-1.0f}, tick);
+    require(player.state().feet.x < 0.0f && player.state().feet.z <= -0.1f && !player.state().grounded,
+            "the retired west floor can no longer support the player");
+}
+
 void test_manifest(const std::filesystem::path& fixture) {
     namespace fs = std::filesystem;
     struct Workspace {
@@ -197,6 +256,7 @@ int main(int argc, char** argv) {
     try {
         test_stream(argv[1]);
         test_manifest(argv[1]);
+        test_collision_handoff(argv[1]);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

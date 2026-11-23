@@ -210,7 +210,7 @@ void test_report_contents() {
     require(contains(json, "\"workload\":\"quote\\\"and\\\\slash\""), "strings are escaped");
     require(contains(json, "\"fixed_step_ns\":16666667"), "fixed step");
     // 8 frames of 10 ms and 2 of 20 ms average 12 ms, which is 83.3333 FPS; only the two 20 ms frames exceed 16.67 ms.
-    require(contains(json, "\"average_fps\":83.3333"), "average fps follows the mean frame time");
+    require(contains(json, "\"cpu_average_fps\":83.3333"), "average fps follows the mean frame time");
     require(contains(json, "\"frames_over_budget\":2") && contains(json, "\"frames_over_2x_budget\":0"), "budget counters");
     require(contains(json, "\"chunk.stage_next\":{\"count\":1,\"mean_ms\":40.0000"), "zones are listed with their statistics");
     require(json.find("chunk.stage_next") < json.find("physics.step"), "zones appear in name order");

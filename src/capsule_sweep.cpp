@@ -323,6 +323,7 @@ std::optional<RawHit> raw_sweep_box(const Capsule& capsule, Vec3 displacement, c
 // that exactly, the others to half the contact tolerance so a rounding step along a touched wall does not block the motion.
 CapsuleHit finalize(const Capsule& capsule, Vec3 displacement, RawHit raw, std::span<const Aabb> boxes, std::size_t hit_index) {
     CapsuleHit hit = raw.hit;
+    hit.contact_t = std::max(raw.exact_t, 0.0);
     if (hit.started_overlapping || raw.exact_t <= 0.0) {
         hit.t = 0.0f;
         hit.stop = capsule.feet;

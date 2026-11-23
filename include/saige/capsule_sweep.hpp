@@ -54,6 +54,7 @@ inline constexpr float max_sweep_length = 64.0f;
 struct CapsuleHit {
     float t{};                       // fraction of the displacement at `stop`, in [0, 1]
     Vec3 stop;                       // feet position to adopt: float, clear of the obstacles, within a few coordinate steps of the contact
+    double contact_t{};              // the exact contact fraction in double, before rounding and before the stop's back-off: order hits from different queries by this
     Vec3 normal;                     // unit length, pointing from the box toward the capsule
     Vec3 point;                      // closest point on the box to the capsule's axis at contact
     bool converged{true};            // false only for a triangle sweep that hit its iteration cap: `stop` is clear but may be short of the contact

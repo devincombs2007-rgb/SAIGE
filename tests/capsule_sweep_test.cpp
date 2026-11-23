@@ -323,6 +323,7 @@ void test_nearly_equal_hits_are_ordered_by_the_exact_contact_time() {
     const auto only_far = saige::sweep_capsule_box(c, move, far_box);
     const auto only_near = saige::sweep_capsule_box(c, move, near_box);
     require(only_far && only_near && only_far->t == only_near->t, "the contact times differ by less than a float step");
+    require(only_near->contact_t < only_far->contact_t && only_near->contact_t > 0.0 && only_far->contact_t < 1.0, "while the exact contact fractions (contact_t) tell them apart");
     // Every permutation of three boxes, including a genuine tie (two identical boxes), is decided by the same rule.
     const std::vector<Aabb> trio{far_box, near_box, near_box};
     const int orders[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};

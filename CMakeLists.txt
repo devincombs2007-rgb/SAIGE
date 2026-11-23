@@ -121,6 +121,9 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
     add_library(saige_scene_project STATIC src/chunk_manifest.cpp src/chunk_stream.cpp src/prepared_scene.cpp)
     add_library(saige::scene_project ALIAS saige_scene_project)
     target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets PRIVATE nlohmann_json::nlohmann_json)
+    add_executable(saige_course_bench apps/course_bench.cpp)
+    target_link_libraries(saige_course_bench PRIVATE saige::scene_project)
+    target_compile_definitions(saige_course_bench PRIVATE SAIGE_BENCH_BUILD="$<CONFIG>")
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
     target_link_libraries(saige_scene_asset_tool PRIVATE saige::scene_project)
     if(BUILD_TESTING)
@@ -144,6 +147,10 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
             add_test(NAME scene_asset_preflight COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/scene_asset_preflight_test.py"
                 $<TARGET_FILE:saige_scene_asset_tool> $<TARGET_FILE:saige_scene_trace>)
+            add_test(NAME course_bench_replay COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/course_bench_test.py" $<TARGET_FILE:saige_course_bench>
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
+            set_tests_properties(course_bench_replay PROPERTIES TIMEOUT 120)
         endif()
     endif()
 endif()

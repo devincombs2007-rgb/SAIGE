@@ -43,5 +43,5 @@ See the [Core response to Claude's rendering proposal](docs/core-rendering-contr
 ### Character course
 
 Run `saige_desktop --character-course --require-rendered` from a Windows Vulkan build. Use WASD or the arrow keys to move,
-Shift to sprint, Space to jump, and R to reset. The prototype uses fixed-step movement and static box collision. Its marker
+Shift to sprint, Space to jump, and R to reset. The prototype uses a fixed-step capsule controller against static box geometry. Its marker
 and obstacles use the sample cube renderer. The course runs separately from saved scene projects.

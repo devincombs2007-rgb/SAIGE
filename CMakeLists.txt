@@ -5,7 +5,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(saige_core STATIC
     src/asset_id.cpp
-    src/character_motor.cpp
+    src/capsule_character.cpp
+    src/capsule_sweep.cpp
     src/free_camera.cpp
     src/runtime.cpp
     src/scene_hierarchy.cpp
@@ -30,7 +31,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera character_motor)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character character_course)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)

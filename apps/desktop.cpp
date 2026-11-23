@@ -1,5 +1,5 @@
 #include "saige/win32_platform.hpp"
-#include "saige/character_motor.hpp"
+#include "saige/capsule_character.hpp"
 
 #if defined(SAIGE_DESKTOP_VULKAN)
 #include "saige/render_sink/renderer_frame_sink.hpp"
@@ -32,10 +32,10 @@ public:
         : marker_(world.create()), platform_(platform) {
         if (!course) return;
         constexpr std::array geometry{
-            saige::StaticBox{{-32, -32, -1}, {32, 32, 0}},
-            saige::StaticBox{{2.5f, -0.5f, 0}, {3.5f, 0.5f, 1}},
-            saige::StaticBox{{4.5f, 0.5f, 0}, {5.5f, 1.5f, 1}},
-            saige::StaticBox{{5.5f, -1.5f, 0}, {6.5f, -0.5f, 1}},
+            saige::Aabb{{-32, -32, -1}, {32, 32, 0}},
+            saige::Aabb{{2.5f, -0.5f, 0}, {3.5f, 0.5f, 1}},
+            saige::Aabb{{4.5f, 0.5f, 0}, {5.5f, 1.5f, 1}},
+            saige::Aabb{{5.5f, -1.5f, 0}, {6.5f, -0.5f, 1}},
         };
         motor_.emplace(saige::Vec3{}, geometry);
         for (std::size_t i = 1; i < geometry.size(); ++i) {
@@ -72,7 +72,7 @@ private:
     saige::Entity marker_;
     const saige::IDesktopPlatform& platform_;
     saige::Vec3 position_{};
-    std::optional<saige::CharacterMotor> motor_;
+    std::optional<saige::CapsuleCharacter> motor_;
 };
 
 // The sample reports the submitted pose until a graphics adapter is selected.

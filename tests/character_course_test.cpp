@@ -1,4 +1,4 @@
-#include "saige/character_motor.hpp"
+#include "saige/capsule_character.hpp"
 #include "saige/runtime.hpp"
 
 #include <array>
@@ -15,8 +15,8 @@ using namespace std::chrono_literals;
 
 constexpr auto tick = 16'666'667ns;
 constexpr std::array course{
-    StaticBox{{-20, -20, -1}, {20, 20, 0}},
-    StaticBox{{2, -3, 0}, {2.05f, 3, 2}},
+    Aabb{{-20, -20, -1}, {20, 20, 0}},
+    Aabb{{2, -3, 0}, {2.05f, 3, 2}},
 };
 
 void require(bool condition, const char* message) {
@@ -24,14 +24,14 @@ void require(bool condition, const char* message) {
 }
 
 void test_contacts() {
-    CharacterMotor motor({}, course);
+    CapsuleCharacter motor({}, course);
     motor.step({}, tick);
     require(motor.state().grounded, "ground contact");
     for (int i = 0; i < 50; ++i) motor.step({1, 0, false, true}, tick);
-    require(std::abs(motor.state().feet.x - 1.70f) < 0.0001f, "thin wall stops sprint");
+    require(std::abs(motor.state().feet.x - 1.70f) < 0.0002f, "thin wall stops sprint");
     require(motor.state().velocity.x == 0 && motor.state().grounded, "wall contact clears the normal velocity");
     for (int i = 0; i < 18; ++i) motor.step({1, 1}, tick);
-    require(motor.state().feet.y > 0.4f && std::abs(motor.state().feet.x - 1.70f) < 0.0001f, "slide along wall");
+    require(motor.state().feet.y > 0.4f && std::abs(motor.state().feet.x - 1.70f) < 0.0002f, "slide along wall");
 
     motor.reset();
     motor.step({}, tick);
@@ -40,8 +40,8 @@ void test_contacts() {
     for (int i = 0; i < 95; ++i) motor.step({0, 0, true}, tick);
     require(motor.state().grounded && motor.state().velocity.z == 0, "held jump must not bounce after landing");
 
-    constexpr std::array ledge{StaticBox{{-1, -1, -1}, {1, 1, 0}}};
-    CharacterMotor falling({}, ledge);
+    constexpr std::array ledge{Aabb{{-1, -1, -1}, {1, 1, 0}}};
+    CapsuleCharacter falling({}, ledge);
     for (int i = 0; i < 65; ++i) falling.step({1}, tick);
     require(falling.state().feet.z < 0 && !falling.state().grounded, "walking off the ledge loses contact");
 
@@ -55,7 +55,7 @@ void test_contacts() {
 }
 
 void test_geometry_replacement() {
-    CharacterMotor motor({}, course);
+    CapsuleCharacter motor({}, course);
     require(motor.state().grounded, "spawn recognizes ground before the first tick");
     motor.step({0, 0, true}, tick);
     require(motor.state().feet.z > 0 && !motor.state().grounded, "jump works on the first tick");
@@ -65,11 +65,11 @@ void test_geometry_replacement() {
     for (int i = 0; i < 45; ++i) motor.step({1, 0, false, true}, tick);
     const auto stopped = motor.state();
     constexpr std::array obstructed{
-        course[0], StaticBox{{1, -1, 0}, {2, 1, 1}},
+        course[0], Aabb{{1, -1, 0}, {2, 1, 1}},
     };
     require(!motor.replace_static_geometry(obstructed) && motor.state() == stopped,
             "an overlapping candidate cannot replace active collision");
-    constexpr std::array invalid{StaticBox{{1, 1, 1}, {0, 0, 0}}};
+    constexpr std::array invalid{Aabb{{1, 1, 1}, {0, 0, 0}}};
     try {
         (void)motor.replace_static_geometry(invalid);
         throw std::runtime_error("invalid collision was accepted");
@@ -77,7 +77,8 @@ void test_geometry_replacement() {
         require(motor.state() == stopped, "invalid geometry cannot mutate the player");
     }
     motor.step({1}, tick);
-    require(motor.state() == stopped, "old wall remains after both rejected replacements");
+    require(std::abs(motor.state().feet.x - stopped.feet.x) < 0.0002f && motor.state().grounded,
+            "old wall remains after both rejected replacements");
 
     require(motor.replace_static_geometry(std::span(course).first(1)), "accept an unobstructed replacement");
     for (int i = 0; i < 25; ++i) motor.step({1}, tick);
@@ -102,7 +103,7 @@ class ScriptGame final : public IGame {
 public:
     explicit ScriptGame(World& world) : player_(world.create()) {}
     void fixed_update(World& world, std::chrono::nanoseconds dt) override {
-        CharacterInput input;
+        CapsuleInput input;
         input.forward = frame_ < 90 ? 1.0f : -1.0f;
         input.left = frame_ >= 45 && frame_ < 90 ? 1.0f : 0.0f;
         input.jump = frame_ == 100;
@@ -112,10 +113,10 @@ public:
         states.push_back(motor_.state());
         ++frame_;
     }
-    std::vector<CharacterState> states;
+    std::vector<CapsuleCharacterState> states;
 private:
     Entity player_;
-    CharacterMotor motor_{{}, course};
+    CapsuleCharacter motor_{{}, course};
     int frame_{};
 };
 

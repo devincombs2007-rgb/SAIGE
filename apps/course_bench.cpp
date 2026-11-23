@@ -220,6 +220,12 @@ int main(int argc, char** argv) {
         }
         saige::World world;
         saige::perf::Zones zones;
+        // Reserve every zone used in the fixed-step loop so recording there cannot allocate or fail (see perf.hpp).
+        const auto ticks_expected = static_cast<std::size_t>(frames);
+        const auto chunk_ticks_expected = static_cast<std::size_t>(std::min<std::uint64_t>(frames, 65536));
+        zones.reserve("fixed_step", ticks_expected);
+        zones.reserve("physics.step", ticks_expected);
+        for (const char* zone : {"chunk.request", "chunk.stage_next", "chunk.commit_frame"}) zones.reserve(zone, chunk_ticks_expected);
         BenchGame game(world, make_course(static_cast<std::size_t>(obstacles)), std::move(sources), zones);
         saige::perf::TimedGame timed(game, zones);
         saige::perf::FrameRecorder recorder({.measure_wall_interval = true, .memory_every_frames = 60,

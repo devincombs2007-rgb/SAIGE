@@ -76,8 +76,10 @@ bool CapsuleCharacter::overlaps(Vec3 feet, std::span<const Aabb> geometry) const
     return std::any_of(geometry.begin(), geometry.end(), [&](const Aabb& box) { return capsule_box_push_out(capsule, box).has_value(); });
 }
 
-void CapsuleCharacter::recover_from_overlap() {
-    // Normally a no-op. It exists for float rounding at large coordinates and for geometry that changed under the character.
+bool CapsuleCharacter::recover_from_overlap() {
+    // Normally a no-op. It exists for float rounding at large coordinates and for geometry that changed under the character. A bounded
+    // number of passes resolves boxes one after another; a capsule squeezed between surfaces that are closer than its width cannot be
+    // separated from both, so the result says whether it ended up clear.
     for (int pass = 0; pass < 4; ++pass) {
         bool moved = false;
         for (const Aabb& box : geometry_) {
@@ -87,8 +89,9 @@ void CapsuleCharacter::recover_from_overlap() {
                 moved = true;
             }
         }
-        if (!moved) return;
+        if (!moved) return true;
     }
+    return !overlaps(state_.feet, geometry_);
 }
 
 std::optional<CapsuleCharacter::GroundContact> CapsuleCharacter::probe_ground(Vec3 feet) const {
@@ -202,7 +205,7 @@ void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
     }
     const float seconds = std::chrono::duration<float>(dt).count();
 
-    recover_from_overlap();
+    (void)recover_from_overlap();  // a trapped capsule cannot be freed here; it simply cannot move (every sweep starts overlapping)
 
     // Horizontal velocity moves toward the input's target, faster on the ground than in the air.
     const float speed = input.sprint ? config_.sprint_speed : config_.walk_speed;
@@ -244,31 +247,39 @@ bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> geometry) {
     if (overlaps(state_.feet, geometry) || overlaps(spawn_, geometry)) return false;
     std::vector<Aabb> candidate(geometry.begin(), geometry.end());
     geometry_.swap(candidate);
-    const auto hit = sweep(state_.feet, {0.0f, 0.0f, -config_.ground_snap - skin});
-    state_.grounded = hit && is_walkable(hit->normal, config_.max_slope_radians) && state_.velocity.z <= 0.0f;
+    // The same ground probe as a step uses (it looks past a steep rim the capsule is touching), so a collision swap keeps the support a
+    // character already had.
+    const auto ground = probe_ground(state_.feet);
+    state_.grounded = ground.has_value() && state_.velocity.z <= 0.0f;
     if (state_.grounded) {
-        state_.ground_normal = hit->normal;
+        state_.ground_normal = ground->normal;
         state_.velocity.z = 0.0f;
     }
     return true;
 }
 
-void CapsuleCharacter::teleport(Vec3 feet) {
+bool CapsuleCharacter::teleport(Vec3 feet) {
     if (!finite(feet)) throw std::invalid_argument("Capsule character teleport position must be finite");
+    const CapsuleCharacterState saved = state_;  // transactional: a blocked teleport leaves the character exactly as it was
     state_.feet = feet;
     state_.velocity = {};
     state_.grounded = false;
-    recover_from_overlap();
+    if (!recover_from_overlap()) {
+        state_ = saved;
+        return false;
+    }
     snap_to_ground();
+    return true;
 }
 
 void CapsuleCharacter::reset() {
     state_ = {};
     state_.feet = spawn_;
     previous_jump_ = false;
-    const auto hit = sweep(spawn_, {0.0f, 0.0f, -config_.ground_snap - skin});
-    state_.grounded = hit && is_walkable(hit->normal, config_.max_slope_radians);
-    if (state_.grounded) state_.ground_normal = hit->normal;
+    if (const auto ground = probe_ground(spawn_)) {  // the same probe as a step: a spawn touching a ledge's rim still counts as supported
+        state_.grounded = true;
+        state_.ground_normal = ground->normal;
+    }
 }
 
 } // namespace saige

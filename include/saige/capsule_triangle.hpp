@@ -10,8 +10,16 @@
 // distance between the core segment and the triangle equals the radius". That distance is computed from its features: the segment
 // crossing the face, an endpoint against the face, edges or vertices, and the segment against each edge. The sweep is conservative
 // advancement along the separating axis between the closest points. For a pure translation that step is rigorous (the capsule cannot
-// reach the triangle sooner), so a sweep can neither tunnel nor stop early beyond the tolerance, however long the displacement,
-// and a path that is moving away or parallel is rejected immediately. Contact normals come out right on faces, edges and vertices.
+// reach the triangle sooner), so a sweep cannot tunnel, and a path that is moving away or parallel is rejected immediately. Contact
+// normals come out right on faces, edges and vertices.
+//
+// Envelope and stop: the same contract as the box sweep (capsule_sweep.hpp): chunk-local meters, the capsule's path within
+// +-max_local_extent and at most max_sweep_length long, otherwise std::invalid_argument (never a low-precision answer). Apply
+// `CapsuleHit::stop`, not `feet + displacement * t` in float: it is the float position nearest the exact contact at which the capsule
+// is clear of every triangle in the query (the hit one exactly, the others within half the contact tolerance), found by the shared
+// detail::conservative_stop. If the iteration cap ends the search before the gap closes, the hit has `converged == false` and the stop
+// is a clear position short of the contact (never past it); a controller may continue from it on the next tick. No grazing case in
+// the tests reaches the cap. Triangles may extend beyond the envelope; only the capsule's path is bounded.
 //
 // Touching rule (the same as the box sweep): a capsule within 1e-5 of a triangle that is not moving into it does not hit it, so it
 // can slide along a surface. A capsule that starts penetrating reports started_overlapping with the push-out direction as the normal.

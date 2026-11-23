@@ -4,7 +4,7 @@
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `sun_direction` | points toward the sun; any nonzero length, normalized on use | `(-0.40, -0.55, 0.73)` |
+| `sun_direction` | points toward the sun; any finite nonzero vector, normalized on use without squaring it (so magnitudes from 1e-40 to FLT_MAX all work) | `(-0.40, -0.55, 0.73)` |
 | `sun_color` | linear radiance scale of the sun; may exceed 1 when `RendererSettings::hdr` is on | `(1.00, 0.95, 0.85)` |
 | `ambient_ground` | ambient light arriving from below | `(0.20, 0.18, 0.16)` |
 

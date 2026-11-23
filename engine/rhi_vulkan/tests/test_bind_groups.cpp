@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -243,6 +244,68 @@ TEST_CASE("Vulkan bind groups: a sampled texture reaches the shader texel for te
         }
         CHECK(mismatches == 0);
         device->destroy(group);
+        device->destroy(sampler);
+        device->destroy(tex);
+    }
+    CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("Vulkan bind groups: a failure after the descriptor set is acquired releases it, so capacity does not leak (issue #66)")
+{
+    const auto device = make_validated_device("bind_group_rollback");
+    {
+        Fixture f(*device);
+        const rhi::TextureHandle tex = device->create_texture(sampled(1));
+        device->upload_texture(tex, pattern(kSize, kSize));
+        const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+
+        // The expected picture, from a group made before any failure.
+        const rhi::BindGroupHandle first = f.make_group(tex, sampler);
+        const std::vector<uint8_t> expected = f.draw(first);
+        const size_t before = rhi::testing::descriptor_sets_in_use(*device);
+        REQUIRE(before >= 1);
+
+        // Each failed call has already acquired a set from the driver when it throws. All of them must be given back: the
+        // count of sets in use is exactly what it was, however many calls failed. (Pool growth would show a leak only on drivers
+        // that enforce the pool's 256-set limit, which lavapipe does not.)
+        size_t failures = 0;
+        for (int i = 0; i < 600; ++i) {
+            rhi::testing::fail_bind_group_after_acquisition(1);
+            try {
+                (void)f.make_group(tex, sampler);
+            } catch (const std::bad_alloc&) {
+                ++failures;
+            }
+            rhi::testing::fail_bind_group_after_acquisition(0);
+            if (failures != static_cast<size_t>(i + 1) || rhi::testing::descriptor_sets_in_use(*device) != before) {
+                break;
+            }
+        }
+        CHECK(failures == 600);
+        CHECK(rhi::testing::descriptor_sets_in_use(*device) == before);
+
+        // The same for a failure at the very end, after the descriptor writes and just before the handle is published.
+        for (int i = 0; i < 100; ++i) {
+            rhi::testing::fail_bind_group_before_publication(1);
+            bool threw = false;
+            try {
+                (void)f.make_group(tex, sampler);
+            } catch (const std::bad_alloc&) {
+                threw = true;
+            }
+            rhi::testing::fail_bind_group_before_publication(0);
+            CHECK(threw);
+            if (!threw) break;
+        }
+        CHECK(rhi::testing::descriptor_sets_in_use(*device) == before);
+
+        // The caller's resources are untouched and the device keeps working: a retry renders the same picture.
+        const rhi::BindGroupHandle retry = f.make_group(tex, sampler);
+        CHECK(rhi::testing::descriptor_sets_in_use(*device) == before + 1);
+        CHECK(f.draw(retry) == expected);
+
+        device->destroy(retry);
+        device->destroy(first);
         device->destroy(sampler);
         device->destroy(tex);
     }

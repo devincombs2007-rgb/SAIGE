@@ -39,8 +39,27 @@ bool consume_memory_bookkeeping_fault() noexcept
     }
     return false;
 }
+
+std::atomic<uint32_t> g_bind_group_fault{0};          // test hook: countdown to a failure just after a descriptor set is acquired
+std::atomic<uint32_t> g_bind_group_publish_fault{0};  // test hook: countdown to a failure just before the handle is published
+
+/// True exactly once, for the bind group the test asked to fail.
+bool consume_countdown(std::atomic<uint32_t>& countdown) noexcept
+{
+    uint32_t n = countdown.load(std::memory_order_relaxed);
+    while (n != 0) {
+        if (countdown.compare_exchange_weak(n, n - 1, std::memory_order_relaxed)) {
+            return n == 1;
+        }
+    }
+    return false;
+}
+bool consume_bind_group_fault() noexcept { return consume_countdown(g_bind_group_fault); }
+bool consume_bind_group_publish_fault() noexcept { return consume_countdown(g_bind_group_publish_fault); }
 #else
 constexpr bool consume_memory_bookkeeping_fault() noexcept { return false; }  // production builds carry no injection point
+constexpr bool consume_bind_group_fault() noexcept { return false; }
+constexpr bool consume_bind_group_publish_fault() noexcept { return false; }
 #endif
 
 using vk::Api;
@@ -405,6 +424,10 @@ private:
 
 class VulkanDevice final : public Device {
 public:
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+    /// Descriptor sets acquired from the driver and not yet freed. Exact, unlike pool growth, which drivers report differently.
+    [[nodiscard]] std::size_t descriptor_sets_in_use_for_test() const noexcept { return descriptor_sets_in_use_; }
+#endif
     explicit VulkanDevice(const DeviceDesc& desc);
     ~VulkanDevice() override;
 
@@ -509,6 +532,7 @@ private:
     HandlePool<VkBindGroupLayoutRes, BindGroupLayoutTag> bind_group_layouts_;
     HandlePool<VkBindGroupRes, BindGroupTag> bind_groups_;
     std::vector<VkDescriptorPool> descriptor_pools_;  ///< sets are allocated from the back; grows when it is full
+    std::size_t descriptor_sets_in_use_ = 0;  ///< sets handed out by allocate_descriptor_set and not yet freed
     HandlePool<VkShaderRes, ShaderTag> shaders_;
     HandlePool<VkPipelineRes, PipelineTag> pipelines_;
     HandlePool<VkSwapchainRes, SwapchainTag> swapchains_;
@@ -1391,6 +1415,7 @@ VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layo
         const VkResult r = try_allocate(descriptor_pools_.back(), set);
         if (r == VK_SUCCESS) {
             pool_out = descriptor_pools_.back();
+            ++descriptor_sets_in_use_;
             return set;
         }
         if (r != VK_ERROR_OUT_OF_POOL_MEMORY && r != VK_ERROR_FRAGMENTED_POOL) {
@@ -1414,6 +1439,7 @@ VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layo
     descriptor_pools_.push_back(pool);
     check(try_allocate(pool, set), "vkAllocateDescriptorSets (new pool)");
     pool_out = pool;
+    ++descriptor_sets_in_use_;
     return set;
 }
 
@@ -1474,14 +1500,37 @@ BindGroupHandle VulkanDevice::create_bind_group(BindGroupLayoutHandle layout, st
         throw std::invalid_argument(std::string("create_bind_group: ") + v.error);
     }
 
+    // Every fallible host allocation happens before the driver hands out a descriptor set, so a failed allocation here costs
+    // nothing native. The guard below covers what remains between acquisition and publishing the handle.
     VkBindGroupRes res;
     res.layout_handle = layout;
-    res.set = allocate_descriptor_set(l->layout, res.pool);
-
+    res.textures.reserve(entries.size());
+    res.samplers.reserve(entries.size());
+    res.buffers.reserve(entries.size());
     std::vector<VkDescriptorImageInfo> images(entries.size());
     std::vector<VkDescriptorBufferInfo> buffers(entries.size());
     std::vector<VkWriteDescriptorSet> writes;
     writes.reserve(entries.size());
+
+    res.set = allocate_descriptor_set(l->layout, res.pool);
+    // The set has never been used by the GPU, so freeing it immediately is valid; deferral applies only to published groups.
+    struct DescriptorSetGuard {
+        VulkanDevice* device;
+        VkDescriptorPool pool;
+        VkDescriptorSet set;
+        bool armed = true;
+        ~DescriptorSetGuard()
+        {
+            if (armed) {
+                device->vk_.vkFreeDescriptorSets(device->device_, pool, 1, &set);
+                --device->descriptor_sets_in_use_;
+            }
+        }
+    } guard{this, res.pool, res.set};
+    if (consume_bind_group_fault()) {
+        throw std::bad_alloc();  // test hook: a host allocation failing after native acquisition
+    }
+
     for (const BindGroupLayoutEntry& expected : l->desc.entries) {
         for (std::size_t i = 0; i < entries.size(); ++i) {
             const BindGroupEntry& e = entries[i];
@@ -1516,7 +1565,12 @@ BindGroupHandle VulkanDevice::create_bind_group(BindGroupLayoutHandle layout, st
         }
     }
     vk_.vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    return bind_groups_.emplace(std::move(res));
+    if (consume_bind_group_publish_fault()) {
+        throw std::bad_alloc();  // test hook: the handle pool failing to grow
+    }
+    const BindGroupHandle handle = bind_groups_.emplace(std::move(res));  // may allocate: the guard is still armed
+    guard.armed = false;  // published: destroy() now owns the set
+    return handle;
 }
 
 void VulkanDevice::destroy(BindGroupLayoutHandle handle)
@@ -1536,7 +1590,10 @@ void VulkanDevice::destroy(BindGroupHandle handle)
         std::cerr << "[saige.vulkan] warning: destroy() on an invalid bind group handle\n";
         return;
     }
-    defer([this, pool = res->pool, set = res->set] { vk_.vkFreeDescriptorSets(device_, pool, 1, &set); });
+    defer([this, pool = res->pool, set = res->set] {
+        vk_.vkFreeDescriptorSets(device_, pool, 1, &set);
+        --descriptor_sets_in_use_;
+    });
 }
 
 void VulkanDevice::destroy(SamplerHandle handle)
@@ -2507,6 +2564,22 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept
 uint32_t process_validation_error_count() noexcept
 {
     return g_process_validation_errors.load(std::memory_order_relaxed);
+}
+
+void fail_bind_group_after_acquisition(uint32_t n) noexcept
+{
+    g_bind_group_fault.store(n, std::memory_order_relaxed);
+}
+
+void fail_bind_group_before_publication(uint32_t n) noexcept
+{
+    g_bind_group_publish_fault.store(n, std::memory_order_relaxed);
+}
+
+std::size_t descriptor_sets_in_use(const Device& device)
+{
+    const auto* vulkan = dynamic_cast<const VulkanDevice*>(&device);
+    return vulkan != nullptr ? vulkan->descriptor_sets_in_use_for_test() : 0;
 }
 } // namespace testing
 #endif

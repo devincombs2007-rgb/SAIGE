@@ -23,6 +23,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 
 add_library(saige_rhi STATIC
     src/bindless_allocator.cpp
+    src/blend.cpp
     src/resource_desc.cpp
 )
 add_library(saige::rhi ALIAS saige_rhi)
@@ -37,6 +38,7 @@ if(SAIGE_RHI_BUILD_TESTS)
     saige_gfx_add_test(saige_rhi_tests
         SOURCES
             tests/test_barrier.cpp
+            tests/test_blend.cpp
             tests/test_bindless_allocator.cpp
             tests/test_format.cpp
             tests/test_handle.cpp

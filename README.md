@@ -38,3 +38,12 @@ See the [Core response to Claude's rendering proposal](docs/core-rendering-contr
 - [Architecture](docs/architecture.md) and [Core rendering contract](docs/core-rendering-contract.md)
 - [Engine standards](docs/standards/), such as the coordinate system (right-handed, Z-up, meters)
 - [Rendering and asset systems](docs/rendering/): RHI, Vulkan backend, render graph, shaders, asset pipeline
+
+
+### Character course
+
+Run `saige_desktop --character-course --require-rendered` from a Windows Vulkan build. Use WASD or the arrow keys to move,
+Shift to sprint, and Space to jump. Drag with the right mouse button to orbit the camera. Movement follows the camera’s heading.
+Press R to reset both the player and camera. Falling off the course also resets both. The prototype uses a fixed-step capsule
+controller against static box geometry. The camera can pass through obstacles. The player and obstacles use the sample cube
+renderer. The course runs separately from saved scene projects.

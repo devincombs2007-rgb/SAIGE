@@ -30,10 +30,13 @@ endif()
 
 add_library(saige_render STATIC
     src/camera.cpp
+    src/env_brdf.cpp
+    src/env_brdf_asset.cpp
     src/gpu_resources.cpp
     src/model_renderer.cpp
     src/render_graph.cpp
     src/scene_renderer.cpp
+    src/tonemap.cpp
     src/transform.cpp
 )
 add_library(saige::render ALIAS saige_render)
@@ -46,7 +49,19 @@ target_include_directories(saige_render PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../
 target_link_libraries(saige_render PUBLIC saige::rhi)
 saige_gfx_configure_target(saige_render)
 
+# Generator and checker of the embedded environment BRDF table (engine/render/tools/envbrdf_gen.cpp). Regenerate with
+# `cmake --build <dir> --target saige_regenerate_env_brdf` after changing the BRDF terms (and bump kEnvBrdfTableVersion).
+add_executable(saige_envbrdf_gen tools/envbrdf_gen.cpp)
+target_link_libraries(saige_envbrdf_gen PRIVATE saige_render)
+saige_gfx_configure_target(saige_envbrdf_gen)
+add_custom_target(saige_regenerate_env_brdf
+    COMMAND saige_envbrdf_gen generate ${CMAKE_CURRENT_SOURCE_DIR}/src/generated/env_brdf_table.inc
+    COMMENT "Regenerating the embedded environment BRDF table (about 7 s at -O2)"
+    VERBATIM)
+
 if(SAIGE_RENDER_BUILD_TESTS)
+    add_test(NAME saige_env_brdf_table_up_to_date COMMAND saige_envbrdf_gen verify)
+    set_tests_properties(saige_env_brdf_table_up_to_date PROPERTIES TIMEOUT 120)
     # The registry's fault-injection hook (render::testing) exists only in builds that build the tests.
     target_compile_definitions(saige_render PUBLIC SAIGE_RENDER_TESTING)
     enable_testing()
@@ -56,8 +71,12 @@ if(SAIGE_RENDER_BUILD_TESTS)
             tests/test_gpu_resources.cpp
             tests/test_math.cpp
             tests/test_render_graph.cpp
+            tests/test_tonemap.cpp
             tests/test_scene_renderer.cpp
+            tests/test_shader_derivatives.cpp
             tests/test_transform.cpp
         LINK saige::render saige::rhi_null
     )
+    # test_shader_derivatives.cpp reads the embedded SPIR-V of the model pixel shader.
+    target_include_directories(saige_render_tests PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../../shaders/generated)
 endif()

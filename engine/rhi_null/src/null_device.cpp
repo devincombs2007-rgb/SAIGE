@@ -101,6 +101,15 @@ struct NullDevice::Impl {
         return true;
     }
 
+    uint32_t creation_failure_countdown = 0;  // fail_creation_after
+
+    void maybe_fail_creation(const char* what)
+    {
+        if (creation_failure_countdown != 0 && --creation_failure_countdown == 0) {
+            throw std::runtime_error(std::string("NullDevice: injected failure creating ") + what);
+        }
+    }
+
     void error(std::string message)
     {
         std::cerr << "[saige.null] validation: " << message << '\n';
@@ -474,6 +483,7 @@ const DeviceInfo& NullDevice::info() const noexcept
 
 BufferHandle NullDevice::create_buffer(const BufferDesc& desc, std::span<const std::byte> initial_data)
 {
+    impl_->maybe_fail_creation("buffer");
     if (const ValidationResult v = validate(desc); !v) {
         throw std::invalid_argument(std::string("create_buffer: ") + v.error);
     }
@@ -492,6 +502,7 @@ BufferHandle NullDevice::create_buffer(const BufferDesc& desc, std::span<const s
 
 TextureHandle NullDevice::create_texture(const TextureDesc& desc)
 {
+    impl_->maybe_fail_creation("texture");
     if (const ValidationResult v = validate(desc); !v) {
         throw std::invalid_argument(std::string("create_texture: ") + v.error);
     }
@@ -515,6 +526,7 @@ void NullDevice::upload_texture(TextureHandle texture, std::span<const std::byte
 
 SamplerHandle NullDevice::create_sampler(const SamplerDesc& desc)
 {
+    impl_->maybe_fail_creation("sampler");
     if (const ValidationResult v = validate(desc); !v) {
         throw std::invalid_argument(std::string("create_sampler: ") + v.error);
     }
@@ -523,6 +535,7 @@ SamplerHandle NullDevice::create_sampler(const SamplerDesc& desc)
 
 BindGroupLayoutHandle NullDevice::create_bind_group_layout(const BindGroupLayoutDesc& desc)
 {
+    impl_->maybe_fail_creation("bind group layout");
     if (const ValidationResult v = validate(desc); !v) {
         throw std::invalid_argument(std::string("create_bind_group_layout: ") + v.error);
     }
@@ -533,6 +546,7 @@ BindGroupLayoutHandle NullDevice::create_bind_group_layout(const BindGroupLayout
 
 BindGroupHandle NullDevice::create_bind_group(BindGroupLayoutHandle layout, std::span<const BindGroupEntry> entries)
 {
+    impl_->maybe_fail_creation("bind group");
     const NullBindGroupLayout* l = impl_->bind_group_layouts.get(layout);
     if (l == nullptr) {
         throw std::invalid_argument("create_bind_group: invalid layout");
@@ -605,6 +619,7 @@ uint64_t NullDevice::uploaded_bytes(TextureHandle texture) const noexcept
 
 ShaderHandle NullDevice::create_shader(const ShaderDesc& desc)
 {
+    impl_->maybe_fail_creation("shader");
     if (desc.spirv.size() < 5 || desc.spirv[0] != spirv_magic) {
         throw std::invalid_argument("create_shader: not a SPIR-V module");
     }
@@ -618,6 +633,7 @@ ShaderHandle NullDevice::create_shader(const ShaderDesc& desc)
 
 PipelineHandle NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& desc)
 {
+    impl_->maybe_fail_creation("pipeline");
     const NullShader* vs = impl_->shaders.get(desc.vertex_shader);
     const NullShader* ps = impl_->shaders.get(desc.pixel_shader);
     if (vs == nullptr || vs->desc.stage != ShaderStage::Vertex) {
@@ -647,6 +663,9 @@ PipelineHandle NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& 
         layout_descs.push_back(&l->desc);
     }
     if (const ValidationResult v = validate_pipeline_bindings(layout_descs); !v) {
+        throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
+    }
+    if (const ValidationResult v = validate_blend_state(desc.blend, desc.color_formats); !v) {
         throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
     }
     return impl_->pipelines.emplace(NullPipeline{desc});
@@ -703,6 +722,11 @@ std::optional<TextureDesc> NullDevice::texture_desc(TextureHandle handle) const
 {
     const NullTexture* t = impl_->textures.get(handle);
     return t != nullptr ? std::optional<TextureDesc>(t->desc) : std::nullopt;
+}
+
+void NullDevice::fail_creation_after(uint32_t n) noexcept
+{
+    impl_->creation_failure_countdown = n;
 }
 
 SwapchainHandle NullDevice::create_swapchain(const SwapchainDesc& desc)

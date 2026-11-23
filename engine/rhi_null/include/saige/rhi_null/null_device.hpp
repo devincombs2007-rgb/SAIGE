@@ -95,6 +95,11 @@ public:
     [[nodiscard]] DeviceMemoryStats memory_stats() const override;
 
     // ----- Test inspection ------------------------------------------------------------------------------
+    /// Fault injection: the n-th (1-based) creation after this call (buffer, texture, sampler, bind group layout, bind group, shader or
+    /// pipeline, counted together in call order) throws std::runtime_error, as a failed device allocation would, leaving nothing
+    /// registered for that call. 0 cancels. Consumed by the creation it fails. Lets tests prove that code acquiring several resources
+    /// releases the earlier ones when a later acquisition fails.
+    void fail_creation_after(uint32_t n) noexcept;
     /// Commands recorded in the most recently ended frame.
     [[nodiscard]] const std::vector<RecordedCommand>& last_frame_commands() const noexcept;
     [[nodiscard]] const std::vector<std::string>& validation_messages() const noexcept;

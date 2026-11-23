@@ -21,6 +21,7 @@
 // carries over unchanged when one exists.
 
 #include "saige/capsule_sweep.hpp"
+#include "saige/capsule_triangle.hpp"
 
 #include <chrono>
 #include <span>
@@ -62,6 +63,9 @@ class CapsuleCharacter {
 public:
     // Throws std::invalid_argument for an invalid config, a non-finite spawn, invalid boxes, or a spawn that overlaps geometry.
     CapsuleCharacter(Vec3 spawn, std::span<const Aabb> geometry, CapsuleCharacterConfig config = {});
+    // The same with static triangles (ramps and other non-box surfaces, see capsule_triangle.hpp) alongside the boxes. Invalid triangles
+    // throw. Triangles are two-sided; the slope, step and ground rules below apply to their contact normals unchanged.
+    CapsuleCharacter(Vec3 spawn, std::span<const Aabb> boxes, std::span<const Triangle> triangles, CapsuleCharacterConfig config = {});
 
     // One fixed step. Throws std::invalid_argument for non-finite input or a step that is not in (0, 100 ms].
     void step(CapsuleInput input, std::chrono::nanoseconds dt);
@@ -69,6 +73,8 @@ public:
     // Replaces the static collision between ticks. Returns false, and changes nothing, if the new set overlaps the character or the
     // reset position. Invalid boxes throw. Grounded state is recomputed against the new geometry.
     bool replace_static_geometry(std::span<const Aabb> geometry);
+    // The same for boxes and triangles together.
+    bool replace_static_geometry(std::span<const Aabb> boxes, std::span<const Triangle> triangles);
 
     // Back to the spawn, at rest.
     void reset();
@@ -84,7 +90,7 @@ public:
 private:
     [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, config_.height}; }
     [[nodiscard]] std::optional<CapsuleHit> sweep(Vec3 feet, Vec3 displacement) const;
-    [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> geometry) const;
+    [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
     void recover_from_overlap();
     void slide(Vec3 displacement, bool can_step);
     bool try_step_up(Vec3 leftover);
@@ -99,8 +105,10 @@ private:
     CapsuleCharacterConfig config_;
     Vec3 spawn_;
     std::vector<Aabb> geometry_;
+    std::vector<Triangle> triangles_;
     CapsuleCharacterState state_;
     bool previous_jump_{};
+    bool steep_contact_{};  // the last tick met a surface that faces up but is too steep to stand on (a slide, not a fall)
 };
 
 } // namespace saige

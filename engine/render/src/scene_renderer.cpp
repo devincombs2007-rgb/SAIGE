@@ -80,7 +80,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_(settings),
+      settings_((validate_lighting(settings.lighting), settings)),
       registry_(device)
 {
     using namespace saige::shaders;
@@ -236,6 +236,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
         ms.alpha_blending = settings_.alpha_blending;
+        ms.lighting = settings_.lighting;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;

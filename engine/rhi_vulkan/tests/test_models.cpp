@@ -38,16 +38,15 @@ RendererSettings model_settings()
     return s;
 }
 
-/// K(normal) for the three channels: the shader's ambient + sun terms.
-Float3 lighting_k(Float3 n, const RendererSettings& s)
+/// K(normal) for the three channels: the shader's ambient + sun terms, for the given lighting (the default is the long-standing one).
+Float3 lighting_k(Float3 n, const RendererSettings& s, const SceneLighting& light = {})
 {
-    const Float3 sun = normalize(Float3{-0.40f, -0.55f, 0.73f});
+    const Float3 sun = normalize(light.sun_direction);
     const float ndl = std::max(0.0f, dot(n, sun));
     const float t = n.z * 0.5f + 0.5f;
-    const Float3 ground{0.20f, 0.18f, 0.16f};
     const Float3 sky{s.sky.r * 0.6f, s.sky.g * 0.6f, s.sky.b * 0.6f};
-    const Float3 ambient = ground * (1.0f - t) + sky * t;
-    return {ambient.x + 1.00f * ndl, ambient.y + 0.95f * ndl, ambient.z + 0.85f * ndl};
+    const Float3 ambient = light.ambient_ground * (1.0f - t) + sky * t;
+    return {ambient.x + light.sun_color.x * ndl, ambient.y + light.sun_color.y * ndl, ambient.z + light.sun_color.z * ndl};
 }
 
 struct Pixel {
@@ -74,11 +73,12 @@ struct Rig {
     std::unique_ptr<OffscreenTarget> target;
 
     /// `shading`: Legacy (the default, the 0.2 look) or Extended (also shades the emissive and occlusion textures).
-    explicit Rig(const char* name, ModelShading shading = ModelShading::Legacy)
+    explicit Rig(const char* name, ModelShading shading = ModelShading::Legacy, const SceneLighting& lighting = {})
     {
         device = make_validated_device(name, /*synchronization=*/true);
         RendererSettings settings = model_settings();
         settings.model_shading = shading;
+        settings.lighting = lighting;
         renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, settings);
         target = std::make_unique<OffscreenTarget>(*device, kW, kH);
     }
@@ -143,6 +143,65 @@ Float3 texel_linear(bool orange)
 }
 
 } // namespace
+
+TEST_CASE("Models: scene lighting is configurable, and the default is the long-standing look")
+{
+    const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+    const Float3 center{0, 0, 1.5f};
+    // A mid-grey quad facing -X (toward the camera); the pixel at its center is albedo * K(-X) under the configured lighting.
+    const auto center_pixel = [&](const SceneLighting& light, Image* whole = nullptr) {
+        Rig rig("model_lighting", ModelShading::Legacy, light);
+        MaterialParams grey;
+        grey.base_color[0] = grey.base_color[1] = grey.base_color[2] = 0.5f;
+        const GpuModel quad = make_quad(rig.renderer->registry(), rig.material(grey), 0.0f, 1.5f);
+        const ModelDraw draw{&quad, Mat4::identity()};
+        const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+        Image img = rig.render(camera, std::span(&draw, 1));
+        const Float3 got = linear_at(img, to_pixel(vp, center));
+        CHECK(rig.device->validation_error_count() == 0);
+        if (whole != nullptr) *whole = std::move(img);
+        return got;
+    };
+    const auto expected = [&](const SceneLighting& light) { return lighting_k({-1, 0, 0}, model_settings(), light) * 0.5f; };
+
+    // Explicitly passing the defaults is byte-identical to not mentioning lighting at all.
+    Image implicit_default, explicit_default;
+    {
+        Rig rig("model_lighting_default");
+        MaterialParams grey;
+        grey.base_color[0] = grey.base_color[1] = grey.base_color[2] = 0.5f;
+        const GpuModel quad = make_quad(rig.renderer->registry(), rig.material(grey), 0.0f, 1.5f);
+        const ModelDraw draw{&quad, Mat4::identity()};
+        implicit_default = rig.render(camera, std::span(&draw, 1));
+    }
+    center_pixel(SceneLighting{}, &explicit_default);
+    CHECK(implicit_default.rgba == explicit_default.rgba);
+
+    // A sun shining straight onto the quad's face, with a tinted ambient from below.
+    SceneLighting front;
+    front.sun_direction = {-1.0f, 0.0f, 0.0f};
+    front.sun_color = {0.50f, 0.35f, 0.20f};
+    front.ambient_ground = {0.05f, 0.10f, 0.30f};
+    CHECK(near3(center_pixel(front), expected(front), 0.02f));
+
+    // The same sun behind the quad leaves only the ambient; and a sun that is not unit length is normalized.
+    SceneLighting behind = front;
+    behind.sun_direction = {1.0f, 0.0f, 0.0f};
+    CHECK(near3(center_pixel(behind), expected(behind), 0.02f));
+    // (Along the face's normal a long direction would saturate to the same value, so use a grazing one: the cosine is 0.5.)
+    SceneLighting grazing_long = front;
+    grazing_long.sun_direction = {-1.5f, 2.598076f, 0.0f};  // 3 x (-0.5, 0.866025, 0)
+    SceneLighting grazing_unit = front;
+    grazing_unit.sun_direction = {-0.5f, 0.866025f, 0.0f};
+    CHECK(near3(center_pixel(grazing_long), expected(grazing_unit), 0.02f));
+    // The lit and unlit pictures differ by exactly the sun term, so the sun color really is what lights the face.
+    const Float3 lit = center_pixel(front), unlit = center_pixel(behind);
+    CHECK(near3(lit - unlit, front.sun_color * 0.5f, 0.02f));
+
+    // A grazing sun lights the face by cos(angle), not by a constant.
+    CHECK(near3(center_pixel(grazing_unit), expected(grazing_unit), 0.02f));
+    CHECK(center_pixel(grazing_unit).x < lit.x);
+}
 
 TEST_CASE("Models: a textured quad shows its texture in the right orientation and lit by the oracle")
 {

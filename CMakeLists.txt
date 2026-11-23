@@ -7,6 +7,7 @@ add_library(saige_core STATIC
     src/asset_id.cpp
     src/capsule_character.cpp
     src/capsule_sweep.cpp
+    src/capsule_triangle.cpp
     src/free_camera.cpp
     src/perf.cpp
     src/runtime.cpp
@@ -36,7 +37,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera perf capsule_sweep capsule_character)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera perf capsule_sweep capsule_triangle capsule_character capsule_slopes)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)

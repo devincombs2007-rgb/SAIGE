@@ -1,0 +1,86 @@
+name: Showcase 01
+
+# Builds the Showcase 01 renderer app and produces its captures. Linux renders on Mesa's software Vulkan (lavapipe), so those images
+# are software-rasterizer output, not physical-GPU output; the artifact names and showcase reports say so. The Windows job builds the
+# Release executable and checks that it starts and that the scripted course completes (no GPU on the hosted runner).
+
+on:
+  push:
+    branches: ['claude/showcase-**']
+    paths: ['showcase/**', 'src/capsule_*.cpp', 'include/saige/capsule_*.hpp', 'engine/**', 'shaders/**', '.github/workflows/showcase.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: showcase-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  linux-captures-software-vulkan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vulkan (lavapipe), validation layers, ffmpeg, Pillow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers vulkan-tools \
+            glslang-tools spirv-tools xvfb libx11-dev ffmpeg python3-pil
+          vulkaninfo --summary | grep -E "apiVersion|deviceName" || true
+      - name: Configure (Release; -Werror is enforced by the Graphics workflow's Debug lane, as GCC 13 -O3 warns inside rhi_vulkan)
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          -DSAIGE_ENABLE_VULKAN=ON
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Showcase tests (validation required)
+        run: SAIGE_REQUIRE_VALIDATION=1 xvfb-run -a ctest --test-dir build -R showcase --output-on-failure
+      - name: Capture stills, video and path plot
+        run: python3 showcase/01-courtyard/capture.py --exe build/showcase/saige_showcase --out captures
+      - name: Upload captures (software Vulkan)
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-showcase-01-captures-software-vulkan
+          path: captures/
+          if-no-files-found: error
+
+  windows-executable:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test the course (no GPU needed)
+        run: ctest --test-dir build -C Release -R showcase_course --output-on-failure
+      - name: Smoke-run the executable without rendering
+        run: build\showcase\Release\saige_showcase.exe --simulate-only --out smoke
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/saige-showcase-01 | Out-Null
+          Copy-Item build\showcase\Release\saige_showcase.exe dist/saige-showcase-01/
+          Copy-Item -Recurse showcase\01-courtyard\assets dist/saige-showcase-01/assets
+          @"
+          SAIGE Showcase 01 (Windows x64, Release)
+
+          Renders the scripted course offscreen with SAIGE's Vulkan 1.3 renderer and writes PPM frames, trace.json, report.json and perf.json.
+          Needs a Vulkan 1.3 driver (any current GPU driver, or a software ICD). It opens no window.
+
+              saige_showcase.exe --assets assets --out out --width 1920 --height 1080 --ssaa 2 --stills 8 --sequence-seconds 0
+              saige_showcase.exe --assets assets --out out_seq --width 1280 --height 720 --stills 0
+
+          report.json records which device produced the images (physical_gpu_unqualified or software_vulkan_cpu_rasterizer). The 60 FPS
+          goal is not evaluated by this tool; it needs the qualified target-hardware run described in issue #62.
+          "@ | Set-Content dist/saige-showcase-01/README.txt
+          Compress-Archive -Path dist/saige-showcase-01 -DestinationPath saige-showcase-01-windows-x64.zip
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: saige-showcase-01-windows-x64
+          path: saige-showcase-01-windows-x64.zip
+          if-no-files-found: error

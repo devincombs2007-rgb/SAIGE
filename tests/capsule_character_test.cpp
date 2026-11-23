@@ -447,6 +447,29 @@ void test_wedge_between_two_rims_settles() {
     require(min_gap(c, boxes) > -1e-4f, "no penetration when pushing along the wedge");
 }
 
+void test_sliding_along_a_blocked_ledge_stays_grounded() {
+    // Found by the Showcase 01 course: a low plinth (0.25 m, under the step height) with a column rising from it. Walking diagonally
+    // past the plinth's face, the step onto it is blocked by the column, so the character slides along the face with the bottom
+    // sphere touching the plinth's top edge. That rim contact has a steep (non-walkable) normal that the downward ground probe already
+    // touches at t = 0; it must not hide the walkable floor right beneath. Before the fix `grounded` flickered every other tick and the
+    // feet bounced by several millimeters.
+    const std::vector<Aabb> boxes = with_floor({{{-12.6f, -7.6f, 0.0f}, {-11.4f, -6.4f, 0.25f}}, {{-12.42f, -7.42f, 0.0f}, {-11.58f, -6.58f, 3.5f}}});
+    CapsuleCharacter c({-10.4f, -7.7f, 0.0f}, boxes);
+    int ungrounded = 0;
+    float highest = 0.0f;
+    bool touched = false;
+    for (int tick = 0; tick < 240; ++tick) {
+        c.step({-0.7071f, 0.7071f, false, false}, dt);
+        if (!c.state().grounded) ++ungrounded;
+        highest = std::max(highest, c.state().feet.z);
+        touched = touched || min_gap(c, boxes) < 0.01f;
+    }
+    require(touched, "the scenario really presses the character against the plinth");
+    require(ungrounded == 0, "sliding along a ledge face keeps the character grounded on every tick");
+    require(highest < 0.01f, "and does not make the feet bounce");
+    require(min_gap(c, boxes) > -1e-4f, "without penetration");
+}
+
 void test_reset() {
     const auto boxes = with_floor({});
     CapsuleCharacter c({1, 2, 0}, boxes);
@@ -477,6 +500,7 @@ int main() {
         test_float_rounding_never_leaves_the_capsule_in_a_wall();
         test_teleport_and_overlap_recovery();
         test_wedge_between_two_rims_settles();
+        test_sliding_along_a_blocked_ledge_stays_grounded();
         test_reset();
     } catch (const std::exception& error) {
         std::cerr << "capsule character test failed: " << error.what() << '\n';

@@ -91,19 +91,36 @@ void CapsuleCharacter::recover_from_overlap() {
     }
 }
 
+std::optional<CapsuleCharacter::GroundContact> CapsuleCharacter::probe_ground(Vec3 feet) const {
+    // Look for walkable ground within the snap distance below `feet`. A steep contact met on the way is not an answer by itself: the
+    // capsule may merely be touching the top edge of a low ledge it is sliding along, with the real floor right beneath. So the
+    // probe slides down along such a contact (a few times) before concluding there is no ground. Standing on a rim that overhangs too
+    // much finds no walkable contact within the distance and still reports "not grounded", so the character slides off as before.
+    Vec3 remaining{0.0f, 0.0f, -config_.ground_snap - skin};
+    for (int iteration = 0; iteration < max_slide_iterations; ++iteration) {
+        const auto hit = sweep(feet, remaining);
+        if (!hit) return std::nullopt;
+        feet = feet + remaining * hit->t;
+        if (is_walkable(hit->normal, config_.max_slope_radians)) return GroundContact{feet, hit->normal};
+        feet = feet + hit->normal * skin;
+        const Vec3 leftover = remaining * (1.0f - hit->t);
+        remaining = leftover - hit->normal * dot(leftover, hit->normal);
+        if (remaining.z > -1e-6f) return std::nullopt;  // the contact stops the descent: nothing underfoot
+    }
+    return std::nullopt;
+}
+
 bool CapsuleCharacter::ground_underfoot(Vec3 feet) const {
-    const auto hit = sweep(feet, {0.0f, 0.0f, -config_.ground_snap - skin});
-    return hit && is_walkable(hit->normal, config_.max_slope_radians);
+    return probe_ground(feet).has_value();
 }
 
 void CapsuleCharacter::snap_to_ground() {
-    const auto hit = sweep(state_.feet, {0.0f, 0.0f, -config_.ground_snap - skin});
-    if (hit && is_walkable(hit->normal, config_.max_slope_radians)) {
+    if (const auto ground = probe_ground(state_.feet)) {
         // Back off vertically, not along the normal: on a tilted contact (a ledge's rim) the normal has a horizontal part, and
         // re-applying it every tick would creep a standing character sideways.
-        state_.feet = state_.feet + Vec3{0.0f, 0.0f, -(config_.ground_snap + skin) * hit->t + skin};
+        state_.feet = ground->feet + Vec3{0.0f, 0.0f, skin};
         state_.grounded = true;
-        state_.ground_normal = hit->normal;
+        state_.ground_normal = ground->normal;
         state_.velocity.z = std::min(state_.velocity.z, 0.0f);
     } else {
         state_.grounded = false;

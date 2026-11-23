@@ -14,6 +14,9 @@
 // `max_slope_radians` of +Z; steeper contacts (walls, and the rim of a box the capsule only partly overhangs) are slid along, so a
 // character standing on a rim slides off once the overhang is large enough.
 //
+// The ground probe slides down along a steep contact it already touches (the top edge of a low ledge the character is sliding along)
+// instead of stopping at it, so such a contact does not hide the floor beneath: grounded does not flicker and the feet do not bounce.
+//
 // What boxes cannot express is not covered here: ramps need a non-box collider. The slope logic acts on contact normals, so it
 // carries over unchanged when one exists.
 
@@ -86,6 +89,11 @@ private:
     void slide(Vec3 displacement, bool can_step);
     bool try_step_up(Vec3 leftover);
     void snap_to_ground();
+    struct GroundContact {
+        Vec3 feet;      // where the capsule stands once lowered onto the ground
+        Vec3 normal;
+    };
+    [[nodiscard]] std::optional<GroundContact> probe_ground(Vec3 feet) const;
     [[nodiscard]] bool ground_underfoot(Vec3 feet) const;
 
     CapsuleCharacterConfig config_;

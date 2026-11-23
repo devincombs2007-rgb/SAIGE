@@ -29,7 +29,6 @@ public:
     }
 
     void fixed_update(World& world, std::chrono::nanoseconds step) override {
-        using Key;
         const int right = platform_.key_down(Key::d) || platform_.key_down(Key::right);
         const int left = platform_.key_down(Key::a) || platform_.key_down(Key::left);
         const int forward = platform_.key_down(Key::w) || platform_.key_down(Key::up);

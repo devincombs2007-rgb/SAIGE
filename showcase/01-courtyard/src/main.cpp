@@ -464,7 +464,8 @@ int main(int argc, char** argv)
                 const auto t0 = std::chrono::steady_clock::now();
                 Rgba img = downsample(target.render(renderer, frame), opt.ssaa);
                 const auto elapsed = std::chrono::steady_clock::now() - t0;
-                recorder.add_frame_interval(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed));
+                // Offscreen render time per frame (CPU rasterizer): a zone, not a presentation interval (nothing here is presented).
+                zones.record("render.frame", std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed));
                 render_total_ms += std::chrono::duration<double, std::milli>(elapsed).count();
                 return img;
             };

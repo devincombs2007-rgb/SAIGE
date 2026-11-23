@@ -1,12 +1,46 @@
 #include "saige/perf.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdlib>
 #include <iostream>
+#include <new>
+#include <functional>
 #include <numeric>
 #include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+// Allocation fault injection for the exception-safety tests: the n-th allocation after fail_allocation_after(n) throws
+// std::bad_alloc, and every allocation is counted. Process-wide, which is fine for a single-threaded test executable. Not built on
+// MSVC, where replacing the global operator new in a test executable interacts with the static runtime; those tests are skipped.
+#if !defined(_MSC_VER)
+namespace {
+std::atomic<unsigned> g_fail_countdown{0};
+std::atomic<unsigned long long> g_allocations{0};
+} // namespace
+
+void* operator new(std::size_t size) {
+    g_allocations.fetch_add(1, std::memory_order_relaxed);
+    unsigned c = g_fail_countdown.load(std::memory_order_relaxed);
+    if (c != 0 && g_fail_countdown.fetch_sub(1, std::memory_order_relaxed) == 1) throw std::bad_alloc();
+    if (void* p = std::malloc(size != 0 ? size : 1)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t size) { return operator new(size); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
+constexpr bool fault_injection_available = true;
+void fail_allocation_after(unsigned n) { g_fail_countdown.store(n); }
+unsigned long long allocations_seen() { return g_allocations.load(); }
+#else
+constexpr bool fault_injection_available = false;
+void fail_allocation_after(unsigned) {}
+unsigned long long allocations_seen() { return 0; }
+#endif
 
 namespace {
 using namespace std::chrono_literals;
@@ -14,7 +48,7 @@ using saige::perf::FrameRecorder;
 using saige::perf::ReportContext;
 using saige::perf::Zones;
 
-void require(bool condition, const char* message) {
+void require(bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
 }
 
@@ -166,54 +200,246 @@ void test_recording_a_real_run_does_not_change_it() {
     require(recorder.total().summary().count == timed.frames, "a total sample per frame");
 }
 
-void test_report_never_claims_the_target_without_qualified_hardware() {
-    auto fast = synthetic_recorder();
-    for (std::uint64_t i = 1; i <= 100; ++i) fast.record(frame(i, 1, 1ms, 10ms));
+ReportContext make_context(std::string workload, std::string build, std::string adapter_class) {
+    ReportContext context;
+    context.workload = std::move(workload);
+    context.build = std::move(build);
+    context.adapter_class = std::move(adapter_class);
+    return context;
+}
+
+FrameRecorder recorder_with_intervals(std::chrono::nanoseconds interval, int count, int slow = 0,
+                                      std::chrono::nanoseconds slow_interval = 40ms) {
+    auto recorder = synthetic_recorder();
+    for (int i = 1; i <= count; ++i) {
+        recorder.record(frame(static_cast<std::uint64_t>(i), 1, 1ms, 3ms));
+        recorder.add_frame_interval(i <= slow ? slow_interval : interval);
+    }
+    return recorder;
+}
+
+ReportContext qualified_context() {
+    ReportContext context = make_context("course", "Release", "physical");
+    context.paced = true;
+    context.qualified_target_hardware = true;
+    context.hardware = "Windows 11, Ryzen 5 5600, RTX 3060 12GB, 16GB, 1080p High";
+    context.preset_version = "high-1";
+    context.course_version = "course-1";
+    return context;
+}
+
+bool verdict_is(const std::string& json, const char* verdict) {
+    return contains(json, std::string("\"verdict\":\"") + verdict + "\"");
+}
+
+void test_report_never_claims_the_target_without_a_qualified_paced_run() {
+    const auto smooth = recorder_with_intervals(16ms, 200);  // 200 intervals of 16 ms: comfortably within the goal
     Zones zones;
-    zones.record("physics.step", 1ms);
+    // The qualified baseline is the only configuration that can produce a verdict.
+    require(verdict_is(saige::perf::to_json(smooth, zones, qualified_context()), "within_budget"), "qualified smooth run is within budget");
 
-    ReportContext software{"course", "Release", "software"};
-    software.qualified_target_hardware = true;  // must not matter: software is not hardware
-    const auto soft = saige::perf::to_json(fast, zones, software);
-    require(contains(soft, "\"verdict\":\"not_evaluated\"") && !contains(soft, "within_budget"), "software must not get a verdict");
-    require(contains(soft, "\"adapter_class\":\"software\""), "adapter class is reported");
+    // Removing any single qualification turns the verdict back into not_evaluated, with the reason named.
+    const auto not_evaluated = [&](const char* what, const std::function<void(ReportContext&)>& change, const char* reason) {
+        ReportContext context = qualified_context();
+        change(context);
+        const auto json = saige::perf::to_json(smooth, zones, context);
+        require(verdict_is(json, "not_evaluated"), std::string("a verdict was given with ") + what);
+        require(contains(json, reason), std::string("the reason for not_evaluated should mention: ") + reason);
+    };
+    not_evaluated("a software adapter", [](ReportContext& c) { c.adapter_class = "software"; }, "does not measure real GPU hardware");
+    not_evaluated("no renderer", [](ReportContext& c) { c.adapter_class = "none"; }, "does not measure real GPU hardware");
+    not_evaluated("an unknown adapter", [](ReportContext& c) { c.adapter_class = "unknown"; }, "does not measure real GPU hardware");
+    not_evaluated("an unpaced run", [](ReportContext& c) { c.paced = false; }, "not paced by presentation");
+    not_evaluated("an unqualified machine", [](ReportContext& c) { c.qualified_target_hardware = false; }, "not marked as the documented target");
+    not_evaluated("no versioned preset", [](ReportContext& c) { c.preset_version.clear(); }, "not both versioned");
+    not_evaluated("no versioned course", [](ReportContext& c) { c.course_version.clear(); }, "not both versioned");
 
-    const auto none = saige::perf::to_json(fast, zones, {"course", "Release", "none"});
-    require(contains(none, "\"verdict\":\"not_evaluated\"") && contains(none, "does not measure real GPU hardware"), "no renderer");
+    // No intervals at all (a single frame) cannot be judged.
+    auto single = synthetic_recorder();
+    single.record(frame(1, 1, 1ms, 3ms));
+    require(verdict_is(saige::perf::to_json(single, zones, qualified_context()), "not_evaluated"), "no intervals, no verdict");
 
-    ReportContext physical_unqualified{"course", "Release", "physical"};
-    const auto unqualified = saige::perf::to_json(fast, zones, physical_unqualified);
-    require(contains(unqualified, "\"verdict\":\"not_evaluated\"") && contains(unqualified, "not documented"),
-            "a physical GPU without documented target hardware is still not a verdict");
+    // The statistic is the delivered interval, not CPU time: a run whose CPU frames are tiny but whose intervals are long is over.
+    const auto slow_delivery = recorder_with_intervals(33ms, 200);
+    require(verdict_is(saige::perf::to_json(slow_delivery, zones, qualified_context()), "over_budget"), "slow delivered intervals are over budget");
+    // And CPU frames over budget do not matter if the delivered intervals are on time.
+    auto cpu_heavy = synthetic_recorder();
+    for (std::uint64_t i = 1; i <= 100; ++i) {
+        cpu_heavy.record(frame(i, 1, 1ms, 30ms));
+        cpu_heavy.add_frame_interval(16ms);
+    }
+    require(verdict_is(saige::perf::to_json(cpu_heavy, zones, qualified_context()), "within_budget"), "the verdict follows the interval, not the CPU time");
 
-    ReportContext qualified{"course", "Release", "physical"};
-    qualified.qualified_target_hardware = true;
-    require(contains(saige::perf::to_json(fast, zones, qualified), "\"verdict\":\"within_budget\""), "qualified fast run is within budget");
-    auto slow = synthetic_recorder();
-    for (std::uint64_t i = 1; i <= 100; ++i) slow.record(frame(i, 1, 1ms, i == 100 ? 30ms : 10ms));
-    require(contains(saige::perf::to_json(slow, zones, qualified), "\"verdict\":\"within_budget\""),
-            "one 30 ms frame in 100 is the maximum, so p99 is 10 ms and stays within budget");
-    slow.record(frame(101, 1, 1ms, 30ms));
-    require(contains(saige::perf::to_json(slow, zones, qualified), "\"verdict\":\"over_budget\""), "two slow frames put p99 over budget");
+    // p99: one slow interval in 100 is the maximum, two reach p99.
+    require(verdict_is(saige::perf::to_json(recorder_with_intervals(16ms, 100, 1), zones, qualified_context()), "within_budget"),
+            "one slow interval in 100 does not move p99");
+    require(verdict_is(saige::perf::to_json(recorder_with_intervals(16ms, 101, 2), zones, qualified_context()), "over_budget"),
+            "two slow intervals in 101 reach p99");
+    // The budget is inclusive: an interval exactly at the budget is within it.
+    ReportContext exact = qualified_context();
+    exact.budget_ms = 16.0;
+    require(verdict_is(saige::perf::to_json(recorder_with_intervals(16ms, 50), zones, exact), "within_budget"), "an interval equal to the budget is within it");
 }
 
 void test_report_contents() {
     auto recorder = synthetic_recorder();
-    for (std::uint64_t i = 1; i <= 10; ++i) recorder.record(frame(i, 1, 2ms, i <= 8 ? 10ms : 20ms));
+    for (std::uint64_t i = 1; i <= 10; ++i) {
+        recorder.record(frame(i, 1, 2ms, i <= 8 ? 10ms : 20ms));
+        recorder.add_frame_interval(i <= 8 ? 10ms : 20ms);
+    }
     Zones zones;
     zones.record("chunk.stage_next", 40ms);
     zones.record("physics.step", 1ms);
-    ReportContext context{"quote\"and\\slash", "Debug", "none"};
+    ReportContext context = make_context("quote\"and\\slash", "Debug", "none");
     context.fixed_step_ns = 16'666'667;
     const auto json = saige::perf::to_json(recorder, zones, context);
     require(contains(json, "\"schema_version\":1") && contains(json, "\"frames\":10") && contains(json, "\"ticks\":10"), "counts");
     require(contains(json, "\"workload\":\"quote\\\"and\\\\slash\""), "strings are escaped");
     require(contains(json, "\"fixed_step_ns\":16666667"), "fixed step");
-    // 8 frames of 10 ms and 2 of 20 ms average 12 ms, which is 83.3333 FPS; only the two 20 ms frames exceed 16.67 ms.
-    require(contains(json, "\"cpu_average_fps\":83.3333"), "average fps follows the mean frame time");
-    require(contains(json, "\"frames_over_budget\":2") && contains(json, "\"frames_over_2x_budget\":0"), "budget counters");
+    // 8 frames of 10 ms and 2 of 20 ms average 12 ms, which is 83.3333 FPS; only the two 20 ms intervals exceed 16.67 ms.
+    require(contains(json, "\"cpu_average_fps\":83.3333") && contains(json, "\"interval_average_fps\":83.3333"), "average fps follows the mean");
+    require(contains(json, "\"intervals_over_budget\":2") && contains(json, "\"intervals_over_2x_budget\":0") &&
+                contains(json, "\"cpu_frames_over_budget\":2"), "budget counters");
+    require(contains(json, "\"statistic\":\"p99_frame_interval\"") && contains(json, "\"paced\":false") && contains(json, "\"dropped_timing_samples\":0"),
+            "the statistic, the pacing and the dropped-sample count are reported");
     require(contains(json, "\"chunk.stage_next\":{\"count\":1,\"mean_ms\":40.0000"), "zones are listed with their statistics");
     require(json.find("chunk.stage_next") < json.find("physics.step"), "zones appear in name order");
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Exception safety of timing scopes and recording (owner request on #43: non-throwing scope teardown and allocations).
+
+// A plain exception: std::runtime_error allocates its message, which would put the injected failure on the wrong allocation.
+struct GameError {};
+struct ThrowingGame final : saige::IGame {
+    void fixed_update(saige::World&, std::chrono::nanoseconds) override { throw GameError{}; }
+};
+
+void test_scope_teardown_never_throws_and_is_allocation_free_when_reserved() {
+    if (!fault_injection_available) return;
+    Zones zones;
+    zones.reserve("hot", 10);
+    // With the zone reserved, a scope neither allocates nor can fail.
+    const auto before = allocations_seen();
+    {
+        for (int i = 0; i < 10; ++i) {
+            const auto scope = zones.scope("hot");
+        }
+    }
+    const auto after = allocations_seen();  // read before require() builds its message string, which allocates
+    require(after == before, "scopes on a reserved zone must not allocate");
+    require(zones.find("hot")->summary().count == 10 && zones.dropped_samples() == 0, "all ten samples were recorded");
+
+    // Growth fails: the destructor swallows it, counts the drop and nothing terminates.
+    Zones tight;
+    tight.record("grow", 1ms);  // capacity 1, size 1: the next record must allocate
+    {
+        const auto scope = tight.scope("grow");
+        fail_allocation_after(1);
+    }  // ~Scope tries to grow the series, the allocation throws, the sample is dropped
+    fail_allocation_after(0);
+    require(tight.dropped_samples() == 1 && tight.find("grow")->summary().count == 1, "a failed growth drops one sample and keeps the rest");
+    // The zone still works afterwards.
+    { const auto scope = tight.scope("grow"); }
+    require(tight.find("grow")->summary().count == 2 && tight.dropped_samples() == 1, "recording resumes after a dropped sample");
+
+    // Creating a scope on a new zone allocates in the constructor, where throwing is safe: nothing is timed or recorded.
+    Zones fresh;
+    fail_allocation_after(1);
+    bool threw = false;
+    try {
+        const auto scope = fresh.scope("new zone");
+    } catch (const std::bad_alloc&) {
+        threw = true;
+    }
+    fail_allocation_after(0);
+    require(threw && fresh.all().empty() && fresh.dropped_samples() == 0, "a failed scope construction leaves no trace");
+
+    // A scope unwinding because the timed code threw still records, and a failure to record while unwinding does not terminate.
+    Zones unwinding;
+    unwinding.reserve("fixed_step", 4);
+    ThrowingGame game;
+    saige::perf::TimedGame timed(game, unwinding);
+    saige::World world;
+    bool propagated = false;
+    try {
+        timed.fixed_update(world, 10ms);
+    } catch (const GameError&) {
+        propagated = true;
+    }
+    require(propagated && unwinding.find("fixed_step")->summary().count == 1, "the exception propagates and the tick was still timed");
+    Zones unwinding_tight;
+    unwinding_tight.record("fixed_step", 1ms);
+    saige::perf::TimedGame timed_tight(game, unwinding_tight);
+    propagated = false;
+    try {
+        fail_allocation_after(1);  // the first allocation is the scope's own series growth during unwinding
+        timed_tight.fixed_update(world, 10ms);
+    } catch (const GameError&) {
+        propagated = true;
+    }
+    fail_allocation_after(0);
+    require(propagated && unwinding_tight.dropped_samples() == 1, "the game's exception survives a failed sample during unwinding");
+}
+
+void test_recording_is_all_or_nothing() {
+    if (!fault_injection_available) return;
+    // Fail each allocation in turn that record() could make; whichever fails, the recorder must be unchanged and still usable.
+    for (unsigned nth = 1; nth <= 8; ++nth) {
+        FrameRecorder recorder({.measure_wall_interval = false, .memory_every_frames = 0});
+        recorder.record(frame(1, 1, 2ms, 4ms, 3));  // sizes every series to a full capacity of 64
+        for (int i = 2; i <= 64; ++i) recorder.record(frame(static_cast<std::uint64_t>(i), 1, 2ms, 4ms, 3));  // exactly at capacity
+        const auto frames = recorder.frames();
+        const auto ticks = recorder.ticks();
+        const auto totals = recorder.total().size();
+        fail_allocation_after(nth);
+        bool threw = false;
+        try {
+            recorder.record(frame(65, 1, 2ms, 4ms, 9));  // must grow every series
+        } catch (const std::bad_alloc&) {
+            threw = true;
+        }
+        fail_allocation_after(0);
+        if (threw) {
+            require(recorder.frames() == frames && recorder.ticks() == ticks && recorder.total().size() == totals &&
+                        recorder.simulation().size() == totals && recorder.per_tick_simulation().size() == totals &&
+                        recorder.peak_instances() == 3,
+                    "a failed record() changed the recorder");
+        }
+        recorder.record(frame(66, 1, 2ms, 4ms, 5));  // and it keeps working
+        require(recorder.frames() == frames + 1 + (threw ? 0u : 1u), "recording continues after a failure");
+        require(recorder.total().size() == recorder.frames(), "every series stays in step with the frame count");
+    }
+
+    // Delivered intervals added by the host have the same guarantee.
+    FrameRecorder recorder({.measure_wall_interval = false, .memory_every_frames = 0});
+    for (int i = 0; i < 64; ++i) recorder.add_frame_interval(16ms);
+    const auto count = recorder.wall_interval().size();
+    fail_allocation_after(1);
+    bool threw = false;
+    try {
+        recorder.add_frame_interval(16ms);
+    } catch (const std::bad_alloc&) {
+        threw = true;
+    }
+    fail_allocation_after(0);
+    require(threw && recorder.wall_interval().size() == count, "a failed add_frame_interval changed nothing");
+
+    // Sampling process memory is best effort: failing it must not fail or alter a recorded frame.
+    FrameRecorder sampling({.measure_wall_interval = false, .memory_every_frames = 1});
+    sampling.record(frame(1, 1, 1ms, 2ms));  // sizes series; its own memory sample succeeds
+    for (unsigned nth = 1; nth <= 6; ++nth) {
+        fail_allocation_after(nth);
+        bool failed = false;
+        try {
+            sampling.record(frame(2 + nth, 1, 1ms, 2ms));
+        } catch (const std::bad_alloc&) {
+            failed = true;
+        }
+        fail_allocation_after(0);
+        (void)failed;
+        require(sampling.total().size() == sampling.frames(), "series and counters agree after any single allocation failure");
+    }
 }
 
 void test_process_memory() {
@@ -241,8 +467,10 @@ int main() {
         test_zones();
         test_frame_recorder_derived_series();
         test_recording_a_real_run_does_not_change_it();
-        test_report_never_claims_the_target_without_qualified_hardware();
+        test_report_never_claims_the_target_without_a_qualified_paced_run();
         test_report_contents();
+        test_scope_teardown_never_throws_and_is_allocation_free_when_reserved();
+        test_recording_is_all_or_nothing();
         test_process_memory();
     } catch (const std::exception& error) {
         std::cerr << "perf test failed: " << error.what() << '\n';

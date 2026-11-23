@@ -133,6 +133,11 @@ void test_validation() {
     const std::vector<Triangle> bad{good, {{0, 0, 0}, {0, 0, 0}, {1, 1, 1}}};
     require(throws([&] { (void)saige::sweep_capsule_triangles(capsule, {0, 0, -1}, bad); }), "a degenerate triangle in a set throws");
     require(throws([&] { (void)saige::triangle_normal(bad[1]); }), "the normal of a degenerate triangle throws");
+    // The query is validated even when there is nothing to hit (the same contract the box sweep now has, Core review of #69).
+    const std::span<const Triangle> none{};
+    require(!saige::sweep_capsule_triangles(capsule, {0, 0, -1}, none).has_value(), "a valid query against no triangles is clear");
+    require(throws([&] { (void)saige::sweep_capsule_triangles({{0, 0, 0}, 0.0f, 1.0f}, {0, 0, -1}, none); }), "an invalid capsule throws against an empty set");
+    require(throws([&] { (void)saige::sweep_capsule_triangles(capsule, {nan, 0, 0}, none); }), "a NaN displacement throws against an empty set");
     const Vec3 n = saige::triangle_normal(good);
     require(n.x == 0 && n.y == 0 && n.z == 1, "the normal follows the right-hand rule");
 }

@@ -8,6 +8,7 @@ add_library(saige_core STATIC
     src/capsule_character.cpp
     src/capsule_sweep.cpp
     src/free_camera.cpp
+    src/perf.cpp
     src/runtime.cpp
     src/scene_hierarchy.cpp
     src/world.cpp
@@ -15,6 +16,10 @@ add_library(saige_core STATIC
 add_library(saige::core ALIAS saige_core)
 target_include_directories(saige_core PUBLIC include)
 target_compile_features(saige_core PUBLIC cxx_std_20)
+if(WIN32)
+    # perf.cpp reads the process working set with GetProcessMemoryInfo.
+    target_link_libraries(saige_core PRIVATE psapi)
+endif()
 
 add_executable(saige_headless apps/headless.cpp)
 target_link_libraries(saige_headless PRIVATE saige_core)
@@ -31,7 +36,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera perf capsule_sweep capsule_character)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)

@@ -62,7 +62,7 @@ CubeMesh make_unit_cube()
 }
 
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
-    : device_(device), color_format_(color_format), settings_(settings), registry_(device)
+    : device_(device), color_format_(color_format), settings_((validate_lighting(settings.lighting), settings)), registry_(device)
 {
     using namespace saige::shaders;
     cube_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_cube_vs_main), "VSMain", "SceneCube.VS"});
@@ -190,6 +190,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.sky = settings_.sky;
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
+        ms.lighting = settings_.lighting;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, color_format_, depth_format, ms);
     }
     return *models_;

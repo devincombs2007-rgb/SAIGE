@@ -1,5 +1,6 @@
 #pragma once
 
+#include "saige/capsule_sweep.hpp"
 #include "saige/chunk_stream.hpp"
 
 #include <cstdint>
@@ -11,6 +12,9 @@ namespace saige {
 
 /// Read a version 1 chunk manifest and return its sources in coordinate order.
 [[nodiscard]] std::vector<ChunkSource> load_chunk_manifest(const std::filesystem::path& path);
+
+/// Read ordered axis-aligned boxes from a version 1 collision file in simulation coordinates.
+[[nodiscard]] std::vector<Aabb> load_chunk_collision(const std::filesystem::path& path);
 
 /// Map a finite world position to its Z-up grid cell using a positive cell size.
 [[nodiscard]] ChunkCoord chunk_containing(Vec3 position, double cell_size);

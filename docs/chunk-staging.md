@@ -6,8 +6,8 @@ At a simulation boundary, a host can check `ready_to_commit` and prepare depende
 its full collision set and let `CapsuleCharacter::replace_static_geometry` validate and adopt it before calling `commit_frame`.
 Do both operations before the next simulation tick so the controller and chunk residents see the same boundary.
 
-The combined course/streaming test uses adjacent box floors to exercise a rejected overlap, a successful crossing, and
-unloading the floor behind the character. A streamed host must keep its reset point resident or select a new supported reset
+The combined course/streaming test loads adjacent box floors from disk and exercises a missing collision file, an overlapping candidate,
+a successful crossing, and unloading the floor behind the character. A streamed host must keep its reset point resident or select a new supported reset
 point before evicting it. Vehicle entry and exit will also need a resident, supported destination and a clearance check.
 
 The count limit applies separately to the active and requested sets. The asset budget covers retained prepared geometry and encoded image bytes across both sets, counting reused chunks once. Retain headroom to prepare replacements while the old set stays active. Importer scratch allocations, metadata, and GPU allocations are outside this budget. Project files retain their existing v1 schema and persisted asset IDs.
@@ -33,3 +33,17 @@ The loader permits missing chunk projects so they can fail at staging time while
 is bounded to 1 MiB and 4,096 sources. `select_chunks` selects a square neighborhood in grid coordinates and returns sources in
 deterministic order. Hosts can use `chunk_containing` to map world positions to half-open cells, including negative coordinates. The host still controls the count and byte budgets through `ChunkStream`. The tests drive a two-chunk
 crossing, eviction, revisit, and failed request.
+
+
+## Chunk collision file version 1
+
+A host can load a collision file during staging, before adopting a complete set. Collision files are separate from the scene and
+manifest formats. The host supplies their paths and chooses which files to stage. Boxes use Z-up simulation coordinates in meters.
+
+```json
+{"schema_version":1,"boxes":[{"min":[0,-4,-1],"max":[8,4,0]}]}
+```
+
+The reader preserves box order and rejects unrecognized versions and fields, non-finite or out-of-range coordinates, and extents
+that collapse after conversion to float. It accepts up to 4,096 boxes and 1 MiB per file. A host can stage an empty list by authoring
+an empty array. An absent or invalid file fails the load so the host can keep its previous collision and residency.

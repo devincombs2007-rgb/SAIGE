@@ -15,7 +15,7 @@ namespace {
 
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
-constexpr std::size_t max_manifest_bytes = 1024 * 1024;
+constexpr std::size_t max_chunk_file_bytes = 1024 * 1024;
 constexpr std::size_t max_manifest_chunks = 4096;
 
 bool has_fields(const Json& object, std::initializer_list<std::string_view> names) {
@@ -63,21 +63,39 @@ fs::path read_relative_project(const Json& field, const fs::path& root) {
     return path;
 }
 
+Json read_chunk_document(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot open chunk file");
+    std::string bytes(max_chunk_file_bytes + 1, '\0');
+    input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (input.bad() || static_cast<std::size_t>(input.gcount()) > max_chunk_file_bytes) {
+        throw std::runtime_error("Chunk file exceeds its size limit or could not be read");
+    }
+    bytes.resize(static_cast<std::size_t>(input.gcount()));
+    return Json::parse(bytes, [](int depth, Json::parse_event_t, Json&) {
+        if (depth > 8) throw std::invalid_argument("Chunk file nesting limit exceeded");
+        return true;
+    }, false);
+}
+
+Vec3 read_box_corner(const Json& corner) {
+    if (!corner.is_array() || corner.size() != 3) throw std::invalid_argument("Expected an XYZ box corner");
+    const auto component = [](const Json& value) {
+        constexpr auto limit = std::numeric_limits<float>::max();
+        if (!value.is_number()) throw std::invalid_argument("Expected a numeric box coordinate");
+        const auto coordinate = value.get<double>();
+        if (!std::isfinite(coordinate) || coordinate < -limit || coordinate > limit) {
+            throw std::invalid_argument("Box coordinate is outside the float range");
+        }
+        return static_cast<float>(coordinate);
+    };
+    return {component(corner[0]), component(corner[1]), component(corner[2])};
+}
+
 } // namespace
 
 std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("Cannot open chunk manifest");
-    std::string bytes(max_manifest_bytes + 1, '\0');
-    input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    if (input.bad() || static_cast<std::size_t>(input.gcount()) > max_manifest_bytes) {
-        throw std::runtime_error("Chunk manifest exceeds its size limit or could not be read");
-    }
-    bytes.resize(static_cast<std::size_t>(input.gcount()));
-    const auto document = Json::parse(bytes, [](int depth, Json::parse_event_t, Json&) {
-        if (depth > 8) throw std::invalid_argument("Chunk manifest nesting limit exceeded");
-        return true;
-    }, false);
+    const auto document = read_chunk_document(path);
     if (!has_fields(document, {"schema_version", "chunks"}) ||
         !document["schema_version"].is_number_integer() || document["schema_version"] != 1) {
         throw std::invalid_argument("Expected a version 1 chunk manifest");
@@ -99,6 +117,30 @@ std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
     std::ranges::sort(result, {}, &ChunkSource::coord);
     if (std::ranges::adjacent_find(result, {}, &ChunkSource::coord) != result.end()) {
         throw std::invalid_argument("Duplicate chunk coordinates");
+    }
+    return result;
+}
+
+std::vector<Aabb> load_chunk_collision(const fs::path& path) {
+    constexpr std::size_t max_collision_boxes = 4096;
+    const auto document = read_chunk_document(path);
+    if (!has_fields(document, {"schema_version", "boxes"}) ||
+        !document["schema_version"].is_number_integer() || document["schema_version"] != 1) {
+        throw std::invalid_argument("Expected a version 1 chunk collision file");
+    }
+    const auto& boxes = document["boxes"];
+    if (!boxes.is_array() || boxes.size() > max_collision_boxes) {
+        throw std::invalid_argument("Expected a bounded collision box array");
+    }
+    std::vector<Aabb> result;
+    result.reserve(boxes.size());
+    for (const auto& entry : boxes) {
+        if (!has_fields(entry, {"min", "max"})) throw std::invalid_argument("Expected min and max box corners");
+        const Aabb box{read_box_corner(entry["min"]), read_box_corner(entry["max"])};
+        if (box.min.x >= box.max.x || box.min.y >= box.max.y || box.min.z >= box.max.z) {
+            throw std::invalid_argument("Collision box must have positive extent on every axis");
+        }
+        result.push_back(box);
     }
     return result;
 }

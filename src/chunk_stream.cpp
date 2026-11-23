@@ -1,4 +1,4 @@
-#include "saige/chunk_stream.hpp"
+#include "saige/chunk_manifest.hpp"
 
 #include <algorithm>
 #include <stdexcept>
@@ -17,17 +17,18 @@ void ChunkStream::request(std::span<const ChunkSource> chunks) {
         if (source.project.empty()) {
             throw std::invalid_argument("A chunk project path cannot be empty");
         }
+        Chunk chunk{source.project, source.collision};
+        const auto matches = [&source](const Chunk& item) {
+            return item.project == source.project && item.collision == source.collision && item.scene;
+        };
         const auto active = active_.find(source.coord);
-        std::shared_ptr<const PreparedScene> scene;
-        if (active != active_.end() && active->second.project == source.project) {
-            scene = active->second.scene;
+        if (active != active_.end() && matches(active->second)) {
+            chunk = active->second;
         } else if (pending_) {
             const auto staged = pending_->find(source.coord);
-            if (staged != pending_->end() && staged->second.project == source.project) {
-                scene = staged->second.scene;
-            }
+            if (staged != pending_->end() && matches(staged->second)) chunk = staged->second;
         }
-        if (!candidate.emplace(source.coord, Chunk{source.project, std::move(scene)}).second) {
+        if (!candidate.emplace(source.coord, std::move(chunk)).second) {
             throw std::invalid_argument("Duplicate chunk coordinates");
         }
     }
@@ -40,7 +41,11 @@ bool ChunkStream::stage_next() {
     if (next == pending_->end()) return false;
     try {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
-        next->second.scene = std::make_shared<const PreparedScene>(next->second.project, remaining);
+        auto& chunk = next->second;
+        if (!chunk.collision.empty()) {
+            chunk.boxes = std::make_shared<const std::vector<Aabb>>(load_chunk_collision(chunk.collision));
+        }
+        chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
     } catch (...) {
         pending_.reset();
         throw;
@@ -60,6 +65,13 @@ const PreparedScene* ChunkStream::staged_chunk(ChunkCoord coord) const noexcept 
     if (!pending_) return nullptr;
     const auto it = pending_->find(coord);
     return it == pending_->end() ? nullptr : it->second.scene.get();
+}
+
+std::optional<std::span<const Aabb>> ChunkStream::staged_collision(ChunkCoord coord) const noexcept {
+    if (!pending_) return {};
+    const auto it = pending_->find(coord);
+    if (it == pending_->end() || !it->second.boxes) return {};
+    return std::span<const Aabb>(*it->second.boxes);
 }
 
 bool ChunkStream::commit_frame() noexcept {

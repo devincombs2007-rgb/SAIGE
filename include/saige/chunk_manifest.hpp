@@ -1,6 +1,5 @@
 #pragma once
 
-#include "saige/capsule_sweep.hpp"
 #include "saige/chunk_stream.hpp"
 
 #include <cstdint>

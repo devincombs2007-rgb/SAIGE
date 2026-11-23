@@ -1,5 +1,6 @@
 #pragma once
 
+#include "saige/capsule_sweep.hpp"
 #include "saige/prepared_scene.hpp"
 
 #include <compare>
@@ -9,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <vector>
 
 namespace saige {
 
@@ -21,6 +23,7 @@ struct ChunkCoord {
 struct ChunkSource {
     ChunkCoord coord;
     std::filesystem::path project;
+    std::filesystem::path collision{}; // An empty path requests a scene with no collision file.
 };
 
 struct ChunkStreamLimits {
@@ -35,7 +38,7 @@ public:
     ChunkStream(const ChunkStream&) = delete;
     ChunkStream& operator=(const ChunkStream&) = delete;
 
-    // Replace the pending set. Reuse active or already staged chunks with the same coordinate and path.
+    // Replace the pending set. Reuse active or already staged chunks with the same coordinate and file paths.
     void request(std::span<const ChunkSource> chunks);
     // Stage at most one chunk, in coordinate order. An import failure abandons the pending set and throws.
     bool stage_next();
@@ -44,6 +47,8 @@ public:
     // Staged pointers are borrowed until the next request, cancellation, failed stage, or commit.
     [[nodiscard]] bool ready_to_commit() const noexcept;
     [[nodiscard]] const PreparedScene* staged_chunk(ChunkCoord coord) const noexcept;
+    // A present empty span is an authored empty file. The same lifetime rules as staged_chunk apply.
+    [[nodiscard]] std::optional<std::span<const Aabb>> staged_collision(ChunkCoord coord) const noexcept;
     // Publish only a complete set. Borrowed active scene pointers expire at the next successful commit.
     bool commit_frame() noexcept;
 
@@ -54,7 +59,9 @@ public:
 private:
     struct Chunk {
         std::filesystem::path project;
-        std::shared_ptr<const PreparedScene> scene;
+        std::filesystem::path collision;
+        std::shared_ptr<const PreparedScene> scene{};
+        std::shared_ptr<const std::vector<Aabb>> boxes{};
     };
     using Chunks = std::map<ChunkCoord, Chunk>;
 

@@ -1,8 +1,8 @@
 # Deterministic chunk staging
 
-ChunkStream prepares adjacent scene projects on the runtime thread between frames. It processes one chunk per stage call in ascending coordinate order. A complete requested set becomes visible at a frame boundary. Unchanged coordinates and project paths reuse active or already staged payloads. A superseding request releases staging for chunks it no longer needs. Cancellation or failed import discards pending work while preserving the active set.
+ChunkStream prepares adjacent scene projects on the runtime thread between frames. It processes one chunk per stage call in ascending coordinate order. A complete requested set becomes visible at a frame boundary. Unchanged coordinates and project and collision paths reuse active or already staged payloads. A superseding request releases staging for chunks it no longer needs. Cancellation or failed import discards pending work while preserving the active set.
 
-At a simulation boundary, a host can check `ready_to_commit` and prepare dependent collision from `staged_chunk`. If collision rejects the candidate, call `cancel` and keep the old active set. Run this sequence on the runtime thread with no intervening request or stage call. Once the complete candidate is ready, build
+At a simulation boundary, a host can check `ready_to_commit` and read prepared collision from `staged_collision`. If collision rejects the candidate, call `cancel` and keep the old active set. Run this sequence on the runtime thread with no intervening request or stage call. Once the complete candidate is ready, build
 its full collision set and let `CapsuleCharacter::replace_static_geometry` validate and adopt it before calling `commit_frame`.
 Do both operations before the next simulation tick so the controller and chunk residents see the same boundary.
 
@@ -10,7 +10,7 @@ The combined course/streaming test loads adjacent box floors from disk and exerc
 a successful crossing, and unloading the floor behind the character. A streamed host must keep its reset point resident or select a new supported reset
 point before evicting it. Vehicle entry and exit will also need a resident, supported destination and a clearance check.
 
-The count limit applies separately to the active and requested sets. The asset budget covers retained prepared geometry and encoded image bytes across both sets, counting reused chunks once. Retain headroom to prepare replacements while the old set stays active. Importer scratch allocations, metadata, and GPU allocations are outside this budget. Project files retain their existing v1 schema and persisted asset IDs.
+The count limit applies separately to the active and requested sets. The asset budget covers retained prepared geometry and encoded image bytes across both sets, counting reused chunks once. Retain headroom to prepare replacements while the old set stays active. Importer scratch allocations, metadata, collision boxes, and GPU allocations are outside this budget. Each staged collision file is separately bounded by its size and box count. Project files retain their existing v1 schema and persisted asset IDs.
 
 This slice tests staging with two neighboring coordinates, eviction and revisit. Runtime scene composition, a versioned manifest, GPU staging and retirement, and asynchronous scheduling follow in later slices.
 
@@ -37,8 +37,7 @@ crossing, eviction, revisit, and failed request.
 
 ## Chunk collision file version 1
 
-A host can load a collision file during staging, before adopting a complete set. Collision files are separate from the scene and
-manifest formats. The host supplies their paths and chooses which files to stage. Boxes use Z-up simulation coordinates in meters.
+The host supplies an optional collision file path in each chunk request. The streamer stages it alongside the scene before publication. Collision files are separate from the scene and manifest formats. Boxes use Z-up simulation coordinates in meters.
 
 ```json
 {"schema_version":1,"boxes":[{"min":[0,-4,-1],"max":[8,4,0]}]}

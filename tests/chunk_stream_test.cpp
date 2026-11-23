@@ -138,39 +138,40 @@ void write_chunk_fixture(const fs::path& path, std::string_view text) {
 void test_collision_handoff(const std::filesystem::path& fixture) {
     using namespace std::chrono_literals;
     constexpr auto tick = 16'666'667ns;
-    const ChunkSource west{{-1, 0}, fixture};
-    const ChunkSource east{{0, 0}, fixture};
     Workspace workspace;
     const auto west_file = workspace.root / "west.collision.json";
     const auto east_file = workspace.root / "east.collision.json";
+    const ChunkSource west{{-1, 0}, fixture, west_file};
+    const ChunkSource east{{0, 0}, fixture, east_file};
     constexpr std::string_view valid_east = R"({"schema_version":1,"boxes":[{"min":[0,-4,-1],"max":[8,4,0]}]})";
     write_chunk_fixture(west_file, R"({"schema_version":1,"boxes":[{"min":[-8,-4,-1],"max":[0,4,0]}]})");
-    const auto west_boxes = saige::load_chunk_collision(west_file);
-    saige::CapsuleCharacter player({-0.8f, 0, 0}, west_boxes);
     ChunkStream stream;
     stream.request(std::array{west});
-    require(stream.stage_next() && stream.commit_frame(), "publish the initial west chunk");
+    require(stream.stage_next() && stream.ready_to_commit(), "stage the initial west chunk");
+    saige::CapsuleCharacter player({-0.8f, 0, 0}, stream.staged_collision(west.coord).value());
+    require(stream.commit_frame(), "publish the initial west chunk");
     const auto* resident_west = stream.active_chunk(west.coord);
 
     stream.request(std::array{east, west});
-    require(!stream.ready_to_commit() && !stream.commit_frame(), "unprepared neighbor cannot publish");
-    require(stream.stage_next() && stream.ready_to_commit() &&
-                stream.staged_chunk(west.coord) == resident_west && stream.staged_chunk(east.coord),
-            "candidate waits for every desired chunk");
+    require(!stream.ready_to_commit() && !stream.commit_frame() && !stream.staged_collision(east.coord),
+            "unprepared neighbor cannot publish");
     const auto original_player = player.state();
     bool missing = false;
     try {
-        (void)saige::load_chunk_collision(east_file);
+        (void)stream.stage_next();
     } catch (const std::runtime_error&) {
         missing = true;
     }
-    require(missing, "missing collision file cannot substitute empty geometry");
-    stream.cancel();
-    require(player.state() == original_player && stream.active_chunk(west.coord) == resident_west,
-            "missing collision preserves player state and residency");
+    require(missing && !stream.ready_to_commit() && !stream.staged_collision(west.coord) &&
+                player.state() == original_player && stream.active_chunk(west.coord) == resident_west,
+            "a missing collision file abandons staging and preserves the active course");
 
-    stream.request(std::array{west, east});
-    require(stream.stage_next() && stream.ready_to_commit(), "stage the neighbor before checking its collision file");
+    const ChunkSource changed_west{west.coord, fixture, east_file};
+    stream.request(std::array{changed_west});
+    require(!stream.ready_to_commit() && !stream.staged_collision(west.coord),
+            "changing only the collision path invalidates reuse for that coordinate");
+    stream.cancel();
+
     for (const auto invalid : {
         R"({"schema_version":2,"boxes":[]})",
         R"({"schema_version":1,"boxes":[{"min":[0,0,0],"max":[0,1,1]}]})",
@@ -179,40 +180,44 @@ void test_collision_handoff(const std::filesystem::path& fixture) {
         R"({"schema_version":1,"boxes":[{"min":[[[[[[[[[[]]]]]]]]]],"max":[1,1,1]}]})",
     }) {
         write_chunk_fixture(east_file, invalid);
+        stream.request(std::array{east, west});
         bool rejected = false;
         try {
-            (void)saige::load_chunk_collision(east_file);
+            (void)stream.stage_next();
         } catch (const std::invalid_argument&) {
             rejected = true;
         }
-        require(rejected, "invalid collision file is rejected");
+        require(rejected && !stream.ready_to_commit(), "invalid collision file is rejected");
     }
-    stream.cancel();
     require(player.state() == original_player && stream.active_chunk(west.coord) == resident_west &&
                 !stream.active_chunk(east.coord) && !stream.commit_frame(),
             "invalid collision discards the pending set without changing the active one");
 
-    stream.request(std::array{west, east});
-    require(stream.stage_next() && stream.ready_to_commit(), "restage the desired neighbor");
     write_chunk_fixture(east_file, R"({"schema_version":1,"boxes":[
         {"min":[0,-4,-1],"max":[8,4,0]},
         {"min":[-1.5,-1,0],"max":[0,1,2]}
     ]})");
-    auto blocked = west_boxes;
-    const auto east_blocked = saige::load_chunk_collision(east_file);
-    blocked.insert(blocked.end(), east_blocked.begin(), east_blocked.end());
+    const auto staged_geometry = [&] {
+        const auto west_boxes = stream.staged_collision(west.coord).value();
+        const auto east_boxes = stream.staged_collision(east.coord).value();
+        std::vector<saige::Aabb> joined(west_boxes.begin(), west_boxes.end());
+        joined.insert(joined.end(), east_boxes.begin(), east_boxes.end());
+        return joined;
+    };
+    stream.request(std::array{west, east});
+    require(stream.stage_next() && stream.ready_to_commit() && stream.staged_chunk(west.coord) == resident_west,
+            "candidate reuses the resident west and stages the east");
+    const auto blocked = staged_geometry();
     require(!player.replace_static_geometry(blocked), "candidate collision overlapping the player must be rejected");
     stream.cancel();
     require(player.state() == original_player && stream.active_chunk(west.coord) == resident_west &&
                 !stream.active_chunk(east.coord) && !stream.commit_frame(),
             "rejecting collision preserves both player state and residency");
 
+    write_chunk_fixture(east_file, valid_east);
     stream.request(std::array{west, east});
     require(stream.stage_next() && stream.ready_to_commit(), "retry after correcting the collision file");
-    write_chunk_fixture(east_file, valid_east);
-    const auto east_boxes = saige::load_chunk_collision(east_file);
-    auto joined = west_boxes;
-    joined.insert(joined.end(), east_boxes.begin(), east_boxes.end());
+    const auto joined = staged_geometry();
     require(player.replace_static_geometry(joined) && stream.commit_frame(),
             "publish accepted collision and residency at the same simulation boundary");
     const auto* resident_east = stream.active_chunk(east.coord);
@@ -226,7 +231,7 @@ void test_collision_handoff(const std::filesystem::path& fixture) {
     stream.request(std::array{east});
     require(stream.ready_to_commit() && stream.staged_chunk(east.coord) == resident_east,
             "retiring west reuses the east payload without staging");
-    require(player.replace_static_geometry(east_boxes) && stream.commit_frame(),
+    require(player.replace_static_geometry(stream.staged_collision(east.coord).value()) && stream.commit_frame(),
             "retire west collision when the player is supported by east");
     require(!stream.active_chunk(west.coord) && stream.active_chunk(east.coord) == resident_east &&
                 player.state().grounded,

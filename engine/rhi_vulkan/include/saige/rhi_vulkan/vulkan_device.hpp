@@ -43,6 +43,10 @@ void fail_bind_group_before_publication(uint32_t n) noexcept;
 void fail_descriptor_pool_tracking_after(uint32_t n) noexcept;
 /// Descriptor sets a Vulkan device has acquired from the driver and not yet freed (0 for any other device).
 [[nodiscard]] std::size_t descriptor_sets_in_use(const Device& device);
+/// Makes every Vulkan device in this process report that it cannot blend into `format` (as a device lacking
+/// VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT for it would), so the rejection path can be tested on a device that supports it.
+/// Format::Unknown cancels.
+void deny_blending_into(Format format) noexcept;
 } // namespace testing
 #endif
 

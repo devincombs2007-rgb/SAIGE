@@ -10,6 +10,7 @@
 #include "saige/render/model_renderer.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/render_graph.hpp"
+#include "saige/render/tonemap.hpp"
 #include "saige/rhi/device.hpp"
 
 #include <cstddef>
@@ -63,10 +64,16 @@ struct RendererSettings {
     float fog_density = 0.012f;                      ///< per meter
     ModelShading model_shading = ModelShading::Legacy;  ///< shading model of imported models (the 0.1 cube and ground are unaffected)
     SceneLighting lighting;                          ///< sun and ground ambient of imported models; defaults are the long-standing look
+    /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
+    bool alpha_blending = false;
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target
     float cube_edge = 1.0f;                          ///< meters
     float spin_radians_per_second = 0.8f;
     double seconds_per_tick = 1.0 / 60.0;           ///< matches Core's default fixed step
+    /// HDR output: the scene is drawn in linear light into an RGBA16_FLOAT target and a tone-map pass writes the output target
+    /// (docs/rendering/material-architecture.md section 4). Off by default: the 0.2 path draws straight into the output target.
+    bool hdr = false;
+    ToneMapSettings tone_map;                       ///< used when `hdr` is set
 };
 
 struct SceneInstance {
@@ -106,6 +113,7 @@ struct FrameStats {
     uint32_t barriers = 0;
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
+    uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
 };
 
 class SceneRenderer {
@@ -127,22 +135,30 @@ public:
     [[nodiscard]] GpuResourceRegistry& registry() noexcept { return registry_; }
     /// The imported-model renderer, created on first use (the 0.1 cube path never pays for it).
     [[nodiscard]] ModelRenderer& model_renderer();
+    /// The output target's format (what `render` writes last).
     [[nodiscard]] rhi::Format color_format() const noexcept { return color_format_; }
+    /// The format the scene itself is drawn in: the output format, or RGBA16_FLOAT when `settings().hdr` is set.
+    [[nodiscard]] rhi::Format scene_format() const noexcept { return scene_format_; }
 
 private:
-    void ensure_depth(uint32_t width, uint32_t height);
+    void ensure_targets(uint32_t width, uint32_t height);
     [[nodiscard]] Float3 camera_target(const SceneFrame& frame) const;
 
     rhi::Device& device_;
     rhi::Format color_format_;
+    rhi::Format scene_format_;
     RendererSettings settings_;
     rhi::ShaderHandle cube_vs_, cube_ps_, ground_vs_, ground_ps_;
     rhi::PipelineHandle cube_pipeline_, ground_pipeline_;
     rhi::BufferHandle cube_vertices_, cube_indices_;
     rhi::TextureHandle depth_;
-    uint32_t depth_width_ = 0;
-    uint32_t depth_height_ = 0;
+    uint32_t target_width_ = 0;
+    uint32_t target_height_ = 0;
     rhi::ResourceState depth_state_;
+    std::unique_ptr<ToneMapper> tone_mapper_;  ///< HDR only
+    rhi::TextureHandle hdr_;                   ///< HDR only: the scene's linear float target, sized like the output
+    rhi::BindGroupHandle hdr_input_;           ///< the tone mapper's view of hdr_
+    rhi::ResourceState hdr_state_;
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
     std::unique_ptr<ModelRenderer> models_;

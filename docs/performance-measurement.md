@@ -19,7 +19,8 @@ meets every condition in "Verdict rules" below.
 
 | Report field | Source | Meaning |
 | --- | --- | --- |
-| `frame_interval_ms`, `interval_average_fps` | wall-clock time between consecutive frames (or intervals the host supplies with `add_frame_interval`) | **The goal's statistic.** What a player sees, including any presentation pacing wait. Only meaningful when `run.paced` is true. |
+| `presentation_interval_ms`, `presentation_average_fps` | intervals the host supplies with `FrameRecorder::add_presentation_interval` from real presentation timestamps | **The goal's statistic.** What a player sees. Only these can support a verdict; a paced run that never recorded one is `not_evaluated`. |
+| `observer_interval_ms` | the recorder's own wall-clock time between the ends of consecutive `record()` calls | What this process can see by itself, including any pacing wait the loop performs. Reported for diagnosis; never used for a verdict. |
 | `frame_ms`, `cpu_average_fps` | `CpuFrameMetrics::total` | CPU time of one `saige::run()` iteration: polling, fixed ticks, snapshot extraction and `IFrameSink::submit()`. Reported beside the interval, never in its place. The FPS derived from it overstates throughput when the loop is paced or idle. |
 | `phases_ms.simulation`, `simulation_per_tick` | `CpuFrameMetrics::simulation` | All fixed ticks in the frame, and that total divided by ticks run: the **fixed-step simulation cost**. |
 | `zones_ms.<name>` | `Zones::record` / `Zones::scope` | Any named subsystem. `TimedGame` records every `fixed_update` as `fixed_step`; the course benchmark adds `physics.step`, `chunk.request`, `chunk.stage_next` and `chunk.commit_frame`. |
@@ -27,19 +28,23 @@ meets every condition in "Verdict rules" below.
 | `process_memory_bytes` | `/proc/self/status` or `GetProcessMemoryInfo` | Working set and its high-water mark, sampled every 60 frames. `null` where unsupported. |
 | `run.dropped_timing_samples` | `Zones::dropped_samples()` | Timing samples a scope had to discard because memory ran out. Zero in a healthy run. |
 
+`ReportContext::budget_ms` must be finite, positive and at most `max_budget_ms` (1e6); `to_json` throws `std::invalid_argument` otherwise, since a
+NaN or oversized value cannot be converted to the integer nanoseconds the counters use. A `Zones` object is neither copyable nor movable: a live `Scope`
+holds a pointer into it.
+
 Percentiles are nearest-rank (rank = ceil(n x p / 100)), the definition `saige_scene_trace` already used. With fewer than 100 frames
 p99 is the maximum; judge percentiles on runs of at least several thousand frames.
 
 ## Verdict rules
 
 `budget.verdict` is `not_evaluated` unless **all** of the following hold, and is then `within_budget` or `over_budget` by whether the
-p99 of `frame_interval_ms` is at or below the budget:
+p99 of `presentation_interval_ms` is at or below the budget:
 
 1. `adapter_class` is `physical` (`none` means no renderer, `software` a software rasterizer such as lavapipe or llvmpipe);
 2. `paced` is set: frames were presented at the display's pace;
 3. `qualified_target_hardware` is set for a run on the documented target hardware, resolution and preset;
 4. both `preset_version` and `course_version` are named;
-5. at least one frame interval was recorded.
+5. at least one presentation interval was recorded (the observer's own intervals do not count).
 
 `verdict_reason` names the first missing condition. Never merge software and physical reports into one table; the adapter class is
 part of every report so they cannot be confused.
@@ -59,7 +64,7 @@ it stays comparable when the render rate changes the number of ticks per frame.
 - Call `Zones::reserve(name, n)` for each zone used in a fixed-step loop and a scope on it never allocates, so recording there is
   allocation-free as well as non-throwing.
 - `FrameRecorder::record` makes room in every series before it changes anything: if it throws, the recorder is exactly as it was,
-  and afterwards recording cannot fail. Process-memory sampling is best effort and cannot fail a frame. `add_frame_interval` has the
+  and afterwards recording cannot fail. Process-memory sampling is best effort and cannot fail a frame. `add_presentation_interval` has the
   strong guarantee.
 - `tests/perf_test.cpp` proves these with allocation-failure injection (not built on MSVC, where replacing the global operator new in
   a test executable is skipped); disabling the destructor guard makes the test abort.

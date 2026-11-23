@@ -27,6 +27,7 @@ namespace {
 #if defined(SAIGE_RHI_VULKAN_TESTING)
 std::atomic<uint32_t> g_process_validation_errors{0};  // all devices, including errors reported during destruction
 std::atomic<uint32_t> g_memory_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
+std::atomic<uint32_t> testing_denied_blend_format{0};  // test hook: Format value + 1 that no device may blend into; 0 = off
 
 /// True exactly once, for the registration the test asked to fail.
 bool consume_memory_bookkeeping_fault() noexcept
@@ -247,6 +248,37 @@ VkBorderColor to_vk(BorderColor b)
     case BorderColor::OpaqueWhite: return VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
     }
     return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+}
+
+VkBlendFactor to_vk(BlendFactor f)
+{
+    switch (f) {
+    case BlendFactor::Zero: return VK_BLEND_FACTOR_ZERO;
+    case BlendFactor::One: return VK_BLEND_FACTOR_ONE;
+    case BlendFactor::SrcColor: return VK_BLEND_FACTOR_SRC_COLOR;
+    case BlendFactor::OneMinusSrcColor: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+    case BlendFactor::DstColor: return VK_BLEND_FACTOR_DST_COLOR;
+    case BlendFactor::OneMinusDstColor: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+    case BlendFactor::SrcAlpha: return VK_BLEND_FACTOR_SRC_ALPHA;
+    case BlendFactor::OneMinusSrcAlpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    case BlendFactor::DstAlpha: return VK_BLEND_FACTOR_DST_ALPHA;
+    case BlendFactor::OneMinusDstAlpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+    case BlendFactor::Count: break;
+    }
+    return VK_BLEND_FACTOR_ZERO;
+}
+
+VkBlendOp to_vk(BlendOp op)
+{
+    switch (op) {
+    case BlendOp::Add: return VK_BLEND_OP_ADD;
+    case BlendOp::Subtract: return VK_BLEND_OP_SUBTRACT;
+    case BlendOp::ReverseSubtract: return VK_BLEND_OP_REVERSE_SUBTRACT;
+    case BlendOp::Min: return VK_BLEND_OP_MIN;
+    case BlendOp::Max: return VK_BLEND_OP_MAX;
+    case BlendOp::Count: break;
+    }
+    return VK_BLEND_OP_ADD;
 }
 
 VkCompareOp to_vk(CompareOp op)
@@ -1579,6 +1611,32 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
         throw std::invalid_argument("create_graphics_pipeline: depth state without a depth format");
     }
 
+    // Validate before any Vulkan object is created (shared rules: blend.hpp), so a bad description leaks nothing.
+    if (const ValidationResult v = validate_blend_state(desc.blend, desc.color_formats); !v) {
+        throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
+    }
+    // The shared rules are what the specification guarantees; the selected device is also asked, for every blended attachment, before
+    // anything is created.
+    if (!desc.blend.empty() && desc.blend.front().enable) {
+        for (const Format f : desc.color_formats) {
+            bool supported = false;
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+            const bool denied = testing_denied_blend_format.load() == static_cast<uint32_t>(f) + 1u;
+#else
+            const bool denied = false;
+#endif
+            if (!denied) {
+                VkFormatProperties props{};
+                vk_.vkGetPhysicalDeviceFormatProperties(physical_, to_vk(f), &props);
+                supported = (props.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0;
+            }
+            if (!supported) {
+                throw std::invalid_argument(std::string("create_graphics_pipeline: the selected device cannot blend into ") +
+                                            std::string(format_name(f)));
+            }
+        }
+    }
+
     VkPipelineRes res;
     res.push_constant_size = desc.push_constant_size;
     res.bind_group_layouts = desc.bind_group_layouts;
@@ -1659,6 +1717,16 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
     for (auto& b : blend) {
         b.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
                            VK_COLOR_COMPONENT_A_BIT;
+        if (!desc.blend.empty() && desc.blend.front().enable) {  // validated: every attachment has the same state
+            const BlendState& s = desc.blend.front();
+            b.blendEnable = VK_TRUE;
+            b.srcColorBlendFactor = to_vk(s.src_color);
+            b.dstColorBlendFactor = to_vk(s.dst_color);
+            b.colorBlendOp = to_vk(s.color_op);
+            b.srcAlphaBlendFactor = to_vk(s.src_alpha);
+            b.dstAlphaBlendFactor = to_vk(s.dst_alpha);
+            b.alphaBlendOp = to_vk(s.alpha_op);
+        }
     }
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = static_cast<uint32_t>(blend.size());
@@ -2507,6 +2575,11 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept
 uint32_t process_validation_error_count() noexcept
 {
     return g_process_validation_errors.load(std::memory_order_relaxed);
+}
+
+void deny_blending_into(Format format) noexcept
+{
+    testing_denied_blend_format.store(format == Format::Unknown ? 0u : static_cast<uint32_t>(format) + 1u, std::memory_order_relaxed);
 }
 } // namespace testing
 #endif

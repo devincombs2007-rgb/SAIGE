@@ -30,6 +30,10 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept;
 /// Validation errors reported by every Vulkan device in this process since start, including those a device reports while
 /// it is being destroyed (leaked child objects), which no per-device counter can be read after.
 [[nodiscard]] uint32_t process_validation_error_count() noexcept;
+/// Makes every Vulkan device in this process report that it cannot blend into `format` (as a device lacking
+/// VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT for it would), so the rejection path can be tested on a device that supports it.
+/// Format::Unknown cancels.
+void deny_blending_into(Format format) noexcept;
 } // namespace testing
 #endif
 

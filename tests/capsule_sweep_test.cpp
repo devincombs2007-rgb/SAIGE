@@ -305,6 +305,39 @@ void test_multiple_boxes_and_ties() {
     require(!saige::sweep_capsule_boxes(c, {1, 0, 0}, boxes), "none reached");
 }
 
+void test_nearly_equal_hits_are_ordered_by_the_exact_contact_time() {
+    // Core review of #69: hits were compared by their float t, so two contact times closer than a float step collapsed into a tie and the
+    // lowest index won although another box was hit first.
+    const Capsule c{{-30.0f, 0.0f, 0.0f}, 0.3f, 1.7f};
+    const Vec3 move{60.0f, 0.0f, 0.0f};
+    const float later = std::nextafter(0.5f, 1.0f);
+    const Aabb near_box{{0.5f, -1, 0}, {1, 1, 2}};
+    const Aabb far_box{{later, -1, 0}, {1, 1, 2}};
+    const std::vector<Aabb> far_first{far_box, near_box};
+    const std::vector<Aabb> near_first{near_box, far_box};
+    const auto a = saige::sweep_capsule_boxes(c, move, far_first);
+    const auto b = saige::sweep_capsule_boxes(c, move, near_first);
+    require(a && a->index == 1, "the box hit first wins although it has the higher index (nearly equal float times)");
+    require(b && b->index == 0, "and the lower index wins when it is also the first hit");
+    // The two float times really are equal, so the test would pass for the wrong reason if the rule compared them.
+    const auto only_far = saige::sweep_capsule_box(c, move, far_box);
+    const auto only_near = saige::sweep_capsule_box(c, move, near_box);
+    require(only_far && only_near && only_far->t == only_near->t, "the contact times differ by less than a float step");
+    require(only_near->contact_t < only_far->contact_t && only_near->contact_t > 0.0 && only_far->contact_t < 1.0, "while the exact contact fractions (contact_t) tell them apart");
+    // Every permutation of three boxes, including a genuine tie (two identical boxes), is decided by the same rule.
+    const std::vector<Aabb> trio{far_box, near_box, near_box};
+    const int orders[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};
+    for (const auto& order : orders) {
+        const std::vector<Aabb> boxes{trio[order[0]], trio[order[1]], trio[order[2]]};
+        const auto hit = saige::sweep_capsule_boxes(c, move, boxes);
+        std::size_t first_near = 3;
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (boxes[i].min.x == 0.5f) { first_near = i; break; }
+        }
+        require(hit && hit->index == first_near, "among permutations the first of the identical earliest boxes wins (a genuine tie goes to the lowest index)");
+    }
+}
+
 void test_slopes() {
     const auto tilted = [](double degrees) {
         const double r = degrees * 3.14159265358979323846 / 180.0;
@@ -574,6 +607,7 @@ int main() {
         test_touching_and_overlap();
         test_push_out();
         test_multiple_boxes_and_ties();
+        test_nearly_equal_hits_are_ordered_by_the_exact_contact_time();
         test_slopes();
         test_query_is_validated_even_for_an_empty_set();
         test_invalid_input_is_rejected();

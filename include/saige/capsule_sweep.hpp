@@ -54,6 +54,7 @@ inline constexpr float max_sweep_length = 64.0f;
 struct CapsuleHit {
     float t{};                       // fraction of the displacement at `stop`, in [0, 1]
     Vec3 stop;                       // feet position to adopt: float, clear of the obstacles, within a few coordinate steps of the contact
+    double contact_t{};              // the exact contact fraction in double, before rounding and before the stop's back-off: order hits from different queries by this
     Vec3 normal;                     // unit length, pointing from the box toward the capsule
     Vec3 point;                      // closest point on the box to the capsule's axis at contact
     bool converged{true};            // false only for a triangle sweep that hit its iteration cap: `stop` is clear but may be short of the contact
@@ -74,7 +75,8 @@ void check_sweep_envelope(const Capsule& capsule, Vec3 displacement);
 // std::invalid_argument for a non-finite or degenerate capsule, box or displacement.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displacement, const Aabb& box);
 
-// The earliest hit over all boxes; ties go to the lowest index. The result's `index` identifies the box.
+// The earliest hit over all boxes, ordered by the exact contact time (double, before it is rounded to the float `t`): contact times that
+// differ by less than a float step are not tied. Only exactly equal times tie, and ties go to the lowest index. `index` identifies the box.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displacement, std::span<const Aabb> boxes);
 
 // The smallest translation that separates an overlapping capsule from a box so that they just touch, or no value when they do not

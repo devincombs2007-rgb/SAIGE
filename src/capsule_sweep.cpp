@@ -323,6 +323,7 @@ std::optional<RawHit> raw_sweep_box(const Capsule& capsule, Vec3 displacement, c
 // that exactly, the others to half the contact tolerance so a rounding step along a touched wall does not block the motion.
 CapsuleHit finalize(const Capsule& capsule, Vec3 displacement, RawHit raw, std::span<const Aabb> boxes, std::size_t hit_index) {
     CapsuleHit hit = raw.hit;
+    hit.contact_t = std::max(raw.exact_t, 0.0);
     if (hit.started_overlapping || raw.exact_t <= 0.0) {
         hit.t = 0.0f;
         hit.stop = capsule.feet;
@@ -363,7 +364,9 @@ std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displ
     std::size_t best_index = 0;
     for (std::size_t i = 0; i < boxes.size(); ++i) {
         auto raw = raw_sweep_box(capsule, displacement, boxes[i]);
-        if (raw && (!best || raw->hit.t < best->hit.t)) {  // ties go to the lowest index
+        // Ordered by the exact contact time in double, before it is rounded to the float `t` of the result: two boxes whose contact
+        // times differ by less than a float step are not tied. A tie is exact equality of the double times, and goes to the lowest index.
+        if (raw && (!best || raw->exact_t < best->exact_t)) {
             raw->hit.index = i;
             best = raw;
             best_index = i;

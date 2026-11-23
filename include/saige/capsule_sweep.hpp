@@ -58,8 +58,10 @@ struct CapsuleHit {
 // Contact recovery for a controller: apply the push, plus a small skin, then continue. Throws like sweep_capsule_box.
 [[nodiscard]] std::optional<Vec3> capsule_box_push_out(const Capsule& capsule, const Aabb& box);
 
-// Whether a contact normal is ground the character may stand on: its angle from +Z is at most `max_slope_radians`.
-// A non-unit or non-finite normal is not walkable.
+// Whether a contact normal is ground the character may stand on: it faces up and its angle from +Z is at most `max_slope_radians`.
+// The limit must be in [0, pi/2): 0 allows level ground only, and a negative, non-finite or >= pi/2 limit makes nothing walkable
+// (a limit that reaches a vertical wall is not a slope limit). A ceiling or a wall is never ground. A non-unit or non-finite
+// normal is not walkable.
 [[nodiscard]] bool is_walkable(Vec3 normal, float max_slope_radians) noexcept;
 
 } // namespace saige

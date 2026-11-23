@@ -35,6 +35,7 @@ add_library(saige_render STATIC
     src/gpu_resources.cpp
     src/model_renderer.cpp
     src/render_graph.cpp
+    src/shadow_cascades.cpp
     src/scene_renderer.cpp
     src/tonemap.cpp
     src/transform.cpp
@@ -72,6 +73,7 @@ if(SAIGE_RENDER_BUILD_TESTS)
             tests/test_math.cpp
             tests/test_render_graph.cpp
             tests/test_tonemap.cpp
+            tests/test_shadow_cascades.cpp
             tests/test_scene_renderer.cpp
             tests/test_shader_derivatives.cpp
             tests/test_transform.cpp

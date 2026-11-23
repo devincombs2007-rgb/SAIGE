@@ -9,6 +9,7 @@
 #include "saige/gfx_test/saige_test.hpp"
 
 #include "saige/render/transform.hpp"
+#include "model_test_util.hpp"
 #include "vulkan_test_util.hpp"
 
 #include <algorithm>
@@ -35,12 +36,6 @@ RendererSettings model_settings()
     s.fog_density = 0.0f;  // lit color is then exactly albedo * K, independent of distance
     s.sky = {0.30f, 0.50f, 0.82f, 1.0f};
     return s;
-}
-
-float srgb_to_linear(uint8_t v)
-{
-    const float c = static_cast<float>(v) / 255.0f;
-    return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
 }
 
 /// K(normal) for the three channels: the shader's ambient + sun terms.
@@ -73,104 +68,18 @@ Float3 linear_at(const Image& img, Pixel p)
     return {srgb_to_linear(c[0]), srgb_to_linear(c[1]), srgb_to_linear(c[2])};
 }
 
-bool near3(Float3 a, Float3 b, float tolerance)
-{
-    return std::fabs(a.x - b.x) <= tolerance && std::fabs(a.y - b.y) <= tolerance && std::fabs(a.z - b.z) <= tolerance;
-}
-
-// ------------------------------------------------------------------------------------------ model building
-GpuPrimitive make_primitive(GpuResourceRegistry& registry, const std::vector<ModelVertex>& vertices,
-                            const std::vector<uint32_t>& indices, uint32_t material)
-{
-    rhi::BufferDesc vb;
-    vb.size = vertices.size() * sizeof(ModelVertex);
-    vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
-    vb.debug_name = "test.vertices";
-    rhi::BufferDesc ib;
-    ib.size = indices.size() * sizeof(uint32_t);
-    ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
-    ib.debug_name = "test.indices";
-    GpuPrimitive p;
-    p.vertices = registry.create_buffer(vb, std::as_bytes(std::span(vertices)));
-    p.indices = registry.create_buffer(ib, std::as_bytes(std::span(indices)));
-    p.index_count = static_cast<uint32_t>(indices.size());
-    p.index_type = rhi::IndexType::Uint32;
-    p.material = material;
-    return p;
-}
-
-/// A quad in the plane x = `x`, centered on (y, z) = (0, `zc`), half extent 1, facing -X. uv (0,0) is the corner at screen
-/// top-left for a camera looking along +X (screen left is +Y).
-GpuModel make_quad(GpuResourceRegistry& registry, GpuMaterial material, float x, float zc, float half = 1.0f)
-{
-    const Float3 n{-1, 0, 0};
-    std::vector<ModelVertex> v = {
-        {{x, +half, zc + half}, n, {0, 0}},  // top-left
-        {{x, -half, zc + half}, n, {1, 0}},  // top-right
-        {{x, +half, zc - half}, n, {0, 1}},  // bottom-left
-        {{x, -half, zc - half}, n, {1, 1}},  // bottom-right
-    };
-    GpuModel m;
-    m.name = "quad";
-    m.materials.push_back(std::move(material));
-    m.meshes.push_back({make_primitive(registry, v, {0, 2, 3, 0, 3, 1}, 0)});  // counter-clockwise seen from -X
-    m.placements.push_back({0, Mat4::identity()});
-    return m;
-}
-
-GpuModel make_cube(GpuResourceRegistry& registry, GpuMaterial material)
-{
-    const CubeMesh cube = make_unit_cube();
-    std::vector<ModelVertex> v;
-    for (const CubeVertex& cv : cube.vertices) {
-        v.push_back({cv.position, cv.normal, {0, 0}});
-    }
-    std::vector<uint32_t> idx(cube.indices, cube.indices + 36);
-    GpuModel m;
-    m.name = "cube";
-    m.materials.push_back(std::move(material));
-    m.meshes.push_back({make_primitive(registry, v, idx, 0)});
-    m.placements.push_back({0, Mat4::identity()});
-    return m;
-}
-
-Mat4 translation(Float3 t)
-{
-    Mat4 m = Mat4::identity();
-    m.at(0, 3) = t.x;
-    m.at(1, 3) = t.y;
-    m.at(2, 3) = t.z;
-    return m;
-}
-
-Mat4 scale_matrix(Float3 s)
-{
-    Mat4 m = Mat4::identity();
-    m.at(0, 0) = s.x;
-    m.at(1, 1) = s.y;
-    m.at(2, 2) = s.z;
-    return m;
-}
-
-Mat4 rotation_z(float radians)
-{
-    Mat4 m = Mat4::identity();
-    m.at(0, 0) = std::cos(radians);
-    m.at(0, 1) = -std::sin(radians);
-    m.at(1, 0) = std::sin(radians);
-    m.at(1, 1) = std::cos(radians);
-    return m;
-}
-
 struct Rig {
     std::unique_ptr<rhi::Device> device;
     std::unique_ptr<SceneRenderer> renderer;
     std::unique_ptr<OffscreenTarget> target;
 
-    explicit Rig(const char* name)
+    /// `shading`: Legacy (the default, the 0.2 look) or Extended (also shades the emissive and occlusion textures).
+    explicit Rig(const char* name, ModelShading shading = ModelShading::Legacy)
     {
         device = make_validated_device(name, /*synchronization=*/true);
-        renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, model_settings());
+        RendererSettings settings = model_settings();
+        settings.model_shading = shading;
+        renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, settings);
         target = std::make_unique<OffscreenTarget>(*device, kW, kH);
     }
     ~Rig()
@@ -484,4 +393,192 @@ TEST_CASE("Models: several instances of one model share its GPU resources")
         CHECK(after.live == before.live);
     }
     CHECK(rig.device->validation_error_count() == 0);
+}
+
+// ------------------------------------------------------------------------------------------ material slots (M1)
+namespace {
+
+/// A single-texel texture of the given format.
+TextureRef texel_texture(Rig& rig, rhi::Format format, uint8_t r, uint8_t g, uint8_t b, const char* name)
+{
+    rhi::TextureDesc td;
+    td.format = format;
+    td.width = td.height = 1;
+    td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+    td.debug_name = name;
+    const std::byte texel[4] = {std::byte{r}, std::byte{g}, std::byte{b}, std::byte{255}};
+    return rig.renderer->registry().create_texture(td, texel);
+}
+
+/// The shader's ambient term alone for a normal (no sun), to separate what occlusion scales.
+Float3 ambient_k(Float3 n, const RendererSettings& s)
+{
+    const float t = n.z * 0.5f + 0.5f;
+    const Float3 ground{0.20f, 0.18f, 0.16f};
+    const Float3 sky{s.sky.r * 0.6f, s.sky.g * 0.6f, s.sky.b * 0.6f};
+    return ground * (1.0f - t) + sky * t;
+}
+
+/// Pixels of the quad's interior (inset from its edges) that are neither texel color of the checker: blended by filtering.
+struct CheckerPurity {
+    size_t pure = 0;
+    size_t blended = 0;
+};
+CheckerPurity checker_purity(const Image& img, const Mat4& vp)
+{
+    CheckerPurity out;
+    const Pixel a = to_pixel(vp, {0, +0.9f, 2.4f});
+    const Pixel b = to_pixel(vp, {0, -0.9f, 0.6f});
+    for (int y = a.y; y <= b.y; ++y) {
+        for (int x = a.x; x <= b.x; ++x) {
+            const Float3 c = linear_at(img, {x, y});
+            if (near3(c, texel_linear(true), 0.03f) || near3(c, texel_linear(false), 0.03f)) {
+                ++out.pure;
+            } else {
+                ++out.blended;
+            }
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("Models: the emissive slot reads its own texture as sRGB through its own sampler")
+{
+    Rig rig("model_slot_emissive", ModelShading::Extended);
+    {
+        const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+        const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+        GpuResourceRegistry& registry = rig.renderer->registry();
+        rhi::SamplerDesc linear_desc;  // magnified linearly, clamped: blends texels at cell edges
+        linear_desc.address_u = linear_desc.address_v = rhi::AddressMode::ClampToEdge;
+        const SamplerRef linear = registry.get_sampler(linear_desc);
+        const SamplerRef nearest = nearest_sampler(rig);
+
+        // Black base color, so the pixel is the emissive texture times the factor and nothing else (no lighting term).
+        MaterialData data;
+        data.base_color[0] = data.base_color[1] = data.base_color[2] = 0.0f;
+        data.emissive[0] = data.emissive[1] = data.emissive[2] = 1.0f;
+
+        // Emissive: nearest. Base color: linear. Every pixel must be one of the two texel colors, decoded from sRGB.
+        MaterialTextures a;
+        a[MaterialSlot::Emissive] = {checker_texture(rig), nearest};
+        a[MaterialSlot::BaseColor] = {checker_texture(rig), linear};
+        const GpuModel quad_a = make_quad(registry, rig.renderer->model_renderer().create_material(data, a, "emissive.nearest"), 0.0f, 1.5f);
+        const ModelDraw draw_a{&quad_a, Mat4::identity()};
+        const CheckerPurity pa = checker_purity(rig.render(camera, std::span(&draw_a, 1)), vp);
+        CHECK(pa.pure > 1000);
+        CHECK(pa.blended == 0);
+
+        // Swapped: the emissive slot's sampler is now linear while the base color slot is nearest. The emissive texture
+        // must follow its own sampler, so cell edges blend. (If the shader used one sampler for both, this would be 0.)
+        MaterialTextures b;
+        b[MaterialSlot::Emissive] = {checker_texture(rig), linear};
+        b[MaterialSlot::BaseColor] = {checker_texture(rig), nearest};
+        const GpuModel quad_b = make_quad(registry, rig.renderer->model_renderer().create_material(data, b, "emissive.linear"), 0.0f, 1.5f);
+        const ModelDraw draw_b{&quad_b, Mat4::identity()};
+        const CheckerPurity pb = checker_purity(rig.render(camera, std::span(&draw_b, 1)), vp);
+        CHECK(pb.blended > 20);
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Models: the occlusion slot scales only the ambient term, read as linear data")
+{
+    Rig rig("model_slot_occlusion", ModelShading::Extended);
+    {
+        const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+        const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+        GpuResourceRegistry& registry = rig.renderer->registry();
+        const RendererSettings s = model_settings();
+        const Float3 n{-1, 0, 0};
+        const Float3 full = lighting_k(n, s);
+        const Float3 ambient = ambient_k(n, s);
+        const Float3 sun{full.x - ambient.x, full.y - ambient.y, full.z - ambient.z};
+        const Pixel center = to_pixel(vp, {0, 0, 1.5f});
+
+        // R = 128 in a *linear* texture is 0.502. If it were read as sRGB it would be 0.216: far enough apart to tell.
+        const TextureRef occlusion = texel_texture(rig, rhi::Format::RGBA8_UNORM, 128, 128, 128, "test.occlusion");
+        const float occ = 128.0f / 255.0f;
+        for (const float strength : {1.0f, 0.5f, 0.0f}) {
+            MaterialData data;  // white albedo, so the lit color is exactly the lighting term
+            data.occlusion_strength = strength;
+            MaterialTextures textures;
+            textures[MaterialSlot::Occlusion] = {occlusion, {}};
+            const GpuModel quad = make_quad(registry, rig.renderer->model_renderer().create_material(data, textures, "occ"), 0.0f, 1.5f);
+            const ModelDraw draw{&quad, Mat4::identity()};
+            const Float3 got = linear_at(rig.render(camera, std::span(&draw, 1)), center);
+            const float scale = 1.0f + (occ - 1.0f) * strength;
+            const Float3 want{ambient.x * scale + sun.x, ambient.y * scale + sun.y, ambient.z * scale + sun.z};
+            CHECK(near3(got, want, 0.015f));
+            if (strength == 1.0f) {
+                CHECK(near3(got, full, 0.05f) == false);  // not vacuous: occlusion visibly darkens
+            }
+            if (strength == 0.0f) {
+                CHECK(near3(got, full, 0.015f));  // strength 0 ignores the texture
+            }
+        }
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Models: a material with empty slots renders exactly like one with explicit neutral textures")
+{
+    Rig rig("model_slot_neutral");
+    {
+        const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+        GpuResourceRegistry& registry = rig.renderer->registry();
+        MaterialData data;
+        data.base_color[0] = 0.7f; data.base_color[1] = 0.4f; data.base_color[2] = 0.2f;
+        data.emissive[0] = 0.05f;
+        const GpuModel plain = make_quad(registry, rig.material(data), 0.0f, 1.5f);
+        MaterialTextures explicit_neutral;
+        explicit_neutral[MaterialSlot::BaseColor].texture = texel_texture(rig, rhi::Format::RGBA8_SRGB, 255, 255, 255, "n.base");
+        explicit_neutral[MaterialSlot::MetallicRoughness].texture = texel_texture(rig, rhi::Format::RGBA8_UNORM, 255, 255, 255, "n.mr");
+        explicit_neutral[MaterialSlot::Normal].texture = texel_texture(rig, rhi::Format::RGBA8_UNORM, 128, 128, 255, "n.normal");
+        explicit_neutral[MaterialSlot::Occlusion].texture = texel_texture(rig, rhi::Format::RGBA8_UNORM, 255, 255, 255, "n.occ");
+        explicit_neutral[MaterialSlot::Emissive].texture = texel_texture(rig, rhi::Format::RGBA8_SRGB, 255, 255, 255, "n.emissive");
+        const GpuModel spelled = make_quad(registry, rig.renderer->model_renderer().create_material(data, explicit_neutral, "n"), 0.0f, 1.5f);
+        const ModelDraw a{&plain, Mat4::identity()};
+        const ModelDraw b{&spelled, Mat4::identity()};
+        CHECK(rig.render(camera, std::span(&a, 1)).rgba == rig.render(camera, std::span(&b, 1)).rgba);
+    }
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Models (Legacy, the default): populated emissive and occlusion textures leave a 0.2 scene exactly as it was")
+{
+    // A 0.2 material with an emissive factor, plus an emissive texture and an occlusion texture that 0.2 never read. In the default
+    // Legacy mode the image must equal the same material without those textures, and equal the 0.2 lighting oracle: albedo * K plus
+    // the emissive factor. In Extended mode the extra textures do change it (so the comparison is not vacuous).
+    for (const ModelShading shading : {ModelShading::Legacy, ModelShading::Extended}) {
+        Rig rig("model_legacy_compat", shading);
+        {
+            const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+            const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+            GpuResourceRegistry& registry = rig.renderer->registry();
+            MaterialData data;
+            data.base_color[0] = 0.6f; data.base_color[1] = 0.5f; data.base_color[2] = 0.4f;
+            data.emissive[0] = 0.05f; data.emissive[1] = 0.02f; data.emissive[2] = 0.01f;
+            MaterialTextures extras;
+            extras[MaterialSlot::Emissive].texture = checker_texture(rig);   // an sRGB texture with values the factor would not hide
+            extras[MaterialSlot::Occlusion].texture = texel_texture(rig, rhi::Format::RGBA8_UNORM, 64, 64, 64, "test.occ");
+            const GpuModel plain = make_quad(registry, rig.renderer->model_renderer().create_material(data, MaterialTextures{}, "plain"), 0.0f, 1.5f);
+            const GpuModel populated = make_quad(registry, rig.renderer->model_renderer().create_material(data, extras, "populated"), 0.0f, 1.5f);
+            const ModelDraw a{&plain, Mat4::identity()};
+            const ModelDraw b{&populated, Mat4::identity()};
+            const Image image_plain = rig.render(camera, std::span(&a, 1));
+            const Image image_populated = rig.render(camera, std::span(&b, 1));
+            if (shading == ModelShading::Legacy) {
+                CHECK(image_plain.rgba == image_populated.rgba);
+                const Float3 k = lighting_k({-1, 0, 0}, model_settings());
+                const Float3 want{0.6f * k.x + 0.05f, 0.5f * k.y + 0.02f, 0.4f * k.z + 0.01f};  // the 0.2 formula
+                CHECK(near3(linear_at(image_populated, to_pixel(vp, {0, 0, 1.5f})), want, 0.012f));
+            } else {
+                CHECK(image_plain.rgba != image_populated.rgba);
+            }
+        }
+        CHECK(rig.device->validation_error_count() == 0);
+    }
 }

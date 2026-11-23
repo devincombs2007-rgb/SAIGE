@@ -2,6 +2,7 @@
 
 #include "saige/gfx_assets/json.hpp"
 #include "saige/gfx_assets/resource_uri.hpp"
+#include "saige/gfx_assets/tangents.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -136,6 +137,7 @@ public:
         load_textures();
         load_materials();
         load_meshes();
+        generate_missing_tangents();
         load_nodes();
         build_instances();
         asset_.warnings.assign(warnings_.begin(), warnings_.end());
@@ -848,6 +850,38 @@ private:
             prim.bounds.expand(Float3{prim.positions[v * 3], prim.positions[v * 3 + 1], prim.positions[v * 3 + 2]});
         }
         return prim;
+    }
+
+    /// A primitive whose material has a normal texture needs tangents. The file's own are used; otherwise they are generated
+    /// (a deterministic CPU step, see tangents.hpp). Materials without a normal texture never get tangents they would not use.
+    void generate_missing_tangents()
+    {
+        for (Mesh& mesh : asset_.meshes) {
+            for (Primitive& prim : mesh.primitives) {
+                if (prim.material < 0 || static_cast<std::size_t>(prim.material) >= asset_.materials.size() ||
+                    !asset_.materials[static_cast<std::size_t>(prim.material)].normal_texture.valid() || !prim.tangents.empty()) {
+                    continue;
+                }
+                const TangentReport report = generate_tangents(prim);
+                if (report.result == TangentResult::Generated) {
+                    warn("a primitive with a normal texture has no TANGENT attribute: tangents were generated (Lengyel-style, "
+                         "not MikkTSpace; they can differ from a MikkTSpace result at UV seams)");
+                    if (report.fallback_vertices != 0) {
+                        warn("tangent generation found vertices without a usable UV mapping and gave them an arbitrary frame");
+                    }
+                    if (report.split_vertices != 0) {
+                        warn("tangent generation split vertices shared by mirrored UV islands (the file did not split them)");
+                    }
+                    if (report.mixed_handedness_triangles != 0) {
+                        warn("some triangles have normals that contradict their winding: their tangent handedness is inconsistent");
+                    }
+                } else if (report.result == TangentResult::Invalid) {
+                    warn("a primitive with a normal texture has inconsistent vertex arrays: no tangents were generated");
+                } else if (report.result == TangentResult::NoUvs) {
+                    warn("a primitive has a normal texture but no TEXCOORD_0: its normal map cannot be applied");
+                }
+            }
+        }
     }
 
     // ----------------------------------------------------------------------------------------------- nodes

@@ -75,6 +75,11 @@ if(SAIGE_BUILD_GRAPHICS)
     add_subdirectory(engine)
 endif()
 
+# Showcase applications (use the modules above; nothing depends on them).
+if(SAIGE_BUILD_GRAPHICS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/showcase/CMakeLists.txt")
+    add_subdirectory(showcase)
+endif()
+
 option(SAIGE_TEST_WIN32_VULKAN "Run strict Win32 Vulkan presentation tests (requires a driver and validation layer)" OFF)
 if(SAIGE_TEST_WIN32_VULKAN)
     if(NOT WIN32 OR NOT BUILD_TESTING OR NOT TARGET saige::rhi_vulkan OR NOT TARGET saige::render_sink)

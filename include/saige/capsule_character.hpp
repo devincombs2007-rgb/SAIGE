@@ -74,8 +74,10 @@ public:
     void reset();
 
     // Places the character at rest at `feet`, for example where it leaves a vehicle. A position that overlaps geometry is pushed
-    // out the shortest way (several boxes are resolved in passes). Throws std::invalid_argument for a non-finite position.
-    void teleport(Vec3 feet);
+    // out the shortest way (several boxes are resolved in passes). Returns false, and changes nothing, if bounded recovery cannot
+    // leave the capsule clear (for example a gap narrower than the capsule between two tall boxes), so a blocked exit keeps the rider's
+    // previous state. Throws std::invalid_argument for a non-finite position.
+    [[nodiscard]] bool teleport(Vec3 feet);
 
     [[nodiscard]] const CapsuleCharacterState& state() const noexcept { return state_; }
     [[nodiscard]] const CapsuleCharacterConfig& config() const noexcept { return config_; }
@@ -85,7 +87,7 @@ private:
     [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, config_.height}; }
     [[nodiscard]] std::optional<CapsuleHit> sweep(Vec3 feet, Vec3 displacement) const;
     [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> geometry) const;
-    void recover_from_overlap();
+    bool recover_from_overlap();  // false if the capsule is still overlapping after the bounded passes
     void slide(Vec3 displacement, bool can_step);
     bool try_step_up(Vec3 leftover);
     void snap_to_ground();

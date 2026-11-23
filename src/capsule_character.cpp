@@ -95,10 +95,11 @@ std::optional<CapsuleHit> CapsuleCharacter::sweep(Vec3 feet, Vec3 displacement) 
     const Capsule capsule = capsule_at(feet);
     auto hit = sweep_capsule_boxes(capsule, displacement, geometry_);
     if (triangles_.empty()) return hit;
-    // The earliest contact over both kinds of surface; a box wins a tie (it is checked first, and is the exact analytic result).
+    // The earliest contact over both kinds of surface, by the exact contact fraction (contact_t, double) rather than the rounded t; a box
+    // wins an exact tie (it is checked first, and is the exact analytic result).
     bool from_triangle = false;
     if (const auto tri = sweep_capsule_triangles(capsule, displacement, triangles_)) {
-        if (!hit || tri->t < hit->t) {
+        if (!hit || tri->contact_t < hit->contact_t) {
             hit = tri;
             from_triangle = true;
         }

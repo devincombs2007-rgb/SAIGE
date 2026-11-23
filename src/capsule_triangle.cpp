@@ -281,6 +281,7 @@ std::optional<RawHit> sweep_validated(const Capsule& capsule, const D3& displace
 // other triangles near the path to half the contact tolerance, so a rounding step along a touched surface does not block the motion.
 CapsuleHit finalize(const Capsule& capsule, Vec3 displacement, RawHit raw, std::span<const Triangle> triangles, std::size_t hit_index) {
     CapsuleHit hit = raw.hit;
+    hit.contact_t = raw.exact_t;
     if (hit.started_overlapping || raw.exact_t <= 0.0) {
         hit.t = 0.0f;
         hit.stop = capsule.feet;

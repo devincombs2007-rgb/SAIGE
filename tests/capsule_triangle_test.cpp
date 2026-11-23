@@ -633,6 +633,7 @@ void test_nearly_equal_hits_are_ordered_by_the_exact_contact_time() {
     const auto only_near = saige::sweep_capsule_triangle(c, move, near_wall);
     const auto only_far = saige::sweep_capsule_triangle(c, move, far_wall);
     require(only_near && only_far, "both walls are hit");
+    require(only_near->t == only_far->t && only_near->contact_t < only_far->contact_t, "the float times are equal but the exact contact fractions (contact_t) are not");
     const std::vector<Triangle> far_first{far_wall, near_wall}, near_first{near_wall, far_wall};
     const auto a = saige::sweep_capsule_triangles(c, move, far_first);
     const auto b = saige::sweep_capsule_triangles(c, move, near_first);

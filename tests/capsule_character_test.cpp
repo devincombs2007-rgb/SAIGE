@@ -404,31 +404,72 @@ void test_teleport_and_overlap_recovery() {
     CapsuleCharacter c({0, 0, 0}, boxes);
     run(c, {1, 0, true, false}, 10);
     // Open air: placed at rest and falls.
-    c.teleport({0, 0, 3});
+    require(c.teleport({0, 0, 3}), "teleport succeeds");
     require(c.state().feet == Vec3{0, 0, 3} && c.state().velocity == Vec3{0, 0, 0} && !c.state().grounded, "teleport to open air");
     // Partly inside a wall: pushed out to touching, along the shortest way (back along x).
-    c.teleport({2.8f, 0, 0});  // the capsule would reach x = 3.1
+    require(c.teleport({2.8f, 0, 0}), "teleport succeeds");  // the capsule would reach x = 3.1
     require(min_gap(c, boxes) >= 0.0f && min_gap(c, boxes) < 3e-4f && c.state().feet.x < 2.71f && c.state().feet.x > 2.69f,
             "teleport into a wall ends up touching it: x = " + std::to_string(c.state().feet.x));
     require(c.state().grounded, "and standing on the floor");
     // Sunk into the floor: lifted onto it.
-    c.teleport({0, 0, -0.5f});
+    require(c.teleport({0, 0, -0.5f}), "teleport succeeds");
     require(near(c.state().feet.z, 0.0, 5e-4) && c.state().grounded, "teleport into the floor lifts the character onto it");
     // Deep inside the wall, with the axis inside the box: leaves through the nearest face.
-    c.teleport({3.4f, 0, 0.5f});
+    require(c.teleport({3.4f, 0, 0.5f}), "teleport succeeds");
     require(min_gap(c, boxes) >= 0.0f, "teleport deep into a wall leaves it");
     require(c.state().feet.x > 4.29f || c.state().feet.x < 2.71f || c.state().feet.z > 2.99f, "and ends on the outside of the box");
     // Valid afterwards: the character walks on normally.
-    c.teleport({0, 0, 0});
+    require(c.teleport({0, 0, 0}), "teleport succeeds");
     run(c, forward, 30);
     require(c.state().feet.x > 0.4f && c.state().grounded, "stepping works after a teleport");
     bool threw = false;
     try {
-        c.teleport({std::numeric_limits<float>::quiet_NaN(), 0, 0});
+        (void)c.teleport({std::numeric_limits<float>::quiet_NaN(), 0, 0});
     } catch (const std::invalid_argument&) {
         threw = true;
     }
     require(threw, "a non-finite teleport throws");
+}
+
+void test_teleport_into_a_trapped_gap_fails_and_changes_nothing() {
+    // Two tall boxes 0.30 m apart: narrower than the 0.60 m capsule, so no position inside the gap is clear.
+    const std::vector<Aabb> boxes = with_floor({{{-5, -5, 0}, {-0.15f, 5, 4}}, {{0.15f, -5, 0}, {5, 5, 4}}});
+    CapsuleCharacter c({0, -8, 0}, boxes);
+    run(c, {0.0f, 1.0f, false, false}, 20);  // moving, so the state is not trivially the default
+    c.step({0, 0, true, false}, dt);          // and airborne
+    const CapsuleCharacterState before = c.state();
+    require(!c.teleport({0, 0, 0}), "a teleport into a gap narrower than the capsule reports failure");
+    require(c.state() == before, "and leaves the position, velocity and grounded state exactly as they were");
+    require(!c.teleport({0, 0, 1.5f}), "the same at another height inside the gap");
+    require(c.state() == before, "still unchanged");
+    run(c, idle, 120);  // the rider carries on normally afterwards
+    require(c.state().grounded && min_gap(c, boxes) > -1e-4f, "the character is still simulated normally after a refused teleport");
+    // A teleport into the same gap widened to the capsule's width succeeds.
+    const std::vector<Aabb> wide = with_floor({{{-5, -5, 0}, {-0.35f, 5, 4}}, {{0.35f, -5, 0}, {5, 5, 4}}});
+    CapsuleCharacter w({0, -8, 0}, wide);
+    require(w.teleport({0.0f, 0, 0}), "a gap wider than the capsule can be teleported into");
+    require(min_gap(w, wide) > -1e-4f && w.state().grounded, "and the capsule is clear and grounded there");
+}
+
+void test_reset_and_geometry_replacement_keep_ledge_support() {
+    // The slide along a blocked ledge (see test_sliding_along_a_blocked_ledge_stays_grounded) leaves the capsule touching the plinth's
+    // top edge with the floor beneath. Rebuilding that situation from a spawn, or swapping in an identical collision set, must keep it
+    // supported: the old plain downward sweep met the steep rim first and reported "not grounded".
+    const std::vector<Aabb> boxes = with_floor({{{-12.6f, -7.6f, 0.0f}, {-11.4f, -6.4f, 0.25f}}, {{-12.42f, -7.42f, 0.0f}, {-11.58f, -6.58f, 3.5f}}});
+    // Exactly touching the plinth's top edge (the bottom sphere's center is 0.0505 above the edge, so it is 0.3 from it), 0.5 mm above the floor.
+    const Vec3 touching{-11.10428f, -7.0f, 0.0005f};
+    require(saige::capsule_box_gap(CapsuleCharacter(touching, boxes).capsule(), boxes[1]) < 1e-5f, "the spawn really touches the plinth's edge");
+    {   // The old probe, a plain downward sweep, meets that steep rim first (it is touching and the path moves into it): not supported.
+        const auto plain = saige::sweep_capsule_boxes({touching, 0.3f, 1.7f}, {0.0f, 0.0f, -0.1201f}, boxes);
+        require(plain && plain->t < 1e-4f && !saige::is_walkable(plain->normal, 0.87266463f), "a plain downward sweep from there stops at the steep rim");
+    }
+    CapsuleCharacter spawned(touching, boxes);
+    require(spawned.state().grounded, "a spawn touching the ledge's rim, with floor beneath, starts grounded");
+    CapsuleCharacter swap(touching, boxes);
+    require(swap.replace_static_geometry(boxes), "an identical collision set is accepted");
+    require(swap.state().grounded, "and the character is still grounded after the swap");
+    swap.reset();
+    require(swap.state().grounded, "and after a reset");
 }
 
 void test_wedge_between_two_rims_settles() {
@@ -499,6 +540,8 @@ int main() {
         test_replay_is_deterministic_and_never_penetrates();
         test_float_rounding_never_leaves_the_capsule_in_a_wall();
         test_teleport_and_overlap_recovery();
+        test_teleport_into_a_trapped_gap_fails_and_changes_nothing();
+        test_reset_and_geometry_replacement_keep_ledge_support();
         test_wedge_between_two_rims_settles();
         test_sliding_along_a_blocked_ledge_stays_grounded();
         test_reset();

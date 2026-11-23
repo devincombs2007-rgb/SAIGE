@@ -37,11 +37,15 @@ D3 clamp3(const D3& p, const D3& lo, const D3& hi) noexcept {
     return {std::clamp(p[0], lo[0], hi[0]), std::clamp(p[1], lo[1], hi[1]), std::clamp(p[2], lo[2], hi[2])};
 }
 
-void validate(const Capsule& capsule, const Aabb& box) {
+void validate(const Capsule& capsule) {
     if (!finite(capsule.feet) || !std::isfinite(capsule.radius) || !std::isfinite(capsule.height) || capsule.radius <= 0.0f ||
         capsule.height < 2.0f * capsule.radius) {
         throw std::invalid_argument("Capsule must be finite with a positive radius and a height of at least twice the radius");
     }
+}
+
+void validate(const Capsule& capsule, const Aabb& box) {
+    validate(capsule);
     if (!finite(box.min) || !finite(box.max) || box.min.x >= box.max.x || box.min.y >= box.max.y || box.min.z >= box.max.z) {
         throw std::invalid_argument("Box must be finite with min below max on every axis");
     }
@@ -277,6 +281,10 @@ std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displac
 }
 
 std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displacement, std::span<const Aabb> boxes) {
+    // The query is validated once, up front, so an invalid capsule or displacement throws whatever the set holds (an empty set
+    // included); each box is validated by the single-box sweep.
+    validate(capsule);
+    if (!finite(displacement)) throw std::invalid_argument("Capsule displacement must be finite");
     std::optional<CapsuleHit> best;
     for (std::size_t i = 0; i < boxes.size(); ++i) {
         auto hit = sweep_capsule_box(capsule, displacement, boxes[i]);
@@ -289,7 +297,11 @@ std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displ
 }
 
 bool is_walkable(Vec3 normal, float max_slope_radians) noexcept {
-    if (!finite(normal) || !std::isfinite(max_slope_radians) || max_slope_radians < 0.0f) return false;
+    // Ground-slope limits are angles from +Z in [0, pi/2): a limit of 0 allows level ground only, and a limit that reaches a vertical
+    // wall (pi/2) or beyond is not a slope limit, so nothing is walkable under it. A ceiling (normal.z < 0) is never ground.
+    constexpr float half_pi = 1.57079632679f;
+    if (!finite(normal) || !std::isfinite(max_slope_radians) || max_slope_radians < 0.0f || max_slope_radians >= half_pi) return false;
+    if (!(normal.z > 0.0f)) return false;
     const double length2 = static_cast<double>(normal.x) * normal.x + static_cast<double>(normal.y) * normal.y +
                            static_cast<double>(normal.z) * normal.z;
     if (std::abs(length2 - 1.0) > 1e-3) return false;

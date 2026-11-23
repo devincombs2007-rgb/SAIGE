@@ -17,19 +17,21 @@ using namespace saige::gfx;
 
 namespace {
 
-render::RendererSettings shading_settings(render::ModelShading shading)
+render::RendererSettings rig_settings(render::ModelShading shading, bool alpha_blending)
 {
     render::RendererSettings s;
     s.model_shading = shading;
+    s.alpha_blending = alpha_blending;
     return s;
 }
 
 struct Rig {
     rhi::NullDevice device;
     render::SceneRenderer renderer;
-    /// Legacy is the default everywhere (the 0.2 behavior); tests of the extra material slots opt in to Extended.
-    explicit Rig(render::ModelShading shading = render::ModelShading::Legacy)
-        : renderer(device, rhi::Format::RGBA8_SRGB, shading_settings(shading))
+    /// Legacy shading and no alpha blending are the defaults everywhere (the 0.2 behavior); tests of the extra material slots opt in to
+    /// Extended or MetallicRoughness, and tests of sorted blending opt in to alpha blending.
+    explicit Rig(render::ModelShading shading = render::ModelShading::Legacy, bool alpha_blending = false)
+        : renderer(device, rhi::Format::RGBA8_SRGB, rig_settings(shading, alpha_blending))
     {
     }
 };
@@ -228,9 +230,26 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     REQUIRE(model.materials.size() == 4);
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
-    CHECK(has_warning(report, "alpha blending is not implemented"));
+    // The default renderer has alpha blending off: BLEND draws opaque exactly as in 0.2, with a warning saying so.
+    CHECK(has_warning(report, "alpha blending is off"));
     CHECK(has_warning(report, "not sampled in 0.2"));  // the default Legacy renderer: a normal texture is ignored, as in 0.2
-    CHECK(report.warnings.size() == 2);  // each warned about once, however many materials trigger it
+    CHECK_FALSE(model.materials[0].blend);
+    CHECK_FALSE(model.materials[1].blend);  // the mask material
+    CHECK_FALSE(model.materials[2].blend);  // "glass": glTF BLEND, but blending was not asked for
+    // Every primitive carries a bounding sphere for sorting blended draws (used only when blending is on).
+    for (const auto& primitives : model.meshes) {
+        for (const render::GpuPrimitive& prim : primitives) {
+            CHECK(prim.bounds_radius > 0.0f);
+        }
+    }
+    // With alpha blending asked for, the same asset blends the BLEND material and needs no warning about blending.
+    Rig blending_rig(render::ModelShading::Legacy, /*alpha_blending=*/true);
+    StageReport blending_report;
+    const render::GpuModel blending_model = stage_model(blending_rig.renderer, asset, "materials", {}, &blending_report);
+    CHECK_FALSE(has_warning(blending_report, "alpha blending"));
+    CHECK_FALSE(blending_model.materials[0].blend);
+    CHECK_FALSE(blending_model.materials[1].blend);
+    CHECK(blending_model.materials[2].blend);
 }
 
 TEST_CASE("Stage: every slot gets its own texture upload per color space and the sampler its glTF texture names")

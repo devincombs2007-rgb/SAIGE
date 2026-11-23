@@ -46,7 +46,7 @@ struct ModelPush {
     float4 mat_base_color;      // linear factor, multiplied with the texture
     float4 mat_emissive_cutoff; // emissive rgb (linear, may exceed 1), alpha cutoff in w (0 = opaque, no test)
     float4 mat_mr_normal_occ;   // metallic, roughness, normal scale, occlusion strength
-    float4 mat_flags;           // x: 1 when the material has a normal texture
+    float4 mat_flags;           // x: 1 when the material has a normal texture; y: 1 when the material is alpha blended
 };
 
 [[vk::binding(0, 1)]] cbuffer SceneConstants
@@ -188,5 +188,8 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
         }
     }
     const float fog = 1.0 - exp(-distance_m * sc_fog_color.w);
-    return float4(lerp(lit, sc_fog_color.rgb, saturate(fog)), 1.0);
+    // A blended material outputs its straight (non-premultiplied) alpha for the pipeline's source-over blend; everything else
+    // writes 1 as before. Fog mixes the color only, so a faded surface still fades into the fogged scene behind it.
+    const float out_alpha = mat_flags.y > 0.5 ? saturate(base.a) : 1.0;  // base.a is the surface alpha in every mode
+    return float4(lerp(lit, sc_fog_color.rgb, saturate(fog)), out_alpha);
 }

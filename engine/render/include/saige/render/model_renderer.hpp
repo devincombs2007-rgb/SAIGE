@@ -76,11 +76,24 @@ enum class ModelShading : uint8_t {
     MetallicRoughness = 2,  ///< glTF physically based shading.
 };
 
+/// The sun and ground ambient that light imported models (linear). The defaults are the fixed values every release before this
+/// setting used, so leaving it alone changes nothing. The sky half of the ambient is not here: it is 0.6 times the sky color
+/// (`ModelRenderSettings::sky`), which is also the fog color. The 0.1 cube and ground shaders keep their own fixed lighting.
+struct SceneLighting {
+    Float3 sun_direction{-0.40f, -0.55f, 0.73f};  ///< points toward the sun; not required to be unit length, must not be zero
+    Float3 sun_color{1.00f, 0.95f, 0.85f};        ///< linear; may exceed 1 for an HDR output
+    Float3 ambient_ground{0.20f, 0.18f, 0.16f};   ///< ambient light arriving from below
+};
+
+/// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.
+void validate_lighting(const SceneLighting& lighting);
+
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
     bool alpha_blending = false;
+    SceneLighting lighting;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
 };

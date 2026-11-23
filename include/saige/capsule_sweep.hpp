@@ -73,7 +73,8 @@ void check_sweep_envelope(const Capsule& capsule, Vec3 displacement);
 // std::invalid_argument for a non-finite or degenerate capsule, box or displacement.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_box(const Capsule& capsule, Vec3 displacement, const Aabb& box);
 
-// The earliest hit over all boxes; ties go to the lowest index. The result's `index` identifies the box.
+// The earliest hit over all boxes, ordered by the exact contact time (double, before it is rounded to the float `t`): contact times that
+// differ by less than a float step are not tied. Only exactly equal times tie, and ties go to the lowest index. `index` identifies the box.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displacement, std::span<const Aabb> boxes);
 
 // The smallest translation that separates an overlapping capsule from a box so that they just touch, or no value when they do not

@@ -363,7 +363,9 @@ std::optional<CapsuleHit> sweep_capsule_boxes(const Capsule& capsule, Vec3 displ
     std::size_t best_index = 0;
     for (std::size_t i = 0; i < boxes.size(); ++i) {
         auto raw = raw_sweep_box(capsule, displacement, boxes[i]);
-        if (raw && (!best || raw->hit.t < best->hit.t)) {  // ties go to the lowest index
+        // Ordered by the exact contact time in double, before it is rounded to the float `t` of the result: two boxes whose contact
+        // times differ by less than a float step are not tied. A tie is exact equality of the double times, and goes to the lowest index.
+        if (raw && (!best || raw->exact_t < best->exact_t)) {
             raw->hit.index = i;
             best = raw;
             best_index = i;

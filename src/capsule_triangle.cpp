@@ -342,7 +342,10 @@ std::optional<CapsuleHit> sweep_capsule_triangles(const Capsule& capsule, Vec3 d
         const Tri tri = require_tri(triangles[i]);
         if (!bounds_overlap(sweep_box, triangle_bounds(tri))) continue;
         if (auto raw = sweep_validated(capsule, d, tri)) {
-            if (!best || raw->hit.t < best->hit.t) {  // ties go to the lowest index
+            // Ordered by the exact contact time (double), not the float `t` it is rounded to: times closer than a float step are not tied.
+            // Advancement closes each gap to under converge_gap, so times are distinguished down to about that distance along the path.
+            // Only exactly equal times tie (identical triangles, say), and ties go to the lowest index.
+            if (!best || raw->exact_t < best->exact_t) {
                 best = raw;
                 best_index = i;
             }

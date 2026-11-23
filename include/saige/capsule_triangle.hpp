@@ -55,7 +55,9 @@ struct Triangle {
 // std::invalid_argument for a non-finite or degenerate capsule, triangle or displacement.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_triangle(const Capsule& capsule, Vec3 displacement, const Triangle& triangle);
 
-// The earliest hit over all triangles; ties go to the lowest index. The result's `index` identifies the triangle.
+// The earliest hit over all triangles, ordered by the exact contact time (double, before it is rounded to the float `t`): times closer
+// than a float step are not tied, down to the advancement's convergence distance (1e-8 m along the path). Only exactly equal times tie,
+// and ties go to the lowest index. `index` identifies the triangle.
 [[nodiscard]] std::optional<CapsuleHit> sweep_capsule_triangles(const Capsule& capsule, Vec3 displacement, std::span<const Triangle> triangles);
 
 // The smallest translation that separates an overlapping capsule from a triangle so that they just touch, or no value when they do

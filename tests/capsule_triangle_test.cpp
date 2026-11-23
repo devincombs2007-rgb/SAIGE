@@ -622,6 +622,41 @@ void test_grazing_paths_converge_and_stop_clear() {
     require(hits > 5000, "too few grazing hits: " + std::to_string(hits));
 }
 
+void test_nearly_equal_hits_are_ordered_by_the_exact_contact_time() {
+    // Core review of #69, carried to #73: float t values closer than a float step collapsed into a tie and the lowest index won.
+    const Capsule c{{-30.0f, 0.0f, 0.0f}, 0.3f, 1.7f};
+    const Vec3 move{60.0f, 0.0f, 0.0f};
+    const auto wall_at = [](float x) { return Triangle{{x, -2, -1}, {x, 2, -1}, {x, 0, 3}}; };
+    float later = 0.5f;
+    for (int i = 0; i < 8; ++i) later = std::nextafter(later, 1.0f);  // 8 float steps (4.8e-7 m) farther: far above the 1e-8 m convergence
+    const Triangle near_wall = wall_at(0.5f), far_wall = wall_at(later);
+    const auto only_near = saige::sweep_capsule_triangle(c, move, near_wall);
+    const auto only_far = saige::sweep_capsule_triangle(c, move, far_wall);
+    require(only_near && only_far, "both walls are hit");
+    require(only_near->t == only_far->t && only_near->contact_t < only_far->contact_t, "the float times are equal but the exact contact fractions (contact_t) are not");
+    const std::vector<Triangle> far_first{far_wall, near_wall}, near_first{near_wall, far_wall};
+    const auto a = saige::sweep_capsule_triangles(c, move, far_first);
+    const auto b = saige::sweep_capsule_triangles(c, move, near_first);
+    require(a && a->index == 1, "the wall hit first wins although it has the higher index");
+    require(b && b->index == 0, "and the lower index wins when it is also the first hit");
+    // Every permutation of {far, near, near}: the identical earliest triangles tie exactly, and the first of them wins.
+    const std::vector<Triangle> trio{far_wall, near_wall, near_wall};
+    const int orders[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};
+    for (const auto& order : orders) {
+        const std::vector<Triangle> tris{trio[order[0]], trio[order[1]], trio[order[2]]};
+        std::size_t first_near = 3;
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (tris[i].a.x == 0.5f) { first_near = i; break; }
+        }
+        const auto hit = saige::sweep_capsule_triangles(c, move, tris);
+        require(hit && hit->index == first_near, "a genuine tie goes to the lowest index");
+    }
+    // Coplanar neighbours (two triangles of one wall) are a genuine tie too: the lower index wins whichever the capsule meets.
+    const std::vector<Triangle> quad{{{0.5f, -2, -1}, {0.5f, 2, -1}, {0.5f, 2, 3}}, {{0.5f, -2, -1}, {0.5f, 2, 3}, {0.5f, -2, 3}}};
+    const auto q = saige::sweep_capsule_triangles({{-30.0f, 0.5f, 0.0f}, 0.3f, 1.7f}, move, quad);
+    require(q && q->index <= 1, "a coplanar quad is hit");
+}
+
 int main() {
     try {
         test_validation();
@@ -637,6 +672,7 @@ int main() {
         test_random_cases_against_the_brute_force_reference();
         test_push_out_against_the_reference();
         test_determinism_and_numerical_range();
+        test_nearly_equal_hits_are_ordered_by_the_exact_contact_time();
         test_envelope_is_enforced();
         test_long_sweeps_at_the_limits_stop_clear();
         test_stop_is_clear_for_random_hits_across_the_range();

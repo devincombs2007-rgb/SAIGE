@@ -462,6 +462,7 @@ NullDevice::NullDevice(const DeviceDesc& desc) : impl_(std::make_unique<Impl>())
     if (impl_->desc.frames_in_flight == 0) {
         impl_->desc.frames_in_flight = 1;
     }
+    impl_->info.frames_in_flight = impl_->desc.frames_in_flight;
     impl_->info.backend = Backend::Null;
     impl_->info.device_name = "SAIGE null device";
     impl_->info.driver_name = "saige-null";

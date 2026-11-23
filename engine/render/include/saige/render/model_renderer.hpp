@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace saige::render {
 
@@ -68,7 +69,26 @@ enum class ModelShading : uint8_t {
     MetallicRoughness = 2,  ///< glTF physically based shading.
 };
 
+/// Sun shadows for imported models (SceneRenderer drives them from RendererSettings::shadows). The shadow map always exists so the
+/// shader's bindings are always valid; with shadows off it is a single texel that is never sampled.
+struct ModelShadowSettings {
+    bool enabled = false;
+    uint32_t map_size = 2048;           ///< texels per side, 16 to 8192
+    float depth_bias_constant = -1024.0f;  ///< rasterizer bias of the shadow pass (rhi::DepthBias); negative moves casters away from the sun
+    float depth_bias_slope = -1.5f;
+};
+
+/// Per-frame input of the sun shadow lookup: the light's orthographic view-projection (reverse-Z, x and y in [-1, 1], depth in [0, 1])
+/// and how to filter.
+struct ModelShadowFrame {
+    Mat4 light_view_proj = Mat4::identity();
+    float texel_world_size = 0.0f;     ///< meters per shadow-map texel
+    float normal_offset_texels = 1.5f; ///< receivers are moved along their geometric normal by this many texels before the lookup
+    uint32_t filter_radius = 1;        ///< PCF radius in texels: (2r + 1)^2 comparison taps
+};
+
 struct ModelRenderSettings {
+    ModelShadowSettings shadows;
     ModelShading shading = ModelShading::Legacy;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
@@ -96,9 +116,25 @@ public:
     void draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 camera_position, std::span<const ModelDraw> draws,
               ModelFrameStats& stats);
 
-    /// GPU textures the renderer itself keeps alive: three neutral slot textures and the environment BRDF table (visible in the
-    /// registry's texture counters).
-    static constexpr uint32_t kOwnedTextureCount = 4;
+    /// GPU textures the renderer itself keeps alive: three neutral slot textures, the environment BRDF table and the sun shadow map
+    /// (visible in the registry's texture counters).
+    static constexpr uint32_t kOwnedTextureCount = 5;
+
+    /// Unit vector toward the sun, the direction the lighting uses (and the shadow pass looks along, reversed).
+    [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }
+    [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
+    /// The sun shadow map: a D32_FLOAT texture (1x1 when shadows are off). The caller (SceneRenderer's render graph) owns its
+    /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
+    [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }
+    [[nodiscard]] uint32_t shadow_map_size() const noexcept { return shadow_map_size_; }
+    /// Selects this frame's shadow block for draw(): call once per frame, between begin_frame and end_frame. `nullptr` means no
+    /// shadows this frame (the sun is never occluded). The block lives in a ring of `DeviceInfo::frames_in_flight` buffers indexed by
+    /// the device's frame number, so rewriting it never races the GPU's reads of an earlier frame.
+    void set_shadow_frame(const ModelShadowFrame* frame);
+    /// Records the shadow pass's draws into an active depth-only rendering pass (the shadow map as its depth attachment, viewport and
+    /// scissor set by the caller): every primitive of every draw is rendered depth only, without materials (alpha-masked materials
+    /// therefore cast as if opaque). Throws std::logic_error if shadows are off.
+    void draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_proj, std::span<const ModelDraw> draws, ModelFrameStats& stats);
 
     [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }
@@ -109,10 +145,18 @@ private:
     rhi::Device& device_;
     GpuResourceRegistry& registry_;
     ModelShading shading_;
-    rhi::ShaderHandle vs_, ps_;
+    rhi::ShaderHandle vs_, ps_, shadow_vs_;
     rhi::BindGroupLayoutHandle material_layout_, constants_layout_;
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]
-    BindGroupRef constants_group_;
+    rhi::PipelineHandle shadow_pipeline_;  ///< depth only; invalid when shadows are off
+    std::vector<BindGroupRef> constants_groups_;  ///< set 1 per frame slot: identical but for the shadow block
+    std::vector<BufferRef> shadow_blocks_;
+    uint32_t active_group_ = 0;
+    TextureRef shadow_map_;
+    SamplerRef shadow_sampler_;
+    uint32_t shadow_map_size_ = 1;
+    bool shadows_enabled_ = false;
+    Float3 sun_direction_{};
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading
     SamplerRef default_sampler_, env_brdf_sampler_;

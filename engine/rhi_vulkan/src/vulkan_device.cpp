@@ -579,6 +579,7 @@ VulkanDevice::VulkanDevice(const DeviceDesc& desc) : desc_(desc)
     if (desc_.frames_in_flight == 0) {
         desc_.frames_in_flight = 1;
     }
+    info_.frames_in_flight = desc_.frames_in_flight;
     std::string error;
     if (!vk_.load_library(&error)) {
         throw std::runtime_error("Vulkan: " + error);

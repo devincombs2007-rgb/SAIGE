@@ -10,6 +10,7 @@
 #include "saige/render/model_renderer.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/render_graph.hpp"
+#include "saige/render/shadow_cascades.hpp"
 #include "saige/render/tonemap.hpp"
 #include "saige/rhi/device.hpp"
 
@@ -53,6 +54,21 @@ enum class CameraMode : uint8_t {
     Fixed,   ///< Fixed eye and target (tests and captures).
 };
 
+/// Sun shadows for imported models. Off by default: with `enabled = false` nothing is rendered or sampled for shadows and every image
+/// is exactly what it was before they existed. One directional shadow map fitted to the camera's view range [near, distance]: a
+/// bounding sphere around that slice, snapped to whole texels, so shadow edges do not shimmer when the camera moves. Opaque casters
+/// only (blended and alpha-masked surfaces cast as opaque; see docs/rendering/shadows.md for the limits).
+struct SunShadowSettings {
+    bool enabled = false;
+    uint32_t map_size = 2048;              ///< texels per side, 16 to 8192
+    float distance = 60.0f;                ///< meters of view depth that receive shadows; beyond it the sun is unoccluded
+    float caster_margin = 50.0f;           ///< how far toward the sun the light's near plane is pulled, so off-screen casters still shadow
+    float depth_bias_constant = -1024.0f;  ///< rasterizer depth bias of the shadow pass (reverse-Z: negative moves casters away from the sun)
+    float depth_bias_slope = -1.5f;
+    float normal_offset_texels = 1.5f;     ///< receivers move this many shadow texels along their geometric normal before the lookup
+    uint32_t filter_radius = 1;            ///< percentage-closer filter radius in texels: (2r + 1)^2 taps; 0 = a single tap
+};
+
 struct RendererSettings {
     CameraMode camera_mode = CameraMode::Follow;
     Float3 follow_offset{-6.0f, -4.5f, 3.5f};  ///< behind (-X), to the right (-Y) and above the target
@@ -63,6 +79,7 @@ struct RendererSettings {
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< linear; also the fog color
     float fog_density = 0.012f;                      ///< per meter
     ModelShading model_shading = ModelShading::Legacy;  ///< lighting of imported models (the 0.1 cube and ground are unaffected)
+    SunShadowSettings shadows;                       ///< sun shadows for imported models; off by default
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target
     float cube_edge = 1.0f;                          ///< meters
     float spin_radians_per_second = 0.8f;
@@ -110,6 +127,7 @@ struct FrameStats {
     uint32_t barriers = 0;
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
+    uint32_t shadow_draw_calls = 0;        ///< draws of the sun shadow pass (also counted in draw_calls)
 };
 
 class SceneRenderer {
@@ -155,6 +173,8 @@ private:
     rhi::TextureHandle hdr_;                   ///< HDR only: the scene's linear float target, sized like the output
     rhi::BindGroupHandle hdr_input_;           ///< the tone mapper's view of hdr_
     rhi::ResourceState hdr_state_;
+    rhi::ResourceState shadow_state_;  ///< the sun shadow map's state after the last frame (undefined until its first use)
+    bool shadow_ready_ = false;        ///< the shadow map has been taken out of the undefined layout
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
     std::unique_ptr<ModelRenderer> models_;

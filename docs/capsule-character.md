@@ -41,16 +41,23 @@ of the poses.
   the tick that climbs.
 - **Ground snap backs off vertically.** Backing off along a tilted contact normal made a character standing on a rim creep sideways about
   3e-5 m per tick; found by the tests and fixed.
-- **The skin earns its keep.** Far from the origin positions land on a coarse float grid, and moving exactly to contact can round to the
-  inside of a wall. With walls at irrational offsets and 24 runs at 300 m, 3 km and 65 km, removing the skin leaves the capsule inside a
-  wall by up to 1.2e-5 m on thousands of ticks; with it, on none.
+- **Contacts come from the sweep's stop.** The sweeps (`capsule_sweep.hpp`, #69) return `CapsuleHit::stop`: the float feet position nearest
+  the exact contact at which the capsule is clear of every box. The controller adopts it directly (plus the 0.1 mm skin on a slide)
+  instead of rebuilding `feet + displacement * t` in float, which at coordinates between 128 m and 256 m (1.5e-5 m per float step) can
+  round to the inside of a wall. The skin remains as margin for the next sweep's contact tolerance.
+- **Supported range.** Positions are chunk-local meters: the capsule must stay within +-256 m on every axis and every sweep within 64 m
+  (`max_local_extent`, `max_sweep_length`). The constructor rejects a configuration whose speeds or reach could exceed that, and a spawn
+  outside the range; `teleport` throws for a position outside it and changes nothing; a `step` that would carry the capsule across the
+  edge throws `std::invalid_argument` and, like every step, has the strong guarantee (state and jump memory unchanged). The host rebases
+  larger world coordinates and streams chunks; the controller never answers from a lower-precision sweep.
 
 ## Verification
 
 `tests/capsule_character_test.cpp`: rest without drift or jitter (ten seconds, state compared exactly), free fall time, wall stop and
 slide, concave corner, steps (0.30 m and 0.34 m climbed, 0.40 m is a wall, a small drop is walked down), a 2 m ledge is a fall, jump
 apex and edge rules, ceiling, rim slope limit (19 degrees holds, 69 degrees slides off), a 5 cm slab at terminal speed, geometry
-replacement, teleport and recovery, invalid input, a wedge between two rims, float rounding, reset, and the bitwise replay with a
+replacement, teleport and recovery, invalid input, a wedge between two rims, float rounding across 100-245 m, the supported range (rejections and
+the strong guarantee of a step), reset, and the bitwise replay with a
 non-penetration invariant on every tick. Mutation checks: skin, ledge-height limit, normal-versus-vertical snap backoff, jump repeat,
 walkability, recovery, teleport recovery and velocity, geometry-replacement overlap check, jump-edge memory and step-up reach each make a
 test fail. A crease rule for two planes had no effect on any scenario, including the wedge, and was removed; plane projection on the

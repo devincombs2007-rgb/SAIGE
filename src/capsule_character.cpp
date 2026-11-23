@@ -33,6 +33,19 @@ void validate(const CapsuleCharacterConfig& c) {
         c.max_slope_radians >= 1.5707963f || !non_negative(c.step_height) || !non_negative(c.ground_snap)) {
         throw std::invalid_argument("Capsule character configuration is invalid");
     }
+    // Every sweep the controller issues must stay inside the supported envelope (capsule_sweep.hpp): the farthest a tick moves is the
+    // fastest speed over the longest step; the step-up and ground probes add their own reach.
+    const float fastest = std::max({c.sprint_speed, c.terminal_speed, c.jump_speed});
+    if (!(fastest * std::chrono::duration<float>(max_step).count() <= 0.5f * max_sweep_length) || !(c.step_height + c.ground_snap <= 0.25f * max_sweep_length) ||
+        !(c.height <= 0.25f * max_sweep_length)) {
+        throw std::invalid_argument("Capsule character configuration exceeds the supported sweep envelope");
+    }
+}
+
+// A position the controller can simulate from: the capsule at rest there is inside the supported envelope. Anything else must be
+// rebased to chunk-local coordinates by the caller (the controller never answers from a lower-precision sweep).
+void require_in_envelope(const CapsuleCharacterConfig& config, Vec3 feet) {
+    check_sweep_envelope({feet, config.radius, config.height}, Vec3{0.0f, 0.0f, 0.0f});
 }
 
 void validate(std::span<const Aabb> boxes) {
@@ -62,6 +75,7 @@ CapsuleCharacter::CapsuleCharacter(Vec3 spawn, std::span<const Aabb> geometry, C
     : config_(config), spawn_(spawn), geometry_(geometry.begin(), geometry.end()) {
     validate(config_);
     if (!finite(spawn)) throw std::invalid_argument("Capsule character spawn must be finite");
+    require_in_envelope(config_, spawn);
     validate(geometry_);
     if (overlaps(spawn_, geometry_)) throw std::invalid_argument("Capsule character spawn overlaps geometry");
     reset();
@@ -103,7 +117,7 @@ std::optional<CapsuleCharacter::GroundContact> CapsuleCharacter::probe_ground(Ve
     for (int iteration = 0; iteration < max_slide_iterations; ++iteration) {
         const auto hit = sweep(feet, remaining);
         if (!hit) return std::nullopt;
-        feet = feet + remaining * hit->t;
+        feet = hit->stop;  // the contact position as the sweep reconstructed it (clear in float), not feet + remaining * t
         if (is_walkable(hit->normal, config_.max_slope_radians)) return GroundContact{feet, hit->normal};
         feet = feet + hit->normal * skin;
         const Vec3 leftover = remaining * (1.0f - hit->t);
@@ -160,7 +174,7 @@ bool CapsuleCharacter::try_step_up(Vec3 leftover) {
     // The ledge, not the capsule, is what is limited. Landing on a ledge's rim leaves the feet below its top (the bottom is a
     // hemisphere), and a walkable rim contact could then be rolled over, so measure the supporting surface itself.
     if (down->point.z - origin.z > config_.step_height + 1e-3f) return false;
-    const Vec3 landed = over + Vec3{0.0f, 0.0f, -drop * down->t + skin};
+    const Vec3 landed = down->stop + Vec3{0.0f, 0.0f, skin};
     if (landed.z - origin.z < 0.005f) return false;  // not higher than where it started: it was not a step
 
     state_.feet = landed;
@@ -180,7 +194,7 @@ void CapsuleCharacter::slide(Vec3 remaining, bool can_step) {
             return;
         }
         const Vec3 normal = hit->normal;
-        state_.feet = state_.feet + remaining * hit->t + normal * skin;
+        state_.feet = hit->stop + normal * skin;
         const Vec3 leftover = remaining * (1.0f - hit->t);
 
         const bool walkable = is_walkable(normal, config_.max_slope_radians);
@@ -200,6 +214,20 @@ void CapsuleCharacter::slide(Vec3 remaining, bool can_step) {
 }
 
 void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
+    // Strong guarantee: a tick that throws (a non-finite input, or a capsule that has been carried outside the supported envelope by
+    // earlier motion) leaves the character exactly as it was before the call.
+    const CapsuleCharacterState saved = state_;
+    const bool saved_jump = previous_jump_;
+    try {
+        step_unchecked(input, dt);
+    } catch (...) {
+        state_ = saved;
+        previous_jump_ = saved_jump;
+        throw;
+    }
+}
+
+void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt) {
     if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left)) {
         throw std::invalid_argument("Capsule character step requires finite input and a fixed step in (0, 100 ms]");
     }
@@ -246,20 +274,28 @@ bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> geometry) {
     validate(geometry);
     if (overlaps(state_.feet, geometry) || overlaps(spawn_, geometry)) return false;
     std::vector<Aabb> candidate(geometry.begin(), geometry.end());
+    const CapsuleCharacterState saved = state_;
     geometry_.swap(candidate);
-    // The same ground probe as a step uses (it looks past a steep rim the capsule is touching), so a collision swap keeps the support a
-    // character already had.
-    const auto ground = probe_ground(state_.feet);
-    state_.grounded = ground.has_value() && state_.velocity.z <= 0.0f;
-    if (state_.grounded) {
-        state_.ground_normal = ground->normal;
-        state_.velocity.z = 0.0f;
+    try {
+        // The same ground probe as a step uses (it looks past a steep rim the capsule is touching), so a collision swap keeps the support
+        // a character already had.
+        const auto ground = probe_ground(state_.feet);
+        state_.grounded = ground.has_value() && state_.velocity.z <= 0.0f;
+        if (state_.grounded) {
+            state_.ground_normal = ground->normal;
+            state_.velocity.z = 0.0f;
+        }
+    } catch (...) {  // transactional: the old set and the old state stay in force
+        geometry_.swap(candidate);
+        state_ = saved;
+        throw;
     }
     return true;
 }
 
 bool CapsuleCharacter::teleport(Vec3 feet) {
     if (!finite(feet)) throw std::invalid_argument("Capsule character teleport position must be finite");
+    require_in_envelope(config_, feet);  // outside the supported range: rebase first; nothing has changed
     const CapsuleCharacterState saved = state_;  // transactional: a blocked teleport leaves the character exactly as it was
     state_.feet = feet;
     state_.velocity = {};

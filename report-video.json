@@ -1,0 +1,11 @@
+{
+ "schema_version": 1,
+ "showcase": "01-courtyard",
+ "evidence_class": "software_vulkan_cpu_rasterizer",
+ "performance_claim": "none: offscreen, unpaced, not target hardware; the 60 FPS verdict stays not_evaluated",
+ "device": {"name": "llvmpipe (LLVM 20.1.2, 256 bits)", "driver": "vulkan", "api": "1.4", "software": true, "validation": false, "gpu_timestamps": true},
+ "render": {"width": 1280, "height": 720, "ssaa": 2, "stills": 0, "sequence_frames": 1346, "capture_fps": 30, "mean_frame_ms": 160.323, "gpu_allocated_bytes": 95359524,
+  "shading": "metallic_roughness", "hdr": true, "alpha_blending": true, "shadows": "none (blob decals are an artist-placed approximation)"},
+ "course": {"ticks": 2452, "seconds": 40.8667, "distance_m": 136.653, "max_height_m": 1.45029, "failed_waypoints": 0, "state_hash": "2c43234df28b2279", "events": {"blocked": 2, "jump": 2, "land": 5, "step_up": 7, "waypoint_reached": 29, "waypoint_timed_out": 1}},
+ "self_check": "passed"
+}

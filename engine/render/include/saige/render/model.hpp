@@ -31,11 +31,16 @@ struct GpuPrimitive {
     uint32_t index_count = 0;
     rhi::IndexType index_type = rhi::IndexType::Uint32;
     uint32_t material = 0;  ///< index into GpuModel::materials (always valid)
+    /// Bounding sphere in the model's local space. Blended primitives are sorted by the view-space depth of its center; the
+    /// default (the origin, radius 0) sorts a primitive by its model's origin. The importer's staging fills it from the positions.
+    Float3 bounds_center{};
+    float bounds_radius = 0.0f;
 };
 
 struct GpuMaterial {
     BindGroupRef group;       ///< set 0 of the model pipelines; keeps the textures, sampler and parameters alive
     bool double_sided = false;
+    bool blend = false;       ///< drawn source-over in the sorted phase after opaque draws (set by create_material)
 };
 
 /// One placement of a mesh within the model (a glTF node, flattened), in the model's own space.

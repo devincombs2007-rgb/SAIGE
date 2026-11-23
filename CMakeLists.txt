@@ -129,6 +129,11 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
                 --frames 8 --validate)
             set_tests_properties(win32_character_course_file_vulkan PROPERTIES
                 TIMEOUT 60 PASS_REGULAR_EXPRESSION "instances=3([^0-9]|$)")
+            add_test(NAME win32_character_course_stream_vulkan COMMAND saige_desktop --character-course
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/course-world.json"
+                --frames 30 --validate)
+            set_tests_properties(win32_character_course_stream_vulkan PROPERTIES
+                TIMEOUT 60 PASS_REGULAR_EXPRESSION "resident_chunks=2([^0-9]|$)")
         endif()
     endif()
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
@@ -136,6 +141,7 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
     if(BUILD_TESTING)
         add_executable(chunk_stream_test tests/chunk_stream_test.cpp)
         target_link_libraries(chunk_stream_test PRIVATE saige::scene_project)
+        target_include_directories(chunk_stream_test PRIVATE apps)
         add_test(NAME chunk_stream_staging COMMAND chunk_stream_test
             "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
         add_executable(prepared_scene_test tests/prepared_scene_test.cpp)

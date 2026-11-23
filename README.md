@@ -54,3 +54,16 @@ examples/character-course/course.collision.json --require-rendered` to play an a
 the origin inside its top face at Z=0. The other boxes get cube markers at their base centers. Markers use the sample renderer’s
 default dimensions. The course loads its collision file at startup. Live chunk loading is exercised separately by the streaming
 tests.
+
+
+For the live-streamed course, run:
+
+```text
+saige_desktop --character-course --course-world examples/textured-scene/course-world.json --require-rendered
+```
+
+The host starts in cell `[0, 0]` and keeps its reset floor resident. It stages nearby scene and collision files one chunk per
+simulation tick. A completed candidate takes effect before movement on the next fixed step. Boundary guards keep the capsule
+inside the current set while loading. If a neighbor fails to load or overlaps the capsule or spawn, the course keeps its last
+working set. Press R to reset and retry nearby loads. This sample draws the player marker over the built-in ground. Streamed
+scene assets are prepared on the CPU for this slice.

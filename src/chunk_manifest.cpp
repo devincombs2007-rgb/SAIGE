@@ -36,12 +36,12 @@ std::int32_t read_coord(const Json& coordinate) {
     throw std::invalid_argument("Chunk coordinates must be signed 32-bit integers");
 }
 
-fs::path read_relative_project(const Json& field, const fs::path& root) {
-    if (!field.is_string()) throw std::invalid_argument("Chunk project must be a relative path");
+fs::path read_relative_chunk_path(const Json& field, const fs::path& root) {
+    if (!field.is_string()) throw std::invalid_argument("Chunk file must be a relative path");
     const auto& name = field.get_ref<const std::string&>();
     if (name.empty() || name.find_first_of("\\:<>|\"?*") != std::string::npos ||
         std::ranges::any_of(name, [](unsigned char c) { return c < 32; })) {
-        throw std::invalid_argument("Chunk project must be a portable relative path");
+        throw std::invalid_argument("Chunk file must be a portable relative path");
     }
     std::string_view rest(name);
     for (;;) {
@@ -49,7 +49,7 @@ fs::path read_relative_project(const Json& field, const fs::path& root) {
         const auto component = rest.substr(0, slash);
         if (component.empty() || component == "." || component == ".." ||
             component.back() == '.' || component.back() == ' ') {
-            throw std::invalid_argument("Chunk project path contains a disallowed component");
+            throw std::invalid_argument("Chunk file path contains a disallowed component");
         }
         if (slash == std::string_view::npos) break;
         rest.remove_prefix(slash + 1);
@@ -58,7 +58,7 @@ fs::path read_relative_project(const Json& field, const fs::path& root) {
     const auto path = fs::weakly_canonical(root / fs::path(std::u8string(name.begin(), name.end())));
     const auto [root_end, relative_begin] = std::mismatch(root.begin(), root.end(), path.begin(), path.end());
     if (root_end != root.end() || relative_begin == path.end()) {
-        throw std::invalid_argument("Chunk project escapes the manifest directory");
+        throw std::invalid_argument("Chunk file escapes the manifest directory");
     }
     return path;
 }
@@ -108,11 +108,13 @@ std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
     std::vector<ChunkSource> result;
     result.reserve(entries.size());
     for (const auto& entry : entries) {
-        if (!has_fields(entry, {"coord", "project"}) || !entry["coord"].is_array() || entry["coord"].size() != 2) {
+        if ((!has_fields(entry, {"coord", "project"}) && !has_fields(entry, {"coord", "project", "collision"})) ||
+            !entry["coord"].is_array() || entry["coord"].size() != 2) {
             throw std::invalid_argument("Expected a chunk coordinate pair and project path");
         }
         const auto& coord = entry["coord"];
-        result.push_back({{read_coord(coord[0]), read_coord(coord[1])}, read_relative_project(entry["project"], root)});
+        const auto collision = entry.contains("collision") ? read_relative_chunk_path(entry["collision"], root) : fs::path{};
+        result.push_back({{read_coord(coord[0]), read_coord(coord[1])}, read_relative_chunk_path(entry["project"], root), collision});
     }
     std::ranges::sort(result, {}, &ChunkSource::coord);
     if (std::ranges::adjacent_find(result, {}, &ChunkSource::coord) != result.end()) {

@@ -1,3 +1,4 @@
+#include "streamed_course.hpp"
 #include "saige/capsule_character.hpp"
 #include "saige/chunk_manifest.hpp"
 
@@ -244,6 +245,77 @@ void test_collision_handoff(const std::filesystem::path& fixture) {
             "the retired west floor can no longer support the player");
 }
 
+class CourseKeys final : public saige::IDesktopPlatform {
+public:
+    std::chrono::steady_clock::time_point now() override { return {}; }
+    bool poll_events() override { return true; }
+    saige::NativeWindowHandle native_window() const noexcept override { return {}; }
+    saige::SurfaceState surface() const noexcept override { return {}; }
+    bool key_down(saige::Key key) const noexcept override {
+        return (key == saige::Key::w && forward) || (key == saige::Key::r && reset);
+    }
+    bool forward{};
+    bool reset{};
+};
+
+void test_native_streamed_course(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    fs::copy(fixture.parent_path(), workspace.root / "assets", fs::copy_options::recursive);
+    const auto manifest = workspace.root / "course.json";
+    const auto east = workspace.root / "east.json";
+    write_chunk_fixture(manifest, R"({"schema_version":1,"chunks":[
+        {"coord":[1,0],"project":"assets/saige.scene.json","collision":"east.json"},
+        {"coord":[2,0],"project":"assets/saige.scene.json","collision":"next.json"},
+        {"coord":[3,0],"project":"assets/saige.scene.json","collision":"last.json"},
+        {"coord":[0,0],"project":"assets/saige.scene.json","collision":"origin.json"}
+    ]})");
+    write_chunk_fixture(workspace.root / "origin.json",
+        R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]}]})");
+
+    write_chunk_fixture(workspace.root / "next.json",
+        R"({"schema_version":1,"boxes":[{"min":[16,0,-1],"max":[24,8,0]}]})");
+    write_chunk_fixture(workspace.root / "last.json",
+        R"({"schema_version":1,"boxes":[{"min":[24,0,-1],"max":[32,8,0]}]})");
+
+    saige::World world;
+    CourseKeys keys;
+    saige::sample::StreamedCourse course(world, keys, manifest);
+    const auto player = [&] { return world.snapshot().front().position; };
+    const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
+    const saige::Vec3 spawn{4, 4, 0};
+    require(course.resident_count() == 1 && player() == spawn, "start with a supported resident reset point");
+    tick(); // east is missing
+    keys.forward = true;
+    for (int frame = 0; frame < 150; ++frame) tick();
+    require(course.resident_count() == 1 && player().x > 7.6f && player().x < 7.71f && player().z >= 0,
+            "failed staging keeps the old boundary and prevents walking into the missing cell");
+
+    write_chunk_fixture(east, R"({"schema_version":1,"boxes":[
+        {"min":[8,0,-1],"max":[16,8,0]}, {"min":[3,3,0],"max":[5,5,2]}
+    ]})");
+    keys.reset = true;
+    tick();
+    require(course.resident_count() == 1 && player() == spawn, "reject new geometry overlapping the reset point");
+    keys.reset = false;
+    tick();
+
+    write_chunk_fixture(east, R"({"schema_version":1,"boxes":[{"min":[8,0,-1],"max":[16,8,0]}]})");
+    keys.reset = true;
+    tick();
+    require(course.resident_count() == 2 && player() == spawn, "retry publishes resident collision at the tick boundary");
+    keys.reset = false;
+    for (int frame = 0; frame < 140; ++frame) tick();
+    require(player().x > 8 && player().z >= 0, "player walks across the streamed seam");
+    for (int frame = 0; frame < 460; ++frame) tick();
+    require(player().x > 25 && player().z >= 0 && course.resident_count() == 3,
+            "the course evicts an intermediate chunk while retaining reset and current neighbors");
+    keys.reset = true;
+    tick();
+    require(player() == spawn && course.resident_count() == 2, "reset remains resident across streaming");
+    require(course.camera_view().has_value(), "streamed course retains the existing orbit camera");
+}
+
 void test_manifest(const std::filesystem::path& fixture) {
     Workspace workspace;
     const auto scene_dir = workspace.root / "scenes";
@@ -291,6 +363,7 @@ void test_manifest(const std::filesystem::path& fixture) {
         R"({"schema_version":1,"chunks":[{"coord":[0,1.0],"project":"a"}]})",
         R"({"schema_version":1,"chunks":[{"coord":[4294967295,0],"project":"a"}]})",
         R"({"schema_version":1,"chunks":[{"coord":[0,0],"project":"../a"}]})",
+        R"({"schema_version":1,"chunks":[{"coord":[0,0],"project":"scene.json","collision":"../a"}]})",
         R"({"schema_version":1,"chunks":[{"coord":[0,0],"project":"a"},{"coord":[0,0],"project":"b"}]})"
     }) {
         write_chunk_fixture(manifest_path, malformed);
@@ -311,6 +384,7 @@ int main(int argc, char** argv) {
     try {
         test_stream(argv[1]);
         test_manifest(argv[1]);
+        test_native_streamed_course(argv[1]);
         test_collision_handoff(argv[1]);
         return 0;
     } catch (const std::exception& e) {

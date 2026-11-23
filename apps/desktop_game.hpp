@@ -13,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <utility>
 
 namespace saige::sample {
 
@@ -38,6 +39,12 @@ public:
             (void)world.create({std::midpoint(box.min.x, box.max.x), std::midpoint(box.min.y, box.max.y), box.min.z});
         }
     }
+
+    DesktopGame(World& world, IDesktopPlatform& platform, CapsuleCharacter controller)
+        : marker_(world.create(controller.state().feet)), platform_(platform), motor_(std::move(controller)) {}
+
+    [[nodiscard]] Vec3 course_position() const { return motor_.value().state().feet; }
+    bool replace_course_collision(std::span<const Aabb> geometry) { return motor_.value().replace_static_geometry(geometry); }
 
     void fixed_update(World& world, std::chrono::nanoseconds step) override {
         const int right = platform_.key_down(Key::d) || platform_.key_down(Key::right);

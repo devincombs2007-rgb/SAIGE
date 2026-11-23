@@ -13,7 +13,7 @@
 #endif
 
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
-#include "saige/chunk_manifest.hpp"
+#include "streamed_course.hpp"
 
 #include <vector>
 #endif
@@ -114,6 +114,7 @@ int main(int argc, char** argv) {
     bool course = false;
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
     std::optional<std::filesystem::path> course_path;
+    std::optional<std::filesystem::path> course_world;
 #endif
 #if defined(SAIGE_DESKTOP_VULKAN)
     bool require_rendered = false;
@@ -129,6 +130,10 @@ int main(int argc, char** argv) {
             continue;
         }
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (argument == "--course-world" && !course_world && i + 1 < argc) {
+            course_world = std::filesystem::path(argv[++i]);
+            continue;
+        }
         if (argument == "--course-collision" && !course_path && i + 1 < argc) {
             course_path = std::filesystem::path(argv[++i]);
             continue;
@@ -153,7 +158,7 @@ int main(int argc, char** argv) {
         if (argument != "--frames" || frames || ++i == argc) {
             std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course]"
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
-                      << " [--course-collision FILE.json]"
+                      << " [--course-collision FILE.json | --course-world FILE.json]"
 #endif
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
@@ -177,6 +182,10 @@ int main(int argc, char** argv) {
     try {
         std::optional<std::span<const saige::Aabb>> course_boxes;
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (course_world && (!course || course_path)) {
+            std::cerr << "--course-world requires --character-course and is exclusive with --course-collision\n";
+            return 2;
+        }
         std::vector<saige::Aabb> collision;
         if (course_path) {
             if (!course) {
@@ -209,7 +218,13 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
-        saige::sample::DesktopGame game(world, platform, course, course_boxes);
+        std::optional<saige::sample::DesktopGame> local_game;
+        saige::IGame* game = nullptr;
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        std::optional<saige::sample::StreamedCourse> streamed_game;
+        if (course_world) game = &streamed_game.emplace(world, platform, *course_world);
+#endif
+        if (!game) game = &local_game.emplace(world, platform, course, course_boxes);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
         // The sink releases its swapchain and surface before the HWND goes away.
@@ -218,12 +233,12 @@ int main(int argc, char** argv) {
         if (prepared) {
             sink.show(*prepared);
         }
-        const auto stats = prepared ? prepared->run(platform, sink, frames) : saige::run(world, platform, game, sink, frames);
+        const auto stats = prepared ? prepared->run(platform, sink, frames) : saige::run(world, platform, *game, sink, frames);
         if (prepared) {
             std::cout << "SAIGE scene diagnostics " << sink.diagnostics_json() << '\n';
         }
 #else
-        const auto stats = saige::run(world, platform, game, sink, frames);
+        const auto stats = saige::run(world, platform, *game, sink, frames);
 #endif
         std::cout << "SAIGE Vulkan rendered=" << sink.rendered() << '\n';
         if (sink.validation_errors() != 0) {
@@ -235,7 +250,10 @@ int main(int argc, char** argv) {
             return 1;
         }
 #else
-        const auto stats = saige::run(world, platform, game, probe, frames);
+        const auto stats = saige::run(world, platform, *game, probe, frames);
+#endif
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (streamed_game) std::cout << "SAIGE course resident_chunks=" << streamed_game->resident_count() << '\n';
 #endif
         std::cout << "SAIGE desktop frames=" << stats.frames << " ticks=" << stats.ticks
                   << " instances=" << probe.instances << " marker_x=" << probe.position.x

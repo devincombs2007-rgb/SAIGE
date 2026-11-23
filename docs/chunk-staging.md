@@ -28,7 +28,7 @@ The manifest is a separate UTF-8 JSON file. It leaves existing scene project fil
 }
 ```
 
-Coordinates are unique signed 32-bit integer pairs. Project paths are portable relative paths inside the manifest directory.
+Coordinates are unique signed 32-bit integer pairs. Project paths and the optional `collision` paths are portable relative paths inside the manifest directory. Existing entries without a collision path remain valid.
 The loader permits missing chunk projects so they can fail at staging time while the current scene stays active. The manifest
 is bounded to 1 MiB and 4,096 sources. `select_chunks` selects a square neighborhood in grid coordinates and returns sources in
 deterministic order. Hosts can use `chunk_containing` to map world positions to half-open cells, including negative coordinates. The host still controls the count and byte budgets through `ChunkStream`. The tests drive a two-chunk
@@ -37,7 +37,7 @@ crossing, eviction, revisit, and failed request.
 
 ## Chunk collision file version 1
 
-The host supplies an optional collision file path in each chunk request. The streamer stages it alongside the scene before publication. Collision files are separate from the scene and manifest formats. Boxes use Z-up simulation coordinates in meters.
+The host supplies an optional collision file path in each chunk request, including paths read from the manifest. The streamer stages it alongside the scene before publication. Collision files are separate from the scene and manifest formats. Boxes use Z-up simulation coordinates in meters.
 
 ```json
 {"schema_version":1,"boxes":[{"min":[0,-4,-1],"max":[8,4,0]}]}
@@ -46,3 +46,9 @@ The host supplies an optional collision file path in each chunk request. The str
 The reader preserves box order and rejects unrecognized versions and fields, non-finite or out-of-range coordinates, and extents
 that collapse after conversion to float. It accepts up to 4,096 boxes and 1 MiB per file. A host can stage an empty list by authoring
 an empty array. An absent or invalid file fails the load so the host can keep its previous collision and residency.
+
+
+The native streamed course requires a collision file for every entry. It uses 8 m square cells at `coord * 8` in XY and a reset
+point at `(4, 4, 0)` inside cell `[0, 0]`. Course coordinates are bounded to `[-31, 30]` on each axis. Neighbor selection keeps a
+one-cell radius plus the reset cell. Collision files share a simulation origin. GPU scene composition and asynchronous IO are
+outside this course slice.

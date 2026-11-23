@@ -31,6 +31,8 @@ void test_stream(const std::filesystem::path& fixture) {
     require(!stream.commit_frame(), "incomplete batch must remain invisible");
     require(stream.stage_next() && stream.retained_asset_bytes() == bytes, "one preparation per step");
     require(!stream.commit_frame(), "one of two chunks must remain invisible");
+    require(!stream.ready_to_commit() && stream.staged_chunk(west.coord) && !stream.staged_chunk(east.coord),
+            "a partial candidate can be read but is not ready");
     require(stream.stage_next() && stream.commit_frame(), "both chunks should become active together");
     const auto* west_scene = stream.active_chunk(west.coord);
     const auto* east_scene = stream.active_chunk(east.coord);
@@ -55,6 +57,13 @@ void test_stream(const std::filesystem::path& fixture) {
     require(stream.stage_next() && stream.retained_asset_bytes() == bytes * 2, "revisit prepares the missing chunk");
     stream.cancel();
     require(!stream.commit_frame() && !stream.active_chunk(west.coord) && stream.retained_asset_bytes() == bytes, "cancel releases staged payload");
+    stream.request(std::array{west, east});
+    require(stream.stage_next() && stream.ready_to_commit(), "retry prepares the complete candidate");
+    require(stream.staged_chunk(west.coord)->find_asset(mesh) && stream.staged_chunk(east.coord) == east_scene,
+            "the candidate exposes staged and reused assets before publication");
+    stream.cancel(); // A collision consumer can reject the complete candidate.
+    require(!stream.ready_to_commit() && !stream.staged_chunk(west.coord) && stream.active_chunk(east.coord) == east_scene,
+            "a rejected candidate keeps the previous active set");
     stream.request(std::array{west, east});
     require(stream.stage_next() && stream.commit_frame() && stream.active_chunk(west.coord)->find_asset(mesh), "retry preserves stable mesh ID");
 

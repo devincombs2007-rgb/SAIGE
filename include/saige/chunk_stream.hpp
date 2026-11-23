@@ -40,6 +40,10 @@ public:
     // Stage at most one chunk, in coordinate order. An import failure abandons the pending set and throws.
     bool stage_next();
     void cancel() noexcept;
+    // Inspect the pending set before publishing coupled resources such as static collision.
+    // Staged pointers are borrowed until the next request, cancellation, failed stage, or commit.
+    [[nodiscard]] bool ready_to_commit() const noexcept;
+    [[nodiscard]] const PreparedScene* staged_chunk(ChunkCoord coord) const noexcept;
     // Publish only a complete set. Borrowed active scene pointers expire at the next successful commit.
     bool commit_frame() noexcept;
 

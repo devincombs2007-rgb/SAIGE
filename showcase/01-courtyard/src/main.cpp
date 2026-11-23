@@ -156,24 +156,43 @@ std::vector<Pose> make_poses(const CourseResult& run)
     return poses;
 }
 
+// Stills may name a moment of the run by what the character is doing instead of by a tick number.
+constexpr int tick_none = -1;
+constexpr int tick_on_ramp = -2;    // standing on the 25 degree ramp, halfway up
+constexpr int tick_on_chute = -3;   // sliding down the 54 degree chute
+
 struct Still {
     const char* name;
     Float3 eye, target;
-    int tick;  // character pose from the run; -1: no character
+    int tick;  // character pose from the run: a tick number, or one of tick_none / tick_on_ramp / tick_on_chute
     float fov_deg;
 };
+
+int resolve_tick(int code, const CourseResult& run)
+{
+    if (code >= 0) return std::min<int>(code, static_cast<int>(run.trace.size()) - 1);
+    if (code == tick_none) return -1;
+    for (std::size_t t = 0; t < run.trace.size(); ++t) {
+        const TickRecord& r = run.trace[t];
+        if (code == tick_on_ramp && r.grounded && r.ground_normal_z < 0.92f && r.ground_normal_z > 0.89f && r.feet.z > 0.75f && r.feet.y < -8.0f) return static_cast<int>(t);
+        if (code == tick_on_chute && !r.grounded && r.feet.x > 7.3f && r.feet.x < 7.9f && r.feet.z < 0.8f && r.feet.y < -8.0f) return static_cast<int>(t);
+    }
+    return -1;
+}
 
 const std::vector<Still>& stills()
 {
     static const std::vector<Still> list{
         {"01_establishing", {-17.0f, -10.5f, 7.0f}, {4.0f, 0.5f, 1.0f}, 538, 58.0f},
-        {"02_colonnade", {-15.0f, -9.6f, 1.7f}, {-3.5f, 7.0f, 1.8f}, -1, 62.0f},
+        {"02_colonnade", {-15.0f, -9.6f, 1.7f}, {-3.5f, 7.0f, 1.8f}, tick_none, 62.0f},
         {"03_crate_jump", {-9.8f, 0.2f, 2.4f}, {-5.4f, 3.6f, 0.9f}, 280, 55.0f},
         {"04_marble_steps", {0.8f, -5.8f, 1.5f}, {6.0f, 0.0f, 0.5f}, 548, 55.0f},
         {"05_material_row", {9.6f, -3.6f, 2.0f}, {15.6f, 0.0f, 1.5f}, 2440, 55.0f},
-        {"06_glass_and_lanterns", {11.0f, 4.5f, 1.7f}, {16.3f, -0.5f, 1.7f}, -1, 62.0f},
-        {"07_barrels", {-7.6f, -1.6f, 1.5f}, {-10.4f, -4.2f, 0.7f}, -1, 55.0f},
+        {"06_glass_and_lanterns", {11.0f, 4.5f, 1.7f}, {16.3f, -0.5f, 1.7f}, tick_none, 62.0f},
+        {"07_barrels", {-7.6f, -1.6f, 1.5f}, {-10.4f, -4.2f, 0.7f}, tick_none, 55.0f},
         {"08_overview", {1.0f, -9.0f, 30.0f}, {1.0f, 0.0f, 0.0f}, 1200, 50.0f},
+        {"09_ramp_climb", {1.4f, -5.0f, 2.8f}, {2.6f, -9.0f, 0.9f}, tick_on_ramp, 62.0f},
+        {"10_chute_slide", {11.4f, -6.6f, 1.7f}, {7.3f, -9.0f, 0.7f}, tick_on_chute, 58.0f},
     };
     return list;
 }
@@ -455,7 +474,7 @@ int main(int argc, char** argv)
             for (std::size_t i = 0; i < still_limit; ++i) {
                 const Still& s = stills()[i];
                 const render::Camera cam = render::look_at_camera(s.eye, s.target, {0, 0, 1}, s.fov_deg * pi_f / 180.0f, 0.1f);
-                const int tick = s.tick < 0 ? -1 : std::min<int>(s.tick, static_cast<int>(run.trace.size()) - 1);
+                const int tick = resolve_tick(s.tick, run);
                 Rgba img = shoot(cam, tick);
                 if (!write_ppm(opt.out / "stills" / (std::string(s.name) + ".ppm"), img)) throw std::runtime_error("cannot write a still");
                 if (i == 0) quiet_still = img;

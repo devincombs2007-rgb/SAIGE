@@ -32,6 +32,8 @@ struct SceneData {
     float height = 1.7f;
     std::vector<Aabb> colliders;
     std::vector<std::string> collider_names;
+    std::vector<Triangle> triangles;  // ramps and other non-box collision
+    std::vector<std::string> triangle_names;
     std::vector<Decal> decals;
     std::vector<Waypoint> route;
 };
@@ -52,6 +54,7 @@ struct TickRecord {
     Vec3 feet;
     Vec3 velocity;
     bool grounded{};
+    float ground_normal_z = 1.0f;  // 1 on level ground; smaller on a slope (meaningful while grounded)
     uint32_t waypoint{};
 };
 
@@ -70,7 +73,7 @@ inline constexpr std::chrono::nanoseconds fixed_step{16'666'667};  // 60 Hz, mat
 /// Runs the whole route (or `max_ticks`, whichever ends first) through a CapsuleCharacter built from `scene`.
 [[nodiscard]] CourseResult run_course(const SceneData& scene, uint32_t max_ticks = 60 * 120);
 
-/// Top of the highest collider under (x, y) whose top is at or below `z_limit`; 0 if none. Used for the character's blob shadow.
+/// Top of the highest surface (a box top or a triangle) under (x, y) at or below `z_limit`; 0 if none. Used for the character's blob shadow.
 [[nodiscard]] float surface_height(const SceneData& scene, float x, float y, float z_limit);
 
 } // namespace saige::showcase

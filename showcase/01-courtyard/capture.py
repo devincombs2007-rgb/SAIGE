@@ -70,6 +70,11 @@ def path_plot(scene_json, trace_json, out_path, px_per_m=34):
         top = c["max"][2]
         shade = int(70 + min(top, 4.0) / 4.0 * 110)
         d.rectangle([ax, ay, bx, by], fill=(shade, shade, shade + 6), outline=(150, 150, 160))
+    for t in scene.get("triangles", []):  # ramps and the chute: drawn as their top-down projection, shaded by mean height, outlined in teal
+        pts = [P(t[k][0], t[k][1]) for k in ("a", "b", "c")]
+        mean_z = (t["a"][2] + t["b"][2] + t["c"][2]) / 3.0
+        shade = int(70 + min(mean_z, 4.0) / 4.0 * 110)
+        d.polygon(pts, fill=(shade, shade + 14, shade + 10), outline=(90, 200, 190))
     cols = trace["columns"]
     ix, iy, iz, ig = cols.index("x"), cols.index("y"), cols.index("z"), cols.index("grounded")
     pts = trace["ticks"]
@@ -88,7 +93,7 @@ def path_plot(scene_json, trace_json, out_path, px_per_m=34):
     ex, ey = P(pts[-1][ix], pts[-1][iy])
     d.text((ex + 8, ey - 14), "end", fill=(255, 255, 255), font=font)
     legend = [("walking on the ground", (255, 170, 60)), ("walking on a raised surface", (80, 200, 255)), ("airborne", (255, 90, 90)),
-              ("jump", palette["jump"]), ("landing", palette["land"]), ("step up", palette["step_up"]), ("slide along the wall", palette["waypoint_timed_out"])]
+              ("jump", palette["jump"]), ("landing", palette["land"]), ("step up", palette["step_up"]), ("slide along the wall", palette["waypoint_timed_out"]), ("ramp / chute triangles", (90, 200, 190))]
     x = 12
     for text, color in legend:
         d.rectangle([x, H + 14, x + 14, H + 28], fill=color)

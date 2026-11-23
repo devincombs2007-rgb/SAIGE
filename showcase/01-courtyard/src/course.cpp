@@ -92,6 +92,13 @@ SceneData load_scene(const std::filesystem::path& path)
         s.colliders.push_back({vec3(c["min"], "collider.min"), vec3(c["max"], "collider.max")});
         s.collider_names.push_back(c["name"].as_string());
     }
+    const gfx::JsonValue& triangles = root["triangles"];  // optional (absent in a box-only scene)
+    for (std::size_t i = 0; i < triangles.size(); ++i) {
+        const gfx::JsonValue& t = triangles.at(i);
+        s.triangles.push_back({vec3(t["a"], "triangle.a"), vec3(t["b"], "triangle.b"), vec3(t["c"], "triangle.c")});
+        s.triangle_names.push_back(t["name"].as_string());
+        if (!is_valid_triangle(s.triangles.back())) throw std::runtime_error("scene.json: degenerate triangle " + s.triangle_names.back());
+    }
     const gfx::JsonValue& decals = root["decals"];
     for (std::size_t i = 0; i < decals.size(); ++i) {
         const gfx::JsonValue& d = decals.at(i);
@@ -124,6 +131,18 @@ float surface_height(const SceneData& scene, float x, float y, float z_limit)
             best = b.max.z;
         }
     }
+    const auto d = [](float v) { return static_cast<double>(v); };
+    const double px = d(x), py = d(y);
+    for (const Triangle& t : scene.triangles) {  // a vertical ray at (x, y) against each triangle's projection on the ground plane
+        const double det = (d(t.b.y) - d(t.c.y)) * (d(t.a.x) - d(t.c.x)) + (d(t.c.x) - d(t.b.x)) * (d(t.a.y) - d(t.c.y));
+        if (std::abs(det) < 1e-12) continue;  // edge-on
+        const double l1 = ((d(t.b.y) - d(t.c.y)) * (px - d(t.c.x)) + (d(t.c.x) - d(t.b.x)) * (py - d(t.c.y))) / det;
+        const double l2 = ((d(t.c.y) - d(t.a.y)) * (px - d(t.c.x)) + (d(t.a.x) - d(t.c.x)) * (py - d(t.c.y))) / det;
+        const double l3 = 1.0 - l1 - l2;
+        if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
+        const float z = static_cast<float>(l1 * d(t.a.z) + l2 * d(t.b.z) + l3 * d(t.c.z));
+        if (z <= z_limit && z > best) best = z;
+    }
     return best;
 }
 
@@ -132,7 +151,7 @@ CourseResult run_course(const SceneData& scene, uint32_t max_ticks)
     CapsuleCharacterConfig config;
     config.radius = scene.radius;
     config.height = scene.height;
-    CapsuleCharacter character(scene.spawn, scene.colliders, config);
+    CapsuleCharacter character(scene.spawn, scene.colliders, scene.triangles, config);
 
     CourseResult result;
     result.trace.reserve(max_ticks);
@@ -194,7 +213,7 @@ CourseResult run_course(const SceneData& scene, uint32_t max_ticks)
         previous_z = after.feet.z;
         previous_feet = after.feet;
 
-        result.trace.push_back({after.feet, after.velocity, after.grounded, static_cast<uint32_t>(index)});
+        result.trace.push_back({after.feet, after.velocity, after.grounded, after.grounded ? after.ground_normal.z : 1.0f, static_cast<uint32_t>(index)});
         fnv.add(after.feet.x);
         fnv.add(after.feet.y);
         fnv.add(after.feet.z);
@@ -202,6 +221,7 @@ CourseResult run_course(const SceneData& scene, uint32_t max_ticks)
         fnv.add(after.velocity.y);
         fnv.add(after.velocity.z);
         fnv.add(static_cast<uint32_t>(after.grounded));
+        fnv.add(after.ground_normal.z);
 
         ++waypoint_ticks;
         const float arrival = wp.jump_distance >= 0.0f ? 0.25f : 0.45f;

@@ -33,6 +33,15 @@ class Mesh:
             pr["uv"].append(uv)
         pr["i"] += [base, base + 1, base + 2, base, base + 2, base + 3]  # CCW seen from outside
 
+    def tri(self, mat, p0, p1, p2, n, uv0, uv1, uv2):
+        pr = self._prim(mat)
+        base = len(pr["p"])
+        for p, uv in zip((p0, p1, p2), (uv0, uv1, uv2)):
+            pr["p"].append(p)
+            pr["n"].append(n)
+            pr["uv"].append(uv)
+        pr["i"] += [base, base + 1, base + 2]
+
     def box(self, mat, lo, hi, scale, top_mat=None, uv_origin=(0.0, 0.0)):
         """Axis-aligned box; texture repeats once per `scale` meters. `top_mat` overrides the material of the +Z face."""
         x0, y0, z0 = lo
@@ -220,6 +229,7 @@ def build_courtyard():
 
     mesh = Mesh()
     colliders = []
+    triangles = []
     decals = []
 
     def solid(name, mat, lo, hi, scale, top_mat=None, collide=True, uv_origin=(0.0, 0.0)):
@@ -279,6 +289,46 @@ def build_courtyard():
         colliders.append({"name": f"barrel_{x}_{y}", "min": [x - 0.42, y - 0.42, 0.0], "max": [x + 0.42, y + 0.42, 1.0]})
         decals.append({"x": x, "y": y, "width": 2.0, "depth": 2.0, "z": 0.02, "strength": 0.85})
 
+
+    # ---- The ramp plaza (non-box collision): a 25 degree wooden ramp up to a 1.4 m platform, and a 54 degree chute down the far side.
+    # The ramp's tilted top, the chute and the wedge sides are triangles in scene.json; the platform is a box. 25 degrees is walkable
+    # (the controller's limit is 50), the chute is not: a character that steps onto it slides to the floor.
+    rx0, rx1, rx2, rx3 = 0.8, 3.8, 6.8, 7.8          # ramp foot, ramp crest (platform start), platform end, chute foot
+    ry0, ry1, rh = -10.3, -7.8, 1.4
+    def surface(name, pts, mat_name, scale):
+        """A planar quad drawn and added to the collision triangles; pts are CCW seen from above (or from the outside)."""
+        a_, b_, c_, d_ = pts
+        n = np.cross(np.subtract(b_, a_), np.subtract(d_, a_))
+        n = tuple(float(v) for v in n / np.linalg.norm(n))
+        if n[2] < -1e-9 and name.endswith("top"):
+            raise ValueError("a top surface must face up")
+        ex = np.array(b_) - np.array(a_)
+        along = float(np.linalg.norm(ex))
+        uv = [(0.0, 0.0), (along / scale, 0.0), (along / scale, -(d_[1] - a_[1]) / scale), (0.0, -(d_[1] - a_[1]) / scale)]
+        mesh.quad(M[mat_name], a_, b_, c_, d_, n, *uv)
+        triangles.append({"name": name + "_a", "a": list(a_), "b": list(b_), "c": list(c_)})
+        triangles.append({"name": name + "_b", "a": list(a_), "b": list(c_), "c": list(d_)})
+    surface("ramp_top", [(rx0, ry0, 0.0), (rx1, ry0, rh), (rx1, ry1, rh), (rx0, ry1, 0.0)], "wood", 1.0)
+    surface("chute_top", [(rx2, ry0, rh), (rx3, ry0, 0.0), (rx3, ry1, 0.0), (rx2, ry1, rh)], "metal", 1.0)
+    def side(name, y, x_lo, x_hi, top_at_lo, normal_y, mat_name):
+        """A right-triangle wedge side at constant y whose vertical edge is at x_hi (ramp) or x_lo (chute)."""
+        if top_at_lo:
+            p = [(x_lo, y, 0.0), (x_hi, y, 0.0), (x_lo, y, rh)]
+        else:
+            p = [(x_lo, y, 0.0), (x_hi, y, 0.0), (x_hi, y, rh)]
+        n = np.cross(np.subtract(p[1], p[0]), np.subtract(p[2], p[0]))
+        if (n[1] > 0) != (normal_y > 0):
+            p = [p[0], p[2], p[1]]
+        mesh.tri(M[mat_name], p[0], p[1], p[2], (0.0, float(normal_y), 0.0), (0.0, 0.0), (1.0, 0.0), (0.0, 1.0))
+        triangles.append({"name": name, "a": list(p[0]), "b": list(p[1]), "c": list(p[2])})
+    side("ramp_side_s", ry0, rx0, rx1, False, -1, "brick")
+    side("ramp_side_n", ry1, rx0, rx1, False, 1, "brick")
+    side("chute_side_s", ry0, rx2, rx3, True, -1, "brick")
+    side("chute_side_n", ry1, rx2, rx3, True, 1, "brick")
+    solid("ramp_platform", "wood", (rx1, ry0, 0.0), (rx2, ry1, rh), 1.0, top_mat="marble")
+    for dx, dy, w, d in ((2.3, -9.05, 5.6, 4.2), (6.6, -9.05, 3.4, 3.4)):
+        decals.append({"x": dx, "y": dy, "width": w, "depth": d, "z": 0.02, "strength": 0.9})
+
     # ---- Material row: five spheres on marble pedestals on the dais, varying roughness and metalness (back row, y from -4 to 4).
     for k, (name, *_rest) in enumerate(spheres):
         y = -3.6 + 1.8 * k
@@ -303,13 +353,16 @@ def build_courtyard():
         {"x": 12.0, "y": 2.5}, {"x": 13.6, "y": -1.0},
         {"x": 13.0, "y": 5.4}, {"x": 14.4, "y": 5.4},
         {"x": 14.4, "y": -5.4}, {"x": 9.0, "y": -5.4, "sprint": True}, {"x": 5.0, "y": -5.4},   # off the dais edge (a 0.6 m drop)
-        {"x": 3.0, "y": -5.2}, {"x": -2.0, "y": -9.0, "sprint": True}, {"x": -9.0, "y": -9.0},
-        {"x": -13.0, "y": -5.0},
+        {"x": 3.0, "y": -5.4}, {"x": 1.9, "y": -7.0}, {"x": 0.2, "y": -8.3}, {"x": -0.1, "y": -9.05},
+        {"x": 2.3, "y": -9.05},                                              # up the 25 degree ramp (walkable)
+        {"x": 5.3, "y": -9.05},                                              # across the 1.4 m platform
+        {"x": 8.6, "y": -9.05, "speed": 0.25, "max_seconds": 8.0},   # creeps onto the 54 degree chute: too steep to stand on, so it slides
+        {"x": 9.0, "y": -7.0}, {"x": 4.0, "y": -4.0}, {"x": -2.0, "y": -3.0},
         {"x": -8.0, "y": 0.5}, {"x": -2.0, "y": 0.5}, {"x": -2.0, "y": 8.0}, {"x": 1.5, "y": 8.0},
         {"x": 4.5, "y": 14.5, "max_seconds": 2.6, "timed": True},       # runs into the north wall and slides along it
         {"x": 4.5, "y": 8.0}, {"x": 3.0, "y": 3.0}, {"x": 4.8, "y": 0.0}, {"x": 7.0, "y": 0.0}, {"x": 13.4, "y": 0.0},
     ]
-    return doc, colliders, decals, route
+    return doc, colliders, triangles, decals, route
 
 
 def build_character():
@@ -337,11 +390,11 @@ def build_decal():
 
 def write_all(out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    courtyard, colliders, decals, route = build_courtyard()
+    courtyard, colliders, triangles, decals, route = build_courtyard()
     for name, doc in (("courtyard.gltf", courtyard), ("character.gltf", build_character()), ("blob.gltf", build_decal())):
         with open(os.path.join(out_dir, name), "w") as f:
             json.dump(doc, f, separators=(",", ":"))
     with open(os.path.join(out_dir, "scene.json"), "w") as f:
-        json.dump({"schema_version": 1, "character": {"radius": 0.3, "height": 1.7, "spawn": [-16.5, 0.0, 0.0]}, "colliders": colliders,
+        json.dump({"schema_version": 1, "character": {"radius": 0.3, "height": 1.7, "spawn": [-16.5, 0.0, 0.0]}, "colliders": colliders, "triangles": triangles,
                    "decals": decals, "route": route}, f, indent=1)
-    return len(colliders), len(decals)
+    return len(colliders) + len(triangles), len(decals)

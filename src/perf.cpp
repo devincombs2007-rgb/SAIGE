@@ -207,7 +207,7 @@ std::string to_json(const FrameRecorder& frames, const Zones& zones, const Repor
 
     out << ",\"frame_ms\":";
     write_summary(out, total);
-    out << ",\"average_fps\":" << (total.mean_ms > 0.0 ? 1000.0 / total.mean_ms : 0.0);
+    out << ",\"cpu_average_fps\":" << (total.mean_ms > 0.0 ? 1000.0 / total.mean_ms : 0.0);
     out << ",\"wall_interval_ms\":";
     write_summary(out, wall);
     out << ",\"wall_average_fps\":" << (wall.mean_ms > 0.0 ? 1000.0 / wall.mean_ms : 0.0);

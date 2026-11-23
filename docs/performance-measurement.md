@@ -10,7 +10,7 @@ correctness, not hardware performance, and the target hardware is not yet docume
 | Report field | Source | Meaning |
 | --- | --- | --- |
 | `frame_ms` | `CpuFrameMetrics::total` | CPU time of one `saige::run()` iteration: event polling, fixed ticks, snapshot extraction and `IFrameSink::submit()`. If the sink blocks on presentation or on the GPU, that wait is inside `submission` and therefore inside this total. |
-| `average_fps` | `1000 / mean(frame_ms)` | Frames per second implied by CPU frame time. It overstates real throughput when the loop is paced or idle. |
+| `cpu_average_fps` | `1000 / mean(frame_ms)` | Frames per second implied by CPU frame time. It overstates real throughput when the loop is paced or idle. |
 | `wall_interval_ms`, `wall_average_fps` | steady clock between the ends of consecutive frames | The time a viewer actually experiences, including pacing waits. Use this, not `frame_ms`, for delivered FPS. |
 | `phases_ms.simulation`, `simulation_per_tick` | `CpuFrameMetrics::simulation` | All fixed ticks in the frame, and that total divided by ticks run. This is the **fixed-step simulation cost**. |
 | `zones_ms.<name>` | `Zones::record` / `Zones::scope` | Any named subsystem. `TimedGame` records every `fixed_update` as `fixed_step`; the course benchmark adds `physics.step`, `chunk.stage_next` and `chunk.commit_frame`. |

@@ -250,6 +250,47 @@ TEST_CASE("Vulkan bind groups: a sampled texture reaches the shader texel for te
     CHECK(device->validation_error_count() == 0);
 }
 
+TEST_CASE("Vulkan bind groups: a failure while tracking a new descriptor pool leaves no native pool behind (Core review of #67)")
+{
+    // allocate_descriptor_set creates a native pool when none has room and then records it in a vector that is the only way the pool is
+    // destroyed. If that record could throw after the pool existed, the pool would be unreachable. The room is now reserved first.
+    // A leaked native pool is a leaked child object: the validation layer reports it when the device is destroyed, which the
+    // process-wide counter still sees (no per-device counter survives the device).
+    const uint32_t errors_before = rhi::testing::process_validation_error_count();
+    {
+        const auto device = make_validated_device("descriptor_pool_tracking");
+        {
+            Fixture f(*device);
+            const rhi::TextureHandle tex = device->create_texture(sampled(1));
+            device->upload_texture(tex, pattern(kSize, kSize));
+            const rhi::SamplerHandle sampler = device->create_sampler(nearest());
+            REQUIRE(rhi::testing::descriptor_sets_in_use(*device) == 0);  // a fresh device: the first group has to create the first pool
+
+            for (int round = 0; round < 3; ++round) {  // repeated failures: nothing accumulates
+                rhi::testing::fail_descriptor_pool_tracking_after(1);
+                bool threw = false;
+                try {
+                    (void)f.make_group(tex, sampler);
+                } catch (const std::bad_alloc&) {
+                    threw = true;
+                }
+                rhi::testing::fail_descriptor_pool_tracking_after(0);
+                CHECK(threw);
+                CHECK(rhi::testing::descriptor_sets_in_use(*device) == 0);
+            }
+            // The device keeps working: the retry creates the pool and renders.
+            const rhi::BindGroupHandle group = f.make_group(tex, sampler);
+            CHECK(rhi::testing::descriptor_sets_in_use(*device) == 1);
+            CHECK(!f.draw(group).empty());
+            device->destroy(group);
+            device->destroy(sampler);
+            device->destroy(tex);
+        }
+        CHECK(device->validation_error_count() == 0);
+    }  // the device is destroyed here
+    CHECK(rhi::testing::process_validation_error_count() == errors_before);
+}
+
 TEST_CASE("Vulkan bind groups: a failure after the descriptor set is acquired releases it, so capacity does not leak (issue #66)")
 {
     const auto device = make_validated_device("bind_group_rollback");

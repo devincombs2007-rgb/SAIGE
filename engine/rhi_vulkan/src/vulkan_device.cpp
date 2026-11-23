@@ -56,10 +56,13 @@ bool consume_countdown(std::atomic<uint32_t>& countdown) noexcept
 }
 bool consume_bind_group_fault() noexcept { return consume_countdown(g_bind_group_fault); }
 bool consume_bind_group_publish_fault() noexcept { return consume_countdown(g_bind_group_publish_fault); }
+std::atomic<uint32_t> g_descriptor_pool_fault{0};  // test hook: countdown to a failure of the room reserved to track a new descriptor pool
+bool consume_descriptor_pool_fault() noexcept { return consume_countdown(g_descriptor_pool_fault); }
 #else
 constexpr bool consume_memory_bookkeeping_fault() noexcept { return false; }  // production builds carry no injection point
 constexpr bool consume_bind_group_fault() noexcept { return false; }
 constexpr bool consume_bind_group_publish_fault() noexcept { return false; }
+constexpr bool consume_descriptor_pool_fault() noexcept { return false; }
 #endif
 
 using vk::Api;
@@ -1429,6 +1432,13 @@ VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layo
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 512},
     };
+    // Make room to track the pool BEFORE it exists: the native pool is only released through descriptor_pools_, so a push_back that
+    // had to grow the vector after vkCreateDescriptorPool and threw would leave a pool nobody can destroy (Core review of #67). With
+    // the room reserved, the push_back below cannot throw. Growth is geometric, so this stays cheap however many pools a run needs.
+    if (consume_descriptor_pool_fault()) throw std::bad_alloc();  // test hook: stands in for the reservation failing
+    if (descriptor_pools_.size() == descriptor_pools_.capacity()) {
+        descriptor_pools_.reserve(std::max<std::size_t>(4, descriptor_pools_.capacity() * 2));
+    }
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     pi.maxSets = 256;
@@ -1436,7 +1446,7 @@ VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layo
     pi.pPoolSizes = sizes;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     check(vk_.vkCreateDescriptorPool(device_, &pi, nullptr, &pool), "vkCreateDescriptorPool");
-    descriptor_pools_.push_back(pool);
+    descriptor_pools_.push_back(pool);  // within the reserved capacity: does not allocate, so does not throw
     check(try_allocate(pool, set), "vkAllocateDescriptorSets (new pool)");
     pool_out = pool;
     ++descriptor_sets_in_use_;
@@ -2574,6 +2584,11 @@ void fail_bind_group_after_acquisition(uint32_t n) noexcept
 void fail_bind_group_before_publication(uint32_t n) noexcept
 {
     g_bind_group_publish_fault.store(n, std::memory_order_relaxed);
+}
+
+void fail_descriptor_pool_tracking_after(uint32_t n) noexcept
+{
+    g_descriptor_pool_fault.store(n, std::memory_order_relaxed);
 }
 
 std::size_t descriptor_sets_in_use(const Device& device)

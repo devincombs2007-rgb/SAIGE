@@ -166,6 +166,33 @@ void test_desktop_course() {
             "default renderer preview retains its original camera and marker");
 }
 
+void test_obstructed_camera_and_speeds() {
+    World world;
+    CourseInput input;
+    CapsuleCharacterConfig config;
+    config.walk_speed = 1.5f;
+    config.sprint_speed = 4.0f;
+    sample::DesktopGame game(world, input, true, {}, config);
+    const auto advance = [&] { game.fixed_update(world, tick); };
+    const auto player_x = [&] { return world.snapshot().front().position.x; };
+    input.forward = true;
+    for (int i = 0; i < 40; ++i) advance();
+    require(player_x() > 0.8f && player_x() < 1.05f, "custom walk speed applies to gameplay");
+    for (int i = 0; i < 70; ++i) advance();
+    require(player_x() > 2.18f && player_x() < 2.21f, "the same capsule reaches the obstacle");
+    input.forward = false;
+    input.look = {1047.0f, -100.0f};
+    advance();
+    const auto obstructed = game.camera_view().value().position;
+    require(obstructed.x > player_x() && obstructed.x < 2.4f, "camera retracts before the obstacle");
+    input.look = {-1047.0f, 0.0f};
+    advance();
+    const auto returning = game.camera_view().value().position;
+    require(player_x() - returning.x < 1.0f, "camera extension is rate limited");
+    for (int i = 0; i < 35; ++i) advance();
+    require(player_x() - game.camera_view().value().position.x > 5.8f, "camera restores the unobstructed orbit");
+}
+
 void test_authored_course_geometry() {
     constexpr std::array boxes{
         Aabb{{-8, -4, -1}, {8, 4, 0}},
@@ -257,6 +284,7 @@ int main() {
         test_replay();
         test_geometry_replacement();
         test_desktop_course();
+        test_obstructed_camera_and_speeds();
         test_authored_course_geometry();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

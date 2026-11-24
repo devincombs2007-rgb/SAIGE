@@ -30,7 +30,7 @@ public:
 class StreamedCourse final : public IGame {
 public:
     StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
-                   CourseSceneOutput* output = nullptr)
+                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {})
         : platform_(platform), sources_(load_chunk_manifest(manifest)), output_(output) {
         const auto spawn_chunk = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
         if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at [0, 0]");
@@ -44,9 +44,10 @@ public:
         const auto initial = std::span(&*spawn_chunk, 1);
         stream_.request(initial);
         stream_.stage_next();
-        CapsuleCharacter controller({4, 4, 0}, candidate_geometry(initial));
+        const auto geometry = candidate_geometry(initial);
+        CapsuleCharacter controller({4, 4, 0}, geometry, config);
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
-        game_.emplace(world, platform_, std::move(controller));
+        game_.emplace(world, platform_, std::move(controller), geometry);
         if (output_) {
             World candidate = world;
             const auto assets = candidate_assets(initial);

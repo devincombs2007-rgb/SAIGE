@@ -372,10 +372,11 @@ void test_replay_is_deterministic_and_never_penetrates() {
 }
 
 void test_float_rounding_never_leaves_the_capsule_in_a_wall() {
-    // Positions are floats, so far from the origin a step lands on a coarse grid: 2.4e-4 m at 3 km, 8 mm at 65 km. Moving exactly to
-    // contact can round to the inside of a wall, and the walls here sit at irrational offsets so that really happens. The skin kept
-    // after each contact keeps the capsule on the outside on every tick, at every heading, at every distance.
-    constexpr float bases[] = {300.0f, 3000.0f, 65000.0f};
+    // Positions are floats, so far from the origin a step lands on a coarse grid: 1.5e-5 m between 128 m and 256 m. Moving exactly to
+    // contact can round to the inside of a wall, and the walls here sit at irrational offsets so that really happens. The stop the sweep
+    // reports is clear in float, and the skin kept after each contact keeps the capsule on the outside on every tick, at every heading,
+    // across the supported range (the walls are 4.5 m from the base, so the bases stay clear of the +-256 m limit).
+    constexpr float bases[] = {100.3f, 133.37f, 177.7f, 201.913f, 233.77f, 245.1f};
     int runs = 0;
     float worst = std::numeric_limits<float>::infinity();
     for (const float base : bases) {
@@ -395,8 +396,71 @@ void test_float_rounding_never_leaves_the_capsule_in_a_wall() {
             ++runs;
         }
     }
-    require(runs == 24, "all runs happened");
+    require(runs == 48, "all runs happened");
     require(worst >= 0.0f, "the capsule was inside a wall by " + std::to_string(-worst) + " m on some tick");
+}
+
+void test_outside_the_supported_range_fails_explicitly_and_changes_nothing() {
+    const std::vector<Aabb> boxes{{{-300, -300, -1}, {300, 300, 0}}};
+    const auto constructor_throws = [&](Vec3 spawn) {
+        try {
+            CapsuleCharacter c(spawn, boxes);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    require(constructor_throws({256.0f, 0.0f, 0.0f}) && constructor_throws({0.0f, -255.9f, 0.0f}) && constructor_throws({1e8f, 0.0f, 0.0f}),
+            "a spawn whose capsule leaves +-256 m is rejected");
+    require(!constructor_throws({255.5f, -255.5f, 0.0f}), "a spawn inside the range is accepted");
+
+    // A configuration whose reach cannot fit the sweep envelope is rejected rather than failing mid-tick.
+    CapsuleCharacterConfig fast;
+    fast.terminal_speed = 1000.0f;
+    bool config_throws = false;
+    try {
+        CapsuleCharacter c({0, 0, 0}, boxes, fast);
+    } catch (const std::invalid_argument&) {
+        config_throws = true;
+    }
+    require(config_throws, "a terminal speed of 1000 m/s (100 m per tick) exceeds the envelope");
+
+    CapsuleCharacter c({0.0f, 0.0f, 0.0f}, boxes);
+    run(c, idle, 5);
+    const CapsuleCharacterState before = c.state();
+    bool teleport_throws = false;
+    try {
+        (void)c.teleport({300.0f, 0.0f, 0.0f});
+    } catch (const std::invalid_argument&) {
+        teleport_throws = true;
+    }
+    require(teleport_throws && c.state() == before, "a teleport outside the range throws and changes nothing");
+    require(c.teleport({255.0f, 0.0f, 0.0f}), "a teleport inside the range works");
+
+    // Walking into the edge: the tick that would carry the capsule across it throws and leaves the character as it was (state and jump memory).
+    CapsuleCharacter edge({255.699f, 0.0f, 0.0f}, boxes);
+    run(edge, idle, 5);
+    const CapsuleCharacterState at_edge = edge.state();
+    bool throws = false;
+    try {
+        edge.step({1.0f, 0.0f, true, false}, dt);
+    } catch (const std::invalid_argument&) {
+        throws = true;
+    }
+    require(throws, "a tick across the edge throws");
+    require(edge.state() == at_edge, "and changes nothing");
+    edge.step({-1.0f, 0.0f, true, false}, dt);  // walking back works, and the jump button still has its rising edge (the memory was restored)
+    require(edge.state().velocity.z > 0.0f, "the jump memory was restored: the held jump button still counts as a press");
+    // Never penetrates, whatever the position inside the range.
+    CapsuleCharacter inside({-255.5f, 255.5f, 0.0f}, boxes);
+    for (int i = 0; i < 300; ++i) {
+        try {
+            inside.step({-1.0f, 1.0f, false, true}, dt);
+        } catch (const std::invalid_argument&) {
+            break;  // reached the edge of the range: explicit failure is the contract
+        }
+        require(min_gap(inside, boxes) >= 0.0f, "no penetration near the range limit");
+    }
 }
 
 void test_teleport_and_overlap_recovery() {
@@ -539,6 +603,7 @@ int main() {
         test_invalid_input();
         test_replay_is_deterministic_and_never_penetrates();
         test_float_rounding_never_leaves_the_capsule_in_a_wall();
+        test_outside_the_supported_range_fails_explicitly_and_changes_nothing();
         test_teleport_and_overlap_recovery();
         test_teleport_into_a_trapped_gap_fails_and_changes_nothing();
         test_reset_and_geometry_replacement_keep_ledge_support();

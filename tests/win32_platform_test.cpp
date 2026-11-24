@@ -44,6 +44,13 @@ void test_course_input(saige::Win32Platform& platform, HWND window) {
         return std::abs(pose.x - spawn.x) < 0.001f && std::abs(pose.y - spawn.y) < 0.001f &&
                std::abs(pose.z - spawn.z) < 0.001f; // The capsule may rest up to one contact skin above spawn.
     };
+    post(window, WM_KEYDOWN, 'C');
+    advance();
+    require(platform.key_down(saige::Key::c), "C must reach the checkpoint action");
+    post(window, WM_KEYUP, 'C');
+    advance();
+    require(!platform.key_down(saige::Key::c), "Releasing C must clear the checkpoint action");
+
     post(window, WM_KEYDOWN, 'W');
     post(window, WM_KEYDOWN, VK_SHIFT);
     advance();

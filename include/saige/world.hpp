@@ -37,10 +37,12 @@ public:
     bool destroy(Entity entity);
     [[nodiscard]] bool alive(Entity entity) const;
     bool set_position(Entity entity, Vec3 position);
+    // Keeps the entity handle alive while excluding it from rendering snapshots.
+    bool set_visible(Entity entity, bool visible) noexcept;
     // Returns false for an expired entity or a nonfinite/non-affine matrix.
     bool set_render_pose(Entity entity, const WorldMatrix& world_matrix, AssetId mesh);
 
-    // Returns an owning copy in ascending slot order.
+    // Returns visible instances in ascending slot order.
     [[nodiscard]] std::vector<RenderInstance> snapshot() const;
 
     // Replaces the contents with an owning copy, retaining the caller's capacity.
@@ -53,6 +55,7 @@ private:
         AssetId mesh;
         std::uint32_t generation{1};
         bool occupied{};
+        bool visible{true};
     };
     std::vector<Slot> slots_;
     std::vector<std::uint32_t> free_indices_;

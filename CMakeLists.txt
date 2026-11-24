@@ -121,9 +121,10 @@ if(SAIGE_BUILD_PROJECTS)
 endif()
 
 if(TARGET saige::project AND TARGET saige::gfx_assets)
+    find_package(Threads REQUIRED)
     add_library(saige_scene_project STATIC src/chunk_manifest.cpp src/chunk_stream.cpp src/prepared_scene.cpp)
     add_library(saige::scene_project ALIAS saige_scene_project)
-    target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets PRIVATE nlohmann_json::nlohmann_json Threads::Threads)
     if(TARGET saige_desktop)
         target_link_libraries(saige_desktop PRIVATE saige::scene_project)
         target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_COURSE_FILES)
@@ -154,6 +155,15 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
                 --frames 30 --validate)
             set_tests_properties(win32_streamed_vehicle_course_vulkan PROPERTIES TIMEOUT 60
                 PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0 gpu_uploads=2([^0-9]|$)")
+            set(course_save_fixture "${CMAKE_CURRENT_BINARY_DIR}/streamed-vehicle-checkpoint.json")
+            file(WRITE "${course_save_fixture}" [=[
+{"checkpoint_version":2,"cell":[2147483646,-2147483648],"feet":[3,4,0],"vehicle":{"cell":[2147483646,-2147483648],"position":[3,1,0],"heading":0}}
+]=])
+            add_test(NAME win32_streamed_vehicle_save_vulkan COMMAND saige_desktop --character-course --course-vehicle
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/ramp-course-world.json"
+                --course-checkpoint "${course_save_fixture}" --frames 30 --require-rendered --validate)
+            set_tests_properties(win32_streamed_vehicle_save_vulkan PROPERTIES TIMEOUT 60
+                PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0 .*world_cell=2147483646,-2147483648")
         endif()
     endif()
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)

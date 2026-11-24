@@ -86,6 +86,12 @@ public:
     bool replace_static_geometry(std::span<const Aabb> geometry);
     // The same for boxes and triangles together.
     bool replace_static_geometry(std::span<const Aabb> boxes, std::span<const Triangle> triangles);
+    // Translates the live and reset poses into a new local frame; geometry is already in that frame.
+    // Preserves input/velocity history. Rejected geometry or an exception leaves this controller unchanged.
+    bool migrate_origin(Vec3 shift, std::span<const Aabb> boxes, std::span<const Triangle> triangles);
+
+    // Save the current grounded pose as the reset position.
+    bool remember_grounded_checkpoint() noexcept;
 
     // Back to the spawn, at rest.
     void reset();

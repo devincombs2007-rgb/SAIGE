@@ -15,6 +15,22 @@ struct ChunkManifest {
     Vec3 checkpoint{4, 4, 0};
 };
 
+struct CourseVehicleCheckpoint {
+    ChunkCoord cell;
+    Vec3 position;
+    float heading{};
+};
+
+struct CourseCheckpoint {
+    ChunkCoord cell;
+    Vec3 feet;
+    std::optional<CourseVehicleCheckpoint> vehicle;
+};
+
+/// A separate versioned gameplay save. Feet are relative to the logical cell.
+[[nodiscard]] CourseCheckpoint load_course_checkpoint(const std::filesystem::path& path);
+void save_course_checkpoint(const CourseCheckpoint& checkpoint, const std::filesystem::path& path);
+
 /// Version 2 adds a grid origin and checkpoint in that cell's local coordinates.
 [[nodiscard]] ChunkManifest read_chunk_manifest(const std::filesystem::path& path);
 [[nodiscard]] ChunkCollision load_chunk_geometry(const std::filesystem::path& path);

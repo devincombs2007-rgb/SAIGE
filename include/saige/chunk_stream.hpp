@@ -3,9 +3,11 @@
 #include "saige/capsule_triangle.hpp"
 #include "saige/prepared_scene.hpp"
 
+#include <chrono>
 #include <compare>
 #include <cstdint>
 #include <filesystem>
+#include <future>
 #include <map>
 #include <memory>
 #include <optional>
@@ -34,9 +36,18 @@ struct ChunkCollision {
 struct ChunkStreamLimits {
     std::size_t max_chunks{16}; // Per active or requested set.
     std::size_t max_retained_asset_bytes{std::size_t{256} << 20}; // Active and newly staged payloads.
+    bool share_immutable_projects{}; // Reuse prepared scenes across coordinates for exactly matching source paths.
 };
 
-// Synchronous CPU preparation. Drive from the runtime thread between frames.
+struct ChunkPreparationStats {
+    std::uint64_t accepted{};
+    std::uint64_t project_imports{};
+    std::uint64_t failed{};
+    std::uint64_t discarded{};
+    std::chrono::nanoseconds accepted_wall_time{};
+};
+
+// Drive requests and publication from the runtime thread. Background jobs own only CPU data.
 class ChunkStream {
 public:
     explicit ChunkStream(ChunkStreamLimits limits = {});
@@ -47,6 +58,10 @@ public:
     void request(std::span<const ChunkSource> chunks);
     // Stage at most one chunk, in coordinate order. An import failure abandons the pending set and throws.
     bool stage_next();
+    // Starts or polls one CPU preparation. Never waits for I/O. A stale completion is discarded.
+    // A current preparation failure abandons the pending set and throws on this caller.
+    void stage_background();
+
     void cancel() noexcept;
     // Inspect the pending set before publishing coupled resources such as static collision.
     // Staged pointers are borrowed until the next request, cancellation, failed stage, or commit.
@@ -59,8 +74,11 @@ public:
     bool commit_frame() noexcept;
 
     [[nodiscard]] const PreparedScene* active_chunk(ChunkCoord coord) const;
+    // Borrowed from the current active set. Expires at the next successful commit.
+    [[nodiscard]] const ChunkCollision* active_geometry(ChunkCoord coord) const noexcept;
     [[nodiscard]] std::size_t active_count() const noexcept { return active_.size(); }
     [[nodiscard]] std::size_t retained_asset_bytes() const noexcept;
+    [[nodiscard]] ChunkPreparationStats preparation_stats() const noexcept { return preparation_stats_; }
 
 private:
     struct Chunk {
@@ -70,10 +88,28 @@ private:
         std::shared_ptr<const ChunkCollision> geometry{};
     };
     using Chunks = std::map<ChunkCoord, Chunk>;
+    struct Preparation {
+        Chunk chunk;
+        std::chrono::nanoseconds wall_time;
+        bool imported_project;
+    };
+
+    struct Loading {
+        ChunkCoord coord;
+        std::filesystem::path project;
+        std::filesystem::path collision;
+        std::future<Preparation> future;
+        bool abandoned{};
+    };
+    static Preparation prepare(Chunk chunk, std::size_t remaining);
+    void accept(Chunk& target, Preparation&& preparation) noexcept;
+    [[nodiscard]] Chunk preparation_input(const Chunk& chunk) const;
 
     ChunkStreamLimits limits_;
     Chunks active_;
     std::optional<Chunks> pending_;
+    std::optional<Loading> loading_;
+    ChunkPreparationStats preparation_stats_;
 };
 
 } // namespace saige

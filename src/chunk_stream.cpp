@@ -1,6 +1,7 @@
 #include "saige/chunk_manifest.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -32,28 +33,108 @@ void ChunkStream::request(std::span<const ChunkSource> chunks) {
             throw std::invalid_argument("Duplicate chunk coordinates");
         }
     }
+    if (loading_) {
+        const auto still_requested = candidate.find(loading_->coord);
+        if (still_requested == candidate.end() || still_requested->second.project != loading_->project ||
+            still_requested->second.collision != loading_->collision) loading_->abandoned = true;
+    }
     pending_ = std::move(candidate);
 }
 
+ChunkStream::Chunk ChunkStream::preparation_input(const Chunk& chunk) const {
+    if (!limits_.share_immutable_projects) return chunk;
+
+    const auto matches = [&chunk](const auto& entry) {
+        return entry.second.scene && entry.second.project == chunk.project;
+    };
+    Chunk input = chunk;
+    const auto existing = std::ranges::find_if(active_, matches);
+    if (existing != active_.end()) {
+        input.scene = existing->second.scene;
+    } else if (pending_) {
+        const auto staged = std::ranges::find_if(*pending_, matches);
+        if (staged != pending_->end()) input.scene = staged->second.scene;
+    }
+    return input;
+}
+
+ChunkStream::Preparation ChunkStream::prepare(Chunk chunk, std::size_t remaining) {
+    const auto start = std::chrono::steady_clock::now();
+    if (!chunk.collision.empty()) {
+        chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
+    }
+    const bool imported = !chunk.scene;
+    if (imported) chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start);
+    return {std::move(chunk), elapsed, imported};
+}
+
+void ChunkStream::accept(Chunk& target, Preparation&& preparation) noexcept {
+    target = std::move(preparation.chunk);
+    ++preparation_stats_.accepted;
+    preparation_stats_.project_imports += preparation.imported_project;
+    preparation_stats_.accepted_wall_time += preparation.wall_time;
+}
+
 bool ChunkStream::stage_next() {
+    if (loading_) throw std::logic_error("Cannot stage synchronously while a background chunk is in flight");
     if (!pending_) return false;
     const auto next = std::ranges::find_if(*pending_, [](const auto& item) { return !item.second.scene; });
     if (next == pending_->end()) return false;
     try {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
-        auto& chunk = next->second;
-        if (!chunk.collision.empty()) {
-            chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
-        }
-        chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
+        accept(next->second, prepare(preparation_input(next->second), remaining));
     } catch (...) {
+        ++preparation_stats_.failed;
         pending_.reset();
         throw;
     }
     return true;
 }
 
+void ChunkStream::stage_background() {
+    if (loading_) {
+        if (loading_->future.wait_for(std::chrono::seconds::zero()) != std::future_status::ready) return;
+        auto finished = std::move(*loading_);
+        loading_.reset();
+        if (finished.abandoned || !pending_) {
+            ++preparation_stats_.discarded;
+            return;
+        }
+        const auto target = pending_->find(finished.coord);
+        if (target == pending_->end() || target->second.scene ||
+            target->second.project != finished.project || target->second.collision != finished.collision) {
+            ++preparation_stats_.discarded;
+            return;
+        }
+        try {
+            accept(target->second, finished.future.get());
+        } catch (...) {
+            ++preparation_stats_.failed;
+            pending_.reset();
+            throw;
+        }
+        return;
+    }
+    if (!pending_) return;
+    const auto next = std::ranges::find_if(*pending_, [](const auto& item) { return !item.second.scene; });
+    if (next == pending_->end()) return;
+    try {
+        const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
+        Loading task{next->first, next->second.project, next->second.collision, {}};
+        task.future = std::async(std::launch::async, [chunk = preparation_input(next->second), remaining]() mutable {
+            return prepare(std::move(chunk), remaining);
+        });
+        loading_ = std::move(task);
+    } catch (...) {
+        ++preparation_stats_.failed;
+        pending_.reset();
+        throw;
+    }
+}
+
 void ChunkStream::cancel() noexcept {
+    if (loading_) loading_->abandoned = true;
     pending_.reset();
 }
 
@@ -93,7 +174,33 @@ const PreparedScene* ChunkStream::active_chunk(ChunkCoord coord) const {
     return it == active_.end() ? nullptr : it->second.scene.get();
 }
 
+const ChunkCollision* ChunkStream::active_geometry(ChunkCoord coord) const noexcept {
+    const auto it = active_.find(coord);
+    return it == active_.end() ? nullptr : it->second.geometry.get();
+}
+
 std::size_t ChunkStream::retained_asset_bytes() const noexcept {
+    if (limits_.share_immutable_projects) {
+        // Count each shared scene once without allocation. Desktop course resident sets are small and bounded.
+        const auto earlier = [](auto begin, auto end, const auto& scene) {
+            return std::any_of(begin, end, [&](const auto& item) { return item.second.scene == scene; });
+        };
+        std::size_t bytes = 0;
+        for (auto entry = active_.begin(); entry != active_.end(); ++entry) {
+            const auto& scene = entry->second.scene;
+            if (!earlier(active_.begin(), entry, scene)) bytes += scene->asset_payload_bytes();
+        }
+        if (pending_) {
+            for (auto entry = pending_->begin(); entry != pending_->end(); ++entry) {
+                const auto& scene = entry->second.scene;
+                if (scene && !earlier(active_.begin(), active_.end(), scene) && !earlier(pending_->begin(), entry, scene)) {
+                    bytes += scene->asset_payload_bytes();
+                }
+            }
+        }
+        return bytes;
+    }
+
     std::size_t bytes = 0;
     for (const auto& [coord, chunk] : active_) {
         bytes += chunk.scene->asset_payload_bytes();

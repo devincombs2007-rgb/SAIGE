@@ -2,6 +2,7 @@
 #include "saige/rhi_vulkan/vulkan_device.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <exception>
 #include <iostream>
@@ -44,17 +45,37 @@ int main(int argc, char** argv) {
             sink.submit({tick, 0.0, instances, camera.view()});
             return sink.read_back_rgba();
         };
-        require(course.resident_count() == 1, "Expected just the reset chunk initially");
+        require(course.resident_count() == 1 && output.uploads() == 1, "Expected just the reset chunk initially");
         const auto before = frame(0);
         require(!before.empty() && sink.stats().model_instances_drawn == 3, "The initial chunk must draw three imported instances");
 
         course.fixed_update(world, 16'666'667ns);
-        require(course.resident_count() == 2 && sink.active_model_count() == 1, "Both chunks must share the staged GPU model");
+        require(course.resident_count() == 2 && sink.active_model_count() == 1 && output.uploads() == 1, "Both chunks must share the staged GPU model");
         const auto after = frame(1);
         require(sink.stats().model_instances_drawn == 9 && sink.stats().unresolved_instances == 0,
                 "The second frame must draw both chunks using resolved assets");
         require(after.size() == before.size() && after != before, "The newly resident chunk must change framebuffer pixels");
         require(frame(1) == after, "The composed scene must render consistently");
+        const auto sources = saige::load_chunk_manifest(argv[1]);
+        const saige::PreparedScene fixture(sources.front().project);
+        const auto& asset = fixture.assets().front();
+        const auto source = (sources.front().project.parent_path() / fixture.project().assets.front().relative_path).lexically_normal();
+        const std::array requested{
+            saige::sample::CourseAsset{asset.id, &asset.model, source},
+            saige::sample::CourseAsset{{asset.id.high, asset.id.low + 1}, &asset.model, source},
+            saige::sample::CourseAsset{{asset.id.high, asset.id.low + 2}, &asset.model, source},
+        };
+        require(!output.stage(requested) && output.uploads() == 2 && sink.active_model_count() == 1,
+                "First staging step uploads one missing asset and leaves the active scene unchanged");
+        require(output.stage(requested) && output.uploads() == 3 && sink.active_model_count() == 1,
+                "Second staging step finishes the candidate without publishing it");
+        output.publish();
+        require(sink.active_model_count() == 3, "Commit installs the prepared candidate");
+        require(output.stage(std::span(requested).first(1)) && output.uploads() == 3,
+                "Retiring assets must not reupload the retained model");
+        output.publish();
+        require(sink.active_model_count() == 1, "Commit retires the removed models");
+
         sink.device().wait_idle();
         require(sink.device().validation_error_count() == 0, "Unexpected Vulkan validation errors");
     } catch (const std::exception& error) {

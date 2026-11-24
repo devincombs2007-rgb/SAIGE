@@ -271,7 +271,9 @@ int main(int argc, char** argv) {
             if (auto* renderer = sink.renderer()) {
                 std::cout << " gpu_models=" << renderer->active_model_count()
                           << " model_draws=" << renderer->stats().model_instances_drawn
-                          << " unresolved=" << renderer->stats().unresolved_instances;
+                          << " unresolved=" << renderer->stats().unresolved_instances << " gpu_uploads=" << composition->uploads()
+                          << " upload_cpu_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                                 composition->upload_time()).count();
             }
 #endif
             std::cout << '\n';

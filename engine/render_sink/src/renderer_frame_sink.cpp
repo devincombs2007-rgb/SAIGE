@@ -50,6 +50,18 @@ SceneInstance to_scene_instance(const saige::RenderInstance& inst)
     return s;
 }
 
+void add_stage_report(gfx::StageReport& total, const gfx::StageReport& added)
+{
+    total.textures += added.textures;
+    total.texture_bytes += added.texture_bytes;
+    total.primitives += added.primitives;
+    total.vertex_bytes += added.vertex_bytes;
+    total.index_bytes += added.index_bytes;
+    for (const std::string& warning : added.warnings) {
+        if (std::ranges::find(total.warnings, warning) == total.warnings.end()) total.warnings.push_back(warning);
+    }
+}
+
 bool id_less(const saige::AssetId& a, const saige::AssetId& b) noexcept
 {
     return a.high != b.high ? a.high < b.high : a.low < b.low;
@@ -90,7 +102,7 @@ const GpuModel* StagedScene::find(saige::AssetId id) const noexcept
 {
     const auto it = std::lower_bound(models_.begin(), models_.end(), id,
                                      [](const Entry& e, const saige::AssetId& key) { return id_less(e.id, key); });
-    return (it != models_.end() && it->id == id) ? &it->model : nullptr;
+    return (it != models_.end() && it->id == id) ? it->model.get() : nullptr;
 }
 
 RendererFrameSink::RendererFrameSink(std::unique_ptr<rhi::Device> device, const saige::IDesktopPlatform& platform,
@@ -253,22 +265,32 @@ StagedScene RendererFrameSink::stage_scene(std::span<const SceneAssetRef> assets
     for (const SceneAssetRef& ref : assets) {
         gfx::StageReport report;
         const std::string name = ref.name.empty() ? saige::format_asset_id(ref.id) : ref.name;
-        StagedScene::Entry entry{ref.id, gfx::stage_model(*renderer_, *ref.asset, name, settings, &report)};
-        staged.models_.push_back(std::move(entry));
-        staged.report_.textures += report.textures;
-        staged.report_.texture_bytes += report.texture_bytes;
-        staged.report_.primitives += report.primitives;
-        staged.report_.vertex_bytes += report.vertex_bytes;
-        staged.report_.index_bytes += report.index_bytes;
-        for (const std::string& w : report.warnings) {
-            if (std::find(staged.report_.warnings.begin(), staged.report_.warnings.end(), w) == staged.report_.warnings.end()) {
-                staged.report_.warnings.push_back(w);
-            }
-        }
+        auto model = std::make_shared<const GpuModel>(gfx::stage_model(*renderer_, *ref.asset, name, settings, &report));
+        staged.models_.push_back({ref.id, std::move(model)});
+        add_stage_report(staged.report_, report);
     }
     std::sort(staged.models_.begin(), staged.models_.end(),
               [](const StagedScene::Entry& a, const StagedScene::Entry& b) { return id_less(a.id, b.id); });
     return staged;
+}
+
+StagedScene RendererFrameSink::compose_staged_scenes(std::span<const StagedScene* const> parts) const
+{
+    StagedScene result;
+    result.owner_ = this;
+    for (const auto* part : parts) {
+        if (!part || (part->owner_ && part->owner_ != this)) {
+            throw std::invalid_argument("compose_staged_scenes: expected scenes staged by this sink");
+        }
+        result.models_.insert(result.models_.end(), part->models_.begin(), part->models_.end());
+        add_stage_report(result.report_, part->report_);
+    }
+    std::sort(result.models_.begin(), result.models_.end(),
+              [](const StagedScene::Entry& a, const StagedScene::Entry& b) { return id_less(a.id, b.id); });
+    if (std::ranges::adjacent_find(result.models_, {}, &StagedScene::Entry::id) != result.models_.end()) {
+        throw std::invalid_argument("compose_staged_scenes: duplicate asset ID");
+    }
+    return result;
 }
 
 void RendererFrameSink::activate_scene(StagedScene&& scene)

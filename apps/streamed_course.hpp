@@ -21,7 +21,8 @@ struct CourseAsset {
 class CourseSceneOutput {
 public:
     virtual ~CourseSceneOutput() = default;
-    virtual void stage(std::span<const CourseAsset> assets) = 0;
+    // Prepare at most one new GPU asset. False keeps the active course in force and resumes next tick.
+    virtual bool stage(std::span<const CourseAsset> assets) = 0;
     virtual void publish() noexcept = 0;
     virtual void discard() noexcept = 0;
 };
@@ -48,7 +49,9 @@ public:
         game_.emplace(world, platform_, std::move(controller));
         if (output_) {
             World candidate = world;
-            auto entities = stage_visuals(candidate, initial);
+            const auto assets = candidate_assets(initial);
+            while (!output_->stage(assets)) {} // Finish the initial scene before entering the simulation loop.
+            auto entities = compose_world(candidate, initial);
             publish_visuals(world, std::move(candidate), std::move(entities));
         }
         stream_.commit_frame();
@@ -58,33 +61,7 @@ public:
         const bool reset = platform_.key_down(Key::r);
         const ChunkCoord center = reset ? reset_cell : chunk_containing(game_->course_position(), cell_size);
         try {
-            if (!requested_center_ || center != *requested_center_ || (reset && !reset_held_)) {
-                requested_center_ = center;
-                requested_ = select_chunks(sources_, center, 1);
-                const auto origin = std::ranges::lower_bound(requested_, reset_cell, {}, &ChunkSource::coord);
-                if (origin == requested_.end() || origin->coord != reset_cell) {
-                    const auto spawn = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
-                    requested_.insert(origin, *spawn);
-                }
-                stream_.request(requested_);
-            }
-
-            stream_.stage_next(); // At most one new disk payload per fixed update.
-            if (stream_.ready_to_commit()) {
-                auto geometry = candidate_geometry(requested_);
-                std::optional<World> candidate_world;
-                ChunkEntities entities;
-                if (output_) {
-                    candidate_world = world;
-                    entities = stage_visuals(*candidate_world, requested_);
-                }
-                if (!game_->replace_course_collision(geometry)) {
-                    throw std::runtime_error("Staged course collision overlaps the player or reset point");
-                }
-                if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
-                // No intervening operation can invalidate readiness; commit is noexcept.
-                stream_.commit_frame();
-            }
+            update_candidate(world, center, reset);
         } catch (const std::exception& error) {
             if (output_) output_->discard();
             stream_.cancel();
@@ -100,7 +77,36 @@ public:
 private:
     using ChunkEntities = std::map<ChunkCoord, std::vector<Entity>>;
 
-    [[nodiscard]] ChunkEntities stage_visuals(World& candidate, std::span<const ChunkSource> requested) {
+    void update_candidate(World& world, ChunkCoord center, bool reset) {
+        if (!requested_center_ || center != *requested_center_ || (reset && !reset_held_)) {
+            if (output_) output_->discard();
+            requested_center_ = center;
+            requested_ = select_chunks(sources_, center, 1);
+            const auto origin = std::ranges::lower_bound(requested_, reset_cell, {}, &ChunkSource::coord);
+            if (origin == requested_.end() || origin->coord != reset_cell) {
+                const auto spawn = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
+                requested_.insert(origin, *spawn);
+            }
+            stream_.request(requested_);
+        }
+        stream_.stage_next(); // At most one new disk payload per fixed update.
+        if (!stream_.ready_to_commit()) return;
+        std::optional<World> candidate_world;
+        ChunkEntities entities;
+        if (output_) {
+            const auto assets = candidate_assets(requested_);
+            if (!output_->stage(assets)) return;
+            candidate_world = world;
+            entities = compose_world(*candidate_world, requested_);
+        }
+        if (!game_->replace_course_collision(candidate_geometry(requested_))) {
+            throw std::runtime_error("Staged course collision overlaps the player or reset point");
+        }
+        if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
+        stream_.commit_frame();
+    }
+
+    [[nodiscard]] ChunkEntities compose_world(World& candidate, std::span<const ChunkSource> requested) const {
         ChunkEntities entities = chunk_entities_;
         for (auto it = entities.begin(); it != entities.end();) {
             if (std::ranges::find(requested, it->first, &ChunkSource::coord) == requested.end()) {
@@ -111,21 +117,8 @@ private:
             }
         }
 
-        std::map<std::pair<std::uint64_t, std::uint64_t>, CourseAsset> unique_assets;
         for (const ChunkSource& chunk : requested) {
-            const PreparedScene& prepared = *stream_.staged_chunk(chunk.coord);
-            const auto& project = prepared.project();
-            for (const auto& asset : project.assets) {
-                const auto relative = std::filesystem::path(
-                    std::u8string(asset.relative_path.begin(), asset.relative_path.end()));
-                const auto source = (chunk.project.parent_path() / relative).lexically_normal();
-                const auto [it, inserted] = unique_assets.try_emplace(
-                    std::pair{asset.id.high, asset.id.low}, CourseAsset{asset.id, prepared.find_asset(asset.id), source});
-                if (!inserted && it->second.source != source) {
-                    throw std::invalid_argument("Streamed chunks bind the same asset ID to different files");
-                }
-            }
-
+            const auto& project = stream_.staged_chunk(chunk.coord)->project();
             const auto [it, inserted] = entities.try_emplace(chunk.coord);
             if (!inserted) continue; // Keep the render identity of resident nodes.
             const auto matrices = resolve_project_matrices(project);
@@ -141,11 +134,30 @@ private:
             }
         }
 
+        return entities;
+    }
+
+    [[nodiscard]] std::vector<CourseAsset> candidate_assets(std::span<const ChunkSource> requested) const {
+        std::map<std::pair<std::uint64_t, std::uint64_t>, CourseAsset> unique_assets;
+        for (const ChunkSource& chunk : requested) {
+            const PreparedScene& prepared = *stream_.staged_chunk(chunk.coord);
+            const auto& project = prepared.project();
+            for (const auto& asset : project.assets) {
+                const auto relative = std::filesystem::path(
+                    std::u8string(asset.relative_path.begin(), asset.relative_path.end()));
+                const auto source = (chunk.project.parent_path() / relative).lexically_normal();
+                const auto [it, inserted] = unique_assets.try_emplace(
+                    std::pair{asset.id.high, asset.id.low}, CourseAsset{asset.id, prepared.find_asset(asset.id), source});
+                if (!inserted && it->second.source != source) {
+                    throw std::invalid_argument("Streamed chunks bind the same asset ID to different files");
+                }
+            }
+
+        }
         std::vector<CourseAsset> assets;
         assets.reserve(unique_assets.size());
         for (auto& entry : unique_assets) assets.push_back(std::move(entry.second));
-        output_->stage(assets);
-        return entities;
+        return assets;
     }
 
     void publish_visuals(World& world, World&& candidate, ChunkEntities&& entities) noexcept {

@@ -260,10 +260,11 @@ public:
 
 class CourseOutputProbe final : public saige::sample::CourseSceneOutput {
 public:
-    void stage(std::span<const saige::sample::CourseAsset> assets) override {
+    bool stage(std::span<const saige::sample::CourseAsset> assets) override {
         require(assets.size() == 1 && assets.front().model, "shared assets stage once per set");
         if (fail) throw std::runtime_error("forced GPU staging failure");
         staged = true;
+        return true;
     }
     void publish() noexcept override {
         if (staged) ++publications;

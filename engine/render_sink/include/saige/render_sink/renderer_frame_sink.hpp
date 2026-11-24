@@ -89,7 +89,7 @@ private:
     friend class RendererFrameSink;
     struct Entry {
         saige::AssetId id;
-        GpuModel model;
+        std::shared_ptr<const GpuModel> model;
     };
     std::vector<Entry> models_;  ///< sorted by id
     gfx::StageReport report_;
@@ -125,6 +125,9 @@ public:
     /// and image or mesh, nothing is retained, and the currently active scene keeps drawing untouched. Duplicate asset IDs
     /// or the built-in (all-zero) ID throw std::invalid_argument. Call between submits (it uploads synchronously).
     [[nodiscard]] StagedScene stage_scene(std::span<const SceneAssetRef> assets, const gfx::StageSettings& settings = {});
+    /// Composes disjoint scenes staged by this sink. Shares their model ownership without uploading again.
+    /// Parts are borrowed for the call. Duplicate IDs and foreign parts are rejected before publication.
+    [[nodiscard]] StagedScene compose_staged_scenes(std::span<const StagedScene* const> parts) const;
     /// Makes a staged scene the active one. A scene staged by a different sink throws std::invalid_argument (its resources
     /// belong to another device); a default-constructed (empty) scene is allowed and clears the active scene. The previous scene's references are released here; frames still in flight keep
     /// their resources until the device retires them. An empty scene is allowed (instances then fall back to cubes).

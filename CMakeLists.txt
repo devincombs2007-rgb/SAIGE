@@ -139,7 +139,7 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
                 --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/course-world.json"
                 --frames 30 --validate)
             set_tests_properties(win32_character_course_stream_vulkan PROPERTIES
-                TIMEOUT 60 PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=1 model_draws=[1-9][0-9]* unresolved=0")
+                TIMEOUT 60 PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=1 model_draws=[1-9][0-9]* unresolved=0 gpu_uploads=1([^0-9]|$)")
         endif()
     endif()
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)

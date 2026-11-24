@@ -66,5 +66,4 @@ The host starts in cell `[0, 0]` and keeps its reset floor resident. It stages n
 simulation tick. A completed candidate takes effect before movement on the next fixed step. Boundary guards keep the capsule
 inside the current set while loading. If a neighbor fails to load or overlaps the capsule or spawn, the course keeps its last
 working set. Press R to reset and retry nearby loads. The Vulkan course draws imported nodes from all resident chunks alongside the player marker. The host offsets project nodes
-by the owning cell and publishes their GPU models with collision. Uploads are synchronous and stage the complete asset set at
-a transition.
+by the owning cell and publishes their GPU models with collision. The course keeps resident GPU models and uploads at most one new model per fixed update after startup. Uploads are synchronous.

@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "learning"
+ ],
+ "description": "Here's an object I tried to \"quadrungulate\" by shrinkwrapping a square mesh onto a public domain non-quad model. It kinda works, but the fit is a bit imperfect. The mesh itself is a mess, especially at the lower part of the boot. I couldn't quite understand what's going on there.\nNB: when exporting as MHX2 causes a few NaN points that prevent the model from being imported. I just opened the .mhx2 file in vim and replaced all occurrences of nan with 0 and then it worked.\n\nSo, let me know what you guys think if this is a viable way to do quad clothes, because all the other things I tried didn't work at all. This one at least \"kinda\" works.",
+ "files": [
+  {
+   "bytes": 458754,
+   "format": "obj",
+   "path": "makehuman/130/topboots.obj",
+   "role": "obj",
+   "sha256": "c1e231d99436ab533c0e58a397b193c32343d3d27ec425da55fa4102c5dd0729"
+  },
+  {
+   "bytes": 66779,
+   "format": "png",
+   "path": "makehuman/130/preview.png",
+   "role": "render",
+   "sha256": "aa7d614c57add5bde3c262fb8d5d1630e707facbdb0faeba7ae6f449cd532807"
+  },
+  {
+   "bytes": 500,
+   "format": "mhmat",
+   "path": "makehuman/130/topboots.mhmat",
+   "role": "mhmat",
+   "sha256": "c3f68f4c1ecb33b2debb46097172c7c41e67244d9b91162fbe948f54d952d6e1"
+  },
+  {
+   "bytes": 433274,
+   "format": "mhclo",
+   "path": "makehuman/130/topboots.mhclo",
+   "role": "mhclo",
+   "sha256": "6d1829f7845bc97424e94e7753c33c137a81bd157c47e87c196ab86b32de0a6e"
+  },
+  {
+   "bytes": 20566,
+   "format": "png",
+   "path": "makehuman/130/black.png",
+   "role": "diffuse",
+   "sha256": "6b95d2efd4fc502d3f98c92c0dbf29400632ee40e0945331cc757349432970f0"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.topboots_one_130",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Topboots one",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 130",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T14:02:04Z",
+  "source_id": "130",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#130"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shoes/Boots/Socks"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shoes/Boots/Socks",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

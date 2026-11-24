@@ -1,0 +1,89 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "learning"
+ ],
+ "description": "My quick and dirty adaptation of a CC0 model from blendswap http://www.blendswap.com/blends/view/15722 to MakeClothes. Looks decent as is, but probably could benefit from additional polish and texturing, maybe even several different textures. Corresponding forum thread: http://www.makehumancommunity.org/forum/viewtopic.php?f=4&t=11332",
+ "files": [
+  {
+   "bytes": 1779548,
+   "format": "obj",
+   "path": "makehuman/11/combatboots.obj",
+   "role": "obj",
+   "sha256": "acf3cfaec4f51bbcc341d41638edc59b42e15d4257b98e158d93d6f2b990b126"
+  },
+  {
+   "bytes": 41239,
+   "format": "jpg",
+   "path": "makehuman/11/combatboots.jpg",
+   "role": "render",
+   "sha256": "089d363463d62936cecae359e74a4245c552b8543042cd4bee9a0b3703619d35"
+  },
+  {
+   "bytes": 16520196,
+   "format": "png",
+   "path": "makehuman/11/bump2.png",
+   "role": "bump",
+   "sha256": "c54c35500e1f90391db698b847cbcef5651fa1e4de2bea507aefc0be15dc75a9"
+  },
+  {
+   "bytes": 487,
+   "format": "mhmat",
+   "path": "makehuman/11/combatboots.mhmat",
+   "role": "mhmat",
+   "sha256": "9f8ebc4644931f76dd7e9b80f0736fe788057bf8a3b4f761e185705bb7bb5761"
+  },
+  {
+   "bytes": 1746469,
+   "format": "mhclo",
+   "path": "makehuman/11/combatboots.mhclo",
+   "role": "mhclo",
+   "sha256": "dec199013d34faa53040c0052b793209a2fcd09ec87e8c3fc648a26c8ccca414"
+  },
+  {
+   "bytes": 15703790,
+   "format": "png",
+   "path": "makehuman/11/col.png",
+   "role": "diffuse",
+   "sha256": "d464620a5dbd97faa9fcd1cdd67baf1b72a8bf04917a8bbd3210c4eab6cf5d3b"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.combat_boots_11",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Combat boots",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 11",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:58:29Z",
+  "source_id": "11",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#11"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shoes/Boots/Socks"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shoes/Boots/Socks",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

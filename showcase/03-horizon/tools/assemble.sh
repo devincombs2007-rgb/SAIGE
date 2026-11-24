@@ -20,7 +20,7 @@ printf %s "Video: ${W}x${H}, ${FPS} distinct frames per second, offline capture.
 printf %s "Car Concept (c) Khronos Group, Eric Chadwick of Darmstadt Graphics Group GmbH, CC BY 4.0" > "$TMP/line4.txt"
 printf %s "Cesium Man (c) Cesium, CC BY 4.0" > "$TMP/line5.txt"
 printf %s "Textures and props from Poly Haven, CC0 (polyhaven.com)" > "$TMP/line6.txt"
-printf %s "Engine, steps, doors and crash: CC0 recordings from OpenGameArt (domasx2, qubodup, Fantozzi, rubberduck, tinyworlds, ignasd) driven by the simulation; pad, birds and crickets are generated" > "$TMP/line7.txt"
+printf %s "Sound: CC0 recordings from OpenGameArt (domasx2, qubodup, Fantozzi, rubberduck, tinyworlds, ignasd); pad and ambience generated" > "$TMP/line7.txt"
 printf %s "Not implemented: point lights (emissive windows and lamps with bloom instead), pedestrians, a seated driver pose, spatial audio (the mix is stereo)" > "$TMP/line8.txt"
 ffmpeg -loglevel error -y -i "$V" -i "$A" \
   -f lavfi -t $CARD -i "color=c=0x05070b:s=${W}x${H}:r=${FPS}" \
@@ -40,5 +40,5 @@ ffmpeg -loglevel error -y -i "$V" -i "$A" \
      fade=t=in:st=0:d=0.8,fade=t=out:st=$(python3 -c "print($CARD-1)"):d=1[card];
    [main][card]concat=n=2:v=1:a=0,format=yuv420p[v];
    [1:a]aresample=48000,apad=whole_dur=$TOTAL,atrim=0:$TOTAL[a]" \
-  -map "[v]" -map "[a]" -c:v libx264 -preset slow -crf 17 -profile:v high -level 4.2 -pix_fmt yuv420p -r "$FPS" -g "$FPS" -c:a aac -b:a 192k -movflags +faststart "$OUT"
+  -map "[v]" -map "[a]" -c:v libx264 -preset slow -crf 21 -profile:v high -level 4.2 -pix_fmt yuv420p -r "$FPS" -g "$FPS" -c:a aac -b:a 192k -movflags +faststart "$OUT"
 ffprobe -v error -show_entries stream=codec_name,width,height,r_frame_rate,pix_fmt,profile:format=duration,size -of default=nw=1 "$OUT"

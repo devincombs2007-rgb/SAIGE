@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "Joel Palmius"
+ ],
+ "description": "The crude series of clothes are intended as starting points for further development. They are mostly low-poly and intended for subdivision (and may therefore look a bit clunky inside MakeHuman). Each piece comes with a plain diffuse texture where the faces have been painted plain white. If you modify or texture paint one of the pieces in this series and want to share, just upload it again here as if you were the original author of it.",
+ "files": [
+  {
+   "bytes": 19487,
+   "format": "obj",
+   "path": "makehuman/32/crudelowsocks.obj",
+   "role": "obj",
+   "sha256": "ac18b06caa3eeb931601f8e02b48dd78414ba90376b0daca10e88b432bbbff23"
+  },
+  {
+   "bytes": 135343,
+   "format": "png",
+   "path": "makehuman/32/crudelowsocks-screenshot.png",
+   "role": "render",
+   "sha256": "e80399d3da480a451376735f576590b78fbec6eaa6b2e2f837726374c66fb074"
+  },
+  {
+   "bytes": 495,
+   "format": "mhmat",
+   "path": "makehuman/32/crudelowsocks.mhmat",
+   "role": "mhmat",
+   "sha256": "e872feaf6f10bd69ee294ec20d8bbae96877fd68c763b3cdaa8f9c7435d67146"
+  },
+  {
+   "bytes": 18284,
+   "format": "mhclo",
+   "path": "makehuman/32/crudelowsocks.mhclo",
+   "role": "mhclo",
+   "sha256": "fa2b479b87738f99fabd842a6f9c1ee74c96fe2fe51403d986cb30e4728e3d6d"
+  },
+  {
+   "bytes": 328413,
+   "format": "png",
+   "path": "makehuman/32/CrudeLowSocksDiffuse.png",
+   "role": "diffuse",
+   "sha256": "d1103c676d2ae01e385fd280c889690855a492b59d72cc14667b5b901e232a82"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.crude_low_socks_32",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Crude Low Socks",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 32",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T14:00:52Z",
+  "source_id": "32",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#32"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shoes/Boots/Socks"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shoes/Boots/Socks",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

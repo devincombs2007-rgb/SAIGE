@@ -1,7 +1,7 @@
 #pragma once
 
 // An immutable broadphase over static collision geometry (axis-aligned boxes and triangles), with the queries a game needs from it:
-// ray casts, region queries and capsule sweeps and overlaps (issue #43, physics foundations).
+// ray casts, region queries, capsule sweeps and overlaps and oriented-box sweeps and overlaps for vehicles (issue #43, physics foundations).
 //
 // It is a bounding-volume hierarchy built once, deterministically: the same inputs give the same tree in the same build, and every query
 // result is a pure function of the geometry and the query. Results are identical to the brute-force sweep over every primitive: the
@@ -23,6 +23,7 @@
 
 #include "saige/capsule_sweep.hpp"
 #include "saige/capsule_triangle.hpp"
+#include "saige/oriented_box.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -49,6 +50,16 @@ struct RayHit {
 struct StaticCapsuleHit {
     CapsuleHit hit;              // as the primitive sweeps report it: t, stop, contact_t, normal, point, started_overlapping
     StaticPrimitive primitive;   // which primitive; hit.index is its index within its own kind
+};
+
+struct StaticOrientedBoxHit {
+    OrientedBoxHit hit;          // see oriented_box.hpp; hit.index is the primitive's index within its own kind
+    StaticPrimitive primitive;
+};
+
+struct StaticOrientedBoxOverlap {
+    OrientedBoxOverlap overlap;  // normal from the primitive toward the box, depth beyond the contact tolerance
+    StaticPrimitive primitive;
 };
 
 // Reusable buffers for queries, so a frame loop allocates nothing after the first call.
@@ -88,6 +99,20 @@ public:
     // including for a sweep outside the supported envelope.
     [[nodiscard]] std::optional<StaticCapsuleHit> sweep_capsule(const Capsule& capsule, Vec3 displacement) const;
     [[nodiscard]] std::optional<StaticCapsuleHit> sweep_capsule(const Capsule& capsule, Vec3 displacement, QueryScratch& scratch) const;
+
+    // The first contact of an oriented box translating by `displacement` with its orientation fixed (oriented_box.hpp): exact swept separating-axis
+    // tests against the primitives near the swept volume, equal to sweeping every box and triangle (earliest exact contact time; an exact tie goes to the
+    // deeper initial overlap, then the lower id, boxes before triangles). `stop` is clear of every primitive near the path. Throws like
+    // check_oriented_box_sweep_envelope, whatever the geometry holds.
+    [[nodiscard]] std::optional<StaticOrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 displacement) const;
+    [[nodiscard]] std::optional<StaticOrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 displacement, QueryScratch& scratch) const;
+
+    // The deepest penetration of an oriented box into any primitive (more than the contact tolerance), the lowest id on a tie.
+    [[nodiscard]] std::optional<StaticOrientedBoxOverlap> overlap_oriented_box(const OrientedBox& box) const;
+    [[nodiscard]] std::optional<StaticOrientedBoxOverlap> overlap_oriented_box(const OrientedBox& box, QueryScratch& scratch) const;
+    // Appends every primitive the box penetrates by more than the tolerance, in ascending id order.
+    void overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out) const;
+    void overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out, QueryScratch& scratch) const;
 
     // Whether the capsule overlaps any primitive by more than the contact tolerance (capsule_box_push_out / capsule_triangle_push_out).
     [[nodiscard]] bool overlaps_capsule(const Capsule& capsule) const;

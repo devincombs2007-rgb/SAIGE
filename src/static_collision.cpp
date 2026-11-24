@@ -355,6 +355,108 @@ std::optional<StaticCapsuleHit> StaticCollision::sweep_capsule(const Capsule& ca
     return best;
 }
 
+namespace {
+
+// The region an oriented box covers over a sweep: its bounding box at the start and at the end, widened by a margin.
+void box_region(const OrientedBox& box, Vec3 displacement, float lo[3], float hi[3]) noexcept {
+    const double c[3] = {box.center.x, box.center.y, box.center.z};
+    const double d[3] = {displacement.x, displacement.y, displacement.z};
+    const double h[3] = {box.half_extents.x, box.half_extents.y, box.half_extents.z};
+    const double u[3][3] = {{box.axis_x.x, box.axis_x.y, box.axis_x.z}, {box.axis_y.x, box.axis_y.y, box.axis_y.z}, {box.axis_z.x, box.axis_z.y, box.axis_z.z}};
+    for (int i = 0; i < 3; ++i) {
+        const double reach = h[0] * std::fabs(u[0][i]) + h[1] * std::fabs(u[1][i]) + h[2] * std::fabs(u[2][i]) + region_margin;
+        const double a = std::min(c[i], c[i] + d[i]) - reach, b = std::max(c[i], c[i] + d[i]) + reach;
+        lo[i] = static_cast<float>(std::nextafter(static_cast<float>(a), -std::numeric_limits<float>::infinity()));
+        hi[i] = static_cast<float>(std::nextafter(static_cast<float>(b), std::numeric_limits<float>::infinity()));
+    }
+}
+
+void split_candidates(const std::vector<std::uint32_t>& ids, std::size_t box_count, std::span<const Aabb> boxes, std::span<const Triangle> triangles, QueryScratch& scratch) {
+    scratch.boxes.clear();
+    scratch.triangles.clear();
+    scratch.box_ids.clear();
+    scratch.triangle_ids.clear();
+    for (const std::uint32_t id : ids) {  // ascending: boxes, then triangles
+        if (id < box_count) {
+            scratch.boxes.push_back(boxes[id]);
+            scratch.box_ids.push_back(id);
+        } else {
+            scratch.triangles.push_back(triangles[id - box_count]);
+            scratch.triangle_ids.push_back(id - box_count);
+        }
+    }
+}
+
+} // namespace
+
+std::optional<StaticOrientedBoxHit> StaticCollision::sweep_oriented_box(const OrientedBox& box, Vec3 displacement) const {
+    QueryScratch scratch;
+    return sweep_oriented_box(box, displacement, scratch);
+}
+
+std::optional<StaticOrientedBoxHit> StaticCollision::sweep_oriented_box(const OrientedBox& box, Vec3 displacement, QueryScratch& scratch) const {
+    check_oriented_box_sweep_envelope(box, displacement);
+    float lo[3], hi[3];
+    box_region(box, displacement, lo, hi);
+    scratch.ids.clear();
+    gather(lo, hi, scratch.ids);
+    split_candidates(scratch.ids, boxes_.size(), boxes_, triangles_, scratch);
+    const auto hit = saige::sweep_oriented_box(box, displacement, scratch.boxes, scratch.triangles);
+    if (!hit) return std::nullopt;
+    StaticOrientedBoxHit out;
+    out.hit = *hit;
+    if (hit->on_triangle) {
+        out.primitive = {StaticPrimitive::Kind::Triangle, scratch.triangle_ids[hit->index]};
+        out.hit.index = scratch.triangle_ids[hit->index];
+    } else {
+        out.primitive = {StaticPrimitive::Kind::Box, scratch.box_ids[hit->index]};
+        out.hit.index = scratch.box_ids[hit->index];
+    }
+    return out;
+}
+
+std::optional<StaticOrientedBoxOverlap> StaticCollision::overlap_oriented_box(const OrientedBox& box) const {
+    QueryScratch scratch;
+    return overlap_oriented_box(box, scratch);
+}
+
+std::optional<StaticOrientedBoxOverlap> StaticCollision::overlap_oriented_box(const OrientedBox& box, QueryScratch& scratch) const {
+    check_oriented_box_sweep_envelope(box, Vec3{0.0f, 0.0f, 0.0f});
+    float lo[3], hi[3];
+    box_region(box, Vec3{0.0f, 0.0f, 0.0f}, lo, hi);
+    scratch.ids.clear();
+    gather(lo, hi, scratch.ids);
+    std::optional<StaticOrientedBoxOverlap> best;
+    for (const std::uint32_t id : scratch.ids) {  // ascending id: a strictly deeper overlap replaces, so the lowest id wins a tie
+        const bool is_box = id < boxes_.size();
+        const auto o = is_box ? oriented_box_aabb_overlap(box, boxes_[id]) : oriented_box_triangle_overlap(box, triangles_[id - boxes_.size()]);
+        if (o && (!best || o->depth > best->overlap.depth)) {
+            best = StaticOrientedBoxOverlap{*o, is_box ? StaticPrimitive{StaticPrimitive::Kind::Box, id} : StaticPrimitive{StaticPrimitive::Kind::Triangle, id - boxes_.size()}};
+        }
+    }
+    return best;
+}
+
+void StaticCollision::overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out) const {
+    QueryScratch scratch;
+    overlaps_oriented_box(box, out, scratch);
+}
+
+void StaticCollision::overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out, QueryScratch& scratch) const {
+    check_oriented_box_sweep_envelope(box, Vec3{0.0f, 0.0f, 0.0f});
+    float lo[3], hi[3];
+    box_region(box, Vec3{0.0f, 0.0f, 0.0f}, lo, hi);
+    scratch.ids.clear();
+    gather(lo, hi, scratch.ids);
+    for (const std::uint32_t id : scratch.ids) {
+        const bool is_box = id < boxes_.size();
+        const auto o = is_box ? oriented_box_aabb_overlap(box, boxes_[id]) : oriented_box_triangle_overlap(box, triangles_[id - boxes_.size()]);
+        if (o) {
+            out.push_back({*o, is_box ? StaticPrimitive{StaticPrimitive::Kind::Box, id} : StaticPrimitive{StaticPrimitive::Kind::Triangle, id - boxes_.size()}});
+        }
+    }
+}
+
 bool StaticCollision::overlaps_capsule(const Capsule& capsule) const {
     QueryScratch scratch;
     return overlaps_capsule(capsule, scratch);

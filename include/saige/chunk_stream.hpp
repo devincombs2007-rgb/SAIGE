@@ -3,6 +3,7 @@
 #include "saige/capsule_triangle.hpp"
 #include "saige/prepared_scene.hpp"
 
+#include <chrono>
 #include <compare>
 #include <cstdint>
 #include <filesystem>
@@ -38,6 +39,14 @@ struct ChunkStreamLimits {
     bool share_immutable_projects{}; // Reuse prepared scenes across coordinates for exactly matching source paths.
 };
 
+struct ChunkPreparationStats {
+    std::uint64_t accepted{};
+    std::uint64_t project_imports{};
+    std::uint64_t failed{};
+    std::uint64_t discarded{};
+    std::chrono::nanoseconds accepted_wall_time{};
+};
+
 // Drive requests and publication from the runtime thread. Background jobs own only CPU data.
 class ChunkStream {
 public:
@@ -69,6 +78,7 @@ public:
     [[nodiscard]] const ChunkCollision* active_geometry(ChunkCoord coord) const noexcept;
     [[nodiscard]] std::size_t active_count() const noexcept { return active_.size(); }
     [[nodiscard]] std::size_t retained_asset_bytes() const noexcept;
+    [[nodiscard]] ChunkPreparationStats preparation_stats() const noexcept { return preparation_stats_; }
 
 private:
     struct Chunk {
@@ -78,21 +88,28 @@ private:
         std::shared_ptr<const ChunkCollision> geometry{};
     };
     using Chunks = std::map<ChunkCoord, Chunk>;
+    struct Preparation {
+        Chunk chunk;
+        std::chrono::nanoseconds wall_time;
+        bool imported_project;
+    };
 
     struct Loading {
         ChunkCoord coord;
         std::filesystem::path project;
         std::filesystem::path collision;
-        std::future<Chunk> future;
+        std::future<Preparation> future;
         bool abandoned{};
     };
-    static Chunk prepare(Chunk chunk, std::size_t remaining);
+    static Preparation prepare(Chunk chunk, std::size_t remaining);
+    void accept(Chunk& target, Preparation&& preparation) noexcept;
     [[nodiscard]] Chunk preparation_input(const Chunk& chunk) const;
 
     ChunkStreamLimits limits_;
     Chunks active_;
     std::optional<Chunks> pending_;
     std::optional<Loading> loading_;
+    ChunkPreparationStats preparation_stats_;
 };
 
 } // namespace saige

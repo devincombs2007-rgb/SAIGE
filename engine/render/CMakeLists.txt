@@ -35,6 +35,7 @@ add_library(saige_render STATIC
     src/camera.cpp
     src/environment_lighting.cpp
     src/env_brdf.cpp
+    src/fxaa.cpp
     src/env_brdf_asset.cpp
     src/gpu_resources.cpp
     src/model_renderer.cpp
@@ -76,6 +77,7 @@ if(SAIGE_RENDER_BUILD_TESTS)
             tests/test_atmosphere.cpp
             tests/test_bloom.cpp
             tests/test_camera.cpp
+            tests/test_fxaa.cpp
             tests/test_gpu_resources.cpp
             tests/test_math.cpp
             tests/test_model_blend.cpp

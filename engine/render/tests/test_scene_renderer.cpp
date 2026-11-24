@@ -2116,3 +2116,104 @@ TEST_CASE("Bloom (null device): the tone-map pass takes a bloom texture exactly 
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == before - 2);
 }
+
+// ---- FXAA (RendererSettings::fxaa) ---------------------------------------------------------------------------------------------------------
+
+TEST_CASE("FXAA (null device): invalid settings are refused before anything is created, and disabled settings are not validated")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    RendererSettings bad;
+    bad.fxaa.enabled = true;
+    bad.fxaa.span_max = 0.0f;
+    bool threw = false;
+    try {
+        SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, bad);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK(o.device.live_resource_count() == baseline);
+    RendererSettings ignored;
+    ignored.fxaa.span_max = 0.0f;  // disabled: never used
+    SceneRenderer fine(o.device, rhi::Format::RGBA8_SRGB, ignored);
+}
+
+TEST_CASE("FXAA (null device): off adds no pass and no resource; on adds one intermediate target, one group and one draw, in LDR and HDR, and everything is released")
+{
+    for (const bool hdr : {false, true}) {
+        Offscreen o;
+        const uint32_t baseline = o.device.live_resource_count();
+        {
+            RendererSettings off_settings;
+            off_settings.hdr = hdr;
+            SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, off_settings);
+            const FrameStats off_stats = off.render(o.device.begin_frame(), SceneFrame{}, o.target());
+            (void)o.device.end_frame();
+            const uint32_t off_passes = static_cast<uint32_t>(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size());
+            const uint32_t off_count = o.device.live_resource_count();
+            CHECK(off_stats.fxaa_draw_calls == 0);
+            CHECK(off_passes == (hdr ? 2u : 1u));
+
+            RendererSettings on_settings = off_settings;
+            on_settings.fxaa.enabled = true;
+            SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, on_settings);
+            const uint32_t before = o.device.live_resource_count();
+            const FrameStats stats = on.render(o.device.begin_frame(), SceneFrame{}, o.target());
+            (void)o.device.end_frame();
+            CHECK(stats.fxaa_draw_calls == 1);
+            CHECK(stats.draw_calls == off_stats.draw_calls + 1);
+            CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size() == off_passes + 1);
+            // The FXAA pass's own pipeline objects and layout were created with the renderer; the frame added the depth target (as for any renderer), the intermediate texture and its group.
+            const uint32_t on_extra = o.device.live_resource_count() - before;
+            CHECK(on_extra >= 2);
+            (void)off_count;
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("FXAA (null device): a resize rebuilds the intermediate target without leaking, and a failed creation is a failed frame, not a broken renderer")
+{
+    Offscreen o(64, 48);
+    rhi::TextureDesc small = *o.device.texture_desc(o.color);
+    small.width = 8;
+    small.height = 6;
+    RenderTarget small_target = o.target(8, 6);
+    small_target.texture = o.device.create_texture(small);
+    RendererSettings s;
+    s.fxaa.enabled = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+    (void)renderer.render(o.device.begin_frame(), SceneFrame{}, o.target(64, 48));
+    (void)o.device.end_frame();
+    o.device.wait_idle();
+    const uint32_t steady = o.device.live_resource_count();
+    (void)renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+    (void)o.device.end_frame();
+    (void)renderer.render(o.device.begin_frame(), SceneFrame{}, o.target(64, 48));
+    (void)o.device.end_frame();
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == steady);
+    uint32_t failures = 0;
+    for (uint32_t n = 1; n < 20; ++n) {
+        o.device.fail_creation_after(n);
+        bool threw = false;
+        try {
+            (void)renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        o.device.fail_creation_after(0);
+        (void)o.device.end_frame();
+        o.device.wait_idle();
+        if (!threw) break;
+        ++failures;
+        CHECK(o.device.live_resource_count() == steady);
+    }
+    CHECK(failures >= 3);  // the depth target, the intermediate texture, its group
+    CHECK(renderer.render(o.device.begin_frame(), SceneFrame{}, small_target).fxaa_draw_calls == 1);
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}

@@ -1,0 +1,157 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Kirill Sannikov"
+ ],
+ "description": "Free 4K painted wooden bench model with worn, antique red finish, rustic farmhouse charm, compact seating and lower shelf - great aged prop for interiors.",
+ "files": [
+  {
+   "bytes": 2835,
+   "format": "gltf",
+   "path": "polyhaven/painted_wooden_bench/1k/painted_wooden_bench_1k.gltf",
+   "role": "model",
+   "sha256": "2289ab82f3fe3045bf18f7b9541743d2c65b9f071cb34bbe424d2bc998f3e507"
+  },
+  {
+   "bytes": 545216,
+   "format": "jpg",
+   "path": "polyhaven/painted_wooden_bench/1k/textures/painted_wooden_bench_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "9bc533313091ee71eaca5fa6334b71d27935d9d75311f64df6a53c28a67c435c"
+  },
+  {
+   "bytes": 830104,
+   "format": "jpg",
+   "path": "polyhaven/painted_wooden_bench/1k/textures/painted_wooden_bench_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "a0f53740d77fc61aac01de0b7e1ae6109445d1756839f739ae31fdf10c9911f2"
+  },
+  {
+   "bytes": 586040,
+   "format": "jpg",
+   "path": "polyhaven/painted_wooden_bench/1k/textures/painted_wooden_bench_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "878785565eeff706b8f1e4db7e3d794a544e9cf0e56cee424d9a271ab4ead47e"
+  },
+  {
+   "bytes": 25444,
+   "format": "bin",
+   "path": "polyhaven/painted_wooden_bench/1k/painted_wooden_bench.bin",
+   "role": "dependency",
+   "sha256": "5799bcb20924105cccd6424de8cdb8e67eb57fddc19c395befeac634a7b2e013"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.painted_wooden_bench",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Kirill Sannikov",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Painted Wooden Bench",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven painted_wooden_bench --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:22:22Z",
+  "source_id": "painted_wooden_bench",
+  "url": "https://polyhaven.com/a/painted_wooden_bench"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "old",
+  "wooden",
+  "worn",
+  "antique",
+  "farmhouse",
+  "aged",
+  "rustic",
+  "small",
+  "seat",
+  "stool",
+  "furniture",
+  "seating"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.5888825058937073,
+   0.8887919783592224,
+   0.24284429848194122
+  ],
+  "bounds_min": [
+   -0.5760610699653625,
+   -0.0004994967021048069,
+   -0.25369879603385925
+  ],
+  "dimensions_mm": [
+   1164.9435758590698,
+   496.5430945158005,
+   889.2914750613272
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.0.44",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "painted_wooden_bench"
+  ],
+  "nodes": 1,
+  "polycount_source": 630,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "painted_wooden_bench_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "painted_wooden_bench_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "painted_wooden_bench_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 630,
+  "vertices": 677
+ },
+ "version": 1
+}

@@ -1,0 +1,153 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Serhii Khromov"
+ ],
+ "description": "Free 4K model: weathered blue painted steel barrel with subtle rust, dents, scuffs and detailed surface imperfections; industrial oil/fuel container.",
+ "files": [
+  {
+   "bytes": 2638,
+   "format": "gltf",
+   "path": "polyhaven/barrel_03/1k/barrel_03_1k.gltf",
+   "role": "model",
+   "sha256": "80e2faf48b7423bb522b573e459d99c5656a16763285ec8268e957fc7d41f9b8"
+  },
+  {
+   "bytes": 149997,
+   "format": "jpg",
+   "path": "polyhaven/barrel_03/1k/textures/barrel_03_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "62feb27dfa9a0daf3f323fdc1ddc2d8e4a5996cf2c72fe50197b55c2b9cba7f3"
+  },
+  {
+   "bytes": 44872,
+   "format": "bin",
+   "path": "polyhaven/barrel_03/1k/barrel_03.bin",
+   "role": "dependency",
+   "sha256": "10f3202e9ac9acf8dd896f1562c64db58311ffef89efb402d8433e03ad486427"
+  },
+  {
+   "bytes": 126707,
+   "format": "jpg",
+   "path": "polyhaven/barrel_03/1k/textures/barrel_03_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "ade97c52985047858a4f38226a9b8a888e3a766ba0434700b4618fb25424c4b6"
+  },
+  {
+   "bytes": 249922,
+   "format": "jpg",
+   "path": "polyhaven/barrel_03/1k/textures/barrel_03_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "2cec2338b36d7322bef55e6a1d0884b223c5ed383cf986a58bfa461478c64c7e"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.barrel_03",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Serhii Khromov",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Barrel 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven barrel_03 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:22:00Z",
+  "source_id": "barrel_03",
+  "url": "https://polyhaven.com/a/barrel_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "industrial",
+  "barrel",
+  "oil",
+  "fuel",
+  "truck",
+  "painted",
+  "blue",
+  "industrial",
+  "containers"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.3169717788696289,
+   0.9304735064506531,
+   0.3193000555038452
+  ],
+  "bounds_min": [
+   -0.31697171926498413,
+   -1.1793932941372987e-07,
+   -0.31929945945739746
+  ],
+  "dimensions_mm": [
+   633.943498134613,
+   638.5995149612427,
+   930.4736243899824
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "barrel_03"
+  ],
+  "nodes": 1,
+  "polycount_source": 1473,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "barrel_03_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "barrel_03_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "barrel_03_metal-barrel_03_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 1473,
+  "vertices": 1126
+ },
+ "version": 1
+}

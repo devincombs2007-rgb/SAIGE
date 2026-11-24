@@ -1,0 +1,167 @@
+{
+ "category": "infrastructure.road",
+ "creators": [
+  "Josh Dean"
+ ],
+ "description": "Free 8K model: ornate cast-iron street lamp with glass panes, exposed bulb, weathered black finish and detailed base, finial and mounting hardware.",
+ "files": [
+  {
+   "bytes": 6419,
+   "format": "gltf",
+   "path": "polyhaven/street_lamp_01/1k/street_lamp_01_1k.gltf",
+   "role": "model",
+   "sha256": "5d0358ede168b5e04547780b99d8e6d651cbe644e468e67cb505019047cbd5c8"
+  },
+  {
+   "bytes": 664324,
+   "format": "jpg",
+   "path": "polyhaven/street_lamp_01/1k/textures/street_lamp_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "4b5487a6c7ee300c3cf5449629e01c35409e5c7ac1695edb9fe69d4821853c7c"
+  },
+  {
+   "bytes": 307889,
+   "format": "jpg",
+   "path": "polyhaven/street_lamp_01/1k/textures/street_lamp_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "3e9d3471b33eb1f8075ed741c2b1932103598626d057ca12ef38005ea5fcb165"
+  },
+  {
+   "bytes": 438623,
+   "format": "jpg",
+   "path": "polyhaven/street_lamp_01/1k/textures/street_lamp_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "172af0fd7ed4999e9f520b9f56e1f357a6dba87adbd7b8aa87e0a0b95840c63d"
+  },
+  {
+   "bytes": 748908,
+   "format": "bin",
+   "path": "polyhaven/street_lamp_01/1k/street_lamp_01.bin",
+   "role": "dependency",
+   "sha256": "c283db9b6d95835d9e8fc1692829acadcb21a0623b2daaa7231cec1440488401"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.street_lamp_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Josh Dean",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Street Lamp 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven street_lamp_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:20:34Z",
+  "source_id": "street_lamp_01",
+  "url": "https://polyhaven.com/a/street_lamp_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "street",
+  "road",
+  "light",
+  "lamppost",
+  "outdoor",
+  "pole",
+  "sidewalk",
+  "night",
+  " urban",
+  "city",
+  "lighting",
+  "industrial",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.35216811299324036,
+   3.8705554008483887,
+   0.19324658811092377
+  ],
+  "bounds_min": [
+   -0.35216811299324036,
+   0,
+   -0.19324657320976257
+  ],
+  "dimensions_mm": [
+   704.3362259864807,
+   386.49316132068634,
+   3870.5554008483887
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.0.44",
+  "materials": 3,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "street_lamp_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 30610,
+  "primitives": 3,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "street_lamp_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "street_lamp_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "street_lamp_01_metal-street_lamp_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "street_lamp_01_diff-street_lamp_01_opacity",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 30610,
+  "vertices": 17664
+ },
+ "version": 1
+}

@@ -1,0 +1,143 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 398414,
+   "format": "png",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033.png",
+   "role": "other",
+   "sha256": "a950b15fb4af83c709eb05717ffac9e668f6b6e20301b5f720bb9e55cace4189"
+  },
+  {
+   "bytes": 2287,
+   "format": "mtlx",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "f28d34fc7a5a872719c79f05c694efed1e9a25cc0dda4fb169ebd8b3c626ee70"
+  },
+  {
+   "bytes": 3128,
+   "format": "usdc",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "39b2ac15f16bbc4f0a57553a92ad0bbb79331d24832ef2588b5882574382cb62"
+  },
+  {
+   "bytes": 931127,
+   "format": "jpg",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "3df2051b62cfbdbca1d493a078d5cdcd9f9f7727e5fa5bf3b648426badc08911"
+  },
+  {
+   "bytes": 1229353,
+   "format": "jpg",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "126edfd31019dcc0e108ce6966eb0c23f772f130a3abcc3be6daedc590cbb7f8"
+  },
+  {
+   "bytes": 690009,
+   "format": "jpg",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "c20231712f016fee9e7d61e29bf6d2e3a858f40074826615c8c8f406748704dd"
+  },
+  {
+   "bytes": 2212114,
+   "format": "jpg",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "e3e234d48575b320c33255e8c639bbb45f3cc53c22ecf64e38a1fd759e6d45cc"
+  },
+  {
+   "bytes": 2213358,
+   "format": "jpg",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "34bf3e95a41a3856c291d2cb039dc75e5a72cc9499343248c6c7e9c1a91a9336"
+  },
+  {
+   "bytes": 715145,
+   "format": "jpg",
+   "path": "ambientcg/Asphalt033/1K-JPG/files/Asphalt033_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "ab1dee12de196e7f1462fd01ebb629e0ae68af9de08c26d38abd2d11dfe2022a"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.asphalt033",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Asphalt 033",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Asphalt033 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:20:49Z",
+  "source_id": "Asphalt033",
+  "url": "https://ambientcg.com/a/Asphalt033"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "033",
+  "33",
+  "asphalt",
+  "asphalt033",
+  "charcoal",
+  "dark",
+  "granular",
+  "gray",
+  "industrial",
+  "matte",
+  "pavement",
+  "road",
+  "rough",
+  "urban"
+ ],
+ "technical": {
+  "creation_method": "PBRPhotogrammetry",
+  "dimensions_mm": [
+   250,
+   250,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

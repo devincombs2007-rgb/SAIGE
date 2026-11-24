@@ -1,0 +1,91 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Jenelle van Heerden",
+  "Sergej Majboroda"
+ ],
+ "description": "Free 16K texture: weathered, rough asphalt with dry, discolored tones, fine aggregate and subtle cracks - ideal for worn roads and urban outdoor scenes.",
+ "files": [
+  {
+   "bytes": 880083,
+   "format": "jpg",
+   "path": "polyhaven/asphalt_04/1k/asphalt_04_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "837a78bb1e94864c221f847c85480484e953a9ee958772481dd2c501e18def2e"
+  },
+  {
+   "bytes": 554776,
+   "format": "jpg",
+   "path": "polyhaven/asphalt_04/1k/asphalt_04_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "35f582fb66d223d242d294616aec5749affdc6ca0a97067311cd6f247f7ef081"
+  },
+  {
+   "bytes": 986045,
+   "format": "jpg",
+   "path": "polyhaven/asphalt_04/1k/asphalt_04_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "18b91c2a6d83a8fbaa8d7fe84e80a66bd6451e4ec2774a09bf4429498c8f3912"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.asphalt_04",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jenelle van Heerden; Sergej Majboroda",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Asphalt 04",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven asphalt_04 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:07Z",
+  "source_id": "asphalt_04",
+  "url": "https://polyhaven.com/a/asphalt_04"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "weathered",
+  "dry",
+  "cracked",
+  "discolored",
+  "asphalt",
+  "road",
+  "street",
+  "man made",
+  "outdoor",
+  "road"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   4039.9999618530273,
+   4039.9999618530273
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   16384,
+   16384
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

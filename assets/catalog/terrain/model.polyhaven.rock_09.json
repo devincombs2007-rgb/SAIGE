@@ -1,0 +1,156 @@
+{
+ "category": "terrain.landscape",
+ "creators": [
+  "Jenelle van Heerden"
+ ],
+ "description": "Free 8K weathered boulder model with rugged, rust-brown stone, detailed dirt and erosion - ideal for natural terrain and landscape scenes.",
+ "files": [
+  {
+   "bytes": 2745,
+   "format": "gltf",
+   "path": "polyhaven/rock_09/1k/rock_09_1k.gltf",
+   "role": "model",
+   "sha256": "636e57eb0090889627da18edaec202ff9f65f83101b94f91b7da4d21dc080ab9"
+  },
+  {
+   "bytes": 322950,
+   "format": "jpg",
+   "path": "polyhaven/rock_09/1k/textures/rock_09_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "594e2cec49e6bb40bd9bab2649e37dcc261079456cf4d6f680f56770c19db5ea"
+  },
+  {
+   "bytes": 757031,
+   "format": "jpg",
+   "path": "polyhaven/rock_09/1k/textures/rock_09_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "2195b5c7da3a23af2a5f93dbb20f38bc069028509b106397bc8d2aee0bc55729"
+  },
+  {
+   "bytes": 595103,
+   "format": "jpg",
+   "path": "polyhaven/rock_09/1k/textures/rock_09_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "afb7ae5ae82238d304aba589391ac6bc87f7cf1dbfe50980c21f762cfdd87efd"
+  },
+  {
+   "bytes": 286592,
+   "format": "bin",
+   "path": "polyhaven/rock_09/1k/rock_09.bin",
+   "role": "dependency",
+   "sha256": "780c37d6fc11ca3a01c3763535ef883908b6007271a46bd446d2289ded820751"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.rock_09",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jenelle van Heerden",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Rock 09",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven rock_09 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:20:37Z",
+  "source_id": "rock_09",
+  "url": "https://polyhaven.com/a/rock_09"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rock",
+  "landscape",
+  "geology",
+  "formation",
+  "weathered",
+  "stone",
+  "dirt",
+  "boulder",
+  "terrain",
+  "nature",
+  "rocks",
+  "collection: verdant_trail"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.03727707266807556,
+   0.03229531645774841,
+   0.08356179296970367
+  ],
+  "bounds_min": [
+   -0.036732789129018784,
+   -0.0005740977358072996,
+   -0.06106271967291832
+  ],
+  "dimensions_mm": [
+   74.13503155112267,
+   144.81624960899353,
+   32.94885210925713
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.0.44",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "rock_09_LOD0"
+  ],
+  "nodes": 1,
+  "polycount_source": 23280,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "rock_09_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "rock_09_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "rock_09_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 12416,
+  "vertices": 6628
+ },
+ "version": 1
+}

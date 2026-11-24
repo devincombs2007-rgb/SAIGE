@@ -1,0 +1,93 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "eye-candy.xyz"
+ ],
+ "description": "Free 8K texture of an old brown concrete floor with rough, worn cement surface, subtle dirt, pores and granular surface detail.",
+ "files": [
+  {
+   "bytes": 927975,
+   "format": "jpg",
+   "path": "polyhaven/concrete_floor/1k/concrete_floor_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "5e06d0fb226f671470f59bf7798954b6965c9ed56dd45084dfd012e15737e444"
+  },
+  {
+   "bytes": 614195,
+   "format": "jpg",
+   "path": "polyhaven/concrete_floor/1k/concrete_floor_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "626b3f6bf3e7ac4793b569af87fc7e15cd375a59ff121654a0a4b67d9907878f"
+  },
+  {
+   "bytes": 883889,
+   "format": "jpg",
+   "path": "polyhaven/concrete_floor/1k/concrete_floor_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "5a403c176361193b785198ab363d3dc3755773ca5b023f19e05874e50caea302"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.concrete_floor",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "eye-candy.xyz",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Concrete Floor",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven concrete_floor --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:31Z",
+  "source_id": "concrete_floor",
+  "url": "https://polyhaven.com/a/concrete_floor"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "concrete",
+  "floor",
+  "old",
+  "brown",
+  "wall",
+  "dirty",
+  "cement",
+  "worn",
+  "outdoor",
+  "man made",
+  "floor",
+  "plaster-concrete",
+  "concrete"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2079.9996852874756,
+   2079.9996852874756
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

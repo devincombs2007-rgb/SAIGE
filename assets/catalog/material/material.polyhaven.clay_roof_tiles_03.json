@@ -1,0 +1,92 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Amal Kumar"
+ ],
+ "description": "Free 8K clay roof tile texture of weathered, uneven terracotta tiles with overlapping rows, chipped edges, gritty dirt in crevices and embossed diamond shaped details.",
+ "files": [
+  {
+   "bytes": 970368,
+   "format": "jpg",
+   "path": "polyhaven/clay_roof_tiles_03/1k/clay_roof_tiles_03_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "6719293429932a27c8ed3526b22cd65d1cd1d43194ce30fa5f4590bb3c513844"
+  },
+  {
+   "bytes": 620705,
+   "format": "jpg",
+   "path": "polyhaven/clay_roof_tiles_03/1k/clay_roof_tiles_03_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "0553be64eb6f3338da2b3d68bc5eb0a867d016d2dcd10a3fb9fd8d349fb7382d"
+  },
+  {
+   "bytes": 974757,
+   "format": "jpg",
+   "path": "polyhaven/clay_roof_tiles_03/1k/clay_roof_tiles_03_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "7db087939613b6b0ef1d0c21a3956eafcf7e9d0f146267290e409448f1adc17b"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.clay_roof_tiles_03",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Amal Kumar",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Clay Roof Tiles 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven clay_roof_tiles_03 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:25Z",
+  "source_id": "clay_roof_tiles_03",
+  "url": "https://polyhaven.com/a/clay_roof_tiles_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "weathered",
+  "uneven",
+  "clay",
+  "clay tiles",
+  "roof",
+  "roofing",
+  "tile roofing",
+  "overlapping tiles",
+  "traditional",
+  "traditional roofing ",
+  "man made",
+  "outdoor",
+  "roofing"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2599.9999046325684,
+   2599.9999046325684
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

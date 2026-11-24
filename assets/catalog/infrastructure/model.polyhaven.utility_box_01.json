@@ -1,0 +1,162 @@
+{
+ "category": "infrastructure.road",
+ "creators": [
+  "James Ray Cock"
+ ],
+ "description": "Free 8K model of an industrial urban utility box - weathered metal cabinet with rivets, high‑voltage stickers, latch and grime; great for city and road scenes.",
+ "files": [
+  {
+   "bytes": 2766,
+   "format": "gltf",
+   "path": "polyhaven/utility_box_01/1k/utility_box_01_1k.gltf",
+   "role": "model",
+   "sha256": "5b9f8c45f2640c9dd831dc3450529e45b24c987208ddcf73010fe717ce8c454e"
+  },
+  {
+   "bytes": 558681,
+   "format": "jpg",
+   "path": "polyhaven/utility_box_01/1k/textures/utility_box_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "6a703a4cdf20c3fc3d0400fa815e5a1834836c96c207bdb57ba9e4a5db3a5532"
+  },
+  {
+   "bytes": 557001,
+   "format": "jpg",
+   "path": "polyhaven/utility_box_01/1k/textures/utility_box_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "1c4e377906c13e864c9c7ffbd31a7d86075f28b948bf54872d6ad3ab38a08124"
+  },
+  {
+   "bytes": 716061,
+   "format": "jpg",
+   "path": "polyhaven/utility_box_01/1k/textures/utility_box_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "e65428774e94b6a8aeb7a23802e0af8f1568952ea79e21a7a3475b957e34956b"
+  },
+  {
+   "bytes": 142552,
+   "format": "bin",
+   "path": "polyhaven/utility_box_01/1k/utility_box_01.bin",
+   "role": "dependency",
+   "sha256": "e4249eb754d7802154eed36bb12070dc24c90fc331f355d60ef7570d61fc0f5c"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.utility_box_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Utility Box 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven utility_box_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:46Z",
+  "source_id": "utility_box_01",
+  "url": "https://polyhaven.com/a/utility_box_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "utility",
+  "box",
+  "electrical",
+  "power",
+  "circuit",
+  "breakers",
+  "transformer",
+  "distributionpanel",
+  "junction box",
+  "control panel",
+  "utility box",
+  "infrastructure",
+  "urban",
+  "city",
+  "road",
+  "industrial",
+  "structures",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.2600001096725464,
+   1.1203334331512451,
+   0.22200000286102295
+  ],
+  "bounds_min": [
+   -0.2600001096725464,
+   0,
+   -0.20999999344348907
+  ],
+  "dimensions_mm": [
+   520.0002193450928,
+   431.999996304512,
+   1120.3334331512451
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.6.27",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "utility_box_01_box"
+  ],
+  "nodes": 1,
+  "polycount_source": 4404,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "utility_box_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "utility_box_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "utility_box_01_metal-utility_box_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 4404,
+  "vertices": 3629
+ },
+ "version": 1
+}

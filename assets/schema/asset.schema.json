@@ -1,0 +1,28 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "title": "SAIGE asset record",
+ "type": "object",
+ "required": ["schema", "id", "kind", "category", "name", "source", "license", "files", "status", "version"],
+ "properties": {
+  "schema": {"const": 1},
+  "id": {"type": "string", "pattern": "^[a-z0-9_.\\-]+$", "description": "persistent identifier: <kind>.<source>.<slug>; it never changes, the content revision does"},
+  "kind": {"enum": ["model", "material", "hdri", "texture", "animation", "audio", "ui", "other"]},
+  "category": {"type": "string"},
+  "name": {"type": "string"},
+  "description": {"type": "string"},
+  "tags": {"type": "array", "items": {"type": "string"}},
+  "source": {"type": "object", "required": ["name", "source_id", "url"], "properties": {"name": {"type": "string"}, "source_id": {"type": "string"}, "url": {"type": "string"}, "retrieved": {"type": "string"}, "acquire": {"type": "string", "description": "the command that reacquires the files from the source"}}},
+  "creators": {"type": "array", "items": {"type": "string"}},
+  "license": {"type": "object", "required": ["spdx", "redistribution"], "properties": {
+    "spdx": {"type": "string"}, "url": {"type": "string"}, "text_sha256": {"type": "string"},
+    "commercial_use": {"enum": [true, false, "unknown"]},
+    "redistribution": {"enum": ["allowed", "allowed-with-attribution", "embedded-only", "private-only", "forbidden", "unknown"], "description": "may the files themselves be committed to the public engine repository (allowed*) or only shipped inside a product (embedded-only) or kept private"},
+    "attribution": {"type": "string"}, "ai_training": {"enum": [true, false, "unknown"]}, "notes": {"type": "string"}}},
+  "files": {"type": "array", "items": {"type": "object", "required": ["path", "sha256", "bytes"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string"}, "bytes": {"type": "integer"}, "role": {"type": "string"}, "format": {"type": "string"}, "technical": {"type": "object"}}}},
+  "technical": {"type": "object"},
+  "status": {"enum": ["candidate", "approved", "rejected", "superseded"]},
+  "suitability": {"type": "object", "properties": {"runtime_ready": {"enum": [true, false, null]}, "checked_with": {"type": "string"}, "notes": {"type": "array", "items": {"type": "string"}}}},
+  "version": {"type": "integer", "minimum": 1},
+  "history": {"type": "array", "items": {"type": "object"}}
+ }
+}

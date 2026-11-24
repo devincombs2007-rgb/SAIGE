@@ -205,3 +205,4 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
 endif()
 
 add_subdirectory(showcase)
+add_subdirectory(tools/production/inspect)

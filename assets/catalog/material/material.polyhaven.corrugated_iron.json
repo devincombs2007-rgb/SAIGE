@@ -1,0 +1,100 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Jenelle van Heerden",
+  "Dimitrios Savva"
+ ],
+ "description": "Free 16K corrugated iron texture - weathered galvanized steel roofing with deep ridges, subtle rust, gritty surface, metallic sheen for roofs/walls.",
+ "files": [
+  {
+   "bytes": 719557,
+   "format": "jpg",
+   "path": "polyhaven/corrugated_iron/1k/corrugated_iron_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "7f3649dd0d056a55a910146f09b1d5298370696a90f511a255fb4c5715bb4b58"
+  },
+  {
+   "bytes": 513485,
+   "format": "jpg",
+   "path": "polyhaven/corrugated_iron/1k/corrugated_iron_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "5502fae08a0b530cff8608951dc180d45c06b2f2f92f2f893c894710b7ee1792"
+  },
+  {
+   "bytes": 755185,
+   "format": "jpg",
+   "path": "polyhaven/corrugated_iron/1k/corrugated_iron_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "e98b839ae681ba929eb80f07348c70d0731b48239abe69268effab18420cd271"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.corrugated_iron",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jenelle van Heerden; Dimitrios Savva",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Corrugated Iron",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven corrugated_iron --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:28Z",
+  "source_id": "corrugated_iron",
+  "url": "https://polyhaven.com/a/corrugated_iron"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "metal",
+  "corrugated",
+  "roof",
+  "roofing",
+  "steel",
+  "metallic",
+  "sheet",
+  "metal sheet",
+  "weathered",
+  "rusty",
+  "iron",
+  "galvanized",
+  "corrugation",
+  "steel sheeting",
+  "rust",
+  "corrugated iron",
+  "man made",
+  "roofing",
+  "wall",
+  "metal"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1120.0000047683716,
+   1120.0000047683716
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   16384,
+   16384
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

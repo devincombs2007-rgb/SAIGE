@@ -1,0 +1,154 @@
+{
+ "category": "infrastructure.road",
+ "creators": [
+  "Amal Kumar"
+ ],
+ "description": "Free 8K model of a weathered concrete road barrier with chipped edges, exposed rebar, rusted lifting hooks and a rough, gritty surface texture.",
+ "files": [
+  {
+   "bytes": 2910,
+   "format": "gltf",
+   "path": "polyhaven/concrete_road_barrier_02/1k/concrete_road_barrier_02_1k.gltf",
+   "role": "model",
+   "sha256": "52d13b5105ce861db5dd1413a1a924ad5594dee5a8eb37dbe1a9df441fcd7caf"
+  },
+  {
+   "bytes": 542900,
+   "format": "bin",
+   "path": "polyhaven/concrete_road_barrier_02/1k/concrete_road_barrier_02.bin",
+   "role": "dependency",
+   "sha256": "254ee05467733e224e127dc76e019e5b5211c0da4248fa3fc75117ec005d7c90"
+  },
+  {
+   "bytes": 717138,
+   "format": "jpg",
+   "path": "polyhaven/concrete_road_barrier_02/1k/textures/concrete_road_barrier_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "6fb282f242ce86a3e44663678c2e0366c37de8244b08acc003d99771cb780e53"
+  },
+  {
+   "bytes": 923479,
+   "format": "jpg",
+   "path": "polyhaven/concrete_road_barrier_02/1k/textures/concrete_road_barrier_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "42ec702843df209f0aef1d247c76dfb91385f0bf3b226b752d22a4c0e3780a31"
+  },
+  {
+   "bytes": 741673,
+   "format": "jpg",
+   "path": "polyhaven/concrete_road_barrier_02/1k/textures/concrete_road_barrier_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "9329260ebfc8632a5d47d9b344ab6f916e26604e73ebd2c495fee544df4bdefa"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.concrete_road_barrier_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Amal Kumar",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Concrete Road Barrier 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven concrete_road_barrier_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:43Z",
+  "source_id": "concrete_road_barrier_02",
+  "url": "https://polyhaven.com/a/concrete_road_barrier_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "road barrier",
+  "traffic barrier",
+  "safety barrier",
+  "wall",
+  "road",
+  "road block",
+  "blockade",
+  "industrial",
+  "structures",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.7892323732376099,
+   1.1091585159301758,
+   0.18809300661087036
+  ],
+  "bounds_min": [
+   -0.7761769890785217,
+   -0.0027944163884967566,
+   -0.2540489733219147
+  ],
+  "dimensions_mm": [
+   1566.9698119163513,
+   442.20101833343506,
+   1111.9812715332955
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.6.27",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "concrete_road_barrier_02"
+  ],
+  "nodes": 1,
+  "polycount_source": 42578,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "concrete_road_barrier_02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "concrete_road_barrier_02_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "concrete_road_barrier_02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 23822,
+  "vertices": 12499
+ },
+ "version": 1
+}

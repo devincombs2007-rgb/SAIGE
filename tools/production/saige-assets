@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs the asset CLI with the tools venv (created by setup.sh) when present.
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PY=${SAIGE_TOOLS_HOME:-$HOME/.saige-tools}/venv/bin/python
+[ -x "$PY" ] || PY=python3
+PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}" exec "$PY" -W ignore -m saige_assets "$@"

@@ -88,6 +88,10 @@ struct SceneLighting {
 /// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.
 void validate_lighting(const SceneLighting& lighting);
 
+/// The unit vector along a sun direction, computed without squaring the components (so any finite non-zero direction, however large or small, normalizes): the one
+/// normalization the lighting, the sky, the fog and the shadow fit all use. Returns false, leaving `out` alone, for a zero or non-finite direction.
+[[nodiscard]] bool unit_sun_direction(Float3 v, Float3& out) noexcept;
+
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
     SceneLighting lighting;

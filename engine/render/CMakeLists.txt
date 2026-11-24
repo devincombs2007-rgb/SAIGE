@@ -29,6 +29,7 @@ if(NOT TARGET saige::rhi_null)
 endif()
 
 add_library(saige_render STATIC
+    src/ambient_occlusion.cpp
     src/camera.cpp
     src/env_brdf.cpp
     src/env_brdf_asset.cpp
@@ -67,6 +68,7 @@ if(SAIGE_RENDER_BUILD_TESTS)
     enable_testing()
     saige_gfx_add_test(saige_render_tests
         SOURCES
+            tests/test_ambient_occlusion.cpp
             tests/test_camera.cpp
             tests/test_gpu_resources.cpp
             tests/test_math.cpp

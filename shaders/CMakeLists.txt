@@ -7,6 +7,8 @@
 # available, that every shader still compiles and passes spirv-val.
 
 set(SAIGE_SHADER_SOURCES
+    scene/ao_apply.hlsl
+    scene/ao_generate.hlsl
     scene/cube.hlsl
     scene/ground.hlsl
     scene/model.hlsl

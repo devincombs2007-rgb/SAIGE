@@ -62,7 +62,14 @@ enum class CameraMode : uint8_t {
 /// BLEND materials do not cast (see docs/rendering/shadows.md).
 struct SunShadowSettings {
     bool enabled = false;
-    uint32_t map_size = 2048;              ///< texels per side, 16 to 8192
+    uint32_t map_size = 2048;              ///< texels per side of each cascade, 16 to 8192
+    /// Cascades, 1 to 4 (default 1: the single map of the first slice, unchanged). Several split the view range [near, distance] by the practical
+    /// scheme (`split_lambda`: 0 uniform, 1 logarithmic) into slices that each get a fitted, texel-snapped map of `map_size` (tiles of one atlas
+    /// texture, 2048x2048 each by default), so near shadows are sharp and the range reaches farther. Over the last `cascade_blend` fraction of a
+    /// slice its shadow blends into the next one's.
+    uint32_t cascades = 1;
+    float split_lambda = 0.75f;            ///< 0 to 1
+    float cascade_blend = 0.1f;            ///< 0 to 0.5
     float distance = 60.0f;                ///< meters of view depth that receive shadows; beyond it the sun is unoccluded
     float caster_margin = 50.0f;           ///< how far toward the sun the light's near plane is pulled, so off-screen casters still shadow
     float depth_bias_constant = -1024.0f;  ///< rasterizer depth bias of the shadow pass (reverse-Z: negative moves casters away from the sun)
@@ -70,6 +77,11 @@ struct SunShadowSettings {
     float normal_offset_texels = 1.5f;     ///< receivers move this many shadow texels along their geometric normal before the lookup
     uint32_t filter_radius = 1;            ///< percentage-closer filter radius in texels: (2r + 1)^2 taps; 0 = a single tap
 };
+
+/// Named shadow qualities: what a host exposes in a settings menu. The values are the table in docs/rendering/shadows.md; a host that wants other numbers fills
+/// SunShadowSettings itself. `distance` and the bias terms are left at their defaults.
+enum class ShadowQuality : uint8_t { Low, Medium, High, Ultra };
+[[nodiscard]] SunShadowSettings shadow_quality_preset(ShadowQuality quality, float distance = 60.0f);
 
 struct RendererSettings {
     CameraMode camera_mode = CameraMode::Follow;

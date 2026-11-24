@@ -140,6 +140,8 @@ public:
     [[nodiscard]] rhi::Format scene_format() const noexcept { return scene_format_; }
 
 private:
+    void acquire();            ///< the constructor's acquisitions, so that a failure can release what was created
+    void release() noexcept;   ///< every raw handle that exists, in any state of completeness
     void ensure_targets(uint32_t width, uint32_t height);
     [[nodiscard]] Float3 camera_target(const SceneFrame& frame) const;
 

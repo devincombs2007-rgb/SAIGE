@@ -171,10 +171,29 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     cube_indices_ = device_.create_buffer(ib, std::as_bytes(std::span(mesh.indices)));
 }
 
-Float3 SceneRenderer::atmosphere_fog() const
+SceneLighting time_of_day_lighting(const AtmosphereSettings& atmosphere, Float3 to_sun, const SceneLighting& day, float night_ambient)
 {
-    Float3 sun = settings_.lighting.sun_direction;
-    sun = normalize(sun);
+    if (!std::isfinite(night_ambient) || night_ambient < 0.0f || night_ambient > 1.0f) {
+        throw std::invalid_argument("time_of_day_lighting: the night ambient fraction must be in 0 to 1");
+    }
+    SceneLighting out = day;
+    out.sun_direction = to_sun;
+    validate_lighting(out);  // finite, non-zero direction (and the base colors) before anything is derived
+    Float3 sun{};
+    (void)unit_sun_direction(to_sun, sun);
+    out.sun_direction = sun;
+    const Float3 t = sun_transmittance(atmosphere, sun);
+    out.sun_color = {day.sun_color.x * t.x, day.sun_color.y * t.y, day.sun_color.z * t.z};
+    float s = (sun.z + 0.1f) / 0.45f;
+    s = s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+    s = s * s * (3.0f - 2.0f * s);
+    const float k = night_ambient + (1.0f - night_ambient) * s;
+    out.ambient_ground = {day.ambient_ground.x * k, day.ambient_ground.y * k, day.ambient_ground.z * k};
+    return out;
+}
+
+Float3 SceneRenderer::atmosphere_fog(Float3 sun) const
+{
     Float3 h = sky_horizon_color(settings_.atmosphere, sun);
     if (!settings_.hdr) {  // nothing downstream tone maps an LDR scene: the same curve the sky pass applies
         h = {1.0f - std::exp(-h.x), 1.0f - std::exp(-h.y), 1.0f - std::exp(-h.z)};
@@ -326,12 +345,15 @@ ModelRenderer& SceneRenderer::model_renderer()
         ModelRenderSettings ms;
         ms.sky = settings_.sky;
         if (settings_.atmosphere.enabled) {
-            const Float3 fog = atmosphere_fog();
+            Float3 sun{};
+            (void)unit_sun_direction(settings_.lighting.sun_direction, sun);
+            const Float3 fog = atmosphere_fog(sun);
             ms.sky = {fog.x, fog.y, fog.z, 1.0f};  // the models' fog and ambient sky color follow the horizon
         }
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
+        ms.dynamic_lighting = settings_.dynamic_lighting;
         ms.alpha_blending = settings_.alpha_blending;
         ms.shadows.enabled = settings_.shadows.enabled;
         ms.shadows.map_size = settings_.shadows.map_size;
@@ -353,6 +375,17 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
+    // This frame's sun. Checked before anything is created, recorded or written, so a bad value or a renderer without dynamic lighting changes nothing.
+    SceneLighting frame_lighting = settings_.lighting;
+    if (frame.lighting != nullptr) {
+        if (!settings_.dynamic_lighting) {
+            throw std::logic_error("SceneRenderer::render: SceneFrame::lighting needs RendererSettings::dynamic_lighting");
+        }
+        validate_lighting(*frame.lighting);
+        frame_lighting = *frame.lighting;
+    }
+    Float3 frame_sun{};
+    (void)unit_sun_direction(frame_lighting.sun_direction, frame_sun);  // validated non-zero: the one direction the sky, fog, lighting and shadow fit all read
     if (settings_.atmosphere.enabled) {
         ensure_sky();  // first, with nothing else created yet: a device failure is a failed frame that leaves nothing behind
     }
@@ -365,7 +398,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     fill4(constants.camera_fog, eye.x, eye.y, eye.z, settings_.fog_density);
     rhi::ClearColor clear = settings_.sky;
     if (settings_.atmosphere.enabled) {
-        const Float3 fog = atmosphere_fog();
+        const Float3 fog = atmosphere_fog(frame_sun);
         clear = {fog.x, fog.y, fog.z, 1.0f};
     }
     fill4(constants.fog_color, clear.r, clear.g, clear.b, 1.0f);
@@ -373,6 +406,15 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     // Sun shadows (imported models only, and only when asked for). The model renderer is created up front when there are models, because
     // the shadow map's synchronization is part of the graph built below. With shadows off none of this runs: no fit, no pass, no import.
     ModelRenderer* shadow_models = (settings_.shadows.enabled && !frame.models.empty()) ? &model_renderer() : nullptr;
+    if (settings_.dynamic_lighting && !frame.models.empty()) {
+        // One immutable payload per renderer per frame, published before the first draw of the frame reads the slot.
+        ModelRenderer& mr = model_renderer();
+        ModelLightingFrame lf;
+        lf.lighting = frame_lighting;
+        lf.lighting.sun_direction = frame_sun;
+        lf.sky_color = {clear.r, clear.g, clear.b};
+        mr.set_lighting_frame(&lf);
+    }
     std::optional<ShadowCascades> sun_cascades;
     if (shadow_models != nullptr) {
         CascadeCamera cam;
@@ -393,9 +435,12 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         cs.resolution = settings_.shadows.map_size;
         cs.caster_margin = settings_.shadows.caster_margin;
         // The same normalized direction the lighting constants were built from (SceneLighting::sun_direction), not a copy of it.
-        const ShadowCascades fitted = fit_shadow_cascades(cam, shadow_models->sun_direction(), cs);
-        if (fitted.count == settings_.shadows.cascades) {
-            sun_cascades = fitted;
+        const bool sun_up = !settings_.dynamic_lighting || frame_sun.z > 0.0f;  // a sun below the horizon casts no shadow (and a fit toward it is meaningless)
+        if (sun_up) {
+            const ShadowCascades fitted = fit_shadow_cascades(cam, frame_sun, cs);
+            if (fitted.count == settings_.shadows.cascades) {
+                sun_cascades = fitted;
+            }
         }
         if (sun_cascades) {
             ModelShadowFrame sf;
@@ -524,7 +569,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 const Camera cam = sky_camera(frame);
                 const float tan_half = std::tan(cam.fov_y_radians * 0.5f);
                 const Float3 right = camera_right(cam) * (tan_half * aspect), up = camera_up(cam) * tan_half, fwd = camera_forward(cam);
-                const Float3 sun = normalize(settings_.lighting.sun_direction);
+                const Float3 sun = frame_sun;
                 SkyConstants sk{};
                 fill4(sk.right, right.x, right.y, right.z, 0.0f);
                 fill4(sk.up, up.x, up.y, up.z, at.exposure);

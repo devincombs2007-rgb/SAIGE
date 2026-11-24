@@ -6,6 +6,7 @@
 #include <compare>
 #include <cstdint>
 #include <filesystem>
+#include <future>
 #include <map>
 #include <memory>
 #include <optional>
@@ -36,7 +37,7 @@ struct ChunkStreamLimits {
     std::size_t max_retained_asset_bytes{std::size_t{256} << 20}; // Active and newly staged payloads.
 };
 
-// Synchronous CPU preparation. Drive from the runtime thread between frames.
+// Drive requests and publication from the runtime thread. Background jobs own only CPU data.
 class ChunkStream {
 public:
     explicit ChunkStream(ChunkStreamLimits limits = {});
@@ -47,6 +48,10 @@ public:
     void request(std::span<const ChunkSource> chunks);
     // Stage at most one chunk, in coordinate order. An import failure abandons the pending set and throws.
     bool stage_next();
+    // Starts or polls one CPU preparation. Never waits for I/O. A stale completion is discarded.
+    // A current preparation failure abandons the pending set and throws on this caller.
+    void stage_background();
+
     void cancel() noexcept;
     // Inspect the pending set before publishing coupled resources such as static collision.
     // Staged pointers are borrowed until the next request, cancellation, failed stage, or commit.
@@ -71,9 +76,19 @@ private:
     };
     using Chunks = std::map<ChunkCoord, Chunk>;
 
+    struct Loading {
+        ChunkCoord coord;
+        std::filesystem::path project;
+        std::filesystem::path collision;
+        std::future<Chunk> future;
+        bool abandoned{};
+    };
+    static Chunk prepare(Chunk chunk, std::size_t remaining);
+
     ChunkStreamLimits limits_;
     Chunks active_;
     std::optional<Chunks> pending_;
+    std::optional<Loading> loading_;
 };
 
 } // namespace saige

@@ -384,6 +384,17 @@ bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> boxes, std:
     return true;
 }
 
+bool CapsuleCharacter::migrate_origin(Vec3 shift, std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
+    CapsuleCharacter candidate(*this);
+    candidate.spawn_ = spawn_ + shift;
+    candidate.state_.feet = state_.feet + shift;
+    require_in_envelope(config_, candidate.spawn_);
+    require_in_envelope(config_, candidate.state_.feet);
+    if (!candidate.replace_static_geometry(boxes, triangles)) return false;
+    *this = std::move(candidate);
+    return true;
+}
+
 bool CapsuleCharacter::teleport(Vec3 feet) {
     if (!finite(feet)) throw std::invalid_argument("Capsule character teleport position must be finite");
     require_in_envelope(config_, feet);  // outside the supported range: rebase first; nothing has changed

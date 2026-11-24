@@ -1,6 +1,6 @@
 # Deterministic chunk staging
 
-ChunkStream prepares adjacent scene projects on the runtime thread between frames. It processes one chunk per stage call in ascending coordinate order. A complete requested set becomes visible at a frame boundary. Unchanged coordinates and project and collision paths reuse active or already staged payloads. A superseding request releases staging for chunks it no longer needs. Cancellation or failed import discards pending work while preserving the active set.
+ChunkStream prepares adjacent scene projects through synchronous staging or one background CPU job. It processes one chunk per stage call in ascending coordinate order. A complete requested set becomes visible at a frame boundary. Unchanged coordinates and project and collision paths reuse active or already staged payloads. A superseding request releases staging for chunks it no longer needs. Cancellation or failed import discards pending work while preserving the active set.
 
 At a simulation boundary, a host can check `ready_to_commit` and read prepared collision from `staged_collision`. If collision rejects the candidate, call `cancel` and keep the old active set. Run this sequence on the runtime thread with no intervening request or stage call. Once the complete candidate is ready, build
 its full collision set and let `CapsuleCharacter::replace_static_geometry` validate and adopt it before calling `commit_frame`.
@@ -12,7 +12,7 @@ point before evicting it. Vehicle entry and exit will also need a resident, supp
 
 The count limit applies separately to the active and requested sets. The asset budget covers retained prepared geometry and encoded image bytes across both sets, counting reused chunks once. Retain headroom to prepare replacements while the old set stays active. Importer scratch allocations, metadata, collision boxes, and GPU allocations are outside this budget. Each staged collision file is separately bounded by its size and box count. Project files retain their existing v1 schema and persisted asset IDs.
 
-This slice tests staging with two neighboring coordinates, eviction and revisit. Runtime scene composition, a versioned manifest, GPU staging and retirement, and asynchronous scheduling follow in later slices.
+Tests cover neighboring coordinates, eviction, revisits, failed staging and native scene composition.
 
 ## World manifest version 1
 
@@ -52,7 +52,7 @@ The native streamed course requires a collision file for every entry. It uses 8 
 point at `(4, 4, 0)` inside cell `[0, 0]`. Course coordinates are bounded to `[-31, 30]` on each axis. Neighbor selection keeps a
 one-cell radius plus the reset cell. Collision files share a simulation origin, and their box tops may reach at most Z=240 m. Imported scene transforms are chunk-local. On a transition the host stages one GPU model per asset ID and adopts the composed render
 world with collision and residency. Resident render entities keep their identities. If two chunks use the same asset ID they
-must name the same normalized project-relative source. Assets at those paths are treated as immutable for the session. The renderer reuses matching resident GPU models and uploads at most one new model per fixed update after startup. A partial candidate stays inactive, and actual resource destruction follows the renderer’s in-flight retirement. Uploads remain synchronous. The course reports successful uploads and their CPU wall time. Asynchronous IO remains future work.
+must name the same normalized project-relative source. Assets at those paths are treated as immutable for the session. The renderer reuses matching resident GPU models and uploads at most one new model per fixed update after startup. A partial candidate stays inactive, and actual resource destruction follows the renderer’s in-flight retirement. Uploads remain synchronous. The course reports successful uploads and their CPU wall time. CPU preparation can run in the background.
 
 
 ## Origin-relative ramp courses
@@ -60,8 +60,13 @@ must name the same normalized project-relative source. Assets at those paths are
 Manifest version 2 adds an integer `origin` cell and a local XYZ `checkpoint` in that cell. The host subtracts the origin in
 64-bit integer space before converting to meters. Neighboring cells can be addressed near either signed 32-bit limit. Their
 collision and model coordinates are authored relative to each cell. Version 1 keeps its shared collision coordinates.
-The checkpoint remains resident and must be supported by walkable collision. Runtime origin shifts while crossing vastly
-separated regions are future work.
+The checkpoint remains resident and must be supported by walkable collision. After the player or driven vehicle moves four
+cells (32 m) from the simulation origin, the desktop can move the origin to the current cell. It does so only when the
+requested neighborhood and pinned cells fit the supported local frame. It stages collision and render placement in the
+new frame before committing at a fixed-step boundary. Durable chunk coordinates, resident entity handles and controller
+velocities survive the shift. Reset returns to the retained checkpoint and recenters when its neighborhood is ready.
+The checkpoint and parked vehicle constrain the reachable area. Moving those pins across distant regions requires a
+future persistent checkpoint and vehicle policy.
 
 Collision file version 2 adds a `triangles` array alongside `boxes`. Each triangle lists three XYZ vertices. The same capsule
 handles box and triangle contact and the camera checks both. The ramp example places a render mesh and collision faces in
@@ -71,8 +76,15 @@ the same cell. It uses a distant grid origin and a non-default checkpoint.
 The playable vehicle mode retains the checkpoint and the vehicle's cell alongside the current walking or driving neighborhood.
 A candidate must retain clear, level support at the car's live pose and its reset pose. While seated, the capsule's inactive state
 is kept at the checkpoint. Exit requires a clear sweep and supported ground in the active collision set. The absolute grid address
-in diagnostics is computed with integer arithmetic relative to the startup origin.
+in diagnostics is computed with integer arithmetic relative to the active origin. An origin epoch increments after each published shift.
 
 Do not spend multiple GPU uploads in one render iteration during fixed-step catch-up. The candidate remains staged until the next
 submission opens an upload slot. Unchanged resident sets bypass restaging. Uploads are still synchronous and a single asset can
 exceed the frame budget.
+
+
+The desktop uses one background CPU import at a time after boot. The worker owns its source paths and CPU result only.
+Cancellation or supersession discards stale results, and the runtime never waits for I/O during a fixed step. Publication
+still requires the complete candidate and runs on the simulation thread. The initial checkpoint loads synchronously.
+Disk completion timing may change the tick that opens a streaming boundary. The synchronous path remains available for
+deterministic replay and focused tests. Shutdown joins any outstanding import.

@@ -1,3 +1,4 @@
+#include <thread>
 #include "streamed_course.hpp"
 #include "saige/capsule_character.hpp"
 #include "saige/chunk_manifest.hpp"
@@ -134,6 +135,48 @@ void write_chunk_fixture(const fs::path& path, std::string_view text) {
     file << text;
     file.close();
     require(file.good(), "write chunk fixture");
+}
+
+void test_background_stage(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    const auto missing = workspace.root / "missing.json";
+    const ChunkSource origin{{0, 0}, fixture};
+    const ChunkSource invalid{{1, 0}, fixture, missing};
+    const ChunkSource valid{{2, 0}, fixture};
+    ChunkStream stream;
+    stream.request(std::array{origin});
+    require(stream.stage_next() && stream.commit_frame(), "bootstrap the active scene");
+    const auto original = stream.active_chunk(origin.coord);
+
+    const auto poll = [&](auto complete) {
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        while (!complete() && std::chrono::steady_clock::now() < deadline) {
+            stream.stage_background();
+            std::this_thread::sleep_for(1ms);
+        }
+        require(complete(), "background preparation did not complete");
+    };
+    stream.request(std::array{origin, invalid});
+    stream.stage_background();
+    stream.cancel();
+    stream.request(std::array{origin, valid});
+    require(!stream.commit_frame() && stream.active_chunk(origin.coord) == original,
+            "a background request cannot change resident state before publication");
+    poll([&] { return stream.ready_to_commit(); });
+    require(stream.commit_frame() && stream.active_chunk(origin.coord) == original &&
+                stream.active_chunk(valid.coord) && !stream.active_chunk(invalid.coord),
+            "a superseded failure cannot replace or cancel the new request");
+
+    stream.request(std::array{origin, invalid});
+    bool failed = false;
+    try {
+        poll([&] { return stream.ready_to_commit(); });
+    } catch (const std::runtime_error& error) {
+        failed = std::string_view(error.what()).find("open chunk file") != std::string_view::npos;
+    }
+    require(failed && !stream.commit_frame() && stream.active_chunk(valid.coord),
+            "a current failure rolls back to the previous active set");
 }
 
 void test_collision_handoff(const std::filesystem::path& fixture) {
@@ -376,6 +419,59 @@ void test_native_streamed_course(const fs::path& fixture) {
     require(course.camera_view().has_value(), "streamed course retains the existing orbit camera");
 }
 
+void test_live_origin_migration(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    fs::copy(fixture.parent_path(), workspace.root / "assets", fs::copy_options::recursive);
+    const auto manifest = workspace.root / "long-course.json";
+    constexpr std::int64_t first_cell = -2147483648;
+    std::string json = R"({"schema_version":2,"origin":[-2147483648,0],"checkpoint":[4,4,0],"chunks":[)";
+    for (int i = 0; i < 12; ++i) {
+        if (i != 0) json += ',';
+        json += R"({"coord":[)" + std::to_string(first_cell + i) +
+                R"(,0],"project":"assets/saige.scene.json","collision":"floor.json"})";
+    }
+    write_chunk_fixture(manifest, json + "]}");
+    write_chunk_fixture(workspace.root / "floor.json",
+        R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]}]})");
+
+    saige::World world;
+    CourseKeys keys;
+    CourseOutputProbe output;
+    saige::sample::StreamedCourse course(world, keys, manifest, &output);
+    const auto initial = world.snapshot();
+    const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
+    const auto absolute_x = [&](float local_x) {
+        const float within_cell = local_x - std::floor(local_x / 8.0f) * 8.0f;
+        return static_cast<float>(course.absolute_cell().first - first_cell) * 8.0f + within_cell;
+    };
+
+    keys.forward = true;
+    float previous_x = 4.0f;
+    for (int i = 0; i < 1450; ++i) {
+        tick();
+        const auto position = world.snapshot().front().position;
+        const float x = absolute_x(position.x);
+        require(x >= previous_x && x - previous_x < 0.15f && position.z >= 0,
+                "walking remains continuous through streamed transitions and coordinate changes");
+        previous_x = x;
+    }
+    require(previous_x > 75 && course.origin_epoch() >= 2, "the course walks through repeated live origin shifts");
+    const auto shifted = world.snapshot();
+    const auto checkpoint = std::ranges::find(shifted, initial[1].entity, &saige::RenderInstance::entity);
+    require(checkpoint != shifted.end() && checkpoint->position.x < initial[1].position.x - 60,
+            "the pinned render entity keeps its identity and translates into the new frame");
+
+    const auto epoch = course.origin_epoch();
+    keys.forward = false;
+    keys.reset = true;
+    tick();
+    require(course.absolute_cell().first == first_cell, "reset immediately returns to the original logical cell");
+    for (int i = 0; i < 5; ++i) tick();
+    require(world.snapshot().front().position == saige::Vec3{4, 4, 0} && course.origin_epoch() > epoch,
+            "the retained checkpoint and render data return to their starting frame");
+}
+
 void test_streamed_vehicle(const fs::path& fixture) {
     using namespace std::chrono_literals;
     Workspace workspace;
@@ -543,7 +639,9 @@ int main(int argc, char** argv) {
         test_native_streamed_course(argv[1]);
         test_rebased_ramp_course(argv[1]);
         test_streamed_vehicle(argv[1]);
+        test_live_origin_migration(argv[1]);
         test_collision_handoff(argv[1]);
+        test_background_stage(argv[1]);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

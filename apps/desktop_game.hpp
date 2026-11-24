@@ -57,12 +57,19 @@ public:
     [[nodiscard]] std::optional<Vec3> vehicle_position() const {
         return vehicle_ ? std::optional(vehicle_->position()) : std::nullopt;
     }
-    bool replace_course_collision(std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
+    bool replace_course_collision(std::span<const Aabb> boxes, std::span<const Triangle> triangles, Vec3 shift = {}) {
         std::vector<Aabb> camera_boxes(boxes.begin(), boxes.end());
         std::vector<Triangle> camera_triangles(triangles.begin(), triangles.end());
-        if (vehicle_ && (!vehicle_->can_occupy(vehicle_->position(), boxes, triangles) ||
-                         !vehicle_->can_occupy(vehicle_->reset_position(), boxes, triangles))) return false;
-        if (!motor_->replace_static_geometry(boxes, triangles)) return false;
+        auto candidate_vehicle = vehicle_;
+        if (candidate_vehicle) {
+            candidate_vehicle->migrate_origin(shift);
+            if (!candidate_vehicle->can_occupy(candidate_vehicle->position(), boxes, triangles) ||
+                !candidate_vehicle->can_occupy(candidate_vehicle->reset_position(), boxes, triangles)) return false;
+        }
+        const bool applied = shift == Vec3{} ? motor_->replace_static_geometry(boxes, triangles)
+                                             : motor_->migrate_origin(shift, boxes, triangles);
+        if (!applied) return false;
+        vehicle_ = candidate_vehicle;
         camera_geometry_.swap(camera_boxes);
         camera_triangles_.swap(camera_triangles);
         return true;

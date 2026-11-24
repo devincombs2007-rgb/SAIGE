@@ -1,6 +1,7 @@
 #include "saige/chunk_manifest.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <stdexcept>
 #include <utility>
 
@@ -32,20 +33,30 @@ void ChunkStream::request(std::span<const ChunkSource> chunks) {
             throw std::invalid_argument("Duplicate chunk coordinates");
         }
     }
+    if (loading_) {
+        const auto still_requested = candidate.find(loading_->coord);
+        if (still_requested == candidate.end() || still_requested->second.project != loading_->project ||
+            still_requested->second.collision != loading_->collision) loading_->abandoned = true;
+    }
     pending_ = std::move(candidate);
 }
 
+ChunkStream::Chunk ChunkStream::prepare(Chunk chunk, std::size_t remaining) {
+    if (!chunk.collision.empty()) {
+        chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
+    }
+    chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
+    return chunk;
+}
+
 bool ChunkStream::stage_next() {
+    if (loading_) throw std::logic_error("Cannot stage synchronously while a background chunk is in flight");
     if (!pending_) return false;
     const auto next = std::ranges::find_if(*pending_, [](const auto& item) { return !item.second.scene; });
     if (next == pending_->end()) return false;
     try {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
-        auto& chunk = next->second;
-        if (!chunk.collision.empty()) {
-            chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
-        }
-        chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
+        next->second = prepare(next->second, remaining);
     } catch (...) {
         pending_.reset();
         throw;
@@ -53,7 +64,41 @@ bool ChunkStream::stage_next() {
     return true;
 }
 
+void ChunkStream::stage_background() {
+    if (loading_) {
+        if (loading_->future.wait_for(std::chrono::seconds::zero()) != std::future_status::ready) return;
+        auto finished = std::move(*loading_);
+        loading_.reset();
+        if (finished.abandoned || !pending_) return;
+        const auto target = pending_->find(finished.coord);
+        if (target == pending_->end() || target->second.scene ||
+            target->second.project != finished.project || target->second.collision != finished.collision) return;
+        try {
+            target->second = finished.future.get();
+        } catch (...) {
+            pending_.reset();
+            throw;
+        }
+        return;
+    }
+    if (!pending_) return;
+    const auto next = std::ranges::find_if(*pending_, [](const auto& item) { return !item.second.scene; });
+    if (next == pending_->end()) return;
+    try {
+        const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
+        Loading task{next->first, next->second.project, next->second.collision, {}};
+        task.future = std::async(std::launch::async, [chunk = next->second, remaining]() mutable {
+            return prepare(std::move(chunk), remaining);
+        });
+        loading_ = std::move(task);
+    } catch (...) {
+        pending_.reset();
+        throw;
+    }
+}
+
 void ChunkStream::cancel() noexcept {
+    if (loading_) loading_->abandoned = true;
     pending_.reset();
 }
 

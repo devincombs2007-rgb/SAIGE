@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
         if (course_world && sink.renderer()) output = &composition.emplace(*sink.renderer());
 #endif
         std::optional<saige::sample::StreamedCourse> streamed_game;
-        if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output, course_config, course_vehicle);
+        if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output, course_config, course_vehicle, true);
 #endif
         if (!game) game = &local_game.emplace(world, platform, course, course_boxes, course_config, course_vehicle);
 #if defined(SAIGE_DESKTOP_VULKAN)
@@ -310,7 +310,7 @@ int main(int argc, char** argv) {
             }
 #endif
             const auto [x, y] = streamed_game->absolute_cell();
-            std::cout << " world_cell=" << x << ',' << y << '\n';
+            std::cout << " world_cell=" << x << ',' << y << " origin_epoch=" << streamed_game->origin_epoch() << '\n';
         }
 #endif
         std::cout << "SAIGE desktop frames=" << stats.frames << " ticks=" << stats.ticks

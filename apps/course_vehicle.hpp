@@ -73,6 +73,11 @@ public:
 
     [[nodiscard]] Vec3 reset_position() const noexcept { return spawn_; }
 
+    void migrate_origin(Vec3 shift) noexcept {
+        position_ = {position_.x + shift.x, position_.y + shift.y, position_.z + shift.z};
+        spawn_ = {spawn_.x + shift.x, spawn_.y + shift.y, spawn_.z + shift.z};
+    }
+
     void park() noexcept { speed_ = 0; }
     void reset() noexcept {
         position_ = spawn_;

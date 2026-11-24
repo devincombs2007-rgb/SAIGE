@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <type_traits>
 
@@ -30,10 +31,11 @@ public:
 class StreamedCourse final : public IGame {
 public:
     StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
-                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {}, bool enable_vehicle = false)
-        : platform_(platform), output_(output) {
+                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {}, bool enable_vehicle = false, bool background = false)
+        : platform_(platform), output_(output), background_(background) {
         auto world_manifest = read_chunk_manifest(manifest);
-        origin_ = world_manifest.origin.value_or(reset_cell);
+        origin_ = world_manifest.origin.value_or(ChunkCoord{0, 0});
+        checkpoint_cell_ = pending_origin_ = origin_;
         const Vec3 checkpoint = world_manifest.checkpoint;
         if (checkpoint.x <= 0 || checkpoint.x >= cell_size || checkpoint.y <= 0 || checkpoint.y >= cell_size ||
             checkpoint.z <= -8 || checkpoint.z > max_ground_height) {
@@ -41,19 +43,15 @@ public:
         }
         chunk_local_collision_ = world_manifest.origin.has_value();
         sources_ = std::move(world_manifest.sources);
-        for (auto& source : sources_) {
-            // Subtract grid coordinates before converting to float. This also works at the signed 32-bit limits.
-            const auto x = static_cast<std::int64_t>(source.coord.x) - origin_.x;
-            const auto y = static_cast<std::int64_t>(source.coord.y) - origin_.y;
-            if (source.collision.empty() || x < -31 || x > 30 || y < -31 || y > 30) {
-                throw std::invalid_argument("Course chunks need collision files within the local grid [-31, 30]");
+        for (const auto& source : sources_) {
+            if (source.collision.empty() || (!chunk_local_collision_ && !fits_frame(source.coord, origin_))) {
+                throw std::invalid_argument("Course chunks need collision files and a representable legacy cell");
             }
-            source.coord = {static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)};
         }
-        const auto spawn_chunk = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
+        const auto spawn_chunk = std::ranges::find(sources_, checkpoint_cell_, &ChunkSource::coord);
         if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at its origin");
         const auto initial = std::span(&*spawn_chunk, 1);
-        resident_coords_ = {reset_cell};
+        resident_coords_ = {checkpoint_cell_};
         stream_.request(initial);
         stream_.stage_next();
         const auto geometry = candidate_geometry(initial);
@@ -72,7 +70,7 @@ public:
 
     void fixed_update(World& world, std::chrono::nanoseconds step) override {
         const bool reset = platform_.key_down(Key::r);
-        const ChunkCoord center = reset ? reset_cell : chunk_containing(game_->course_position(), cell_size);
+        const ChunkCoord center = reset ? checkpoint_cell_ : cell_at(game_->course_position());
         try {
             update_candidate(world, center, reset);
         } catch (const std::exception& error) {
@@ -89,32 +87,61 @@ public:
 
     [[nodiscard]] bool driving() const noexcept { return game_->driving(); }
     [[nodiscard]] std::pair<std::int64_t, std::int64_t> absolute_cell() const {
-        const auto local = chunk_containing(game_->course_position(), cell_size);
-        return {static_cast<std::int64_t>(origin_.x) + local.x, static_cast<std::int64_t>(origin_.y) + local.y};
+        const auto cell = cell_at(game_->course_position());
+        return {cell.x, cell.y};
     }
+    [[nodiscard]] std::uint64_t origin_epoch() const noexcept { return origin_epoch_; }
 
 private:
     using ChunkEntities = std::map<ChunkCoord, std::vector<Entity>>;
 
+    [[nodiscard]] ChunkCoord cell_at(Vec3 position) const {
+        const auto local = chunk_containing(position, cell_size);
+        constexpr auto low = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
+        constexpr auto high = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max());
+        return {static_cast<std::int32_t>(std::clamp(static_cast<std::int64_t>(origin_.x) + local.x, low, high)),
+                static_cast<std::int32_t>(std::clamp(static_cast<std::int64_t>(origin_.y) + local.y, low, high))};
+    }
+
+    [[nodiscard]] static Vec3 offset(ChunkCoord cell, ChunkCoord origin) {
+        return {static_cast<float>(static_cast<std::int64_t>(cell.x) - origin.x) * cell_size,
+                static_cast<float>(static_cast<std::int64_t>(cell.y) - origin.y) * cell_size, 0};
+    }
+
+    [[nodiscard]] static bool fits_frame(ChunkCoord cell, ChunkCoord origin) {
+        const auto x = static_cast<std::int64_t>(cell.x) - origin.x;
+        const auto y = static_cast<std::int64_t>(cell.y) - origin.y;
+        return x >= -31 && x <= 30 && y >= -31 && y <= 30;
+    }
+
     void update_candidate(World& world, ChunkCoord center, bool reset) {
         const auto parked = game_->vehicle_position();
-        const auto vehicle_cell = parked ? std::optional(chunk_containing(*parked, cell_size)) : std::nullopt;
+        const auto vehicle_cell = parked ? std::optional(cell_at(*parked)) : std::nullopt;
         if (!requested_center_ || center != *requested_center_ || vehicle_cell != requested_vehicle_cell_ || (reset && !reset_held_)) {
             if (output_) output_->discard();
             requested_center_ = center;
             requested_vehicle_cell_ = vehicle_cell;
             requested_ = select_chunks(sources_, center, 1);
-            retain_source(reset_cell);
+            retain_source(checkpoint_cell_);
             if (vehicle_cell) retain_source(*vehicle_cell);
+            pending_origin_ = origin_;
+            const auto movement = offset(center, origin_);
+            if (chunk_local_collision_ && (std::abs(movement.x) >= 32 || std::abs(movement.y) >= 32 || reset) &&
+                fits_frame(cell_at(game_->course_position()), center) &&
+                std::ranges::all_of(requested_, [&](const auto& source) { return fits_frame(source.coord, center); })) {
+                pending_origin_ = center;
+            }
+            std::erase_if(requested_, [&](const auto& source) { return !fits_frame(source.coord, pending_origin_); });
             pending_coords_.clear();
             for (const auto& source : requested_) pending_coords_.push_back(source.coord);
-            if (pending_coords_ == resident_coords_) {
+            if (pending_coords_ == resident_coords_ && pending_origin_ == origin_) {
                 stream_.cancel();
                 return;
             }
             stream_.request(requested_);
         }
-        stream_.stage_next(); // At most one new disk payload per fixed update.
+        if (background_) stream_.stage_background();
+        else stream_.stage_next();
         if (!stream_.ready_to_commit()) return;
         std::optional<World> candidate_world;
         ChunkEntities entities;
@@ -125,12 +152,14 @@ private:
             entities = compose_world(*candidate_world, requested_);
         }
         const auto geometry = candidate_geometry(requested_);
-        if (!game_->replace_course_collision(geometry.boxes, geometry.triangles)) {
+        if (!game_->replace_course_collision(geometry.boxes, geometry.triangles, offset(origin_, pending_origin_))) {
             throw std::runtime_error("Staged course collision overlaps the player or reset point");
         }
         if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
         stream_.commit_frame();
         resident_coords_.swap(pending_coords_);
+        if (origin_ != pending_origin_) ++origin_epoch_;
+        origin_ = pending_origin_;
     }
 
     void retain_source(ChunkCoord coord) {
@@ -154,17 +183,18 @@ private:
         for (const ChunkSource& chunk : requested) {
             const auto& project = stream_.staged_chunk(chunk.coord)->project();
             const auto [it, inserted] = entities.try_emplace(chunk.coord);
-            if (!inserted) continue; // Keep the render identity of resident nodes.
+            if (!inserted && pending_origin_ == origin_) continue;
             const auto matrices = resolve_project_matrices(project);
+            const auto placement = offset(chunk.coord, pending_origin_);
             for (std::size_t i = 0; i < project.nodes.size(); ++i) {
                 auto matrix = matrices[i];
-                matrix[12] += static_cast<float>(chunk.coord.x) * cell_size;
-                matrix[13] += static_cast<float>(chunk.coord.y) * cell_size;
-                const auto entity = candidate.create();
+                matrix[12] += placement.x;
+                matrix[13] += placement.y;
+                const auto entity = inserted ? candidate.create() : it->second[i];
                 if (!candidate.set_render_pose(entity, matrix, project.nodes[i].mesh)) {
                     throw std::invalid_argument("Invalid streamed chunk render transform");
                 }
-                it->second.push_back(entity);
+                if (inserted) it->second.push_back(entity);
             }
         }
 
@@ -204,8 +234,8 @@ private:
     [[nodiscard]] ChunkCollision candidate_geometry(std::span<const ChunkSource> requested) const {
         ChunkCollision geometry;
         for (const auto& chunk : requested) {
-            const float x = static_cast<float>(chunk.coord.x) * cell_size;
-            const float y = static_cast<float>(chunk.coord.y) * cell_size;
+            const auto placement = offset(chunk.coord, pending_origin_);
+            const float x = placement.x, y = placement.y;
             const auto to_local = [&](Vec3 point) {
                 if (point.z > max_ground_height) throw std::invalid_argument("Course collision exceeds the supported gameplay height");
                 if (chunk_local_collision_) {
@@ -225,10 +255,7 @@ private:
 
             // Guard the resident perimeter. A delayed or failed load cannot strand the player in a missing chunk.
             constexpr float edge = 0.125f;
-            const std::array neighbors{
-                ChunkCoord{chunk.coord.x - 1, chunk.coord.y}, ChunkCoord{chunk.coord.x + 1, chunk.coord.y},
-                ChunkCoord{chunk.coord.x, chunk.coord.y - 1}, ChunkCoord{chunk.coord.x, chunk.coord.y + 1},
-            };
+            constexpr std::array neighbors{ChunkCoord{-1, 0}, ChunkCoord{1, 0}, ChunkCoord{0, -1}, ChunkCoord{0, 1}};
             const std::array guards{
                 Aabb{{x - edge, y, -local_extent}, {x, y + cell_size, local_extent}},
                 Aabb{{x + cell_size, y, -local_extent}, {x + cell_size + edge, y + cell_size, local_extent}},
@@ -236,7 +263,11 @@ private:
                 Aabb{{x, y + cell_size, -local_extent}, {x + cell_size, y + cell_size + edge, local_extent}},
             };
             for (std::size_t side = 0; side < neighbors.size(); ++side) {
-                if (std::ranges::find(requested, neighbors[side], &ChunkSource::coord) == requested.end()) {
+                const auto neighbor_x = static_cast<std::int64_t>(chunk.coord.x) + neighbors[side].x;
+                const auto neighbor_y = static_cast<std::int64_t>(chunk.coord.y) + neighbors[side].y;
+                if (std::ranges::none_of(requested, [&](const auto& source) {
+                    return source.coord.x == neighbor_x && source.coord.y == neighbor_y;
+                })) {
                     geometry.boxes.push_back(guards[side]);
                 }
             }
@@ -247,12 +278,14 @@ private:
     static constexpr float cell_size = 8;
     static constexpr float local_extent = 256;
     static constexpr float max_ground_height = 240; // Leave room for capsule height and jumping.
-    static constexpr ChunkCoord reset_cell{0, 0};
     IDesktopPlatform& platform_;
     std::vector<ChunkSource> sources_;
     CourseSceneOutput* output_;
     ChunkEntities chunk_entities_;
     ChunkCoord origin_{};
+    ChunkCoord pending_origin_{};
+    ChunkCoord checkpoint_cell_{};
+    std::uint64_t origin_epoch_{};
     ChunkStream stream_{{11}};
     std::optional<DesktopGame> game_;
     std::optional<ChunkCoord> requested_center_;
@@ -262,6 +295,7 @@ private:
     std::vector<ChunkCoord> pending_coords_;
     bool reset_held_{};
     bool chunk_local_collision_{};
+    bool background_{};
 };
 
 } // namespace saige::sample

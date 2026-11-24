@@ -402,11 +402,30 @@ LoopResult extract_loop(const gfx::Skin& skin, const HumanoidMap& map, const Rig
         gfx::evaluate_clip(clip, binding, ta + period, false, pb);
         result.seam_error = pose_distance(pa, pb);
     }
+    // Where the cycle stands: the actor's position in the capture volume is dropped (the loop starts at the origin) and the lowest point of the feet over the cycle is put at the rest pose's floor, so that
+    // a capture whose floor is a few centimeters off (or a meter, in some sessions) retargets with its feet on the ground.
+    const Float3 origin = render::rotate(yaw_quat(-heading), Float3{f[static_cast<std::size_t>(best_a)].hips.x, f[static_cast<std::size_t>(best_a)].hips.y, 0.0f});
+    const auto contact_joint = [&](bool left) {
+        return static_cast<std::size_t>(left ? (map.has(Bone::LeftToes) ? map[Bone::LeftToes] : map[Bone::LeftFoot]) : (map.has(Bone::RightToes) ? map[Bone::RightToes] : map[Bone::RightFoot]));
+    };
+    float floor_shift = 0.0f;
+    {
+        float lowest = 1e9f;
+        for (int k = best_a; k <= best_b; ++k) {
+            gfx::Pose pose = rest;
+            gfx::evaluate_clip(clip, binding, static_cast<float>(k) / fps, false, pose);
+            const std::vector<JointWorld> w = joint_world(skin, pose);
+            lowest = std::min({lowest, w[contact_joint(true)].position.z, w[contact_joint(false)].position.z});
+        }
+        const float rest_floor = std::min(rest_world[contact_joint(true)].position.z, rest_world[contact_joint(false)].position.z);
+        floor_shift = rest_floor - lowest;
+    }
     // One stripped sample of the source at time ts: facing +X, heading drift and linear travel removed.
     const auto stripped = [&](float ts) {
         gfx::Pose pose = rest;
         gfx::evaluate_clip(clip, binding, ts, false, pose);
         yaw_top_joints(skin, pose, -heading);
+        shift_top_joints(skin, pose, Float3{-origin.x, -origin.y, floor_shift});
         const float u = (ts - ta) / period;
         if (std::fabs(drift_yaw) > 0.0f) yaw_top_joints(skin, pose, -drift_yaw * u);
         // The remaining travel is along the rotated direction; strip it at the same fraction.

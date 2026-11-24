@@ -328,7 +328,13 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
                 const D3 b = qrotate(qi, a);
                 return qrotate(q, D3{b.x / inertia_[0], b.y / inertia_[1], b.z / inertia_[2]});
             };
-            const double e = static_cast<double>(config_.body_restitution);
+            // What the body hits: with a surface map its restitution and friction combine with the primitive's (friction by the geometric mean, restitution by the larger); without one, the body's own.
+            double e = static_cast<double>(config_.body_restitution), mu_body = static_cast<double>(config_.body_friction);
+            if (surfaces != nullptr) {
+                const PhysicsMaterial& hit_material = surfaces->material_at(prim);
+                e = static_cast<double>(combine_restitution(config_.body_restitution, hit_material.restitution));
+                mu_body = static_cast<double>(combine_friction(config_.body_friction, hit_material.friction));
+            }
             const D3 rn = cross(r, n);
             const double denom = 1.0 / mass + dot(cross(inv_inertia(rn), r), n);
             const double jn = -(1.0 + e) * vn / denom;
@@ -341,7 +347,7 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
             if (tl > 1e-6) {
                 tangent = tangent * (1.0 / tl);
                 const double denom_t = 1.0 / mass + dot(cross(inv_inertia(cross(r, tangent)), r), tangent);
-                const double jt = clamp(-tl / denom_t, -static_cast<double>(config_.body_friction) * jn, static_cast<double>(config_.body_friction) * jn);
+                const double jt = clamp(-tl / denom_t, -mu_body * jn, mu_body * jn);
                 v = v + tangent * (jt / mass);
                 w = w + inv_inertia(cross(r, tangent * jt));
             }

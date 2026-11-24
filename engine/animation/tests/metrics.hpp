@@ -68,4 +68,48 @@ Slide measure_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig
     return out;
 }
 
+
+// Slide inside the stance of one cycle, for real clips whose toes are never exactly flat on a nominal floor. The character moves at `speed` (a pure cycle plays when the speed is that cycle's own or
+// beyond the fastest), and each foot counts while the shared phase is inside the interior of that foot's refined stance window (the middle 70% of it). Returns the mean horizontal world speed of the
+// planted contact points divided by `speed`.
+inline double window_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig& cfg, std::size_t cycle_index, float speed, float seconds = 8.0f, float warmup = 2.0f) {
+    anim::LocomotionController c(set, cfg);
+    const anim::LocomotionCycle& cy = set.cycles()[cycle_index];
+    const float dt = 1.0f / 60.0f;
+    const auto fract = [](float x) { return x - std::floor(x); };
+    // Is u (a cycle phase) inside the middle 70% of the circular window [start, end]?
+    const auto inside = [&](float u, const anim::FootCycle& w) {
+        float len = w.contact_end - w.contact_start;
+        if (len < 0.0f) len += 1.0f;
+        const float into = fract(u - w.contact_start);
+        return into >= 0.15f * len && into <= 0.85f * len;
+    };
+    const render::Float3 fwd = set.rig().forward;
+    float x = 0.0f;
+    render::Float3 prev[2];
+    bool have = false;
+    double sum = 0.0;
+    int count = 0;
+    for (int i = 0; i < static_cast<int>(seconds / dt); ++i) {
+        c.update(dt, {speed, true, 0.0f});
+        x += speed * dt;
+        const render::Float3 now[2] = {contact(set, c.pose(), true) + fwd * x, contact(set, c.pose(), false) + fwd * x};
+        const float u = fract(c.phase() - set.reference_phase() + cy.info.left.contact_start);
+        if (have && static_cast<float>(i) * dt > warmup) {
+            if (inside(u, cy.info.left)) {
+                sum += std::hypot(static_cast<double>(now[0].x - prev[0].x), static_cast<double>(now[0].y - prev[0].y)) / static_cast<double>(dt);
+                ++count;
+            }
+            if (inside(u, cy.info.right)) {
+                sum += std::hypot(static_cast<double>(now[1].x - prev[1].x), static_cast<double>(now[1].y - prev[1].y)) / static_cast<double>(dt);
+                ++count;
+            }
+        }
+        prev[0] = now[0];
+        prev[1] = now[1];
+        have = true;
+    }
+    return count > 0 ? (sum / count) / static_cast<double>(speed) : 0.0;
+}
+
 } // namespace metrics

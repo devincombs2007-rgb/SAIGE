@@ -1,0 +1,74 @@
+{
+ "schema": 1,
+ "note": "Assets for the saige::animation tests and examples. Not committed: fetched by tools/animation/fetch_humanoid_assets.py and checked against these hashes.",
+ "cmu": {
+  "license": "CMU: free for use in research and commercial projects worldwide (mocap.cs.cmu.edu); BVH conversion by Bruce Hahne adds no restrictions",
+  "attribution": "The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217.",
+  "files": [
+   {
+    "id": "02_03",
+    "subject": "002",
+    "what": "run/jog",
+    "bytes": 135012,
+    "sha256": "6f4d38b92b041221030de2e1058903e0f7a8fa08f9c6c9efabf7df9a128011ac",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/002/02_03.bvh"
+   },
+   {
+    "id": "07_01",
+    "subject": "007",
+    "what": "walk",
+    "bytes": 241649,
+    "sha256": "f8d82ea6ed1aab0cb7d9ee680f476b65471e2322e1da84add8a8527a2cb0b9a2",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/007/07_01.bvh"
+   },
+   {
+    "id": "07_12",
+    "subject": "007",
+    "what": "brisk walk",
+    "bytes": 202212,
+    "sha256": "704b63c1ecb291cde10625d2cd6b90d8f77d14763ba9931233ab2dc02148a578",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/007/07_12.bvh"
+   },
+   {
+    "id": "09_01",
+    "subject": "009",
+    "what": "run",
+    "bytes": 116013,
+    "sha256": "90641ccca814b9d8d59f63576a548bb5612477364462d142a9f741268fbe3b78",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/009/09_01.bvh"
+   },
+   {
+    "id": "16_35",
+    "subject": "016",
+    "what": "run/jog",
+    "bytes": 125846,
+    "sha256": "d20d54a9ccebd7aaf4aa6c4d7662c4905d47009401895de216a914edecf287be",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/016/16_35.bvh"
+   },
+   {
+    "id": "16_45",
+    "subject": "016",
+    "what": "run/jog",
+    "bytes": 105946,
+    "sha256": "6c179f799f3b2f766ce41cf962caaae08d9342ce73fc32fbc15648bf6589e872",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/016/16_45.bvh"
+   }
+  ]
+ },
+ "ual": {
+  "license": "CC0-1.0 (Quaternius, Universal Animation Library Standard)",
+  "source": "https://opengameart.org/content/universal-animation-library",
+  "file": "AnimationLibrary_Godot_Standard.glb",
+  "sha256": "1b7bf67866360665426bb99e4c71bd619f19b408453c24e30f0c3071601eee5c",
+  "bytes": 6671104,
+  "clips_used": [
+   "Idle_Loop",
+   "Walk_Loop",
+   "Sprint_Loop",
+   "Jump_Start",
+   "Jump_Loop",
+   "Jump_Land"
+  ],
+  "note": "keyframed by artists, not motion capture; one rig with a mesh and 46 clips"
+ }
+}

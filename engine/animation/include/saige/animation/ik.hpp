@@ -34,7 +34,7 @@ struct FootIkConfig {
     float plant_height = 0.03f;       // a foot whose contact point is within this above the ground is treated as planted and pinned to the surface
     float blend_height = 0.12f;       // above plant_height + this the foot is left to the animation; in between the correction fades out
     float max_slope_tilt = 0.6f;      // radians the foot may tilt to follow the surface normal
-    float pelvis_smoothing = 0.08f;   // seconds
+    float pelvis_smoothing = 0.04f;   // seconds (a longer one lags the ground under a walking foot: the error is about smoothing x the slope x the foot speed)
 };
 
 struct FootIkState {
@@ -43,8 +43,21 @@ struct FootIkState {
 
 // Plants the feet of `pose` on uneven ground. `root` is the character's transform in the world (position of its feet origin and heading); `ground` answers in world coordinates. The pose is in the model
 // space of the skin: the model origin sits at `root`. Steps: find where each foot's contact point (toes, else the ankle) is in the world, the ground under it, lower the pelvis by the larger deficit
-// (clamped, smoothed), then place each planted foot on its surface with two-bone IK and tilt it toward the surface normal. A foot in the air is not touched, so the swing of a gait is preserved.
+// (clamped, smoothed), then place each planted foot on its surface with two-bone IK and tilt it toward the surface normal. A foot in the air is not touched, so the swing of a gait is preserved. Call it only while the character is on the ground: in a jump the animation's own pose is the intent, and pulling its feet to a floor far below would fight it.
 void adapt_feet_to_ground(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery& ground, const FootIkConfig& config,
                           FootIkState& state, float dt);
+
+// Whether the segment from `from` to `to` (world space) is blocked by solid geometry, and where (the first hit along it). Returns false when the way is clear.
+using ObstacleQuery = std::function<bool(render::Float3 from, render::Float3 to, render::Float3& hit)>;
+
+struct ObstacleIkConfig {
+    float margin = 0.04f;       // meters kept between a foot and a wall
+    float min_height = 0.10f;   // the segment is cast at the foot's own height, but not lower than this above the character's floor, so that a foot on the ground is tested against a wall at the height of a shin
+};
+
+// Keeps the feet out of walls. The capsule that collides is narrower than a stride is long, so at the moment a character runs into a wall a foot can be ahead of the capsule and inside the wall. For
+// each foot, a segment is cast from the character's vertical axis (at the foot's height) to its contact point; if the geometry is in the way, the leg is solved by IK so that the foot stops short
+// of the hit by `margin`. The character itself is untouched. Returns how many feet were moved.
+int keep_feet_outside_obstacles(const gfx::Skin& skin, const HumanoidMap& map, gfx::Pose& pose, const render::Transform& root, const ObstacleQuery& obstacle, const ObstacleIkConfig& config);
 
 } // namespace saige::anim

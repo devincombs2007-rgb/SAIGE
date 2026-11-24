@@ -162,3 +162,43 @@ void adapt_feet_to_ground(const gfx::Skin& skin, const HumanoidMap& map, const R
 }
 
 } // namespace saige::anim
+
+namespace saige::anim {
+
+int keep_feet_outside_obstacles(const gfx::Skin& skin, const HumanoidMap& map, gfx::Pose& pose, const render::Transform& root, const ObstacleQuery& obstacle, const ObstacleIkConfig& cfg) {
+    const auto to_world = [&](Float3 p) { return root.position + render::rotate(root.rotation, p); };
+    const auto to_model = [&](Float3 p) { return render::rotate(render::conjugate(root.rotation), p - root.position); };
+    struct Foot {
+        Bone upper, lower, foot, toes;
+    };
+    const Foot feet[2] = {{Bone::LeftUpperLeg, Bone::LeftLowerLeg, Bone::LeftFoot, Bone::LeftToes}, {Bone::RightUpperLeg, Bone::RightLowerLeg, Bone::RightFoot, Bone::RightToes}};
+    int moved = 0;
+    for (int f = 0; f < 2; ++f) {
+        const std::vector<JointWorld> w = joint_world(skin, pose);
+        const std::size_t ankle = static_cast<std::size_t>(map[feet[f].foot]);
+        const std::size_t contact = static_cast<std::size_t>(map.has(feet[f].toes) ? map[feet[f].toes] : map[feet[f].foot]);
+        const Float3 tip = to_world(w[contact].position);
+        // From the character's axis at the foot's height to a little beyond the foot.
+        const float h = std::max(tip.z, root.position.z + cfg.min_height);
+        const Float3 from{root.position.x, root.position.y, h};
+        Float3 dir{tip.x - from.x, tip.y - from.y, 0.0f};
+        const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+        if (len < 1e-4f) continue;
+        dir = dir * (1.0f / len);
+        const Float3 to = from + dir * (len + cfg.margin);
+        Float3 hit;
+        if (!obstacle(from, to, hit)) continue;
+        // How far the foot is past the allowed distance along the segment.
+        const float allowed = std::sqrt((hit.x - from.x) * (hit.x - from.x) + (hit.y - from.y) * (hit.y - from.y)) - cfg.margin;
+        const float over = len - allowed;
+        if (over <= 0.0f) continue;
+        const Float3 shift = dir * (-over);
+        const Float3 ankle_target = to_model(to_world(w[ankle].position) + shift);
+        const Float3 pole = render::rotate(render::conjugate(root.rotation), Float3{1, 0, 0});
+        solve_two_bone(skin, pose, static_cast<std::size_t>(map[feet[f].upper]), static_cast<std::size_t>(map[feet[f].lower]), ankle, ankle_target, pole);
+        ++moved;
+    }
+    return moved;
+}
+
+} // namespace saige::anim

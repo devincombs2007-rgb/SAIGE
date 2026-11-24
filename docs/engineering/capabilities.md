@@ -14,10 +14,11 @@ correctness evidence only, never performance evidence. No capability here is har
 | Rendering | GPU skinning, frustum culling, animated bounds | yes | yes | draft PRs | no | no | #87, #83, #99 | |
 | Rendering | Point lights, ray tracing, DLSS, FSR, XeSS | no | no | no | no | no | - | not implemented; not operational |
 | Physics | Capsule character on boxes and triangles | yes | yes | draft PRs | no | no | #69, #70, #73, #74 | |
-| Physics | Physical surface materials (table, SurfaceMap) used by the vehicle tires | yes | yes | yes (run 579) | no | no | `include/saige/physics_material.hpp`, `docs/physics-materials.md` | tire grip and rolling resistance only so far |
+| Physics | Physical surface materials (table, SurfaceMap) used by the vehicle tires | yes | yes | yes (run 579) | no | no | `include/saige/physics_material.hpp`, `docs/physics-materials.md` | tire grip, rolling resistance and body-contact friction and restitution |
 | Physics | Static collision (BVH, ray casts, region and shape queries), oriented-box and wheel probes | yes | yes | draft PRs | no | no | #80, #88 | |
 | Physics | Raycast vehicle (suspension, tire friction circle, drivetrain, oriented-box chassis, impacts) | yes | yes | yes | no | no | `include/saige/vehicle.hpp` | on the showcase branches |
-| Animation | glTF skins and clips, CPU reference, GPU skinning | yes | yes | draft PRs | no | no | #81, #87 | CC0 humanoid libraries import; no state machine, IK or retargeting yet |
+| Animation | glTF skins and clips, CPU reference, GPU skinning | yes | yes | draft PRs | no | no | #81, #87 | |
+| Animation | `saige::animation`: humanoid map, BVH import, loop extraction, retargeting, two-bone and foot IK, locomotion state machine with stride-matched playback, capsule glue | yes | yes | pending (this branch) | no | no | `engine/animation`, `docs/animation-character.md` | CPU only; real UAL and CMU clips; foot locking, strafing, root-motion clips not yet |
 | Core | Streaming cells, origin migration, background preparation | yes | yes | draft PRs | no | no | #60, #63, #86 | |
 | Core | Perf instrumentation | yes | yes | draft | no | no | #68 | |
 | Showcase | Showcase 03 sim, props table, wheel rig, time-of-day ramp | yes | yes | yes (run 579) | no | no | `claude/production-infrastructure` | film delivered, build 9c87457 |

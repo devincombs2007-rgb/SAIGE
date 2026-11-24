@@ -208,6 +208,50 @@ void test_rolling_resistance() {
     require(sand > 3.0 * asphalt, "sand costs several times asphalt's coasting loss");
 }
 
+// A head-on crash (heading 0) or an angled one (the car drives at the wall at `heading` radians, so a front corner arrives first and the impact spins it) into a wall made of `surface` (the wall is box 1; the floor is box 0, asphalt).
+struct Crash {
+    double rebound;       // the most negative forward speed after the impact, m/s (a car bouncing back has a large negative one)
+    double yaw_rate;      // the largest |yaw rate| after the impact, rad/s
+    double approach;      // forward speed at the moment of impact
+};
+Crash crash_into(Surface surface, bool with_map, float heading = 0.0f) {
+    std::vector<Aabb> boxes{{{-kHuge, -kHuge, -2}, {kHuge, kHuge, 0}}, {{30, -30, -2}, {31, 30, 6}}};
+    StaticCollision world(boxes, {});
+    SurfaceMap map(world, Surface::Asphalt);
+    map.set({StaticPrimitive::Kind::Box, 1}, surface);
+    QueryScratch scratch;
+    Vehicle v({}, {0, 0, 1.0f}, heading);
+    const SurfaceMap* m = with_map ? &map : nullptr;
+    VehicleInput in{1.0f, 0.0f, 0.0f};
+    for (int i = 0; i < 60 * 8 && v.state().forward_speed < 14.0f; ++i) v.step(in, 1.0f / 60.0f, world, scratch, m);
+    in = {0.0f, 0.0f, 0.0f};
+    Crash c{0.0, 0.0, static_cast<double>(v.state().forward_speed)};
+    bool hit = false;
+    for (int i = 0; i < 60 * 6; ++i) {
+        v.step(in, 1.0f / 60.0f, world, scratch, m);
+        if (!v.take_impacts().empty()) hit = true;
+        if (hit) {
+            c.rebound = std::min(c.rebound, static_cast<double>(v.state().forward_speed));
+            c.yaw_rate = std::max(c.yaw_rate, static_cast<double>(std::fabs(v.state().angular_velocity.z)));
+        }
+    }
+    require(hit, "the car hit the wall");
+    return c;
+}
+
+void test_body_contacts_follow_the_surface() {
+    // A head-on crash: a lively wall (rubber) throws the car back much harder than concrete does, and ice or snow no harder than the body itself would.
+    const Crash none = crash_into(Surface::Concrete, false), concrete = crash_into(Surface::Concrete, true), rubber = crash_into(Surface::Rubber, true), snow = crash_into(Surface::Snow, true);
+    std::cout << "  rebound speed after a head-on crash at " << none.approach << " m/s: no map " << none.rebound << ", concrete " << concrete.rebound << ", rubber " << rubber.rebound << ", snow " << snow.rebound << "\n";
+    require(rubber.rebound < concrete.rebound - 1.5, "a rubber wall throws the car back harder than concrete");
+    require(snow.rebound >= concrete.rebound - 0.3, "snow is no livelier than concrete");
+    // An angled crash (a front corner first): friction at the wall spins the car; ice lets it slide along without much spin, rubber grips and spins it more.
+    const Crash c_concrete = crash_into(Surface::Concrete, true, 0.35f), c_ice = crash_into(Surface::Ice, true, 0.35f), c_rubber = crash_into(Surface::Rubber, true, 0.35f);
+    std::cout << "  peak yaw rate after an angled crash: ice " << c_ice.yaw_rate << ", concrete " << c_concrete.yaw_rate << ", rubber " << c_rubber.yaw_rate << " rad/s\n";
+    require(c_ice.yaw_rate <= c_concrete.yaw_rate, "an icy wall spins the car no more than concrete");
+    require(c_rubber.yaw_rate > c_concrete.yaw_rate * 1.08, "a grippy, lively wall spins the car clearly more than concrete");
+}
+
 } // namespace
 
 int main() {
@@ -218,6 +262,7 @@ int main() {
         test_split_friction_yaws_toward_the_grippy_side();
         test_traction();
         test_rolling_resistance();
+        test_body_contacts_follow_the_surface();
     } catch (const std::exception& error) {
         std::cerr << "vehicle surface test failed: " << error.what() << '\n';
         return 1;

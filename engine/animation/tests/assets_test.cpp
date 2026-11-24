@@ -1,0 +1,228 @@
+// The animation module on real assets: Quaternius' Universal Animation Library rig and clips (CC0) and CMU motion capture (BVH), retargeted onto that rig. Skipped (exit 77) when the assets are not
+// fetched: run tools/animation/fetch_humanoid_assets.py DIR and pass DIR as argv[1] or in SAIGE_ANIM_ASSETS.
+#include "saige/animation/bvh.hpp"
+#include "saige/animation/ik.hpp"
+#include "saige/animation/locomotion.hpp"
+#include "saige/animation/retarget.hpp"
+
+#include "metrics.hpp"
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+using namespace saige;
+using namespace saige::anim;
+
+namespace {
+
+int failures = 0;
+
+void check(bool ok, const std::string& what, double value = 0.0) {
+    if (!ok) {
+        std::fprintf(stderr, "FAIL: %s (%.4f)\n", what.c_str(), value);
+        ++failures;
+    }
+}
+
+std::string slurp(const std::filesystem::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+const gfx::AnimationClip* find_clip(const gfx::GltfAsset& a, const std::string& name) {
+    for (const gfx::AnimationClip& c : a.animations) {
+        if (c.name == name) return &c;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    const char* env = std::getenv("SAIGE_ANIM_ASSETS");
+    const std::filesystem::path root = argc > 1 ? argv[1] : env != nullptr ? env : "";
+    const auto ual_path = root / "ual" / "AnimationLibrary_Godot_Standard.glb";
+    if (root.empty() || !std::filesystem::exists(ual_path) || !std::filesystem::exists(root / "cmu")) {
+        std::printf("humanoid assets not available (tools/animation/fetch_humanoid_assets.py DIR; pass DIR or set SAIGE_ANIM_ASSETS): skipped\n");
+        return 77;
+    }
+    const gfx::GltfLoadResult loaded = gfx::load_gltf_file(ual_path);
+    if (!loaded.ok() || loaded.asset->skins.empty()) {
+        std::fprintf(stderr, "FAIL: the UAL rig does not load: %s\n", loaded.error.c_str());
+        return 1;
+    }
+    const gfx::GltfAsset& ual = *loaded.asset;
+    const gfx::Skin& skin = ual.skins[0];
+    std::string why;
+    const auto map = map_humanoid(skin, &why);
+    check(map.has_value(), "the UAL rig maps to a humanoid: " + why);
+    if (!map) return 1;
+    const RigInfo rig = analyze_rig(skin, *map);
+    std::printf("UAL rig: %zu joints, %zu clips, facing (%.2f %.2f), hips %.3f m, leg %.3f m\n", skin.joint_count(), ual.animations.size(), static_cast<double>(rig.forward.x), static_cast<double>(rig.forward.y),
+                static_cast<double>(rig.hips_height), static_cast<double>(rig.leg_length));
+    check(std::fabs(rig.forward.x - 1.0f) < 0.02f && std::fabs(rig.forward.y) < 0.02f, "the UAL rig faces +X");
+    check(rig.hips_height > 0.7f && rig.hips_height < 1.0f, "plausible hips height", static_cast<double>(rig.hips_height));
+
+    // The UAL's own clips.
+    LocomotionSet set(skin, *map);
+    struct Expect {
+        const char* name;
+        float lo, hi;  // plausible ground speed, m/s
+    };
+    for (const Expect e : {Expect{"Walk_Loop", 0.8f, 1.5f}, Expect{"Sprint_Loop", 7.0f, 11.0f}}) {
+        const gfx::AnimationClip* c = find_clip(ual, e.name);
+        check(c != nullptr, std::string("clip ") + e.name);
+        if (c == nullptr) continue;
+        const ClipInfo ci = analyze_cycle(skin, *map, rig, *c);
+        std::printf("  %-12s ground %.2f m/s stride %.2f m loop_err %.3f\n", e.name, static_cast<double>(ci.ground_speed), static_cast<double>(ci.stride_length), static_cast<double>(ci.loop_error));
+        check(ci.valid && ci.ground_speed > e.lo && ci.ground_speed < e.hi, std::string(e.name) + " ground speed in its plausible range", static_cast<double>(ci.ground_speed));
+        check(ci.loop_error < 0.05f, std::string(e.name) + " loops", static_cast<double>(ci.loop_error));
+    }
+    for (const char* n : {"Idle_Loop", "Jump_Start", "Jump_Loop", "Jump_Land"}) check(find_clip(ual, n) != nullptr, std::string("clip ") + n);
+
+    // The mocap: import, loop, retarget, and compare with what the capture itself says.
+    const gfx::Pose urest = gfx::rest_pose(skin);
+    struct Mocap {
+        const char* id;
+        bool use;
+    };
+    std::vector<gfx::AnimationClip> cycles;
+    for (const Mocap m : {Mocap{"07_01", true}, Mocap{"07_12", true}, Mocap{"16_35", true}, Mocap{"16_45", true}, Mocap{"09_01", false}, Mocap{"02_03", false}}) {
+        const auto path = root / "cmu" / (std::string(m.id) + ".bvh");
+        check(std::filesystem::exists(path), std::string("fetched ") + m.id);
+        if (!std::filesystem::exists(path)) continue;
+        BvhOptions opt;
+        opt.unit_scale = cmu_unit_scale;
+        const BvhResult bvh = parse_bvh(slurp(path), opt);
+        check(bvh.ok(), std::string(m.id) + " parses: " + bvh.error);
+        if (!bvh.ok()) continue;
+        std::string w2;
+        const auto smap = map_humanoid(*bvh.skin, &w2);
+        check(smap.has_value(), std::string(m.id) + " maps to a humanoid: " + w2);
+        if (!smap) continue;
+        const RigInfo srig = analyze_rig(*bvh.skin, *smap);
+        check(std::fabs(srig.hips_height - 0.0f) > 0.5f, "the capture skeleton has a hips height", static_cast<double>(srig.hips_height));
+        const LoopResult loop = extract_loop(*bvh.skin, *smap, srig, *bvh.clip);
+        check(loop.clip.has_value(), std::string(m.id) + " has a repeating stretch: " + loop.error);
+        if (!loop.clip) continue;
+        const gfx::Pose srest = gfx::rest_pose(*bvh.skin);
+        const RetargetSource rs{&*bvh.skin, &*smap, &srig, &srest};
+        const gfx::AnimationClip rt = retarget_clip(rs, *loop.clip, skin, *map, rig);
+        const ClipInfo ti = analyze_cycle(skin, *map, rig, rt);
+        const float ratio = rig.leg_length / srig.leg_length;
+        const float travel_speed = loop.travel / loop.clip->duration;  // the actor's own speed in the capture, an independent measure
+        std::printf("  %s: cycle %.2f s, the actor moved %.2f m/s; retargeted needs %.2f m/s (expected %.2f from the leg ratio %.2f), stride %.2f m, loop_err %.3f, seam %.3f rad\n", m.id,
+                    static_cast<double>(loop.clip->duration), static_cast<double>(travel_speed), static_cast<double>(ti.ground_speed), static_cast<double>(travel_speed * ratio), static_cast<double>(ratio),
+                    static_cast<double>(ti.stride_length), static_cast<double>(ti.loop_error), static_cast<double>(loop.seam_error));
+        check(loop.clip->duration > 0.45f && loop.clip->duration < 1.8f, std::string(m.id) + " cycle length", static_cast<double>(loop.clip->duration));
+        check(loop.seam_error < 0.7f, std::string(m.id) + " seam before closing", static_cast<double>(loop.seam_error));
+        check(ti.valid, std::string(m.id) + " retargeted clip is a locomotion cycle");
+        check(std::fabs(ti.ground_speed - travel_speed * ratio) < 0.12f * travel_speed * ratio + 0.05f, std::string(m.id) + " retargeted speed follows the capture's own speed", static_cast<double>(ti.ground_speed));
+        check(ti.loop_error < 0.05f, std::string(m.id) + " retargeted loop is seamless", static_cast<double>(ti.loop_error));
+        // The feet reach the floor and do not sink through it.
+        float lowest = 1e9f;
+        const gfx::ClipBinding b = gfx::bind_clip(rt, skin);
+        for (int k = 0; k < 60; ++k) {
+            gfx::Pose p = urest;
+            gfx::evaluate_clip(rt, b, rt.duration * static_cast<float>(k) / 60.0f, true, p);
+            const auto jw = joint_world(skin, p);
+            for (const Bone t : {Bone::LeftToes, Bone::RightToes}) lowest = std::min(lowest, jw[static_cast<std::size_t>((*map)[t])].position.z);
+        }
+        check(std::fabs(lowest) < 0.05f, std::string(m.id) + " the feet reach the floor without sinking through it", static_cast<double>(lowest));
+        if (m.use) cycles.push_back(rt);
+    }
+
+    // A locomotion set from real data: three mocap gaits plus the UAL's sprint, idle and jump clips.
+    for (const gfx::AnimationClip& c : cycles) {
+        std::string w3;
+        check(set.add_cycle(c, &w3), "a mocap cycle is accepted by the set: " + w3);
+    }
+    if (const gfx::AnimationClip* c = find_clip(ual, "Sprint_Loop")) check(set.add_cycle(*c), "UAL sprint accepted");
+    if (const gfx::AnimationClip* c = find_clip(ual, "Idle_Loop")) set.set_idle(*c);
+    if (const gfx::AnimationClip* c = find_clip(ual, "Jump_Start")) set.set_jump_start(*c);
+    if (const gfx::AnimationClip* c = find_clip(ual, "Jump_Loop")) set.set_air(*c);
+    if (const gfx::AnimationClip* c = find_clip(ual, "Jump_Land")) set.set_land(*c);
+    check(set.cycles().size() >= 4, "the set has its cycles", static_cast<double>(set.cycles().size()));
+    std::printf("the set's cycles (m/s):");
+    for (const LocomotionCycle& c : set.cycles()) std::printf(" %.2f", static_cast<double>(c.info.ground_speed));
+    std::printf("\n");
+    if (set.usable()) {
+        LocomotionConfig cfg;
+        // Slide inside the stance of each cycle, at the cycle's own speed (a pure cycle): the planted feet move at a few percent of the speed. Between cycles the blends are not pure and are reported only.
+        double worst_rel = 0.0;
+        for (std::size_t i = 0; i < set.cycles().size(); ++i) {
+            const float v = set.cycles()[i].info.ground_speed;
+            const double rel = metrics::window_slide(set, cfg, i, v);
+            std::printf("  cycle %zu at %.2f m/s: planted feet move at %.1f%% of the speed\n", i, static_cast<double>(v), rel * 100.0);
+            worst_rel = std::max(worst_rel, rel);
+            if (i + 1 == set.cycles().size()) check(rel < 0.08, "the UAL's own sprint (authored in place, feet planted): planted feet move at under 8% of the speed", rel);
+        }
+        // The retargeted capture cycles keep the capture's own toe motion through the roll of the foot, plus the retargeting's proportion error, so they are looser: this is the residual that foot locking
+        // (planting a foot's world position for the length of its stance) would remove; it is in the backlog.
+        check(worst_rel < 0.35, "real cycles: planted feet move at under 35% of the speed at the cycles' own speeds", worst_rel);
+        LocomotionConfig naive;
+        naive.stride_matching = false;
+        const std::size_t top_i = set.cycles().size() - 1;
+        const float top = set.cycles().back().info.ground_speed * 1.8f;  // beyond the fastest cycle: played at the maximum rate scale, or authored when naive
+        const double fast = metrics::window_slide(set, cfg, top_i, top);
+        const double fast_naive = metrics::window_slide(set, naive, top_i, top);
+        std::printf("  beyond the fastest cycle (%.2f m/s): matched %.1f%%, naive %.1f%% of the speed\n", static_cast<double>(top), fast * 100.0, fast_naive * 100.0);
+        check(fast_naive > 1.5 * fast + 0.1, "the control without stride matching slides far more", fast_naive);
+        // A jump on real clips: continuous, with the states in order.
+        LocomotionController c(set, cfg);
+        c.update(1.0f / 60.0f, {3.0f, true, 0.0f});
+        gfx::Pose last = c.pose();
+        float worst = 0.0f;
+        std::vector<LocomotionState> seen;
+        const auto step = [&](float speed, bool grounded, float vy) {
+            c.update(1.0f / 60.0f, {speed, grounded, vy});
+            worst = std::max(worst, pose_distance(c.pose(), last));
+            last = c.pose();
+            if (seen.empty() || seen.back() != c.state()) seen.push_back(c.state());
+        };
+        for (int i = 0; i < 90; ++i) step(3.0f, true, 0.0f);
+        for (int i = 0; i < 25; ++i) step(3.0f, false, 4.4f - 9.8f * static_cast<float>(i) / 60.0f);
+        for (int i = 0; i < 30; ++i) step(3.0f, false, -3.0f);
+        for (int i = 0; i < 90; ++i) step(3.0f, true, 0.0f);
+        const std::vector<LocomotionState> want = {LocomotionState::Ground, LocomotionState::JumpStart, LocomotionState::Air, LocomotionState::Land, LocomotionState::Ground};
+        check(seen == want, "jump states in order on the real clips");
+        const metrics::Slide steady = metrics::measure_slide(set, cfg, [&](float) { return top; }, 3.0f, 1.0f);
+        std::printf("  largest pose change in a tick through a jump: %.3f rad (the fastest gait alone: %.3f)\n", static_cast<double>(worst), steady.max_step);
+        check(static_cast<double>(worst) < steady.max_step * 1.6 + 0.1, "no pop through a jump on real clips", static_cast<double>(worst));
+
+        // Ground IK on the real rig, on a 15 degree slope.
+        const gfx::AnimationClip& walk = set.cycles().front().clip;
+        const gfx::ClipBinding wb = gfx::bind_clip(walk, skin);
+        double worst_gap = 0.0;
+        FootIkState ik;
+        FootIkConfig icfg;
+        icfg.pelvis_smoothing = 0.0f;
+        for (int k = 0; k < 30; ++k) {
+            gfx::Pose p = urest;
+            gfx::evaluate_clip(walk, wb, walk.duration * static_cast<float>(k) / 30.0f, true, p);
+            const gfx::Pose raw = p;
+            const float slope = 0.268f;
+            adapt_feet_to_ground(skin, *map, rig, p, {{0, 0, 0}, {0, 0, 0, 1}}, [&](float x, float, float, GroundSample& g) {
+                g.height = slope * x;
+                g.normal = {-slope / std::sqrt(1 + slope * slope), 0.0f, 1.0f / std::sqrt(1 + slope * slope)};
+                return true;
+            }, icfg, ik, 1.0f / 60.0f);
+            const auto jw = joint_world(skin, p), jr = joint_world(skin, raw);
+            for (const Bone t : {Bone::LeftToes, Bone::RightToes}) {
+                const std::size_t j = static_cast<std::size_t>((*map)[t]);
+                if (jr[j].position.z > 0.01f + rig.contact_offset) continue;  // not planted by the animation
+                worst_gap = std::max(worst_gap, static_cast<double>(std::fabs(jw[j].position.z - slope * jw[j].position.x)));
+            }
+        }
+        std::printf("  ground IK on a 15 degree slope: worst planted gap %.3f m\n", worst_gap);
+        check(worst_gap < 0.03, "ground IK plants real feet on a slope", worst_gap);
+    }
+    std::printf("%d failure(s)\n", failures);
+    return failures == 0 ? 0 : 1;
+}

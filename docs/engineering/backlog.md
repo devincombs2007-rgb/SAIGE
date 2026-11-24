@@ -10,16 +10,19 @@
 
 ## Physics (22%)
 
-1. Physical materials: table and vehicle tires done (`docs/physics-materials.md`); next consumers are character friction, debris restitution and body contacts, and a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
+1. Physical materials: table, vehicle tires and vehicle body contacts done (`docs/physics-materials.md`); next consumers are character ground friction (the capsule controller does not report which primitive it stands on yet: that is a Core API addition to propose first), debris restitution, and a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
 2. Vehicle: engine and gearbox curves, differential, tire load sensitivity, damage state, handbrake and drift tests.
 3. Rigid-body stacking and joints; evaluate Jolt and Bullet (license, determinism, maintenance) behind a backend interface; owner approval to adopt.
 4. Water (buoyancy, drag), destruction (fracture of authored meshes).
 
 ## Characters and animation (20%)
 
-1. Replace CesiumMan: humanoid import of the CC0 libraries (Quaternius UAL1 and UAL2, KayKit), retargeting, locomotion state machine, root motion.
-2. Foot IK and ground adaptation, look-at, hand IK for vehicle entry.
-3. Ragdoll, then active ragdoll toward physical animation.
+1. Done (`docs/animation-character.md`): humanoid map, BVH import and loop extraction, retargeting, locomotion state machine with stride-matched playback, ground and wall foot IK, capsule glue, real UAL and CMU assets.
+2. Foot locking (pin a planted foot's world position through its stance with two-bone IK): the retargeted capture cycles still slide at 10 to 28% of the speed.
+3. Replace CesiumMan in Showcase-class apps with the UAL rig and this controller (not Showcase 03: it stays as delivered); upload the UAL mesh through gfx_scene skinned staging.
+4. Strafing and turn in place; crouch; a root-motion mode for clips that carry the character (roll, climb) with the capsule taking the clip's delta as a movement request; upper-body layering (aim, carry); look-at; hand IK for vehicle entry; a second jump.
+5. Ragdoll, then active ragdoll toward physical animation.
+6. A speed ladder agreed with the animator: the UAL has a walk at 1.05 m/s and a sprint at 8.96 m/s and no jog; add a jog and check the capsule's walk and sprint speeds against the cycles.
 
 ## Core architecture (21%)
 

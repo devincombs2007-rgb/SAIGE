@@ -205,6 +205,7 @@ TEST_CASE("glTF skin: joints, hierarchy, rest transforms and inverse bind matric
     CHECK(s.name == "armature");
     REQUIRE(s.joint_count() == 3);
     CHECK(s.joint_nodes == std::vector<int32_t>{0, 1, 2});
+    CHECK(s.joint_names == std::vector<std::string>{"root", "mid", "tip"});  // the node names, in joint order, for mapping a skeleton by bone name
     CHECK(s.parent == std::vector<int32_t>{-1, 0, 1});
     CHECK(near(s.rest[1].position, engine(0, 1, 0)));  // glTF +Y 1 m up is engine +Z
     CHECK(near(s.rest[0].scale, {1, 1, 1}) && std::fabs(s.rest[0].rotation.w - 1.0f) < 1e-6f);
@@ -312,6 +313,7 @@ TEST_CASE("glTF animation: joint order in the file does not change the result, a
     const GltfAsset forward = load(arm_gltf());
     const GltfAsset backward = load(arm_gltf(reversed));
     CHECK(backward.skins[0].joint_nodes == std::vector<int32_t>{2, 1, 0});
+    CHECK(backward.skins[0].joint_names == std::vector<std::string>{"tip", "mid", "root"});
     CHECK(backward.skins[0].parent == std::vector<int32_t>{1, 2, -1});  // tip -> mid (slot 1) -> root (slot 2), the root has none
     for (const std::size_t clip : {std::size_t{0}, std::size_t{1}}) {
         for (const float t : {0.0f, 0.2f, 0.5f, 0.75f, 1.0f}) {

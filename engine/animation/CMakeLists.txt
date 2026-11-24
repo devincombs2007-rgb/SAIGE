@@ -47,4 +47,25 @@ if(SAIGE_ANIMATION_BUILD_TESTS)
             tests/test_retarget.cpp
         LINK saige::animation)
     target_include_directories(saige_animation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    # The module on real assets (UAL rig and clips, CMU motion capture): skipped with exit 77 until tools/animation/fetch_humanoid_assets.py has filled a directory (SAIGE_ANIM_ASSETS).
+    add_executable(saige_animation_assets_test tests/assets_test.cpp)
+    target_include_directories(saige_animation_assets_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_link_libraries(saige_animation_assets_test PRIVATE saige::animation)
+    saige_gfx_configure_target(saige_animation_assets_test)
+    add_test(NAME saige_animation_assets COMMAND saige_animation_assets_test)
+    set_tests_properties(saige_animation_assets PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+    # The animation against the physical character (needs Core's capsule controller and static collision, so only in the root build).
+    if(TARGET saige::core)
+        saige_gfx_add_test(saige_animation_character_tests
+            SOURCES tests/test_character.cpp
+            LINK saige::animation saige::core)
+        target_include_directories(saige_animation_character_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    endif()
+endif()
+
+# A runnable example of the chain (capsule character, locomotion, ground and wall IK); needs Core.
+if(TARGET saige::core)
+    add_executable(saige_anim_character_demo tools/character_demo.cpp)
+    target_link_libraries(saige_anim_character_demo PRIVATE saige::animation saige::core)
+    saige_gfx_configure_target(saige_anim_character_demo)
 endif()

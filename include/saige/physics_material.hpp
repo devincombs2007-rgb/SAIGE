@@ -22,7 +22,7 @@
 
 namespace saige {
 
-enum class Surface : std::uint8_t { Default, Asphalt, AsphaltWet, Concrete, Gravel, Dirt, Grass, Sand, Snow, Ice, Count };
+enum class Surface : std::uint8_t { Default, Asphalt, AsphaltWet, Concrete, Gravel, Dirt, Grass, Sand, Snow, Ice, Rubber, Count };
 
 struct PhysicsMaterial {
     const char* name;
@@ -46,6 +46,7 @@ inline constexpr PhysicsMaterial physics_material_table[] = {
     {"sand",        0.50f, 8.0f, 0.50f, 0.05f, 1600.0f},
     {"snow",        0.25f, 4.0f, 0.20f, 0.05f,  400.0f},
     {"ice",         0.10f, 1.0f, 0.05f, 0.10f,  917.0f},
+    {"rubber",      0.90f, 1.5f, 0.90f, 0.65f, 1100.0f},  // a rubber mat or a tire barrier: grippy and lively
 };
 static_assert(sizeof(physics_material_table) / sizeof(physics_material_table[0]) == static_cast<std::size_t>(Surface::Count), "one material per Surface");
 } // namespace detail

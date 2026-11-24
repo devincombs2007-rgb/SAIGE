@@ -11,6 +11,10 @@ Checkpoint: 2026-11-24. `main` is at 5239e0c (merge of #59, sorted alpha blendin
 
 The film was built from 9c87457 (ancestor of both branches). It is unchanged.
 
+## Humanoid animation increment (on `claude/production-infrastructure`, no PR)
+
+`engine/animation` (target `saige::animation`) with its tests (`saige_animation_tests` 21 cases, `saige_animation_character_tests` 3, `saige_animation_assets` skipped unless `SAIGE_ANIM_ASSETS` points at fetched assets), the runnable `saige_anim_character_demo`, `tools/animation/` (asset fetch with SHA-256 manifest), six CMU mocap catalog records, and `docs/animation-character.md`. The glTF importer now carries `Skin::joint_names`. Local result: all pass under the CI flags on software Vulkan hosts (the module is CPU only). CI for the head that adds it: see the checkpoint on issue #43.
+
 ## Open pull requests (all draft except #64 and #67), grouped by stack
 
 * Physics: #69 capsule-box sweep, #70 capsule character (on #69), #73 capsule-triangle sweep (on #69), #74 capsule on triangles (on #70, #73), #80 static collision (on #73), #88 oriented-box and wheel probes (on #80), #65 character collision course, #68 perf instrumentation.

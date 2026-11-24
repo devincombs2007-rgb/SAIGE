@@ -286,6 +286,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
+    if (models_ && !frame.models.empty()) {
+        models_->check_palettes_unfrozen(frame.models);  // a palette changed after its first use this frame: refused before anything is created or recorded
+    }
     ensure_targets(target.width, target.height);
 
     const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);

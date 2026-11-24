@@ -43,6 +43,11 @@ const ModelDraw draws[] = {{&model, world, &palette}};
 * `SkinPalette::update` checks the pose (count, finite, affine) before changing anything, so a bad pose leaves the previous one. Calling it several times
   before a frame is the same as calling it once. The palette keeps the latest matrices on the CPU and a GPU copy per frame in flight; a draw rewrites the current
   slot if it is stale, so the GPU never reads a buffer the CPU is writing and a pose that is not updated stays current in every slot.
+* **A palette's pose is frozen for the frame at its first use.** The first draw of a device frame that binds a palette (colour, sorted or shadow pass, any view) fixes the copy
+  of the pose that every draw of that frame references. `update` after that is allowed as CPU state (it is the next frame's pose), but any further draw of that palette in the same
+  frame is refused with `std::logic_error` *before* it records or writes anything (`ModelRenderer::draw`, `draw_shadow`, and `SceneRenderer::render` check up front, so no pass is
+  left half-recorded), because the recorded draws would otherwise show the new pose. Update palettes before the frame's first draw; give each view or character its own palette
+  if their poses differ. (An update that happens to write the same matrices still counts as an update.)
 
 ## What the shaders compute
 

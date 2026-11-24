@@ -40,6 +40,13 @@ public:
     /// rows. Throws std::invalid_argument, changing nothing, if the count differs from joint_count() or a matrix is not finite and affine.
     void update(std::span<const Mat4> matrices);
 
+    /// The GPU pose is **frozen for a frame on its first use**: once a draw (colour, sorted or shadow pass) of this renderer frame has bound the palette, the frame's draws
+    /// reference that copy of the pose, so `update` between draws of the same frame would change what the recorded ones show. `ModelRenderer::draw` and `draw_shadow` therefore
+    /// refuse, with std::logic_error and before recording or writing anything, a palette that was updated after its first use in the current device frame. Update every
+    /// palette before the frame's first draw (any number of times; the last pose counts), and give each view or character its own palette if poses differ.
+    /// The uniform buffer of frame slot `slot` (for tests and diagnostics); invalid when out of range. Read it only when the device has finished the slot's frames.
+    [[nodiscard]] rhi::BufferHandle slot_buffer(uint32_t slot) const noexcept { return slot < buffers_.size() ? buffers_[slot].handle() : rhi::BufferHandle{}; }
+
 private:
     friend class ModelRenderer;
 
@@ -50,6 +57,7 @@ private:
     std::vector<BufferRef> buffers_;   ///< one uniform buffer per frame in flight
     std::vector<BindGroupRef> groups_; ///< set 2 of the skinned pipelines, one per slot, binding the slot's buffer
     mutable std::vector<uint64_t> slot_generation_;
+    mutable std::vector<uint64_t> slot_frame_;  ///< the device frame that last bound the slot (the pose it holds is frozen for that frame)
 };
 
 } // namespace saige::render

@@ -184,6 +184,10 @@ public:
     /// Creates the palette of one animated instance with `joint_count` joints (1 to kMaxSkinJoints), initially the bind pose (identity matrices).
     /// Throws std::logic_error if skinning is off, std::invalid_argument for a bad count. Nothing is leaked on failure.
     [[nodiscard]] SkinPalette create_skin_palette(uint32_t joint_count, const char* name);
+    /// Throws std::logic_error, changing nothing, if one of these draws' palettes was updated after its first use in the current device frame (see SkinPalette: a palette's
+    /// pose is frozen for the frame once a draw has bound it). `draw` and `draw_shadow` call this before recording anything; `SceneRenderer::render` calls it before building
+    /// its graph, so a refused frame leaves no half-recorded pass behind.
+    void check_palettes_unfrozen(std::span<const ModelDraw> draws) const;
     /// The sun shadow map: a D32_FLOAT texture, valid only when shadows are enabled. The caller (SceneRenderer's render graph) owns its
     /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
     [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }

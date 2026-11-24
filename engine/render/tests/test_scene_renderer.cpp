@@ -762,3 +762,151 @@ TEST_CASE("Skinning (null device): a failed acquisition at any step releases eve
         CHECK(o.device.validation_error_count() == 0);
     }
 }
+
+// ---- Palette immutability within a frame --------------------------------------------------------------------------------------------------------
+
+namespace {
+
+/// One skinned triangle (joint 0 only) on whatever device the renderer has.
+GpuModel skinned_triangle(SceneRenderer& renderer)
+{
+    GpuModel model = tiny_model(renderer);
+    const std::vector<SkinnedModelVertex> vertices = {{{{0, 0, 0}, {0, 0, 1}, {0, 0}}}, {{{1, 0, 0}, {0, 0, 1}, {1, 0}}}, {{{0, 1, 0}, {0, 0, 1}, {0, 1}}}};
+    rhi::BufferDesc vb;
+    vb.size = vertices.size() * sizeof(SkinnedModelVertex);
+    vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
+    model.meshes[0][0].vertices = renderer.registry().create_buffer(vb, std::as_bytes(std::span(vertices)));
+    model.meshes[0][0].skinned = true;
+    model.meshes[0][0].joint_limit = 1;
+    model.skin_joint_count = 1;
+    return model;
+}
+
+Mat4 pose_with_translation(float x)
+{
+    Mat4 m = Mat4::identity();
+    m.m[12] = x;  // column-major: the translation of an affine matrix
+    return m;
+}
+
+float first_translation(rhi::NullDevice& device, rhi::BufferHandle buffer)
+{
+    const std::span<std::byte> bytes = device.map(buffer);
+    float rows[12];
+    std::memcpy(rows, bytes.data(), sizeof(rows));
+    return rows[3];  // row 0's last element: the x translation of joint 0
+}
+
+}  // namespace
+
+TEST_CASE("Skinning (null device): a palette's pose is frozen for the frame at its first use, a later update is refused before anything is recorded, and the next frame takes it")
+{
+    for (const bool shadows : {false, true}) {
+        Offscreen o;
+        RendererSettings s = shadow_settings(shadows);
+        s.skinning = true;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+        ModelRenderer& models = renderer.model_renderer();
+        const GpuModel model = skinned_triangle(renderer);
+        SkinPalette p = models.create_skin_palette(1, "frozen"), q = models.create_skin_palette(1, "other");
+        const ModelDraw both[] = {{&model, Mat4::identity(), &p}, {&model, Mat4::identity(), &q}};
+        const ModelDraw only_p[] = {{&model, Mat4::identity(), &p}};
+        const ModelDraw only_q[] = {{&model, Mat4::identity(), &q}};
+        const Mat4 pose_a[] = {pose_with_translation(1.0f)}, pose_b[] = {pose_with_translation(2.0f)}, pose_c[] = {pose_with_translation(3.0f)};
+        const uint32_t per_palette = shadows ? 2u : 1u;  // draws of one palette's triangle: the colour pass, and the shadow pass with shadows on
+        const auto render_with = [&](rhi::CommandList& cmd, std::span<const ModelDraw> draws) {
+            SceneFrame f;
+            f.models = draws;
+            return renderer.render(cmd, f, o.target());
+        };
+        const auto render_refused = [&](rhi::CommandList& cmd, std::span<const ModelDraw> draws) {
+            try {
+                (void)render_with(cmd, draws);
+            } catch (const std::logic_error&) {
+                return true;
+            }
+            return false;
+        };
+
+        // Frame 1: pose A is set before the first use; the frame draws it (the shadow and the colour pass bind the same copy).
+        p.update(pose_a);
+        q.update(pose_a);
+        rhi::CommandList& cmd1 = o.device.begin_frame();
+        const uint32_t slot1 = static_cast<uint32_t>(o.device.frame_number() % 2);
+        CHECK(render_with(cmd1, both).model_skinned_draws == 2 * per_palette);
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);
+        // The pose changes after the draws were recorded. The update itself is CPU state and allowed, but another draw of this palette in the same frame (a second view, or the
+        // shadow and colour pass split across calls) is refused before it records anything or touches the slot: the recorded draws keep pose A.
+        p.update(pose_b);
+        CHECK(render_refused(cmd1, only_p));
+        CHECK(render_refused(cmd1, both));
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);
+        (void)o.device.end_frame();
+        CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::DrawIndexed).size() == 2 * per_palette);  // nothing from the refused renders
+
+        // Frame 2 (the other slot): the palette takes its last pose before the first use, and frame 1's copy is untouched while the GPU may still be reading it.
+        rhi::CommandList& cmd2 = o.device.begin_frame();
+        const uint32_t slot2 = static_cast<uint32_t>(o.device.frame_number() % 2);
+        CHECK(slot2 != slot1);
+        p.update(pose_b);
+        p.update(pose_c);
+        CHECK(render_with(cmd2, only_p).model_skinned_draws == per_palette);
+        CHECK(first_translation(o.device, p.slot_buffer(slot2)) == 3.0f);
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);
+        p.update(pose_a);  // too late for this frame
+        CHECK(render_refused(cmd2, only_p));
+        CHECK(first_translation(o.device, p.slot_buffer(slot2)) == 3.0f);
+        (void)o.device.end_frame();
+
+        // Frame 3 reuses slot 1 and finds the newest pose there.
+        rhi::CommandList& cmd3 = o.device.begin_frame();
+        CHECK(static_cast<uint32_t>(o.device.frame_number() % 2) == slot1);
+        CHECK(render_with(cmd3, only_p).model_skinned_draws == per_palette);
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);   // pose A, set in frame 2 after its draws
+        CHECK(first_translation(o.device, p.slot_buffer(slot2)) == 3.0f);   // frame 2's copy, still what that frame drew
+        (void)o.device.end_frame();
+        CHECK(o.device.validation_error_count() == 0);
+
+        // The same through the model renderer's own draw calls, in a frame that records them by hand: the shadow pass binds the palette (freezing it), a changed pose is refused by
+        // the colour pass's draw and by another shadow draw before they record anything, and an unchanged palette (and another one) can still be drawn.
+        if (shadows) {
+            rhi::CommandList& cmd = o.device.begin_frame();
+            const uint32_t slot = static_cast<uint32_t>(o.device.frame_number() % 2);
+            models.set_shadow_frame(nullptr);
+            p.update(pose_b);
+            rhi::RenderingDesc rd;
+            rhi::ColorAttachment ca;
+            ca.texture = o.color;
+            rd.colors.push_back(ca);
+            rd.area = {0, 0, 320, 180};
+            cmd.begin_rendering(rd);
+            ModelFrameStats stats;
+            models.draw_shadow(cmd, Mat4::identity(), only_p, stats);
+            CHECK(stats.skinned_draws == 1);
+            CHECK(first_translation(o.device, p.slot_buffer(slot)) == 2.0f);
+            models.draw_shadow(cmd, Mat4::identity(), only_p, stats);  // the same pose again: fine
+            models.draw_shadow(cmd, Mat4::identity(), only_q, stats);  // another palette: fine
+            p.update(pose_c);
+            const auto refuses = [&](auto&& call) {
+                try {
+                    call();
+                } catch (const std::logic_error&) {
+                    return true;
+                }
+                return false;
+            };
+            ModelFrameStats refused_stats;
+            CHECK(refuses([&] { models.draw_shadow(cmd, Mat4::identity(), only_p, refused_stats); }));
+            CHECK(refuses([&] { models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, only_p, refused_stats); }));
+            CHECK(refuses([&] { models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, both, refused_stats); }));
+            CHECK(refused_stats.skinned_draws == 0);  // nothing was recorded for any of them
+            CHECK(first_translation(o.device, p.slot_buffer(slot)) == 2.0f);
+            models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, only_q, refused_stats);  // the other palette is still drawable in the colour pass
+            CHECK(refused_stats.skinned_draws == 1);
+            cmd.end_rendering();
+            (void)o.device.end_frame();
+            CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::DrawIndexed).size() == 4);  // three shadow draws and one colour draw, none from a refused call
+            CHECK(o.device.validation_error_count() == 0);
+        }
+    }
+}

@@ -685,6 +685,7 @@ SkinPalette ModelRenderer::make_palette(uint32_t joint_count, const char* name)
     }
     palette.generation_ = 1;
     palette.slot_generation_.assign(slots, 0);  // every slot is stale until its first draw uploads the pose
+    palette.slot_frame_.assign(slots, ~uint64_t{0});  // and has not been bound by any frame
     palette.buffers_.reserve(slots);
     palette.groups_.reserve(slots);
     for (uint32_t i = 0; i < slots; ++i) {
@@ -720,9 +721,23 @@ SkinPalette ModelRenderer::create_skin_palette(uint32_t joint_count, const char*
     return make_palette(joint_count, name);
 }
 
+void ModelRenderer::check_palettes_unfrozen(std::span<const ModelDraw> draws) const
+{
+    const uint64_t frame = device_.frame_number();
+    for (const ModelDraw& d : draws) {
+        const SkinPalette* p = d.palette;
+        if (p == nullptr || !p->valid() || p->groups_.empty()) continue;
+        const std::size_t slot = static_cast<std::size_t>(frame % p->groups_.size());
+        if (p->slot_frame_[slot] == frame && p->slot_generation_[slot] != p->generation_) {
+            throw std::logic_error("ModelRenderer: a skin palette was updated after its first use in this frame (its pose is frozen for the frame; update palettes before the first draw)");
+        }
+    }
+}
+
 rhi::BindGroupHandle ModelRenderer::palette_group(const SkinPalette& palette)
 {
     const std::size_t slot = static_cast<std::size_t>(device_.frame_number() % palette.groups_.size());
+    palette.slot_frame_[slot] = device_.frame_number();  // from here on the slot's pose is what this frame's draws reference
     if (palette.slot_generation_[slot] != palette.generation_) {
         // The slot's buffer was last read by the frame that used this slot, which the device has finished before begin_frame returned.
         std::span<std::byte> mapped = device_.map(palette.buffers_[slot].handle());
@@ -740,6 +755,7 @@ rhi::PipelineHandle ModelRenderer::pipeline_for(bool mirrored, bool double_sided
 void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 camera_position, std::span<const ModelDraw> draws,
                          ModelFrameStats& stats)
 {
+    check_palettes_unfrozen(draws);  // before anything is recorded or written
     rhi::PipelineHandle bound{};
     rhi::BindGroupHandle bound_palette{};  // set 2 of the bound skinned pipeline
     blended_.clear();
@@ -899,6 +915,7 @@ void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_pr
     if (!shadows_enabled_) {
         throw std::logic_error("ModelRenderer::draw_shadow: shadows are not enabled");
     }
+    check_palettes_unfrozen(draws);  // before anything is recorded or written
     rhi::PipelineHandle bound{};
     rhi::BindGroupHandle bound_palette{};
     for (const ModelDraw& d : draws) {

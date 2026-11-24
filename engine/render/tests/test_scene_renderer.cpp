@@ -227,6 +227,79 @@ TEST_CASE("SceneRenderer: destruction releases every GPU resource it created")
     CHECK(o.device.validation_error_count() == 0);
 }
 
+TEST_CASE("SceneRenderer: a creation failure during construction releases everything already created")
+{
+    // The destructor does not run for a constructor that throws, and the shaders, pipelines and cube buffers are raw handles: the constructor
+    // itself must release them. Each creation fails in turn, with and without the HDR path (which adds the tone mapper).
+    for (const bool hdr : {false, true}) {
+        Offscreen o;
+        const uint32_t baseline = o.device.live_resource_count();
+        uint32_t failures = 0;
+        for (uint32_t n = 1; n <= 60; ++n) {
+            bool threw = false;
+            {
+                RendererSettings settings;
+                settings.hdr = hdr;
+                o.device.fail_creation_after(n);
+                try {
+                    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+                    o.device.fail_creation_after(0);
+                    CHECK(o.device.live_resource_count() > baseline);
+                } catch (const std::runtime_error&) {
+                    threw = true;
+                }
+                o.device.fail_creation_after(0);
+            }
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == baseline);  // whichever creation failed, nothing is left behind
+            if (!threw) {
+                break;  // n is beyond the number of creations: every step has been failed in turn
+            }
+            ++failures;
+        }
+        CHECK(failures >= (hdr ? 13u : 8u));
+        // The same device builds a renderer afterwards.
+        RendererSettings ok;
+        ok.hdr = hdr;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, ok);
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("ModelRenderer: a creation failure during construction releases everything already created")
+{
+    // Before this, 15 of the 16 failure points leaked: the shaders, layouts and pipelines are raw handles held until a destructor that
+    // never runs for a constructor that throws.
+    for (const ModelShading shading : {ModelShading::Legacy, ModelShading::MetallicRoughness}) {
+        Offscreen o;
+        RendererSettings settings;
+        settings.model_shading = shading;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        const uint32_t baseline = o.device.live_resource_count();
+        uint32_t failures = 0;
+        for (uint32_t n = 1; n <= 60; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                (void)renderer.model_renderer();
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) {
+                break;
+            }
+            ++failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == baseline);
+        }
+        CHECK(failures >= 14);
+        // The renderer is still usable: the model renderer now exists and the failed attempts left nothing behind.
+        CHECK(renderer.model_renderer().shading() == shading);
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
 TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be retried")
 {
     Offscreen o;

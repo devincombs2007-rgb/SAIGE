@@ -83,6 +83,18 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
       settings_(settings),
       registry_(device)
 {
+    // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that
+    // fails part-way releases whatever exists by then (the registry, the tone mapper and the model renderer are RAII and release themselves).
+    try {
+        acquire();
+    } catch (...) {
+        release();
+        throw;
+    }
+}
+
+void SceneRenderer::acquire()
+{
     using namespace saige::shaders;
     if (settings_.hdr) {
         tone_mapper_ = std::make_unique<ToneMapper>(device_, color_format_);
@@ -132,15 +144,29 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
 
 SceneRenderer::~SceneRenderer()
 {
+    release();
+}
+
+void SceneRenderer::release() noexcept
+{
     release_targets(device_, depth_, hdr_, hdr_input_);
-    device_.destroy(cube_indices_);
-    device_.destroy(cube_vertices_);
-    device_.destroy(ground_pipeline_);
-    device_.destroy(cube_pipeline_);
-    device_.destroy(ground_ps_);
-    device_.destroy(ground_vs_);
-    device_.destroy(cube_ps_);
-    device_.destroy(cube_vs_);
+    depth_ = {};
+    hdr_ = {};
+    hdr_input_ = {};
+    const auto destroy_if = [this](auto& handle) {
+        if (handle.is_valid()) {
+            device_.destroy(handle);
+            handle = {};
+        }
+    };
+    destroy_if(cube_indices_);
+    destroy_if(cube_vertices_);
+    destroy_if(ground_pipeline_);
+    destroy_if(cube_pipeline_);
+    destroy_if(ground_ps_);
+    destroy_if(ground_vs_);
+    destroy_if(cube_ps_);
+    destroy_if(cube_vs_);
 }
 
 void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)

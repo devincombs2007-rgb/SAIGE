@@ -230,6 +230,27 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
     const uint32_t default_material = static_cast<uint32_t>(model.materials.size());
     model.materials.push_back(models.create_material({}, render::MaterialTextures{}, (std::string(name) + "/default material").c_str()));
 
+    // ------------------------------------------------------------------------------------------ skin
+    // One model, one skin: the first skinned instance's skin. Meshes that a skinned instance uses are staged skinned when the renderer can skin.
+    int32_t model_skin = -1;
+    std::vector<bool> mesh_is_skinned(asset.meshes.size(), false);
+    for (const MeshInstance& inst : asset.instances) {
+        if (inst.skin < 0 || inst.mesh < 0 || static_cast<std::size_t>(inst.mesh) >= asset.meshes.size()) continue;
+        if (static_cast<std::size_t>(inst.skin) >= asset.skins.size()) fail(std::string(name), "a scene node refers to a skin that does not exist");
+        if (model_skin < 0) model_skin = inst.skin;
+        if (inst.skin == model_skin) mesh_is_skinned[static_cast<std::size_t>(inst.mesh)] = true;
+    }
+    const bool can_skin = models.skinning_enabled();
+    uint32_t skin_joints = 0;
+    if (model_skin >= 0) {
+        skin_joints = static_cast<uint32_t>(asset.skins[static_cast<std::size_t>(model_skin)].joint_count());
+        if (can_skin && skin_joints > render::kMaxSkinJoints) {
+            fail(label(name, "skin", static_cast<std::size_t>(model_skin), asset.skins[static_cast<std::size_t>(model_skin)].name),
+                 "has " + std::to_string(skin_joints) + " joints; GPU skinning supports at most " + std::to_string(render::kMaxSkinJoints));
+        }
+        if (!can_skin) warn_once(report, "skinning is off (RendererSettings::skinning): skinned meshes are staged rigid, in their bind pose");
+    }
+
     // ------------------------------------------------------------------------------------------ meshes
     for (std::size_t mi = 0; mi < asset.meshes.size(); ++mi) {
         const Mesh& mesh = asset.meshes[mi];
@@ -247,17 +268,39 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             if (!p.tangents.empty() && p.tangents.size() != std::size_t{vertex_count} * 4) {
                 fail(where, "has a tangent count that does not match its vertices");
             }
-            std::vector<render::ModelVertex> vertices(vertex_count);
+            const bool has_skin_data = !p.joints.empty() && p.joints.size() == std::size_t{vertex_count} * 4 && p.weights.size() == p.joints.size();
+            const bool skinned = can_skin && mesh_is_skinned[mi] && has_skin_data;
+            uint32_t joint_limit = 0;
+            if (skinned) {
+                for (std::size_t k = 0; k < p.joints.size(); ++k) {
+                    if (p.weights[k] > 0.0f) joint_limit = std::max<uint32_t>(joint_limit, uint32_t{p.joints[k]} + 1u);
+                }
+                if (joint_limit > skin_joints) {
+                    fail(where, "a vertex is bound to joint " + std::to_string(joint_limit - 1) + " but the skin has " + std::to_string(skin_joints) + " joints");
+                }
+            } else if (mesh_is_skinned[mi] && !has_skin_data && model_skin >= 0 && can_skin) {
+                warn_once(report, "a skinned node instances a primitive without joints and weights: it is drawn rigid");
+            }
+            std::vector<render::SkinnedModelVertex> skinned_vertices(skinned ? vertex_count : 0);
+            std::vector<render::ModelVertex> plain_vertices(skinned ? 0 : vertex_count);
+            const auto vertex_at = [&](uint32_t v) -> render::ModelVertex& { return skinned ? skinned_vertices[v].base : plain_vertices[v]; };
             for (uint32_t v = 0; v < vertex_count; ++v) {
-                vertices[v].position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
-                vertices[v].normal = {p.normals[v * 3], p.normals[v * 3 + 1], p.normals[v * 3 + 2]};
+                render::ModelVertex& vtx = vertex_at(v);
+                if (skinned) {
+                    for (uint32_t c = 0; c < 4; ++c) {
+                        skinned_vertices[v].joints[c] = p.joints[v * 4 + c];
+                        skinned_vertices[v].weights[c] = p.weights[v * 4 + c];
+                    }
+                }
+                vtx.position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
+                vtx.normal = {p.normals[v * 3], p.normals[v * 3 + 1], p.normals[v * 3 + 2]};
                 if (!p.uv0.empty()) {
-                    vertices[v].uv[0] = p.uv0[v * 2];
-                    vertices[v].uv[1] = p.uv0[v * 2 + 1];
+                    vtx.uv[0] = p.uv0[v * 2];
+                    vtx.uv[1] = p.uv0[v * 2 + 1];
                 }
                 if (!p.tangents.empty()) {  // absent tangents stay w = 0: the shader skips normal mapping there
                     for (uint32_t c = 0; c < 4; ++c) {
-                        vertices[v].tangent[c] = p.tangents[v * 4 + c];
+                        vtx.tangent[c] = p.tangents[v * 4 + c];
                     }
                 }
             }
@@ -283,14 +326,14 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
             const std::string vname = where + " vertices";
             const std::string iname = where + " indices";
             rhi::BufferDesc vb;
-            vb.size = vertices.size() * sizeof(render::ModelVertex);
+            vb.size = skinned ? skinned_vertices.size() * sizeof(render::SkinnedModelVertex) : plain_vertices.size() * sizeof(render::ModelVertex);
             vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
             vb.debug_name = vname.c_str();
             rhi::BufferDesc ib;
             ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
             ib.debug_name = iname.c_str();
             try {
-                prim.vertices = registry.create_buffer(vb, std::as_bytes(std::span(vertices)));
+                prim.vertices = skinned ? registry.create_buffer(vb, std::as_bytes(std::span(skinned_vertices))) : registry.create_buffer(vb, std::as_bytes(std::span(plain_vertices)));
                 if (vertex_count <= std::numeric_limits<uint16_t>::max()) {
                     std::vector<uint16_t> narrow;
                     narrow.reserve(indices.size());
@@ -307,6 +350,9 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
                 fail(where, std::string("GPU upload failed: ") + e.what());
             }
             prim.index_count = static_cast<uint32_t>(indices.size());
+            prim.skinned = skinned;
+            prim.joint_limit = joint_limit;
+            if (skinned) ++report.skinned_primitives;
             {   // bounding sphere for sorting blended draws: the box center and the farthest vertex from it
                 float lo[3] = {p.positions[0], p.positions[1], p.positions[2]};
                 float hi[3] = {lo[0], lo[1], lo[2]};
@@ -341,8 +387,15 @@ render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& a
         if (inst.mesh < 0 || static_cast<std::size_t>(inst.mesh) >= model.meshes.size()) {
             fail(std::string(name), "a scene node refers to a mesh that does not exist");
         }
-        model.placements.push_back({static_cast<uint32_t>(inst.mesh), inst.world});
+        if (inst.skin >= 0 && inst.skin != model_skin) {
+            warn_once(report, "a skinned instance of a second skin is not placed: one model supports one skin (one palette)");
+            continue;
+        }
+        // A skinned instance is placed by its skin matrices; the node's own transform is irrelevant (the importer already made it the identity).
+        const render::Mat4 world = inst.skin >= 0 && can_skin ? render::Mat4::identity() : inst.world;
+        model.placements.push_back({static_cast<uint32_t>(inst.mesh), world});
     }
+    model.skin_joint_count = report.skinned_primitives > 0 ? skin_joints : 0;
     if (model.placements.empty()) {
         warn_once(report, "the asset's scene places no meshes: it will draw nothing");
     }

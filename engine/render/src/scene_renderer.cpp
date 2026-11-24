@@ -269,6 +269,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.lighting = settings_.lighting;
         ms.alpha_blending = settings_.alpha_blending;
         ms.environment = settings_.environment;
+        ms.skinning = settings_.skinning;
         ms.shadows = {settings_.shadows.enabled, settings_.shadows.map_size, settings_.shadows.depth_bias_constant, settings_.shadows.depth_bias_slope};
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
@@ -284,6 +285,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     const std::optional<rhi::TextureDesc> color_desc = device_.texture_desc(target.texture);
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
+    }
+    if (models_ && !frame.models.empty()) {
+        models_->check_palettes_unfrozen(frame.models);  // a palette changed after its first use this frame: refused before anything is created or recorded
     }
     ensure_targets(target.width, target.height);
 
@@ -389,6 +393,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                     shadow_models->draw_shadow(c, sun_cascade->view_proj, frame.models, shadow_stats);
                     stats.draw_calls += shadow_stats.draw_calls;
                     stats.shadow_draw_calls += shadow_stats.draw_calls;
+                    stats.model_skinned_draws += shadow_stats.skinned_draws;
+                    stats.model_skinned_skipped += shadow_stats.skinned_skipped;
                 }
                 c.end_rendering();
                 c.end_debug_label();
@@ -451,6 +457,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instances += model_stats.instances_drawn;
                 stats.model_instances_skipped += model_stats.instances_skipped;
                 stats.model_blended_primitives += model_stats.blended_primitives;
+                stats.model_skinned_draws += model_stats.skinned_draws;
+                stats.model_skinned_skipped += model_stats.skinned_skipped;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

@@ -14,6 +14,12 @@
 // its glTF texture names); a slot that cannot be used (bad index, no source image, undecodable image) stays neutral with a warning, while a
 // bad base color texture fails the staging in every mode. A normal texture on a primitive without tangents, or one that names a texture
 // coordinate set other than 0, is ignored and reported. Alpha-blended materials draw as opaque (warned).
+//
+// Skinned meshes (docs/rendering/skinning.md). A primitive with JOINTS_0 and WEIGHTS_0 that a skinned node instances is staged as
+// SkinnedModelVertex with `skinned` and `joint_limit` set when the renderer was created with skinning; `GpuModel::skin_joint_count` is its skin's joint
+// count, and the instance is placed at the identity (glTF ignores a skinned node's own transform). One model has one skin: instances of any other skin are not
+// placed and a warning says so. With skinning off the same primitives are staged rigid, in the bind pose (which is what identity skin matrices give), with a
+// warning. A joint index at or beyond the skin's joint count, or a skin with more than kMaxSkinJoints joints, fails the staging with a message naming the mesh.
 #pragma once
 
 #include "saige/gfx_assets/gltf.hpp"
@@ -41,6 +47,7 @@ struct StageReport {
     uint32_t primitives = 0;
     uint64_t vertex_bytes = 0;
     uint64_t index_bytes = 0;
+    uint32_t skinned_primitives = 0;  ///< primitives staged with joints and weights (SkinnedModelVertex)
 };
 
 /// Throws std::runtime_error with an actionable message (naming the image, mesh or material) on any failure.

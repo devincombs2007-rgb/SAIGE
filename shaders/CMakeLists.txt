@@ -13,7 +13,9 @@ set(SAIGE_SHADER_SOURCES
     scene/model_shadowed.hlsl
     scene/model_ibl.hlsl
     scene/model_ibl_shadowed.hlsl
+    scene/model_skinned.hlsl
     scene/shadow_depth.hlsl
+    scene/shadow_depth_skinned.hlsl
     test/blend_color.hlsl
     test/depth_only.hlsl
     test/shadow_probe.hlsl

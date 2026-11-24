@@ -193,10 +193,12 @@ private:
                 }
                 return point;
             };
-            for (const auto& box : stream_.staged_collision(chunk.coord).value()) {
+            const auto boxes = stream_.staged_collision(chunk.coord).value();
+            for (const auto& box : boxes) {
                 geometry.boxes.push_back({to_local(box.min), to_local(box.max)});
             }
-            for (const auto& triangle : stream_.staged_triangles(chunk.coord).value()) {
+            const auto triangles = stream_.staged_triangles(chunk.coord).value();
+            for (const auto& triangle : triangles) {
                 geometry.triangles.push_back({to_local(triangle.a), to_local(triangle.b), to_local(triangle.c)});
             }
 

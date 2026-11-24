@@ -1,4 +1,4 @@
-# Static collision: broadphase, ray casts and capsule queries
+# Static collision: broadphase, ray casts, capsule, oriented-box and wheel queries
 
 `include/saige/static_collision.hpp` is an immutable bounding-volume hierarchy over static boxes (`Aabb`) and triangles (`Triangle`), with the
 queries a game needs from it. It is additive and introduces no second movement system: `CapsuleCharacter` keeps its own geometry. A host can
@@ -53,6 +53,32 @@ there is a hit and on the contact time to 2e-6, the stop is clear and within 50 
 box and by less does not; 800 `StaticCollision` queries (sweeps, deepest overlaps, all overlaps) equal brute force in every field; analytic edge, corner, ramp, touching
 and initial-overlap cases; ties and every validation failure. Fifteen mutants (dropped axes, a flipped normal, the touching rule both ways, no initial-overlap handling,
 no stop back-off, a stop clear of only the first primitive, an ignored exit time, a parallel-axis shortcut, the tie rules, the quaternion layout, the envelope) each fail a test.
+
+## Wheel and terrain contacts (the next vehicle slice)
+
+`include/saige/wheel_contact.hpp`: `probe_wheel(world, probe, scratch)` and `probe_wheels(...)`. One probe per wheel: a support segment from `origin` (the wheel center at the top of its travel, in the published chunk-local frame)
+along `direction` for `length` meters, swept as a point (`radius` 0) or as a sphere of the wheel's radius (a capsule sweep as tall as it is wide, so it is as exact as the capsule sweeps). The result: the status, the exact
+`distance` along the unit direction (and `travel` = distance / length for the suspension), the wheel `center` at contact, the contact `point`, the unit support `normal`, `slope_cos` and the snapshot-scoped shape id. This is geometry
+only: Core owns suspension, traction, wheel state and gameplay.
+
+| Status | Meaning |
+| --- | --- |
+| `Support` | the nearest contact is a surface the wheel can stand on: `dot(normal, up) >= cos(max_slope)` |
+| `Blocked` | the nearest contact is one it cannot: too steep, an overhang's underside (its facing normal points away from `up`), a wall |
+| `InitialOverlap` | the probe starts touching or inside the world (a ray whose origin is inside a solid box, a sphere already penetrating a primitive): distance 0, the normal is the push-out direction; recover before trusting a support |
+| `Miss` | the segment never touches anything (missing ground past a ledge, out of reach, pointing away) |
+
+Rules: the **nearest contact wins whatever it is** (a blocker between the mount and the ground, such as a beam, a steep face or an underside, is `Blocked`, not skipped to find ground behind it); exact ties go to the lower shape id,
+boxes before triangles (a box wins an exact tie against a triangle), the rule of every sweep here; boxes are solid and **triangles are two-sided**, the normal always facing the probe's origin side, so a ramp mesh with flipped winding
+still supports and the same triangle from below is an underside; the slope limit is a closed bound on `dot(normal, up)` with `up` the chassis' or the world's (a tilted `up` makes a matching ramp flat to the chassis); touching a
+surface from outside and moving away or along it is a `Miss` for that surface (a wheel resting on the ground and driving off is not blocked by it). A sphere probe shares the capsule envelope (path inside +-256 m, `length` at
+most 64 m); a ray accepts any finite coordinates. Invalid probes throw, and `probe_wheels` validates every probe before answering any.
+
+`tests/wheel_contact_test.cpp`: flat ground (ray and sphere, oblique and normalized directions, out of reach, pointing away), ramps at 10, 30 and 45 degrees and a tilted `up`, the slope limit (60 degrees blocked at the default, supported when
+allowed, the closed bound at zero), a plateau ledge (ray misses, a sphere just past the edge rolls on its corner, farther misses), undersides and two-sided triangles, a plank between the mount and the floor and a steep sheet that blocks
+without letting the ground behind it through, initial overlap for a ray and a sphere, a coplanar seam crossed by 61 probes with radius 0 and 0.35, exact ties, replay and `probe_wheels` equality, every validation failure, and 800 random
+probes against the exact capsule sweeps over every primitive (224 supports, 39 blocked, 460 misses, 77 initial overlaps). Eleven mutants (the slope bound and its sense, the initial-overlap detection, the sphere's placement and height, the
+distance scale, the travel fraction, the direction normalization, validate-then-answer, the ray overlap normal, the center) each fail a test.
 
 ## Determinism and equality with brute force
 

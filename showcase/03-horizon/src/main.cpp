@@ -516,14 +516,15 @@ struct Director {
             s.look = car_mid(now) + dir * 1.8 + V3{0, 0, 0.55};
             s.fov_deg = 46;
             s.name = "wreck";
-        } else if (t < tl.walk_away + 4.5) {
-            // The driver climbs out and stands in the dust.
+        } else if (t < tl.walk_away + 1.5) {
+            // The driver climbs out and walks into the dust: from in front of the wreck, over the bonnet.
             const V3 dir = flat_dir(now.car_yaw);
-            s.eye = car_mid(now) + left_of(dir) * 6.4 - dir * 4.0 + V3{0, 0, 1.4};
+            s.eye = car_mid(now) + dir * 7.2 + left_of(dir) * 2.6 + V3{0, 0, 1.55};
             s.eye = clamp_ground(s.eye, 0.8);
-            s.look = lerp(chr_eye(1.2), car_mid(now), 0.3);
+            s.look = lerp(car_mid(now) + V3{0, 0, 0.5}, chr_eye(1.2), 0.55 * smooth((t - tl.exit - 0.8) / 1.5));  // the capsule only appears at the door once the rider steps out
             s.fov_deg = 44;
             s.name = "exit";
+            s.boom = false;
         } else if (t < tl.overlook - 2.0) {
             // Following the walk away, low and behind, with the sun in the lens.
             s.eye = chr_eye(0.0) - chr_fwd * 5.6 + left_of(chr_fwd) * 1.3 + V3{0, 0, 1.25};
@@ -705,15 +706,15 @@ public:
     void nudge_from_props(Shot& shot)
     {
         const int cx0 = static_cast<int>(std::floor(shot.eye.x / cell_size)), cy0 = static_cast<int>(std::floor(shot.eye.y / cell_size));
-        for (int pass = 0; pass < 2; ++pass) {
+        for (int pass = 0; pass < 3; ++pass) {
             for (int cy = cy0 - 1; cy <= cy0 + 1; ++cy) {
                 for (int cx = cx0 - 1; cx <= cx0 + 1; ++cx) {
                     for (const PropInstance& p : cell(cx, cy).props) {
                         double r = 0;
                         double top = 0;
                         switch (p.type) {
-                            case PropType::TreePine: r = 2.4 * p.scale; top = 9.5 * p.scale; break;
-                            case PropType::TreeRound: r = 2.6 * p.scale; top = 6.5 * p.scale; break;
+                            case PropType::TreePine: r = 3.3 * p.scale; top = 9.5 * p.scale; break;
+                            case PropType::TreeRound: r = 3.6 * p.scale; top = 6.5 * p.scale; break;
                             case PropType::RockLarge: r = 3.0 * p.scale * 0.3 + 0.8; top = 3.0; break;
                             case PropType::RockSmall: r = 1.2; top = 2.0; break;
                             case PropType::Lamp: r = 0.7; top = 6.0; break;

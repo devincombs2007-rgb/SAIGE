@@ -483,6 +483,19 @@ CellData World::build_cell(int cx, int cy) const {
         }
     }
 
+    // The ending's stage is dressed by hand: no trees or rocks on the crash site, the walk away from it or the overlook the walker stops at, so that the cameras there see the
+    // people and the wreck (the clearing is part of the world, a pure function of the position like everything else).
+    const auto hero_clearing = [&](double x, double y) {
+        const double crash_x = landmarks_.crash_barrier.x, crash_y = landmarks_.crash_barrier.y;
+        if (std::hypot(x - crash_x, y - crash_y) < 22.0) return true;
+        const double ox = 731.8, oy = -118.5;
+        if (std::hypot(x - ox, y - oy) < 26.0) return true;
+        // the corridor between them
+        const double ax = crash_x, ay = crash_y + 3.0, bx = ox, by = oy;
+        const double dx = bx - ax, dy = by - ay;
+        const double t = std::clamp(((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy), 0.0, 1.0);
+        return std::hypot(x - (ax + t * dx), y - (ay + t * dy)) < 12.0;
+    };
     // ---- Props.
     const auto prop = [&](PropType t, double x, double y, float yaw, float scale) {
         if (!in_cell(x, y)) return;
@@ -510,6 +523,7 @@ CellData World::build_cell(int cx, int cy) const {
             const std::uint64_t h = hash64(static_cast<std::uint64_t>(cx * 8 + i + 100000), static_cast<std::uint64_t>(cy * 8 + j + 100000), 77);
             const double x = ox + (i + unit(hash64(h, 1))) * 8.0, y = oy + (j + unit(hash64(h, 2))) * 8.0;
             if (town_weight(x, y) > 0.35) continue;
+            if (hero_clearing(x, y)) continue;
             const RoadSample q = nearest_road(x, y);
             const double clear = roads_[static_cast<std::size_t>(std::max(q.road, 0))].width * 0.5 + 3.5;
             if (q.distance < clear) continue;

@@ -1,16 +1,21 @@
 #include "saige/gfx_test/saige_test.hpp"
 
 #include "saige/gfx_assets/tangents.hpp"
+#include "saige/gfx_scene/prepared_model.hpp"
 #include "saige/gfx_scene/stage_model.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <vector>
 
 using namespace saige;
 using namespace saige::gfx;
@@ -623,4 +628,326 @@ TEST_CASE("Stage (skinning): with skinning off a skinned mesh is staged rigid in
         }
         CHECK(threw);
     }
+}
+
+// ---- Prepared models: CPU preparation, then upload ----------------------------------------------------------------------------------------------
+
+namespace {
+
+/// Everything observable about a staged model that two stagings of the same asset must agree on.
+struct Fingerprint {
+    std::size_t meshes = 0, materials = 0, placements = 0;
+    std::vector<uint32_t> index_counts;
+    std::vector<uint64_t> vertex_bytes, index_bytes;
+    std::vector<float> radii;
+    std::vector<std::string> names;
+    uint32_t live = 0;
+    uint64_t live_bytes = 0;
+    bool operator==(const Fingerprint&) const = default;
+};
+
+Fingerprint fingerprint(Rig& rig, const render::GpuModel& model)
+{
+    Fingerprint f;
+    f.meshes = model.meshes.size();
+    f.materials = model.materials.size();
+    f.placements = model.placements.size();
+    for (const auto& mesh : model.meshes) {
+        for (const render::GpuPrimitive& p : mesh) {
+            f.index_counts.push_back(p.index_count);
+            f.vertex_bytes.push_back(p.vertices.bytes());
+            f.index_bytes.push_back(p.indices.bytes());
+            f.radii.push_back(p.bounds_radius);
+            f.names.push_back(p.vertices.name());
+        }
+    }
+    const render::ResourceStats s = rig.renderer.registry().total_stats();
+    f.live = s.live;
+    f.live_bytes = s.live_bytes;
+    return f;
+}
+
+}  // namespace
+
+TEST_CASE("Prepared: preparation needs no renderer or device, and the payload accounts for its CPU memory and time")
+{
+    const GltfAsset asset = load_fixture();
+    StageCapabilities caps;  // the defaults: Legacy shading, no skinning, no blending
+    const PreparedModel prepared = prepare_model(asset, "checker-box", caps);
+    CHECK(prepared.name == "checker-box");
+    CHECK(prepared.capabilities == caps);
+    REQUIRE(prepared.images.size() == 1);
+    CHECK(prepared.images[0].levels == 4);
+    CHECK(prepared.images[0].data.size() == (64 + 16 + 4 + 1) * 4);
+    REQUIRE(prepared.meshes.size() == 1);
+    CHECK(prepared.meshes[0][0].vertices.size() == 24 * sizeof(render::ModelVertex));
+    CHECK(prepared.meshes[0][0].indices.size() == 36 * sizeof(uint16_t));
+    CHECK(prepared.materials.size() == 2);  // the file's, then the default
+    CHECK(prepared.cpu_bytes() == prepared.images[0].data.size() + prepared.meshes[0][0].vertices.size() + prepared.meshes[0][0].indices.size());
+    CHECK(prepared.report.primitives == 1);
+    CHECK(prepared.report.vertex_bytes == 24 * sizeof(render::ModelVertex));
+    CHECK(prepared.report.warnings.empty());
+    CHECK(prepared.prepare_seconds >= 0.0);
+    CHECK(prepared.decode_seconds >= 0.0);
+    CHECK(prepared.decode_seconds <= prepared.prepare_seconds);
+    CHECK(prepared.report.textures == 0);  // nothing is on a GPU yet
+    Rig rig;
+    StageReport report;
+    double upload_seconds = 0.0;
+    (void)upload_model(rig.renderer, prepare_model(asset, "timing", capabilities_of(rig.renderer)), &report, &upload_seconds);
+    // Informational, not asserted: the 8x8 fixture is tiny, and a null device has no transfer to wait for. The numbers exist so a host can see decode/mips cost apart from
+    // submit/readiness cost on its own assets and device.
+    std::printf("  prepare %.3f ms (decode and mips %.3f ms), upload %.3f ms on the null device, %llu CPU bytes\n", prepared.prepare_seconds * 1e3, prepared.decode_seconds * 1e3,
+                upload_seconds * 1e3, static_cast<unsigned long long>(prepared.cpu_bytes()));
+}
+
+TEST_CASE("Prepared: prepare then upload equals stage_model, for every material mode, and the payload is not consumed")
+{
+    for (const render::ModelShading shading : {render::ModelShading::Legacy, render::ModelShading::Extended, render::ModelShading::MetallicRoughness}) {
+        GltfAsset asset = load_fixture();
+        asset.materials[0].emissive_texture.texture = 0;
+        asset.materials[0].occlusion_texture.texture = 0;
+        Rig staged(shading), split(shading);
+        StageReport staged_report, split_report;
+        const render::GpuModel a = stage_model(staged.renderer, asset, "same", {}, &staged_report);
+        const PreparedModel prepared = prepare_model(asset, "same", capabilities_of(split.renderer));
+        const uint64_t cpu_before = prepared.cpu_bytes();
+        double upload_seconds = -1.0;
+        const render::GpuModel b = upload_model(split.renderer, prepared, &split_report, &upload_seconds);
+        CHECK(fingerprint(staged, a) == fingerprint(split, b));
+        CHECK(staged_report.warnings == split_report.warnings);
+        CHECK(staged_report.textures == split_report.textures);
+        CHECK(staged_report.texture_bytes == split_report.texture_bytes);
+        CHECK(staged_report.vertex_bytes == split_report.vertex_bytes);
+        CHECK(staged_report.index_bytes == split_report.index_bytes);
+        CHECK(upload_seconds >= 0.0 && split_report.upload_seconds == upload_seconds);
+        CHECK(split_report.prepare_seconds == prepared.prepare_seconds);
+        CHECK(prepared.cpu_bytes() == cpu_before);  // upload_model takes the payload by const reference and leaves it alone
+        CHECK(shading == render::ModelShading::Legacy ? split_report.textures == 1 : split_report.textures == 2);  // sRGB and linear uploads of the one image
+        CHECK(split.device.validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("Prepared: one payload uploads twice into independent models, on one renderer or two, and outlives the renderer it was prepared for")
+{
+    const GltfAsset asset = load_fixture();
+    PreparedModel prepared;
+    {
+        Rig first;
+        prepared = prepare_model(asset, "shared", capabilities_of(first.renderer));
+    }  // the renderer the capabilities were read from is gone: the payload does not refer to it
+    Rig rig;
+    (void)rig.renderer.model_renderer();
+    const render::ResourceStats baseline = rig.renderer.registry().total_stats();
+    {
+        const render::GpuModel one = upload_model(rig.renderer, prepared);
+        const render::ResourceStats after_one = rig.renderer.registry().total_stats();
+        const render::GpuModel two = upload_model(rig.renderer, prepared);
+        const render::ResourceStats after_two = rig.renderer.registry().total_stats();
+        CHECK(after_one.live > baseline.live);
+        CHECK(after_two.live - after_one.live == after_one.live - baseline.live);  // the second upload made exactly as many objects as the first
+        CHECK(one.meshes[0][0].vertices.handle() != two.meshes[0][0].vertices.handle());
+        CHECK(one.meshes[0][0].vertices.bytes() == two.meshes[0][0].vertices.bytes());
+    }
+    rig.device.wait_idle();
+    CHECK(rig.renderer.registry().total_stats().live == baseline.live);  // both released; the payload is untouched
+    Rig other;
+    const render::GpuModel again = upload_model(other.renderer, prepared);  // a different renderer with the same capabilities
+    CHECK(again.meshes.size() == 1);
+    CHECK(other.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Prepared: a renderer with other capabilities refuses the payload before creating anything")
+{
+    const GltfAsset asset = load_fixture();
+    Rig legacy;
+    const PreparedModel prepared = prepare_model(asset, "legacy", capabilities_of(legacy.renderer));
+    const auto refused = [&](Rig& rig) {
+        (void)rig.renderer.model_renderer();
+        const uint32_t before = rig.renderer.registry().total_stats().live;
+        bool threw = false;
+        try {
+            (void)upload_model(rig.renderer, prepared);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        return threw && rig.renderer.registry().total_stats().live == before;
+    };
+    Rig metallic(render::ModelShading::MetallicRoughness);
+    Rig extended(render::ModelShading::Extended);
+    Rig blending(render::ModelShading::Legacy, /*alpha_blending=*/true);
+    Rig skinning(render::ModelShading::Legacy, false, /*skinning=*/true);
+    CHECK(refused(metallic));
+    CHECK(refused(extended));
+    CHECK(refused(blending));
+    CHECK(refused(skinning));
+    CHECK(!refused(legacy));  // the matching renderer accepts it (refused() reports a refusal)
+    // Preparing per mode gives per-mode payloads of different content: the other slots are decoded only when the mode reads them.
+    GltfAsset slots = load_fixture();
+    slots.materials[0].emissive_texture.texture = 0;    // sRGB: shares the base color's image
+    slots.materials[0].occlusion_texture.texture = 0;   // linear: a second decode of the same image
+    CHECK(prepare_model(slots, "m", capabilities_of(legacy.renderer)).images.size() == 1);
+    CHECK(prepare_model(slots, "m", capabilities_of(metallic.renderer)).images.size() == 2);
+}
+
+TEST_CASE("Prepared: asset errors fail the preparation with the same messages and no device effect; an upload failure at any creation releases everything and keeps the payload usable")
+{
+    {
+        GltfAsset asset = load_fixture();
+        asset.images[0].bytes.resize(20);
+        std::string message;
+        try {
+            (void)prepare_model(asset, "broken", StageCapabilities{});
+        } catch (const std::runtime_error& e) {
+            message = e.what();
+        }
+        CHECK(message.find("broken/image[0]") != std::string::npos);
+        asset = load_fixture();
+        asset.meshes[0].primitives[0].indices[0] = 9999;
+        message.clear();
+        try {
+            (void)prepare_model(asset, "bad-index", StageCapabilities{});
+        } catch (const std::runtime_error& e) {
+            message = e.what();
+        }
+        CHECK(message.find("bad-index/mesh[0]") != std::string::npos);
+        CHECK(message.find("past the last vertex") != std::string::npos);
+    }
+    Rig rig(render::ModelShading::MetallicRoughness);
+    GltfAsset asset = load_fixture();
+    asset.materials[0].emissive_texture.texture = 0;
+    asset.materials[0].occlusion_texture.texture = 0;
+    const PreparedModel prepared = prepare_model(asset, "swept", capabilities_of(rig.renderer));
+    rig.device.wait_idle();
+    const uint32_t baseline = rig.device.live_resource_count();
+    uint32_t failures = 0;
+    for (uint32_t n = 1; n <= 80; ++n) {
+        rig.device.fail_creation_after(n);
+        bool threw = false;
+        try {
+            const render::GpuModel m = upload_model(rig.renderer, prepared);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        rig.device.fail_creation_after(0);
+        rig.device.wait_idle();
+        if (!threw) break;
+        ++failures;
+        CHECK(rig.device.live_resource_count() == baseline);
+    }
+    std::printf("  %u failing creation points swept\n", failures);
+    CHECK(failures >= 5);  // textures, a sampler, materials and their groups, vertex and index buffers
+    const render::GpuModel fine = upload_model(rig.renderer, prepared);  // the payload survived every failed attempt
+    CHECK(fine.meshes.size() == 1);
+    CHECK(rig.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Prepared: preparation is a pure function of its inputs (several threads at once give identical payloads), and skinning payloads match what staging produced")
+{
+    const GltfAsset asset = load_fixture();
+    const StageCapabilities caps{render::ModelShading::MetallicRoughness, false, false, false};
+    const PreparedModel reference = prepare_model(asset, "threads", caps);
+    std::vector<PreparedModel> results(4);
+    std::vector<std::thread> workers;
+    for (std::size_t i = 0; i < results.size(); ++i) {
+        workers.emplace_back([&, i] { results[i] = prepare_model(asset, "threads", caps); });
+    }
+    for (std::thread& w : workers) w.join();
+    for (const PreparedModel& r : results) {
+        REQUIRE(r.images.size() == reference.images.size());
+        for (std::size_t i = 0; i < r.images.size(); ++i) CHECK(r.images[i].data == reference.images[i].data);
+        CHECK(r.meshes[0][0].vertices == reference.meshes[0][0].vertices);
+        CHECK(r.meshes[0][0].indices == reference.meshes[0][0].indices);
+        CHECK(r.report.warnings == reference.report.warnings);
+    }
+    // A skinned asset prepared for a skinning renderer packs skinned vertices, with the same joint limit, joint count and identity placement as stage_model's.
+    Rig rig(render::ModelShading::Legacy, false, /*skinning=*/true);
+    const GltfAsset skinned = skinned_fixture(8);
+    const PreparedModel p = prepare_model(skinned, "skinned", capabilities_of(rig.renderer));
+    REQUIRE(p.meshes.size() == 1);
+    CHECK(p.meshes[0][0].skinned);
+    CHECK(p.meshes[0][0].joint_limit == 3);
+    CHECK(p.meshes[0][0].vertices.size() == 24 * sizeof(render::SkinnedModelVertex));
+    CHECK(p.skin_joint_count == 8);
+    CHECK(p.report.skinned_primitives == 1);
+    const render::GpuModel model = upload_model(rig.renderer, p);
+    CHECK(model.skin_joint_count == 8);
+    CHECK(model.meshes[0][0].skinned);
+}
+
+namespace {
+bool has_flag(rhi::TextureUsage u, rhi::TextureUsage f) { return (static_cast<uint32_t>(u) & static_cast<uint32_t>(f)) != 0; }
+}  // namespace
+
+TEST_CASE("Prepared: the uploaded textures have the color space of their slot, every slot's sampler reaches the device, and the bounds are the box center and farthest vertex")
+{
+    Rig rig(render::ModelShading::MetallicRoughness);
+    GltfAsset asset = load_fixture();
+    Sampler nearest;
+    nearest.mag_filter = 9728;
+    nearest.min_filter = 9728;
+    Sampler clamped;
+    clamped.wrap_s = 33071;
+    clamped.wrap_t = 33071;
+    asset.samplers.assign({nearest, clamped});
+    asset.textures[0].sampler = 0;
+    Texture second = asset.textures[0];
+    second.sampler = 1;
+    asset.textures.push_back(second);
+    Material& m = asset.materials[0];
+    m.base_color_texture.texture = 0;  // sRGB, the nearest sampler
+    m.occlusion_texture.texture = 1;   // linear, the clamping sampler
+    const PreparedModel prepared = prepare_model(asset, "slots", capabilities_of(rig.renderer));
+    REQUIRE(prepared.images.size() == 2);
+    CHECK(prepared.images[0].srgb);    // the base color is decoded first, as sRGB
+    CHECK(!prepared.images[1].srgb);
+    const PreparedMaterial& pm = prepared.materials[0];
+    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::BaseColor)].image == 0);
+    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::BaseColor)].sampler.min_filter == rhi::Filter::Nearest);
+    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::Occlusion)].image == 1);
+    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::Occlusion)].sampler.address_u == rhi::AddressMode::ClampToEdge);
+
+    (void)rig.renderer.model_renderer();
+    const render::ResourceStats samplers_before = rig.renderer.registry().stats(render::ResourceKind::Sampler);
+    const render::GpuModel model = upload_model(rig.renderer, prepared);
+    CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created - samplers_before.created == 2);  // both non-default descriptions
+    // Which of the model's textures is sRGB and which linear: one of each, by the device's own description.
+    uint32_t srgb = 0, linear = 0;
+    for (const render::ResourceInfo& r : rig.renderer.registry().live_resources()) {
+        if (r.kind != render::ResourceKind::Texture || r.name.find("slots/image[0]") != 0) continue;
+        if (r.name.find("(sRGB)") != std::string::npos) ++srgb;
+        if (r.name.find("(linear)") != std::string::npos) ++linear;
+    }
+    CHECK(srgb == 1);
+    CHECK(linear == 1);
+    // The GPU description each prepared image is uploaded with: the color space decides the format, and the mip chain is the whole chain.
+    const rhi::TextureDesc d_srgb = texture_desc_of(prepared.images[0]), d_linear = texture_desc_of(prepared.images[1]);
+    CHECK(d_srgb.format == rhi::Format::RGBA8_SRGB);
+    CHECK(d_linear.format == rhi::Format::RGBA8_UNORM);
+    CHECK(d_srgb.width == 8 && d_srgb.height == 8 && d_srgb.mip_levels == 4);
+    CHECK(has_flag(d_srgb.usage, rhi::TextureUsage::Sampled) && has_flag(d_srgb.usage, rhi::TextureUsage::TransferDst));
+
+    // Bounds: the center of the position box and the farthest vertex from it, checked against the asset's own positions.
+    const Primitive& p = asset.meshes[0].primitives[0];
+    float lo[3] = {p.positions[0], p.positions[1], p.positions[2]}, hi[3] = {lo[0], lo[1], lo[2]};
+    for (std::size_t v = 1; v < p.vertex_count(); ++v) {
+        for (int c = 0; c < 3; ++c) {
+            lo[c] = std::min(lo[c], p.positions[v * 3 + static_cast<std::size_t>(c)]);
+            hi[c] = std::max(hi[c], p.positions[v * 3 + static_cast<std::size_t>(c)]);
+        }
+    }
+    const float center[3] = {(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
+    float far2 = 0.0f;
+    for (std::size_t v = 0; v < p.vertex_count(); ++v) {
+        float d2 = 0.0f;
+        for (int c = 0; c < 3; ++c) {
+            const float d = p.positions[v * 3 + static_cast<std::size_t>(c)] - center[c];
+            d2 += d * d;
+        }
+        far2 = std::max(far2, d2);
+    }
+    const render::GpuPrimitive& gp = model.meshes[0][0];
+    CHECK(std::fabs(gp.bounds_center.x - center[0]) < 1e-6f && std::fabs(gp.bounds_center.y - center[1]) < 1e-6f && std::fabs(gp.bounds_center.z - center[2]) < 1e-6f);
+    CHECK(std::fabs(gp.bounds_radius - std::sqrt(far2)) < 1e-5f);
+    CHECK(gp.bounds_radius > 0.5f);  // a real sphere, not a zero default
 }

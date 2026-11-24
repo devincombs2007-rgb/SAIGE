@@ -18,6 +18,7 @@
 //
 // Frame: local +X forward, +Y left, +Z up (counter-clockwise from above, as make_oriented_box). Positions are chunk-local (see capsule_sweep.hpp's envelope).
 
+#include "saige/physics_material.hpp"
 #include "saige/static_collision.hpp"
 
 #include <array>
@@ -113,7 +114,9 @@ public:
 
     // Advances by `dt` seconds (at least one substep; the last substep is shortened so the time is exact). Throws std::invalid_argument for a non-finite or
     // non-positive dt, a non-finite input, or a chassis outside the collision envelope.
-    void step(const VehicleInput& input, float dt, const StaticCollision& world, QueryScratch& scratch);
+    // `surfaces` (optional, used only during the call, so it need not outlive it) says what each primitive of `world` is made of: the tire's friction circle is scaled by the contact surface's
+    // `tire_grip` and the rolling resistance by its `rolling_resistance` (physics_material.hpp). Without it every surface is Default (both factors 1), which is the behavior before surfaces existed.
+    void step(const VehicleInput& input, float dt, const StaticCollision& world, QueryScratch& scratch, const SurfaceMap* surfaces = nullptr);
 
     [[nodiscard]] const VehicleState& state() const noexcept { return state_; }
     [[nodiscard]] const VehicleConfig& config() const noexcept { return config_; }
@@ -134,7 +137,7 @@ private:
     struct Body {
         double p[3], q[4], v[3], w[3];
     };
-    void substep_once(const VehicleInput& input, double dt, const StaticCollision& world, QueryScratch& scratch);
+    void substep_once(const VehicleInput& input, double dt, const StaticCollision& world, QueryScratch& scratch, const SurfaceMap* surfaces);
     void publish() noexcept;
 
     VehicleConfig config_;

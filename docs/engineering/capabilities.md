@@ -14,6 +14,7 @@ correctness evidence only, never performance evidence. No capability here is har
 | Rendering | GPU skinning, frustum culling, animated bounds | yes | yes | draft PRs | no | no | #87, #83, #99 | |
 | Rendering | Point lights, ray tracing, DLSS, FSR, XeSS | no | no | no | no | no | - | not implemented; not operational |
 | Physics | Capsule character on boxes and triangles | yes | yes | draft PRs | no | no | #69, #70, #73, #74 | |
+| Physics | Physical surface materials (table, SurfaceMap) used by the vehicle tires | yes | yes | pending | no | no | `include/saige/physics_material.hpp`, `docs/physics-materials.md` | tire grip and rolling resistance only so far |
 | Physics | Static collision (BVH, ray casts, region and shape queries), oriented-box and wheel probes | yes | yes | draft PRs | no | no | #80, #88 | |
 | Physics | Raycast vehicle (suspension, tire friction circle, drivetrain, oriented-box chassis, impacts) | yes | yes | yes | no | no | `include/saige/vehicle.hpp` | on the showcase branches |
 | Animation | glTF skins and clips, CPU reference, GPU skinning | yes | yes | draft PRs | no | no | #81, #87 | CC0 humanoid libraries import; no state machine, IK or retargeting yet |

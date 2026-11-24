@@ -152,7 +152,7 @@ void Vehicle::park() noexcept {
     publish();
 }
 
-void Vehicle::step(const VehicleInput& input, float dt, const StaticCollision& world, QueryScratch& scratch) {
+void Vehicle::step(const VehicleInput& input, float dt, const StaticCollision& world, QueryScratch& scratch, const SurfaceMap* surfaces) {
     if (!(dt > 0.0f) || !std::isfinite(dt) || dt > 1.0f) throw std::invalid_argument("Vehicle::step: dt must be finite, positive and at most one second");
     if (!std::isfinite(input.throttle) || !std::isfinite(input.brake) || !std::isfinite(input.steer)) throw std::invalid_argument("Vehicle::step: the input must be finite");
     VehicleInput in = input;
@@ -163,13 +163,13 @@ void Vehicle::step(const VehicleInput& input, float dt, const StaticCollision& w
     const double h = static_cast<double>(substep);
     while (remaining > 1e-9) {
         const double slice = std::min(h, remaining);
-        substep_once(in, slice, world, scratch);
+        substep_once(in, slice, world, scratch, surfaces);
         remaining -= slice;
     }
     publish();
 }
 
-void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCollision& world, QueryScratch& scratch) {
+void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCollision& world, QueryScratch& scratch, const SurfaceMap* surfaces) {
     ++substep_count_;
     const double mass = static_cast<double>(config_.mass);
     Q q{body_.q[0], body_.q[1], body_.q[2], body_.q[3]};
@@ -237,9 +237,12 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
             if (throttle < 0.0) drive *= 0.55;  // reverse is weaker
             fx += drive;
         }
-        fx -= soft_sign(v_long, 0.35) * (static_cast<double>(input.brake) * static_cast<double>(config_.brake_force) / 4.0 + static_cast<double>(config_.rolling_resistance) / 4.0);
+        // What the tire is on: its grip scales the friction circle, its rolling resistance the rolling term (both 1 without a surface map).
+        const PhysicsMaterial& surface = surfaces != nullptr ? surfaces->material_at(contact.primitive) : physics_material(Surface::Default);
+        fx -= soft_sign(v_long, 0.35) * (static_cast<double>(input.brake) * static_cast<double>(config_.brake_force) / 4.0 +
+                                          static_cast<double>(config_.rolling_resistance) * static_cast<double>(surface.rolling_resistance) / 4.0);
         double fy = -corner_mass * v_lat / dt * 0.55;
-        const double limit = static_cast<double>(config_.tire_friction) * spring_force;
+        const double limit = static_cast<double>(config_.tire_friction) * static_cast<double>(surface.tire_grip) * spring_force;
         const double magnitude = std::hypot(fx, fy);
         if (magnitude > limit && magnitude > 0.0) {
             fx *= limit / magnitude;

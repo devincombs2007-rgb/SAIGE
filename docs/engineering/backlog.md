@@ -10,7 +10,7 @@
 
 ## Physics (22%)
 
-1. Physical material table shared by character, vehicle, debris.
+1. Physical materials: table and vehicle tires done (`docs/physics-materials.md`); next consumers are character friction, debris restitution and body contacts, and a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
 2. Vehicle: engine and gearbox curves, differential, tire load sensitivity, damage state, handbrake and drift tests.
 3. Rigid-body stacking and joints; evaluate Jolt and Bullet (license, determinism, maintenance) behind a backend interface; owner approval to adopt.
 4. Water (buoyancy, drag), destruction (fracture of authored meshes).

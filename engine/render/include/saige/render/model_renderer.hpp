@@ -97,6 +97,9 @@ struct SceneLighting {
     Float3 sun_direction{-0.40f, -0.55f, 0.73f};  ///< points toward the sun; not required to be unit length, must not be zero
     Float3 sun_color{1.00f, 0.95f, 0.85f};        ///< linear; may exceed 1 for an HDR output
     Float3 ambient_ground{0.20f, 0.18f, 0.16f};   ///< ambient light arriving from below
+    /// A floor for the sky half of the hemispherical ambient: the sky ambient is max(fog color * 0.6, ambient_ground * ambient_sky_floor). 0 (the default) changes nothing; a host
+    /// raises it at night, when the atmosphere's horizon radiance (and with it the sky ambient) falls to nothing, to keep a faint moonlit fill. Finite and non-negative.
+    float ambient_sky_floor = 0.0f;
 };
 
 /// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.

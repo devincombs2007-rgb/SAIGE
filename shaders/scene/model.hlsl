@@ -181,7 +181,8 @@ float sun_visibility(float3 world_pos, float3 geometric_normal)
 
 float3 ambient_radiance(float3 direction)
 {
-    return lerp(sc_ambient_ground.rgb, sc_fog_color.rgb * 0.6, direction.z * 0.5 + 0.5);
+    const float3 sky = max(sc_fog_color.rgb * 0.6, sc_ambient_ground.rgb * sc_ambient_ground.w);  // w: the host's floor for the sky half (0: none)
+    return lerp(sc_ambient_ground.rgb, sky, direction.z * 0.5 + 0.5);
 }
 
 /// The material contract made concrete at one pixel: factors times textures, in the color space each slot is stored in. `n`, `t`

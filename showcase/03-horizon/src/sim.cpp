@@ -32,8 +32,24 @@ CapsuleCharacterConfig character_config() {
     return c;
 }
 
+// The physics of the showcase car, matched to the licensed CarConcept model (Khronos, CC-BY-4.0): its body spans x -1.94..2.40 (4.34 m), the wheel centers sit at
+// x 1.486 and -1.314, y +-0.98 and 0.384 m above the road, the tire radius is 0.384 m. The chassis box is centered on the body (model x 0.23, z 0.62), so the wheel
+// mounts are given relative to it; the center of mass sits low and between the axles.
 VehicleConfig vehicle_config() {
-    VehicleConfig c;  // the defaults are a mid-size car (see saige/vehicle.hpp)
+    VehicleConfig c;
+    c.mass = 1450.0f;
+    c.half_extents = {2.17f, 1.0f, 0.53f};
+    c.center_of_mass = {-0.14f, 0.0f, -0.30f};
+    c.wheel_radius = 0.384f;
+    c.suspension_travel = 0.40f;
+    c.spring = 36000.0f;
+    c.damper = 4300.0f;
+    c.wheels = {{
+        {{1.256f, 0.98f, 0.065f}, true, false},
+        {{1.256f, -0.98f, 0.065f}, true, false},
+        {{-1.544f, 0.98f, 0.065f}, false, true},
+        {{-1.544f, -0.98f, 0.065f}, false, true},
+    }};
     return c;
 }
 
@@ -84,6 +100,7 @@ Sim::Sim(const World& world) : world_(world), cache_(std::make_unique<Cache>(wor
     timeline_.walk = 19.0;
     timeline_.run = 26.0;
     timeline_.sprint = 30.0;
+    timeline_.end = 142.0;
     const D2 start{96.0, -5.0};
     const double car_x = 165.0, car_y = 7.5;
     // The focus cell and origin first.
@@ -99,7 +116,7 @@ Sim::Sim(const World& world) : world_(world), cache_(std::make_unique<Cache>(wor
     // The car, level, at ride height.
     const double cz = world.height(car_x, car_y) + 0.03;
     VehicleConfig vc = vehicle_config();
-    const double ride = 0.86;
+    const double ride = 0.62;
     vehicle_.emplace(vc, Vec3{static_cast<float>(car_x - origin_.x), static_cast<float>(car_y - origin_.y), static_cast<float>(cz + ride + 0.15)}, 0.0f);
     vehicle_record_ = {true, car_x, car_y, cz, {}, 0.0f, true};
     // Physical props: barrels on the outer shoulder in the car's path before the barrier.
@@ -469,6 +486,8 @@ void Sim::script(double dt) {
         return d;
     };
     const auto enter = [&](Phase p) {
+        if (p == Phase::Jump) timeline_.jump = time_;
+        if (p == Phase::Approach) timeline_.approach = time_;
         phase_ = p;
         phase_time_ = 0.0;
         waypoint_ = 0;

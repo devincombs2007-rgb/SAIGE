@@ -183,7 +183,7 @@ void validate_lighting(const SceneLighting& lighting)
     const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
     const auto non_negative = [](Float3 v) { return v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f; };
     if (!finite(lighting.sun_direction) || !finite(lighting.sun_color) || !finite(lighting.ambient_ground) ||
-        !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground)) {
+        !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground) || !std::isfinite(lighting.ambient_sky_floor) || lighting.ambient_sky_floor < 0.0f) {
         throw std::invalid_argument("SceneLighting must be finite, with non-negative colors");
     }
     Float3 unit;
@@ -381,6 +381,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     sc.ambient_ground[0] = light.ambient_ground.x;
     sc.ambient_ground[1] = light.ambient_ground.y;
     sc.ambient_ground[2] = light.ambient_ground.z;
+    sc.ambient_ground[3] = light.ambient_sky_floor;
     sc.flags[0] = static_cast<float>(shading_);
     static_assert(sizeof(SceneConstants) == 80);
     std::memcpy(scene_default_.data(), &sc, sizeof(sc));
@@ -1079,6 +1080,7 @@ void ModelRenderer::set_lighting_frame(const ModelLightingFrame* frame)
     sc.ambient_ground[0] = frame->lighting.ambient_ground.x;
     sc.ambient_ground[1] = frame->lighting.ambient_ground.y;
     sc.ambient_ground[2] = frame->lighting.ambient_ground.z;
+    sc.ambient_ground[3] = frame->lighting.ambient_sky_floor;
     write_scene_block(reinterpret_cast<const float*>(&sc), sun);
 }
 

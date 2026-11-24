@@ -17,7 +17,7 @@ if(NOT TARGET saige::gfx_assets)
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../gfx_assets ${CMAKE_CURRENT_BINARY_DIR}/gfx_assets)
 endif()
 
-add_library(saige_gfx_scene STATIC src/stage_model.cpp)
+add_library(saige_gfx_scene STATIC src/stage_model.cpp src/prepared_model.cpp)
 add_library(saige::gfx_scene ALIAS saige_gfx_scene)
 target_include_directories(saige_gfx_scene PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(saige_gfx_scene PUBLIC saige::render saige::gfx_assets)

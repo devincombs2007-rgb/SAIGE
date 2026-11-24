@@ -48,6 +48,8 @@ struct StageReport {
     uint64_t vertex_bytes = 0;
     uint64_t index_bytes = 0;
     uint32_t skinned_primitives = 0;  ///< primitives staged with joints and weights (SkinnedModelVertex)
+    double prepare_seconds = 0.0;     ///< CPU preparation (decode, mips, packing), see prepared_model.hpp
+    double upload_seconds = 0.0;      ///< GPU object creation and transfers
 };
 
 /// Throws std::runtime_error with an actionable message (naming the image, mesh or material) on any failure.

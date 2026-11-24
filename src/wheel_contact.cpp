@@ -1,8 +1,10 @@
 #include "saige/wheel_contact.hpp"
 
+#include "saige/capsule_sweep.hpp"
+
 #include <cmath>
 #include <stdexcept>
-#include <vector>
+#include <string>
 
 namespace saige {
 namespace {
@@ -33,17 +35,6 @@ Normalized validate(const WheelProbe& p) {
 
 double dot3(Vec3 a, Vec3 b) noexcept { return static_cast<double>(a.x) * b.x + static_cast<double>(a.y) * b.y + static_cast<double>(a.z) * b.z; }
 
-bool origin_inside_a_box(const StaticCollision& world, Vec3 o) {
-    std::vector<StaticPrimitive> near;
-    world.query_region({o, o}, near);
-    for (const StaticPrimitive& p : near) {
-        if (p.kind != StaticPrimitive::Kind::Box) continue;
-        const Aabb& b = world.boxes()[p.index];
-        if (o.x > b.min.x && o.x < b.max.x && o.y > b.min.y && o.y < b.max.y && o.z > b.min.z && o.z < b.max.z) return true;
-    }
-    return false;
-}
-
 WheelContact classify(WheelContact c, const Normalized& n, const WheelProbe& p) {
     c.slope_cos = static_cast<float>(dot3(c.normal, n.up));
     if (c.status != WheelContactStatus::InitialOverlap) c.status = dot3(c.normal, n.up) >= n.cos_slope ? WheelContactStatus::Support : WheelContactStatus::Blocked;
@@ -53,26 +44,36 @@ WheelContact classify(WheelContact c, const Normalized& n, const WheelProbe& p) 
     return c;
 }
 
+// A sphere is a capsule as tall as it is wide: feet at the bottom of the sphere.
+Capsule sphere_of(const WheelProbe& p) noexcept { return Capsule{{p.origin.x, p.origin.y, p.origin.z - p.radius}, p.radius, 2.0f * p.radius}; }
+Vec3 displacement_of(const WheelProbe& p, const Normalized& n) noexcept {
+    return {n.direction.x * p.length, n.direction.y * p.length, n.direction.z * p.length};
+}
+
+// Everything that can make a probe throw, before anything is answered: its scalars and, for a sphere, the exact sweep envelope the capsule sweep will check.
+Normalized prepare(const WheelProbe& p) {
+    const Normalized n = validate(p);
+    if (p.radius != 0.0f) check_sweep_envelope(sphere_of(p), displacement_of(p, n));
+    return n;
+}
+
 WheelContact answer(const StaticCollision& world, const WheelProbe& p, const Normalized& n, QueryScratch& scratch) {
     WheelContact c;
     if (p.radius == 0.0f) {
-        const auto hit = world.raycast(p.origin, n.direction, p.length);
+        const auto hit = world.raycast(p.origin, n.direction, p.length, RayMode::Surface);
         if (!hit) return c;
         c.distance = hit->distance;
         c.point = hit->point;
         c.normal = hit->normal;
         c.primitive = hit->primitive;
-        if (hit->distance == 0.0 && origin_inside_a_box(world, p.origin)) {
+        if (hit->started_inside) {
             c.status = WheelContactStatus::InitialOverlap;
             c.normal = {-n.direction.x, -n.direction.y, -n.direction.z};
             c.point = p.origin;
         }
         return classify(c, n, p);
     }
-    // A sphere is a capsule as tall as it is wide: feet at the bottom of the sphere.
-    const Capsule sphere{{p.origin.x, p.origin.y, p.origin.z - p.radius}, p.radius, 2.0f * p.radius};
-    const Vec3 displacement{n.direction.x * p.length, n.direction.y * p.length, n.direction.z * p.length};
-    const auto hit = world.sweep_capsule(sphere, displacement, scratch);
+    const auto hit = world.sweep_capsule(sphere_of(p), displacement_of(p, n), scratch);
     if (!hit) return c;
     c.primitive = hit->primitive;
     c.normal = hit->hit.normal;
@@ -94,16 +95,16 @@ WheelContact probe_wheel(const StaticCollision& world, const WheelProbe& probe) 
 }
 
 WheelContact probe_wheel(const StaticCollision& world, const WheelProbe& probe, QueryScratch& scratch) {
-    const Normalized n = validate(probe);
+    const Normalized n = prepare(probe);
     return answer(world, probe, n, scratch);
 }
 
 void probe_wheels(const StaticCollision& world, std::span<const WheelProbe> probes, std::span<WheelContact> out, QueryScratch& scratch) {
     if (probes.size() != out.size()) throw std::invalid_argument("probe_wheels: one output per probe");
-    std::vector<Normalized> normalized;
-    normalized.reserve(probes.size());
-    for (const WheelProbe& p : probes) normalized.push_back(validate(p));  // every probe is checked before any is answered
-    for (std::size_t i = 0; i < probes.size(); ++i) out[i] = answer(world, probes[i], normalized[i], scratch);
+    // Every probe is checked, to the exact sphere envelope, before any is answered: a bad one throws with `out` untouched. The second pass recomputes the
+    // normalization rather than storing it, so the batch allocates nothing of its own.
+    for (const WheelProbe& p : probes) static_cast<void>(prepare(p));
+    for (std::size_t i = 0; i < probes.size(); ++i) out[i] = answer(world, probes[i], validate(probes[i]), scratch);
 }
 
 } // namespace saige

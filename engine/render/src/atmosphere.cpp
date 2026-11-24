@@ -64,6 +64,9 @@ void validate_atmosphere(const AtmosphereSettings& a) {
         throw std::invalid_argument("AtmosphereSettings: radii, heights, scale heights, the Rayleigh coefficients and the sun intensity must be positive; the Mie coefficient and exposure not negative");
     }
     if (a.mie_g < -0.99f || a.mie_g > 0.99f) throw std::invalid_argument("AtmosphereSettings: the Mie anisotropy must be within -0.99 to 0.99");
+    for (const float v : {a.sun_disc_intensity, a.moon_intensity, a.star_intensity}) {
+        if (!std::isfinite(v) || v < 0.0f || v > 1.0e6f) throw std::invalid_argument("AtmosphereSettings: the sun disc, moon and star intensities must be finite and in 0 to 1e6");
+    }
     if (a.observer_height_km < 0.0f || a.observer_height_km >= a.atmosphere_height_km) {
         throw std::invalid_argument("AtmosphereSettings: the observer must be above the ground and below the top of the atmosphere");
     }
@@ -145,6 +148,82 @@ Float3 sun_transmittance(const AtmosphereSettings& a, Float3 to_sun_in) {
     }
     const auto channel = [&](double beta) { return static_cast<float>(std::exp(-(beta * od_r + 1.1 * k.beta_m * od_m))); };
     return {channel(k.beta_r[0]), channel(k.beta_r[1]), channel(k.beta_r[2])};
+}
+
+namespace {
+
+/// A disc of angular radius `radius` around the unit vector `center`, seen along the unit vector `d`: sin(theta) is used rather than acos(dot), which has no precision left at half a degree.
+float disc_profile(const D3& d, const D3& center, float radius) {
+    if (dot(d, center) <= 0.0) return 0.0f;
+    const D3 c{d[1] * center[2] - d[2] * center[1], d[2] * center[0] - d[0] * center[2], d[0] * center[1] - d[1] * center[0]};
+    const float sin_theta = static_cast<float>(std::sqrt(dot(c, c)));
+    const float x = sin_theta / std::sin(radius);
+    if (!(x < 1.0f)) return 0.0f;
+    const float mu = std::sqrt(std::max(0.0f, 1.0f - x * x));
+    const float limb = 1.0f - 0.6f * (1.0f - mu);
+    const float t = std::min(std::max((x - 0.85f) / 0.15f, 0.0f), 1.0f);
+    return limb * (1.0f - t * t * (3.0f - 2.0f * t));
+}
+
+uint32_t hash_u(uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x7feb352dU;
+    x ^= x >> 15;
+    x *= 0x846ca68bU;
+    x ^= x >> 16;
+    return x;
+}
+float u01(uint32_t h) { return static_cast<float>(h >> 8) * (1.0f / 16777216.0f); }
+
+}  // namespace
+
+Float3 sun_disc_radiance(const AtmosphereSettings& a, Float3 view_dir, Float3 to_sun_in) {
+    if (!(a.sun_disc_intensity > 0.0f)) return {};
+    const D3 d = normalized(to_d3(view_dir)), sun = normalized(to_d3(to_sun_in));
+    const float profile = disc_profile(d, sun, kSunAngularRadius);
+    if (!(profile > 0.0f)) return {};
+    const Float3 t = sun_transmittance(a, to_sun_in);
+    const float k = a.sun_disc_intensity * profile;
+    return {t.x * k, t.y * k, t.z * k};
+}
+
+Float3 moon_radiance(const AtmosphereSettings& a, Float3 view_dir, Float3 to_sun_in) {
+    if (!(a.moon_intensity > 0.0f)) return {};
+    const D3 d = normalized(to_d3(view_dir)), sun = normalized(to_d3(to_sun_in));
+    const D3 moon{-sun[0], -sun[1], -sun[2]};
+    const float profile = disc_profile(d, moon, kMoonAngularRadius);
+    if (!(profile > 0.0f)) return {};
+    const Float3 t = sun_transmittance(a, Float3{static_cast<float>(moon[0]), static_cast<float>(moon[1]), static_cast<float>(moon[2])});
+    const float k = a.moon_intensity * profile;
+    return {t.x * k, t.y * k, t.z * k};
+}
+
+Float3 star_radiance(const AtmosphereSettings& a, Float3 view_dir, Float3 to_sun_in) {
+    if (!(a.star_intensity > 0.0f)) return {};
+    const D3 dd = normalized(to_d3(view_dir)), sd = normalized(to_d3(to_sun_in));
+    const float dz = static_cast<float>(dd[2]), sun_z = static_cast<float>(sd[2]);
+    const float night_t = std::min(std::max((sun_z + 0.0175f) / -0.1745f, 0.0f), 1.0f);  // 1 degree below the horizon begins, 11 degrees is full dark (sin of the angles, close enough)
+    const float night = night_t * night_t * (3.0f - 2.0f * night_t);
+    const float up_t = std::min(std::max(dz / 0.2f, 0.0f), 1.0f);
+    const float horizon = up_t * up_t * (3.0f - 2.0f * up_t);
+    if (!(night > 0.0f) || !(horizon > 0.0f)) return {};
+    const float px = static_cast<float>(dd[0]) * 64.0f, py = static_cast<float>(dd[1]) * 64.0f, pz = static_cast<float>(dd[2]) * 64.0f;
+    const int32_t ix = static_cast<int32_t>(std::floor(px)), iy = static_cast<int32_t>(std::floor(py)), iz = static_cast<int32_t>(std::floor(pz));
+    const uint32_t h = hash_u(static_cast<uint32_t>(ix) ^ hash_u((static_cast<uint32_t>(iy) + 0x9e3779b9U) ^ hash_u(static_cast<uint32_t>(iz) + 0x85ebca6bU)));
+    if (!(u01(h) < 0.5f)) return {};
+    const float cx = static_cast<float>(ix) + 0.2f + 0.6f * u01(hash_u(h + 1u)), cy = static_cast<float>(iy) + 0.2f + 0.6f * u01(hash_u(h + 2u)),
+                cz = static_cast<float>(iz) + 0.2f + 0.6f * u01(hash_u(h + 3u));
+    const float dist = std::sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy) + (pz - cz) * (pz - cz));
+    const float falloff = std::max(0.0f, 1.0f - dist / 0.12f);
+    if (!(falloff > 0.0f)) return {};
+    const float b = u01(hash_u(h + 4u)), tint = u01(hash_u(h + 5u));
+    const float level = a.star_intensity * night * horizon * (0.3f + 0.7f * b * b) * falloff * falloff;
+    return {level * (1.0f + (0.7f - 1.0f) * tint), level * (0.85f + (0.8f - 0.85f) * tint), level * (0.7f + (1.0f - 0.7f) * tint)};
+}
+
+Float3 sky_with_bodies(const AtmosphereSettings& a, Float3 view_dir, Float3 to_sun) {
+    const Float3 sky = sky_radiance(a, view_dir, to_sun), sun = sun_disc_radiance(a, view_dir, to_sun), moon = moon_radiance(a, view_dir, to_sun), stars = star_radiance(a, view_dir, to_sun);
+    return {sky.x + sun.x + moon.x + stars.x, sky.y + sun.y + moon.y + stars.y, sky.z + sun.z + moon.z + stars.z};
 }
 
 Float3 sky_horizon_color(const AtmosphereSettings& a, Float3 to_sun) {

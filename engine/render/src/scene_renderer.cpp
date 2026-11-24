@@ -607,13 +607,13 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 const Float3 right = camera_right(cam) * (tan_half * aspect), up = camera_up(cam) * tan_half, fwd = camera_forward(cam);
                 const Float3 sun = frame_sun;
                 SkyConstants sk{};
-                fill4(sk.right, right.x, right.y, right.z, 0.0f);
+                fill4(sk.right, right.x, right.y, right.z, at.sun_disc_intensity);
                 fill4(sk.up, up.x, up.y, up.z, at.exposure);
                 fill4(sk.forward, fwd.x, fwd.y, fwd.z, at.sun_intensity);
                 fill4(sk.to_sun, sun.x, sun.y, sun.z, at.mie_g);
                 fill4(sk.geometry, at.planet_radius_km, at.planet_radius_km + at.atmosphere_height_km, at.rayleigh_scale_height_km, at.mie_scale_height_km);
                 fill4(sk.beta_r, at.rayleigh_coefficient.x, at.rayleigh_coefficient.y, at.rayleigh_coefficient.z, at.mie_coefficient);
-                fill4(sk.misc, settings_.hdr ? 0.0f : 1.0f, at.observer_height_km, 0.0f, 0.0f);
+                fill4(sk.misc, settings_.hdr ? 0.0f : 1.0f, at.observer_height_km, at.moon_intensity, at.star_intensity);
                 c.bind_pipeline(sky_pipeline_);
                 c.push_constant_struct(sk);
                 c.draw(3);

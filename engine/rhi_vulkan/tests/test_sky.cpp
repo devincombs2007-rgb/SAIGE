@@ -191,3 +191,111 @@ TEST_CASE("Sky: a sun direction of any finite magnitude gives the sky, the fog a
         CHECK(worst <= 1);  // sky, horizon fog on the ground and the lit cube all follow the same direction
     }
 }
+
+// ---- Celestial bodies on the GPU ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+constexpr float kNarrowFov = 4.0f * 3.14159265f / 180.0f;
+constexpr float kMidFov = 40.0f * 3.14159265f / 180.0f;
+
+struct BodyCompare {
+    int compared = 0, bad = 0, lit = 0;
+    float worst = 0.0f;
+};
+
+/// Renders the sky pass for `settings` toward `camera` and compares every pixel with `ldr(sky_with_bodies(...))`.
+BodyCompare compare_bodies(const RendererSettings& settings, const Camera& camera, Float3 sun, float tolerance, const char* name)
+{
+    const Image img = render_sky(settings, camera, name);
+    BodyCompare out;
+    for (int y = 0; y < static_cast<int>(kH); ++y) {
+        for (int x = 0; x < static_cast<int>(kW); ++x) {
+            const Float3 d = pixel_direction(camera, x, y);
+            const Float3 want = ldr(sky_with_bodies(settings.atmosphere, d, normalize(sun)), settings.atmosphere.exposure);
+            const Float3 got = linear_at(img, x, y);
+            const float err = std::max({std::fabs(got.x - want.x), std::fabs(got.y - want.y), std::fabs(got.z - want.z)});
+            ++out.compared;
+            out.worst = std::max(out.worst, err);
+            const Float3 plain = ldr(sky_radiance(settings.atmosphere, d, normalize(sun)), settings.atmosphere.exposure);
+            if (std::fabs(want.x - plain.x) + std::fabs(want.y - plain.y) + std::fabs(want.z - plain.z) > 0.05f) ++out.lit;  // pixels where a body is visible
+            if (err > tolerance) {
+                if (++out.bad <= 5) std::printf("  pixel (%d, %d): got (%.3f %.3f %.3f) want (%.3f %.3f %.3f)\n", x, y, static_cast<double>(got.x), static_cast<double>(got.y), static_cast<double>(got.z),
+                                                static_cast<double>(want.x), static_cast<double>(want.y), static_cast<double>(want.z));
+            }
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("Sky bodies: the sun's disc and the moon match the CPU reference pixel by pixel, and the disc sits where the sun is")
+{
+    // The sun's disc: a narrow view centered a little off the sun, so the disc, its soft edge and the sky around it are all in the image.
+    {
+        const Float3 sun = dir_from(30.0, 40.0);
+        RendererSettings s = sky_settings(sun, 1.0f);
+        s.atmosphere.sun_disc_intensity = 2.0f;
+        const Float3 look = dir_from(30.0 + 0.4, 40.0 + 0.5);
+        const Camera camera = look_at_camera({0.0f, 0.0f, 1.0f}, Float3{0, 0, 1} + look * 5.0f, {0.0f, 0.0f, 1.0f}, kNarrowFov);
+        const BodyCompare c = compare_bodies(s, camera, sun, 0.04f, "sky_disc");
+        std::printf("  sun disc: %d pixels, %d show the disc, %d off by more than 0.04 (worst %.3f)\n", c.compared, c.lit, c.bad, static_cast<double>(c.worst));
+        CHECK(c.lit >= 150);                 // the disc is about 16 pixels across at this field of view
+        CHECK(c.bad <= 6);                   // at most a few pixels on the soft edge differ by rounding
+        CHECK(c.worst <= 0.3f);
+        // Without the disc the same view is just sky: the disc is what the intensity adds.
+        RendererSettings none = s;
+        none.atmosphere.sun_disc_intensity = 0.0f;
+        const Image with = render_sky(s, camera, "sky_disc_on"), without = render_sky(none, camera, "sky_disc_off");
+        int differing = 0;
+        for (uint32_t y = 0; y < kH; ++y) {
+            for (uint32_t x = 0; x < kW; ++x) differing += max_channel_delta(with.at(x, y), without.at(x, y)) > 8 ? 1 : 0;
+        }
+        CHECK(differing >= 150);
+    }
+    // The moon: the sun is below the horizon, the moon opposite it, above.
+    {
+        const Float3 sun = dir_from(-20.0, 40.0);
+        RendererSettings s = sky_settings(sun, 1.0f);
+        s.atmosphere.moon_intensity = 1.5f;
+        const Float3 moon = dir_from(20.0, 220.0);
+        const Float3 look = dir_from(20.0 + 0.3, 220.0 - 0.4);
+        const Camera camera = look_at_camera({0.0f, 0.0f, 1.0f}, Float3{0, 0, 1} + look * 5.0f, {0.0f, 0.0f, 1.0f}, kNarrowFov);
+        (void)moon;
+        const BodyCompare c = compare_bodies(s, camera, sun, 0.04f, "sky_moon");
+        std::printf("  moon: %d pixels, %d show it, %d off by more than 0.04 (worst %.3f)\n", c.compared, c.lit, c.bad, static_cast<double>(c.worst));
+        CHECK(c.lit >= 150);
+        CHECK(c.bad <= 6);
+    }
+}
+
+TEST_CASE("Sky bodies: stars match the CPU field pixel by pixel at night, and the sky is empty of them in daylight")
+{
+    const Float3 night_sun = dir_from(-40.0, 0.0);
+    RendererSettings s = sky_settings(night_sun, 1.0f);
+    s.atmosphere.star_intensity = 3.0f;
+    const Float3 look = dir_from(65.0, 100.0);
+    const Camera camera = look_at_camera({0.0f, 0.0f, 1.0f}, Float3{0, 0, 1} + look * 5.0f, {0.0f, 0.0f, 1.0f}, kMidFov);
+    const BodyCompare c = compare_bodies(s, camera, night_sun, 0.05f, "sky_stars");
+    std::printf("  stars: %d pixels, %d show a star, %d off by more than 0.05 (worst %.3f)\n", c.compared, c.lit, c.bad, static_cast<double>(c.worst));
+    CHECK(c.lit >= 25);
+    CHECK(c.bad <= c.lit / 10 + 1);  // a star whose cell boundary is rounded the other way on the GPU is the only legitimate difference
+    // Toward the horizon the stars fade out and stop at it: a view straddling the horizon (the sky is below it too, where the planet is, and nothing there is a star).
+    const Float3 low_look = dir_from(8.0, 100.0);
+    const Camera low_camera = look_at_camera({0.0f, 0.0f, 1.0f}, Float3{0, 0, 1} + low_look * 5.0f, {0.0f, 0.0f, 1.0f}, kMidFov);
+    RendererSettings dense = s;
+    dense.atmosphere.star_intensity = 40.0f;  // bright enough that a star the horizon fade wrongly lets through would show
+    const BodyCompare low = compare_bodies(dense, low_camera, night_sun, 0.05f, "sky_stars_horizon");
+    std::printf("  stars at the horizon: %d show a star, %d off by more than 0.05 (worst %.3f)\n", low.lit, low.bad, static_cast<double>(low.worst));
+    CHECK(low.lit >= 5);
+    CHECK(low.bad <= low.lit / 10 + 1);
+    // Daylight: the same view with the sun up has no stars.
+    const Float3 day_sun = dir_from(40.0, 0.0);
+    RendererSettings day = sky_settings(day_sun, 1.0f);
+    day.atmosphere.star_intensity = 3.0f;
+    RendererSettings off = day;
+    off.atmosphere.star_intensity = 0.0f;
+    const Image a = render_sky(day, camera, "sky_stars_day"), b = render_sky(off, camera, "sky_stars_off");
+    CHECK(a.rgba == b.rgba);
+}

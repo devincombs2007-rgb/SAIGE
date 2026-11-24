@@ -4,6 +4,7 @@
 // sink adapter (engine/render_sink) feeds it from Core's FrameView.
 #pragma once
 
+#include "saige/render/atmosphere.hpp"
 #include "saige/render/camera.hpp"
 #include "saige/render/gpu_resources.hpp"
 #include "saige/render/model.hpp"
@@ -64,6 +65,11 @@ struct RendererSettings {
     float fog_density = 0.012f;                      ///< per meter
     ModelShading model_shading = ModelShading::Legacy;  ///< shading model of imported models (the 0.1 cube and ground are unaffected)
     SceneLighting lighting;                          ///< sun and ground ambient of imported models; defaults are the long-standing look
+    /// A single-scattering atmosphere (atmosphere.hpp). Off by default (a flat `sky` clear color, exactly as before). On: a sky pass draws the sky behind everything
+    /// from the sun direction of `lighting` (the same normalized vector the lighting uses), and the fog color (and with it the models' ambient sky color) becomes the
+    /// horizon color of that sky, so distant things fade into the sky they are seen against. In an LDR scene the radiance goes through 1 - exp(-x); in HDR it is left
+    /// to the tone map. Fixed at construction; the sun direction and the atmosphere do not change while the renderer lives (see docs/rendering/atmosphere.md).
+    AtmosphereSettings atmosphere;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target
@@ -150,6 +156,12 @@ private:
     RendererSettings settings_;
     rhi::ShaderHandle cube_vs_, cube_ps_, ground_vs_, ground_ps_;
     rhi::PipelineHandle cube_pipeline_, ground_pipeline_;
+    // The sky pass, created on the first frame that needs it (so a failure there is a failed frame, not a half-built renderer).
+    rhi::ShaderHandle sky_vs_, sky_ps_;
+    rhi::PipelineHandle sky_pipeline_;
+    void ensure_sky();
+    [[nodiscard]] Camera sky_camera(const SceneFrame& frame) const;  ///< the camera the frame is drawn with (the explicit one, or the follow/fixed camera's)
+    [[nodiscard]] Float3 atmosphere_fog() const;  ///< the horizon color the fog fades to when the atmosphere is on, display-referred in an LDR scene
     rhi::BufferHandle cube_vertices_, cube_indices_;
     rhi::TextureHandle depth_;
     uint32_t target_width_ = 0;

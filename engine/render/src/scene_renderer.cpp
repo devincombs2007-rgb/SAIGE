@@ -2,6 +2,7 @@
 
 #include "saige/shaders/scene_cube.spv.hpp"
 #include "saige/shaders/scene_ground.spv.hpp"
+#include "saige/shaders/scene_sky.spv.hpp"
 
 #include <cmath>
 #include <stdexcept>
@@ -76,11 +77,35 @@ CubeMesh make_unit_cube()
     return mesh;
 }
 
+namespace {
+
+/// The atmosphere is validated before the renderer acquires anything from the device (a settings error is an exception, not a leak).
+void validate_atmosphere_settings(const RendererSettings& settings)
+{
+    if (settings.atmosphere.enabled) {
+        validate_atmosphere(settings.atmosphere);
+    }
+}
+
+/// Push constants of the sky shader (shaders/scene/sky.hlsl), 112 bytes.
+struct SkyConstants {
+    float right[4];     ///< camera right * tan(fov / 2) * aspect
+    float up[4];        ///< camera up * tan(fov / 2); w: exposure
+    float forward[4];   ///< camera forward; w: sun intensity
+    float to_sun[4];    ///< unit vector toward the sun; w: Mie anisotropy
+    float geometry[4];  ///< planet radius, top radius, Rayleigh and Mie scale heights (km)
+    float beta_r[4];    ///< Rayleigh coefficients per km; w: Mie coefficient
+    float misc[4];      ///< x: 1 to apply 1 - exp(-x); y: observer height (km)
+};
+static_assert(sizeof(SkyConstants) == 112);
+
+} // namespace
+
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_((validate_lighting(settings.lighting), settings)),
+      settings_((validate_lighting(settings.lighting), validate_atmosphere_settings(settings), settings)),
       registry_(device)
 {
     using namespace saige::shaders;
@@ -130,8 +155,51 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     cube_indices_ = device_.create_buffer(ib, std::as_bytes(std::span(mesh.indices)));
 }
 
+Float3 SceneRenderer::atmosphere_fog() const
+{
+    Float3 sun = settings_.lighting.sun_direction;
+    sun = normalize(sun);
+    Float3 h = sky_horizon_color(settings_.atmosphere, sun);
+    if (!settings_.hdr) {  // nothing downstream tone maps an LDR scene: the same curve the sky pass applies
+        h = {1.0f - std::exp(-h.x), 1.0f - std::exp(-h.y), 1.0f - std::exp(-h.z)};
+    }
+    return h;
+}
+
+void SceneRenderer::ensure_sky()
+{
+    if (sky_pipeline_.is_valid()) {
+        return;
+    }
+    using namespace saige::shaders;
+    rhi::ShaderHandle vs, ps;
+    try {
+        vs = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_sky_vs_main), "VSMain", "SceneSky.VS"});
+        ps = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_sky_ps_main), "PSMain", "SceneSky.PS"});
+        rhi::GraphicsPipelineDesc pd;
+        pd.vertex_shader = vs;
+        pd.pixel_shader = ps;
+        pd.cull_mode = rhi::CullMode::None;
+        pd.depth = {false, false, rhi::CompareOp::Greater};  // behind everything: tests and writes no depth
+        pd.color_formats = {scene_format_};
+        pd.depth_format = depth_format;
+        pd.push_constant_size = sizeof(SkyConstants);
+        pd.debug_name = "SceneSky";
+        sky_pipeline_ = device_.create_graphics_pipeline(pd);
+    } catch (...) {
+        if (ps.is_valid()) device_.destroy(ps);
+        if (vs.is_valid()) device_.destroy(vs);
+        throw;
+    }
+    sky_vs_ = vs;
+    sky_ps_ = ps;
+}
+
 SceneRenderer::~SceneRenderer()
 {
+    if (sky_pipeline_.is_valid()) device_.destroy(sky_pipeline_);
+    if (sky_ps_.is_valid()) device_.destroy(sky_ps_);
+    if (sky_vs_.is_valid()) device_.destroy(sky_vs_);
     release_targets(device_, depth_, hdr_, hdr_input_);
     device_.destroy(cube_indices_);
     device_.destroy(cube_vertices_);
@@ -221,6 +289,14 @@ Mat4 SceneRenderer::view_projection(const SceneFrame& frame, float aspect) const
     return proj * view;
 }
 
+Camera SceneRenderer::sky_camera(const SceneFrame& frame) const
+{
+    if (frame.camera != nullptr) {
+        return *frame.camera;
+    }
+    return look_at_camera(camera_eye(frame), camera_target(frame), {0.0f, 0.0f, 1.0f}, settings_.fov_y_radians, settings_.near_plane);
+}
+
 float SceneRenderer::instance_yaw(const SceneFrame& frame, const SceneInstance& instance) const
 {
     const double seconds = (static_cast<double>(frame.tick) + frame.alpha) * settings_.seconds_per_tick;
@@ -233,6 +309,10 @@ ModelRenderer& SceneRenderer::model_renderer()
     if (!models_) {
         ModelRenderSettings ms;
         ms.sky = settings_.sky;
+        if (settings_.atmosphere.enabled) {
+            const Float3 fog = atmosphere_fog();
+            ms.sky = {fog.x, fog.y, fog.z, 1.0f};  // the models' fog and ambient sky color follow the horizon
+        }
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
@@ -252,6 +332,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
+    if (settings_.atmosphere.enabled) {
+        ensure_sky();  // first, with nothing else created yet: a device failure is a failed frame that leaves nothing behind
+    }
     ensure_targets(target.width, target.height);
 
     const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
@@ -259,7 +342,12 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     constants.view_proj = view_projection(frame, aspect);
     const Float3 eye = camera_eye(frame);
     fill4(constants.camera_fog, eye.x, eye.y, eye.z, settings_.fog_density);
-    fill4(constants.fog_color, settings_.sky.r, settings_.sky.g, settings_.sky.b, 1.0f);
+    rhi::ClearColor clear = settings_.sky;
+    if (settings_.atmosphere.enabled) {
+        const Float3 fog = atmosphere_fog();
+        clear = {fog.x, fog.y, fog.z, 1.0f};
+    }
+    fill4(constants.fog_color, clear.r, clear.g, clear.b, 1.0f);
 
     graph_.reset();
     const RGTexture color = graph_.import_texture("SceneColor", *color_desc, target.texture, target.initial_state,
@@ -298,7 +386,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
             ca.texture = scene_texture;
             ca.load = rhi::AttachmentLoadOp::Clear;
             ca.store = rhi::AttachmentStoreOp::Store;
-            ca.clear = settings_.sky;
+            ca.clear = clear;
             rd.colors.push_back(ca);
             rhi::DepthAttachment da;
             da.texture = depth_;
@@ -309,6 +397,26 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
             c.set_viewport({0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f,
                             1.0f});
             c.set_scissor({0, 0, target.width, target.height});
+
+            if (settings_.atmosphere.enabled) {
+                const AtmosphereSettings& at = settings_.atmosphere;
+                const Camera cam = sky_camera(frame);
+                const float tan_half = std::tan(cam.fov_y_radians * 0.5f);
+                const Float3 right = camera_right(cam) * (tan_half * aspect), up = camera_up(cam) * tan_half, fwd = camera_forward(cam);
+                const Float3 sun = normalize(settings_.lighting.sun_direction);
+                SkyConstants sk{};
+                fill4(sk.right, right.x, right.y, right.z, 0.0f);
+                fill4(sk.up, up.x, up.y, up.z, at.exposure);
+                fill4(sk.forward, fwd.x, fwd.y, fwd.z, at.sun_intensity);
+                fill4(sk.to_sun, sun.x, sun.y, sun.z, at.mie_g);
+                fill4(sk.geometry, at.planet_radius_km, at.planet_radius_km + at.atmosphere_height_km, at.rayleigh_scale_height_km, at.mie_scale_height_km);
+                fill4(sk.beta_r, at.rayleigh_coefficient.x, at.rayleigh_coefficient.y, at.rayleigh_coefficient.z, at.mie_coefficient);
+                fill4(sk.misc, settings_.hdr ? 0.0f : 1.0f, at.observer_height_km, 0.0f, 0.0f);
+                c.bind_pipeline(sky_pipeline_);
+                c.push_constant_struct(sk);
+                c.draw(3);
+                ++stats.draw_calls;
+            }
 
             DrawConstants dc = constants;
             c.bind_pipeline(ground_pipeline_);

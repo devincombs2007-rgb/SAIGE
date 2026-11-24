@@ -78,7 +78,8 @@ struct ModelFrameStats {
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
     uint32_t skinned_draws = 0;      ///< draw calls of skinned primitives (opaque, sorted and shadow phases together)
     uint32_t skinned_skipped = 0;    ///< skinned primitives not drawn: skinning is off in this renderer, or the palette has fewer joints than the primitive uses
-    uint32_t skinned_cull_bypassed = 0;  ///< skinned primitives drawn without a frustum test, because their bind-pose bounds say nothing about the posed mesh (no per-pose bounds yet)
+    uint32_t skinned_cull_bypassed = 0;  ///< skinned primitives drawn without a frustum test: they carry no per-joint bounds (hand-built, or weights that do not sum to one)
+    uint32_t skinned_culled = 0;         ///< skinned primitives skipped because their conservative posed bounds are outside the frustum (also counted in primitives_culled)
     uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
 };
 
@@ -259,6 +260,12 @@ public:
     /// scissor set by the caller): the primitives of materials that cast (`MaterialData::casts_sun_shadow`), depth only, without
     /// materials. Throws std::logic_error if shadows are off.
     void draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_proj, std::span<const ModelDraw> draws, ModelFrameStats& stats);
+
+    /// The conservative world-space box of a skinned primitive in a pose: the union, over the joints that influence it, of the joint's bind-space box (`GpuPrimitive::joint_bounds`)
+    /// carried by that joint's skin matrix in `palette` and by `world`, with a margin of 1e-3 of the box's distance from the origin plus the placement's translation (the tolerance on the weights' sum that staging accepts). A posed vertex is a convex combination of
+    /// the points those matrices carry its bind position to, so it lies inside the box whatever the pose. Returns false (the outputs unspecified) when no box can be made: the
+    /// primitive has no joint bounds, the palette is smaller than they are, nothing is used, or a coordinate is not finite. This is what frustum culling tests.
+    [[nodiscard]] static bool posed_world_bounds(const GpuPrimitive& prim, const SkinPalette& palette, const Mat4& world, Float3& lo, Float3& hi) noexcept;
 
     [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }

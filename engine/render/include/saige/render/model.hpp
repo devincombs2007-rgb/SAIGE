@@ -40,6 +40,13 @@ static_assert(sizeof(SkinnedModelVertex) == 72, "SkinnedModelVertex must match t
 /// The most joints one skin palette holds: 256 affine matrices of 48 bytes fit one 16 KiB uniform binding, the portable minimum.
 inline constexpr uint32_t kMaxSkinJoints = 256;
 
+/// The axis-aligned box, in the skinned mesh's bind space, of the vertices a joint influences (weight above zero); `used` is false for a joint no vertex uses.
+struct JointBounds {
+    Float3 min{};
+    Float3 max{};
+    bool used = false;
+};
+
 struct GpuPrimitive {
     BufferRef vertices;
     BufferRef indices;
@@ -56,6 +63,10 @@ struct GpuPrimitive {
     /// For a skinned primitive: one more than the largest joint index any vertex references. A draw whose palette has fewer joints skips it
     /// (counted in ModelFrameStats::skinned_skipped) instead of reading past the palette.
     uint32_t joint_limit = 0;
+    /// For a skinned primitive staged with per-pose bounds: one box per joint (size `joint_limit`), in bind space. A posed vertex is a convex combination of the points
+    /// `skin_matrix[j] * bind_position` of the joints that influence it, so the union of each joint's box transformed by that joint's skin matrix bounds the posed primitive,
+    /// whatever the pose (ModelRenderer culls with it). Empty: no bound is known (hand-built models, weights that do not sum to one) and the primitive is never culled.
+    std::vector<JointBounds> joint_bounds;
 };
 
 struct GpuMaterial {

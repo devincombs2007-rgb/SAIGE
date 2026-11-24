@@ -20,5 +20,5 @@ correctness evidence only, never performance evidence. No capability here is har
 | Core | Streaming cells, origin migration, background preparation | yes | yes | draft PRs | no | no | #60, #63, #86 | |
 | Core | Perf instrumentation | yes | yes | draft | no | no | #68 | |
 | Showcase | Showcase 03 sim, props table, wheel rig, time-of-day ramp | yes | yes | D2 head yes; D1 head pending | no | no | `claude/production-infrastructure` | film delivered, build 9c87457 |
-| Assets | Catalog (about 105 records), validator and importer check, prep pipeline | yes | yes | yes | no | no | `tools/production`, `assets/catalog` | one Python test skipped in this container (missing optional dependency) |
+| Assets | Catalog (about 105 records), validator and importer check, prep pipeline | yes | yes | yes | no | no | `tools/production`, `assets/catalog` | one Python test skips unless the tools venv is at its default path (its 10 tests pass when run with `SAIGE_TOOLS_HOME` set) |
 | Audio | miniaudio proof of concept (Doppler, pan, attenuation, occlusion, reverb, RPM blend) | yes | yes | no | no | no | `docs/assets/audio.md` | PoC, not an engine subsystem |

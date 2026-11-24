@@ -6,7 +6,7 @@
 * The unlit window material is a flat dark glass; lit windows have no interior and light nothing around them.
 * Wheel-of-a-wagon aliasing at 30 fps; add temporal supersampling (average sub-frames) to the offline capture path before any further film.
 * Brake pads are drawn rigidly with the wheel and so spin with it; mount them on the hub.
-* `production_tools_python` skips in the container for a missing optional dependency; record the dependency and install it in `tools/production/setup`.
+* `production_tools_python` skips when the tools venv is not at `$SAIGE_TOOLS_HOME` or `~/.saige-tools`; make CI create it with `tools/production/setup.sh` so the test runs rather than skips.
 
 ## Physics (22%)
 
@@ -30,7 +30,7 @@
 
 1. `catalog validate` in CI; license matrix check.
 2. Windows bootstrap and qualification scripts.
-3. Dependency and toolchain audit script (`tools/audit`): Vulkan SDK and headers, CMake, GCC, Clang, MSVC, C++23 readiness, shader compilers, Blender, physics and audio libraries, texture tools; pinned versions.
+3. Toolchain and dependency audit: done as `tools/audit` (offline; policy in `policy.json`). Next: run it in CI and on the Windows machine, and record the result per release candidate.
 
 ## World simulation and AI (10%), graphics (7%), audio (7%)
 

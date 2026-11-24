@@ -25,7 +25,7 @@ Merge order and the base each PR must be re-reviewed against belong to the owner
 ## Test evidence at this checkpoint
 
 Local, Debug with `-DSAIGE_GFX_WARNINGS_AS_ERRORS=ON`, software Vulkan (lavapipe, CPU only, 4 cores): `ctest` on `claude/production-infrastructure` plus the D1 change: 110 tests, 0 failed, 1 skipped
-(`production_tools_python`: an optional Python dependency is missing in the container). Includes `horizon_sim` (about 47 s), `horizon_props`, `horizon_wheel_rig`, `horizon_time_of_day`, the 151 Vulkan model, shadow,
+(`production_tools_python`: the tools venv is not at its default path in this container; run by hand with `SAIGE_TOOLS_HOME` set, its 10 tests pass). Includes `horizon_sim` (about 47 s), `horizon_props`, `horizon_wheel_rig`, `horizon_time_of_day`, the 151 Vulkan model, shadow,
 sky and lighting tests, and the shader-header consistency check. The new tests were each made to fail against their defect (mutation or control) and restored.
 
 Hardware class: software Vulkan only. No frame time in this repository's documents is a physical GPU result.

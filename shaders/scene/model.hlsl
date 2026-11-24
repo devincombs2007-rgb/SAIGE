@@ -102,7 +102,8 @@ float cascade_visibility(uint cascade, float3 world_pos, float3 geometric_normal
     float sum = 0.0;
     for (int y = -radius; y <= radius; ++y) {
         for (int x = -radius; x <= radius; ++x) {
-            const float2 tap = clamp(uv + float2(x, y) * sh_map.x, float2(0.0, 0.0), float2(1.0, 1.0));
+            // Clamped to the centers of this tile's outermost texels: a tile-local coordinate of exactly 1 would be the first texel of the next tile in the atlas.
+            const float2 tap = clamp(uv + float2(x, y) * sh_map.x, float2(0.5 * sh_map.x, 0.5 * sh_map.x), float2(1.0 - 0.5 * sh_map.x, 1.0 - 0.5 * sh_map.x));
             sum += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, origin + tap * sh_map.zw, ndc.z);
         }
     }

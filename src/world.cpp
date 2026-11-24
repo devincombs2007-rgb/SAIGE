@@ -22,6 +22,7 @@ Entity World::create(Vec3 position) {
     }
     auto& slot = slots_[index];
     slot.occupied = true;
+    slot.visible = true;
     slot.position = position;
     slot.world_matrix.reset();
     slot.mesh = {};
@@ -47,6 +48,12 @@ bool World::destroy(Entity entity) {
         ++slot.generation;
     }
     slot.occupied = false;
+    return true;
+}
+
+bool World::set_visible(Entity entity, bool visible) noexcept {
+    if (!alive(entity)) return false;
+    slots_[entity.index].visible = visible;
     return true;
 }
 
@@ -90,7 +97,7 @@ void World::snapshot_into(std::vector<RenderInstance>& instances) const {
     instances.reserve(slots_.size() - free_indices_.size());
     for (std::size_t i = 0; i < slots_.size(); ++i) {
         const auto& slot = slots_[i];
-        if (slot.occupied) {
+        if (slot.occupied && slot.visible) {
             instances.push_back({{static_cast<std::uint32_t>(i), slot.generation}, slot.position,
                                  slot.world_matrix, slot.mesh});
         }

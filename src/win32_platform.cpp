@@ -67,6 +67,11 @@ std::optional<Key> key_for(WPARAM vk) {
     case 'S':       return Key::s;
     case 'D':       return Key::d;
     case VK_ESCAPE: return Key::escape;
+    case VK_SPACE:  return Key::space;
+    case VK_SHIFT:  return Key::shift;
+    case 'R':       return Key::r;
+    case 'E':       return Key::e;
+    case 'C':       return Key::c;
     default:        return std::nullopt;
     }
 }
@@ -77,7 +82,7 @@ struct Win32Platform::Impl {
     HWND window{};
     HINSTANCE instance{};
     SurfaceState surface;
-    std::array<bool, static_cast<std::size_t>(Key::escape) + 1> keys{};
+    std::array<bool, static_cast<std::size_t>(Key::c) + 1> keys{};
     bool closing{};
     bool looking{};
     int mouse_x{}, mouse_y{};

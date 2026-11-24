@@ -5,7 +5,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(saige_core STATIC
     src/asset_id.cpp
+    src/capsule_character.cpp
+    src/capsule_sweep.cpp
+    src/capsule_triangle.cpp
     src/free_camera.cpp
+    src/static_collision.cpp
+    src/oriented_box.cpp
+    src/wheel_contact.cpp
     src/runtime.cpp
     src/scene_hierarchy.cpp
     src/world.cpp
@@ -29,11 +35,13 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course static_collision oriented_box wheel_contact)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)
     endforeach()
+
+    target_include_directories(character_course_test PRIVATE apps)
 
     add_test(NAME headless_boot COMMAND saige_headless --frames 3)
     set_tests_properties(headless_boot PROPERTIES
@@ -52,6 +60,7 @@ if(BUILD_TESTING)
     if(WIN32)
         add_executable(win32_platform_test tests/win32_platform_test.cpp)
         target_link_libraries(win32_platform_test PRIVATE saige::desktop user32)
+        target_include_directories(win32_platform_test PRIVATE apps)
         target_compile_definitions(win32_platform_test PRIVATE WINVER=0x0A00 _WIN32_WINNT=0x0A00)
         add_test(NAME win32_platform COMMAND win32_platform_test)
         add_test(NAME desktop_boot COMMAND saige_desktop --frames 3)
@@ -76,7 +85,12 @@ if(SAIGE_TEST_WIN32_VULKAN)
     add_executable(win32_vulkan_test tests/win32_vulkan_test.cpp)
     target_link_libraries(win32_vulkan_test PRIVATE saige::desktop saige::rhi_vulkan saige::render_sink user32)
     add_test(NAME win32_vulkan_lifecycle COMMAND win32_vulkan_test)
-    set_tests_properties(win32_vulkan_lifecycle PROPERTIES TIMEOUT 60)
+    add_test(NAME win32_character_course_vulkan COMMAND saige_desktop --character-course --frames 8 --validate)
+    add_test(NAME win32_vehicle_course_vulkan COMMAND saige_desktop --character-course --course-vehicle --frames 8 --validate)
+    set_tests_properties(win32_vehicle_course_vulkan PROPERTIES
+        TIMEOUT 60 PASS_REGULAR_EXPRESSION "instances=5([^0-9]|$)")
+    set_tests_properties(win32_vulkan_lifecycle win32_character_course_vulkan PROPERTIES TIMEOUT 60)
+    set_tests_properties(win32_character_course_vulkan PROPERTIES PASS_REGULAR_EXPRESSION "instances=4([^0-9]|$)")
 endif()
 
 option(SAIGE_BUILD_PROJECTS "Build the project format and tools" ON)
@@ -110,12 +124,64 @@ if(SAIGE_BUILD_PROJECTS)
 endif()
 
 if(TARGET saige::project AND TARGET saige::gfx_assets)
-    add_library(saige_scene_project STATIC src/prepared_scene.cpp)
+    find_package(Threads REQUIRED)
+    add_library(saige_scene_project STATIC src/chunk_manifest.cpp src/chunk_stream.cpp src/prepared_scene.cpp)
     add_library(saige::scene_project ALIAS saige_scene_project)
-    target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets)
+    target_link_libraries(saige_scene_project PUBLIC saige::project saige::gfx_assets PRIVATE nlohmann_json::nlohmann_json Threads::Threads)
+    if(TARGET saige_desktop)
+        target_link_libraries(saige_desktop PRIVATE saige::scene_project)
+        target_compile_definitions(saige_desktop PRIVATE SAIGE_DESKTOP_COURSE_FILES)
+        if(SAIGE_TEST_WIN32_VULKAN)
+            add_test(NAME win32_character_course_file_vulkan COMMAND saige_desktop --character-course
+                --course-collision "${CMAKE_CURRENT_SOURCE_DIR}/examples/character-course/course.collision.json"
+                --frames 8 --validate)
+            set_tests_properties(win32_character_course_file_vulkan PROPERTIES
+                TIMEOUT 60 PASS_REGULAR_EXPRESSION "instances=3([^0-9]|$)")
+            add_executable(streamed_course_vulkan_test tests/streamed_course_vulkan_test.cpp)
+            target_include_directories(streamed_course_vulkan_test PRIVATE apps)
+            target_link_libraries(streamed_course_vulkan_test PRIVATE saige::scene_project saige::render_sink saige::rhi_vulkan)
+            add_test(NAME streamed_course_pixels_vulkan COMMAND streamed_course_vulkan_test
+                "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/course-world.json")
+            set_tests_properties(streamed_course_pixels_vulkan PROPERTIES TIMEOUT 60)
+            add_test(NAME win32_character_course_stream_vulkan COMMAND saige_desktop --character-course
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/course-world.json"
+                --frames 30 --validate)
+            set_tests_properties(win32_character_course_stream_vulkan PROPERTIES
+                TIMEOUT 60 PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=1 model_draws=[1-9][0-9]* unresolved=0 gpu_uploads=1([^0-9]|$)")
+            add_test(NAME win32_ramp_course_vulkan COMMAND saige_desktop --character-course
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/ramp-course-world.json"
+                --frames 30 --validate)
+            set_tests_properties(win32_ramp_course_vulkan PROPERTIES TIMEOUT 60
+                PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0 gpu_uploads=2([^0-9]|$)")
+            add_test(NAME win32_streamed_vehicle_course_vulkan COMMAND saige_desktop --character-course --course-vehicle
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/ramp-course-world.json"
+                --frames 30 --validate)
+            set_tests_properties(win32_streamed_vehicle_course_vulkan PROPERTIES TIMEOUT 60
+                PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0 gpu_uploads=2([^0-9]|$)")
+            add_test(NAME win32_terrain_vehicle_vulkan COMMAND saige_desktop --character-course --course-vehicle --terrain-vehicle
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/ramp-course-world.json"
+                --frames 30 --require-rendered --validate)
+            set_tests_properties(win32_terrain_vehicle_vulkan PROPERTIES TIMEOUT 60
+                PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0")
+            set(course_save_fixture "${CMAKE_CURRENT_BINARY_DIR}/streamed-vehicle-checkpoint.json")
+            file(WRITE "${course_save_fixture}" [=[
+{"checkpoint_version":2,"cell":[2147483646,-2147483648],"feet":[3,4,0],"vehicle":{"cell":[2147483646,-2147483648],"position":[3,1,0],"heading":0}}
+]=])
+            add_test(NAME win32_streamed_vehicle_save_vulkan COMMAND saige_desktop --character-course --course-vehicle
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/ramp-course-world.json"
+                --course-checkpoint "${course_save_fixture}" --frames 30 --require-rendered --validate)
+            set_tests_properties(win32_streamed_vehicle_save_vulkan PROPERTIES TIMEOUT 60
+                PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0 .*world_cell=2147483646,-2147483648")
+        endif()
+    endif()
     add_executable(saige_scene_asset_tool apps/scene_asset_tool.cpp)
     target_link_libraries(saige_scene_asset_tool PRIVATE saige::scene_project)
     if(BUILD_TESTING)
+        add_executable(chunk_stream_test tests/chunk_stream_test.cpp)
+        target_link_libraries(chunk_stream_test PRIVATE saige::scene_project)
+        target_include_directories(chunk_stream_test PRIVATE apps)
+        add_test(NAME chunk_stream_staging COMMAND chunk_stream_test
+            "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/saige.scene.json")
         add_executable(prepared_scene_test tests/prepared_scene_test.cpp)
         target_link_libraries(prepared_scene_test PRIVATE saige::scene_project)
         add_test(NAME prepared_scene_replacement COMMAND prepared_scene_test

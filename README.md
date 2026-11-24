@@ -38,3 +38,51 @@ See the [Core response to Claude's rendering proposal](docs/core-rendering-contr
 - [Architecture](docs/architecture.md) and [Core rendering contract](docs/core-rendering-contract.md)
 - [Engine standards](docs/standards/), such as the coordinate system (right-handed, Z-up, meters)
 - [Rendering and asset systems](docs/rendering/): RHI, Vulkan backend, render graph, shaders, asset pipeline
+
+
+### Character course
+
+Run `saige_desktop --character-course --require-rendered` from a Windows Vulkan build. Use WASD or the arrow keys to move,
+Shift to sprint, and Space to jump. Drag with the right mouse button to orbit the camera. Movement follows the camera’s heading.
+Press R to reset both the player and camera. Falling off the course also resets both. The prototype uses a fixed-step capsule
+controller against static box geometry. The camera retracts at obstacles and eases back when clear. The player and obstacles use the sample cube
+renderer. The course runs separately from saved scene projects. Use `--walk-speed` and `--sprint-speed` to tune movement in meters per second.
+
+
+With project and graphics support enabled, launch `saige_desktop --character-course --course-collision
+examples/character-course/course.collision.json --require-rendered` to play an authored course. The first box is the floor, with
+the origin inside its top face at Z=0. The other boxes get cube markers at their base centers. Markers use the sample renderer’s
+default dimensions. The course loads its collision file at startup. Live chunk loading is exercised separately by the streaming
+tests.
+
+
+For the live-streamed course, run:
+
+```text
+saige_desktop --character-course --course-world examples/textured-scene/course-world.json --require-rendered
+```
+
+The host starts in cell `[0, 0]` and keeps its reset floor resident. It prepares nearby scene and collision files using one background CPU job after startup. A completed candidate takes effect before movement on the next fixed step. Boundary guards keep the capsule
+inside the current set while loading. If a neighbor fails to load or overlaps the capsule or spawn, the course keeps its last
+working set. Press R to reset and retry nearby loads. The Vulkan course draws imported nodes from all resident chunks alongside the player marker. The host offsets project nodes
+by the owning cell and publishes their GPU models with collision. The course keeps resident GPU models and uploads at most one new model per rendered frame after startup. Uploads are synchronous.
+
+
+Use `examples/textured-scene/ramp-course-world.json` with `--course-world` for the origin-relative ramp fixture. It combines box
+and triangle collision with the same capsule and an authored checkpoint. In a version 2 course, add
+`--course-checkpoint FILE.json` to enable persistent checkpoints. Use a separate file per world. Press C while grounded
+and away from a cell edge to save. R returns to the latest saved point, and relaunching with the same file starts there.
+Saving in a new cell releases the previous checkpoint's residency pin. A new file starts at the authored checkpoint.
+
+Add `--course-vehicle` for the flat driving prototype. Walk near the parked vehicle marker and press E to enter.
+On the terrain integration branch, add `--terrain-vehicle` to try the four-contact suspension prototype. It uses the
+same controls and controller and sweeps an oriented chassis. The terrain mode keeps its chassis upright and requires
+support from at least three wheels. A missing edge or unsuitable surface halts movement.
+Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E while stopped to exit when a supported side
+is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.
+
+
+The vehicle option also works with `--course-world`. While driving, the vehicle leads chunk selection. The checkpoint stays resident. A parked vehicle can unload with its cell and return to the same pose.
+With `--course-checkpoint`, C saves both the grounded player's location and the parked vehicle's independent location, even
+when its cell is unloaded. R returns the player to the checkpoint and leaves the saved-mode vehicle where it was parked.
+A relaunch restores the last saved state. Without a save file option, R resets both to the authored start. Vehicles require level support, including on the ramp course. Use the capsule to climb the ramp on foot.

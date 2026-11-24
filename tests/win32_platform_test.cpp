@@ -89,6 +89,36 @@ void test_course_input(saige::Win32Platform& platform, HWND window) {
     require(platform.poll_events(), "Course window exited during reset");
 }
 
+void test_vehicle_input(saige::Win32Platform& platform, HWND window) {
+    using namespace std::chrono_literals;
+    saige::World world;
+    saige::sample::DesktopGame game(world, platform, true, {}, true);
+    const auto advance = [&] {
+        require(platform.poll_events(), "Vehicle course stopped during input replay");
+        game.fixed_update(world, 16'666'667ns);
+    };
+    post(window, WM_KEYDOWN, 'D');
+    for (int i = 0; i < 49; ++i) advance();
+    post(window, WM_KEYUP, 'D');
+    post(window, WM_KEYDOWN, 'E');
+    advance();
+    require(game.driving(), "Win32 E must transfer control to the nearby vehicle");
+    post(window, WM_KEYUP, 'E');
+    post(window, WM_KEYDOWN, 'W');
+    for (int i = 0; i < 40; ++i) advance();
+    require(world.snapshot().back().position.x > 1, "Win32 throttle must move the vehicle");
+    post(window, WM_KEYUP, 'W');
+    post(window, WM_KEYDOWN, VK_SPACE);
+    for (int i = 0; i < 36; ++i) advance();
+    post(window, WM_KEYDOWN, 'E');
+    advance();
+    require(!game.driving() && world.snapshot().front().position.z < 0.001f,
+            "Win32 exit must restore the character on the ground");
+    post(window, WM_KEYUP, 'E');
+    post(window, WM_KEYUP, VK_SPACE);
+    require(platform.poll_events(), "Vehicle course stopped after input replay");
+}
+
 } // namespace
 
 int main() {
@@ -174,6 +204,7 @@ int main() {
                     "A held movement key survived focus loss");
 
             test_course_input(platform, handle);
+            test_vehicle_input(platform, handle);
 
             post(handle, WM_CLOSE);
             require(!platform.poll_events() && !platform.poll_events(), "Close did not latch quit");

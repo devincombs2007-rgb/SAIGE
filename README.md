@@ -47,3 +47,8 @@ Shift to sprint, and Space to jump. Drag with the right mouse button to orbit th
 Press R to reset both the player and camera. Falling off the course also resets both. The prototype uses a fixed-step capsule
 controller against static box geometry. The camera retracts at obstacles and eases back when clear. The player and obstacles use the sample cube
 renderer. The course runs separately from saved scene projects. Use `--walk-speed` and `--sprint-speed` to tune movement in meters per second.
+
+
+Add `--course-vehicle` for the flat driving prototype. Walk near the parked vehicle marker and press E to enter.
+Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E while stopped to exit when a supported side
+is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.

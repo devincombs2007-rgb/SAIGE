@@ -1,6 +1,6 @@
 #pragma once
 
-#include "course_input.hpp"
+#include "course_vehicle.hpp"
 #include "saige/capsule_character.hpp"
 #include "saige/desktop.hpp"
 #include "saige/free_camera.hpp"
@@ -18,7 +18,7 @@ namespace saige::sample {
 class DesktopGame final : public IGame {
 public:
     DesktopGame(World& world, IDesktopPlatform& platform, bool course,
-                CapsuleCharacterConfig config = {})
+                CapsuleCharacterConfig config = {}, bool enable_vehicle = false)
         : marker_(world.create()), platform_(platform) {
         if (!course) return;
         constexpr std::array geometry{
@@ -32,28 +32,39 @@ public:
             const auto& box = geometry[i];
             (void)world.create({(box.min.x + box.max.x) * 0.5f, (box.min.y + box.max.y) * 0.5f, box.min.z});
         }
+        if (enable_vehicle) {
+            vehicle_.emplace(Vec3{0, -3, 0});
+            vehicle_marker_ = world.create(vehicle_->position());
+        }
     }
 
     void fixed_update(World& world, std::chrono::nanoseconds step) override {
         if (motor_) {
             const auto actions = read_course_actions(platform_);
+            const bool interact = actions.interact && !interact_held_;
+            interact_held_ = actions.interact;
             if (!actions.jump) suppress_jump_until_release_ = false;
             if (actions.reset) {
                 reset_course(actions.jump);
             } else {
                 orbit_.update({.look_x_pixels = actions.look.x_pixels, .look_y_pixels = actions.look.y_pixels}, step);
                 orbit_.pitch_radians = std::clamp(orbit_.pitch_radians, -1.25f, -0.16f);
-                const auto [forward, left] = actions.movement;
-                const float magnitude = std::max(1.0f, std::hypot(forward, left));
-                const float cos_yaw = std::cos(orbit_.yaw_radians);
-                const float sin_yaw = std::sin(orbit_.yaw_radians);
-                motor_->step({(forward * cos_yaw - left * sin_yaw) / magnitude,
-                              (forward * sin_yaw + left * cos_yaw) / magnitude,
-                              actions.jump && !suppress_jump_until_release_, actions.sprint}, step);
-                if (motor_->state().feet.z < -8.0f) reset_course(actions.jump);
+                if (vehicle_ && interact) interact_with_vehicle(actions.jump);
+                if (driving_) {
+                    vehicle_->step(actions.movement, actions.jump, step, camera_geometry_);
+                } else {
+                    step_character(actions, step);
+                }
             }
             update_camera_distance(step);
-            world.set_position(marker_, motor_->state().feet);
+            if (vehicle_) (void)world.set_position(vehicle_marker_, vehicle_->position());
+            if (driving_) {
+                auto seated = vehicle_->position();
+                seated.z += 0.65f;
+                (void)world.set_position(marker_, seated);
+            } else {
+                (void)world.set_position(marker_, motor_->state().feet);
+            }
             return;
         }
         const auto movement = read_movement(platform_);
@@ -63,6 +74,8 @@ public:
         position_.y += seconds * 4.0f * movement.left;
         world.set_position(marker_, position_);
     }
+
+    [[nodiscard]] bool driving() const noexcept { return driving_; }
 
     [[nodiscard]] std::optional<CameraView> camera_view() const override {
         if (!motor_) return {};
@@ -75,6 +88,29 @@ public:
     }
 
 private:
+    void interact_with_vehicle(bool jump_held) {
+        if (driving_) {
+            const auto exit = vehicle_->exit_point(motor_->config(), camera_geometry_);
+            if (!exit || !motor_->teleport(*exit)) return;
+            vehicle_->park();
+            driving_ = false;
+            suppress_jump_until_release_ = jump_held;
+        } else if (vehicle_->can_enter(motor_->state(), motor_->config(), camera_geometry_)) {
+            driving_ = true;
+        }
+    }
+
+    void step_character(const CourseActions& actions, std::chrono::nanoseconds step) {
+        const auto [forward, left] = actions.movement;
+        const float magnitude = std::max(1.0f, std::hypot(forward, left));
+        const float cos_yaw = std::cos(orbit_.yaw_radians);
+        const float sin_yaw = std::sin(orbit_.yaw_radians);
+        motor_->step({(forward * cos_yaw - left * sin_yaw) / magnitude,
+                      (forward * sin_yaw + left * cos_yaw) / magnitude,
+                      actions.jump && !suppress_jump_until_release_, actions.sprint}, step);
+        if (motor_->state().feet.z < -8.0f) reset_course(actions.jump);
+    }
+
     void configure_course(Vec3 spawn, std::span<const Aabb> geometry, const CapsuleCharacterConfig& config) {
         motor_.emplace(spawn, geometry, config);
         camera_geometry_.assign(geometry.begin(), geometry.end());
@@ -88,7 +124,7 @@ private:
     }
 
     [[nodiscard]] Vec3 orbit_target() const {
-        const auto feet = motor_->state().feet;
+        const auto feet = driving_ ? vehicle_->position() : motor_->state().feet;
         return {feet.x, feet.y, feet.z + motor_->config().height * 0.58f};
     }
 
@@ -113,6 +149,8 @@ private:
 
     void reset_course(bool jump_held) {
         motor_->reset();
+        driving_ = false;
+        if (vehicle_) vehicle_->reset();
         orbit_ = initial_orbit_;
         suppress_jump_until_release_ = jump_held;
         camera_distance_ = clear_camera_distance();
@@ -128,6 +166,10 @@ private:
     FreeCamera orbit_{initial_orbit_};
     float camera_distance_{orbit_distance};
     bool suppress_jump_until_release_{};
+    std::optional<CourseVehicle> vehicle_;
+    Entity vehicle_marker_{};
+    bool driving_{};
+    bool interact_held_{};
 };
 
 } // namespace saige::sample

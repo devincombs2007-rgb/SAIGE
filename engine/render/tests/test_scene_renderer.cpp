@@ -672,3 +672,93 @@ TEST_CASE("IBL (null device): a device that cannot filter RGBA16F refuses the en
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == baseline);
 }
+
+TEST_CASE("Skinning (null device): off acquires nothing for it; on adds its shader, layout, pipelines and identity palette; everything is released")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    for (const bool shadows : {false, true}) {
+        uint32_t off_count = 0, on_count = 0;
+        {
+            RendererSettings s = ibl_settings(false, shadows);
+            SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, s);
+            CHECK(!off.model_renderer().skinning_enabled());
+            off_count = o.device.live_resource_count() - baseline;
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        {
+            RendererSettings s = ibl_settings(false, shadows);
+            s.skinning = true;
+            SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, s);
+            CHECK(on.model_renderer().skinning_enabled());
+            on_count = o.device.live_resource_count() - baseline;
+            // A palette adds one buffer per frame in flight (and its groups); dropping it returns them.
+            const uint32_t before_palette = o.device.live_resource_count();
+            {
+                SkinPalette p = on.model_renderer().create_skin_palette(8, "palette");
+                CHECK(p.valid() && p.joint_count() == 8);
+                CHECK(o.device.live_resource_count() > before_palette);
+            }
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == before_palette);
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        // The skinned vertex shader, the palette layout (not counted as a resource), four pipelines (plus the shadow pipeline and shader with shadows on)
+        // and the identity palette's buffers.
+        CHECK(on_count >= off_count + (shadows ? 8u : 5u));
+    }
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Skinning (null device): a failed acquisition at any step releases everything, and a failed palette leaves nothing behind")
+{
+    for (const bool shadows : {false, true}) {
+        Offscreen o;
+        RendererSettings s = ibl_settings(true, shadows);
+        s.skinning = true;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+        const uint32_t baseline = o.device.live_resource_count();
+        uint32_t failures = 0;
+        for (uint32_t n = 1; n <= 300; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                (void)renderer.model_renderer();
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) {
+                CHECK(renderer.model_renderer().skinning_enabled());
+                break;
+            }
+            ++failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == baseline);
+        }
+        CHECK(failures >= (shadows ? 35u : 20u));
+        ModelRenderer& models = renderer.model_renderer();
+        const uint32_t built = o.device.live_resource_count();
+        uint32_t palette_failures = 0;
+        for (uint32_t n = 1; n <= 40; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                SkinPalette p = models.create_skin_palette(4, "swept");
+                (void)p;
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) break;
+            ++palette_failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == built);
+        }
+        CHECK(palette_failures >= 2);
+        // A skinned primitive is drawn without crashing and counted; the palette-less draw uses the identity palette.
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}

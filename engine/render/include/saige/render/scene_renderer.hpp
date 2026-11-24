@@ -86,6 +86,9 @@ struct RendererSettings {
     /// Image-based lighting for imported models with metallic-roughness shading (model_shading must be MetallicRoughness, else the model renderer throws
     /// std::invalid_argument when it is created). Null is off and changes nothing; see ModelRenderSettings::environment.
     std::shared_ptr<const EnvironmentLighting> environment;
+    /// GPU skinning for imported models (`ModelRenderSettings::skinning`): skinned primitives, `ModelRenderer::create_skin_palette` and `ModelDraw::palette`.
+    /// Off by default, and then nothing is allocated for it.
+    bool skinning = false;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target
@@ -137,6 +140,8 @@ struct FrameStats {
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
     uint32_t shadow_draw_calls = 0;        ///< draws of the sun shadow pass (also counted in draw_calls)
+    uint32_t model_skinned_draws = 0;      ///< draw calls of skinned primitives, shadow pass and scene pass together
+    uint32_t model_skinned_skipped = 0;    ///< skinned primitives not drawn (skinning off, or the palette has too few joints)
 };
 
 class SceneRenderer {

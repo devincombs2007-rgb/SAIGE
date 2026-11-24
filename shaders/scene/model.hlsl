@@ -33,6 +33,9 @@
 #ifndef SAIGE_IBL
 #define SAIGE_IBL 0
 #endif
+#ifndef SAIGE_SKINNING
+#define SAIGE_SKINNING 0
+#endif
 
 struct ModelPush {
     column_major float4x4 view_proj;
@@ -179,6 +182,10 @@ struct VSInput {
     [[vk::location(1)]] float3 normal : NORMAL;
     [[vk::location(2)]] float2 uv : TEXCOORD0;
     [[vk::location(3)]] float4 tangent : TANGENT; // xyz: direction of increasing u, w: handedness (0 = none)
+#if SAIGE_SKINNING
+    [[vk::location(4)]] uint4 joints : BLENDINDICES;  // four joints of the skin (RGBA16_UINT)
+    [[vk::location(5)]] float4 weights : BLENDWEIGHT; // non-negative, sum to 1
+#endif
 };
 
 struct VSOutput {
@@ -190,6 +197,67 @@ struct VSOutput {
     [[vk::location(4)]] float3 bitangent : TEXCOORD4; // world space, the transformed object-space bitangent
 };
 
+#if SAIGE_SKINNING
+// Linear blend skinning (docs/rendering/skinning.md). The palette is set 2 binding 0: 256 joints as three float4 rows of an affine matrix each (the skin
+// matrix, joint world transform times inverse bind, in the skinned mesh's own space). The blended matrix B = sum w_i M_i deforms the vertex: positions by B,
+// surface directions (tangent, bitangent) by its linear part, normals by the cofactor of that linear part (correct under non-uniform scale and for the
+// blend of several joints). The instance's world matrix then applies exactly as for a rigid mesh, so the cofactors compose.
+[[vk::binding(0, 2)]] cbuffer SkinPalette
+{
+    float4 skin_rows[768];
+};
+
+struct SkinnedVertex {
+    float3 position;
+    float3 normal;
+    float3 tangent;
+    float3 bitangent;
+};
+
+SkinnedVertex skin_vertex(VSInput input)
+{
+    float4 r0 = float4(0.0, 0.0, 0.0, 0.0), r1 = r0, r2 = r0;
+    [unroll] for (int i = 0; i < 4; ++i) {
+        const uint j = min(input.joints[i], 255u);  // the renderer checks the range at import; this keeps a corrupt index inside the palette
+        const float w = input.weights[i];
+        r0 += w * skin_rows[3u * j];
+        r1 += w * skin_rows[3u * j + 1u];
+        r2 += w * skin_rows[3u * j + 2u];
+    }
+    const float4 p = float4(input.position, 1.0);
+    const float3 c0 = float3(r0.x, r1.x, r2.x);
+    const float3 c1 = float3(r0.y, r1.y, r2.y);
+    const float3 c2 = float3(r0.z, r1.z, r2.z);
+    const float3 t_obj = input.tangent.xyz;
+    const float3 b_obj = cross(input.normal, t_obj) * input.tangent.w;
+    SkinnedVertex v;
+    v.position = float3(dot(r0, p), dot(r1, p), dot(r2, p));
+    v.normal = input.normal.x * cross(c1, c2) + input.normal.y * cross(c2, c0) + input.normal.z * cross(c0, c1);
+    v.tangent = float3(dot(r0.xyz, t_obj), dot(r1.xyz, t_obj), dot(r2.xyz, t_obj));
+    v.bitangent = float3(dot(r0.xyz, b_obj), dot(r1.xyz, b_obj), dot(r2.xyz, b_obj));
+    return v;
+}
+
+VSOutput VSMain(VSInput input)
+{
+    const SkinnedVertex s = skin_vertex(input);
+    const float4 p = float4(s.position, 1.0);
+    const float3 world = float3(dot(pc.model_row0, p), dot(pc.model_row1, p), dot(pc.model_row2, p));
+    const float3 c0 = float3(pc.model_row0.x, pc.model_row1.x, pc.model_row2.x);
+    const float3 c1 = float3(pc.model_row0.y, pc.model_row1.y, pc.model_row2.y);
+    const float3 c2 = float3(pc.model_row0.z, pc.model_row1.z, pc.model_row2.z);
+    const float3 n = s.normal.x * cross(c1, c2) + s.normal.y * cross(c2, c0) + s.normal.z * cross(c0, c1);
+
+    VSOutput output;
+    output.position = mul(pc.view_proj, float4(world, 1.0));
+    output.world_pos = world;
+    output.normal = n * pc.camera_sign.w;
+    output.uv = input.uv;
+    output.tangent = float3(dot(pc.model_row0.xyz, s.tangent), dot(pc.model_row1.xyz, s.tangent), dot(pc.model_row2.xyz, s.tangent));
+    output.bitangent = float3(dot(pc.model_row0.xyz, s.bitangent), dot(pc.model_row1.xyz, s.bitangent), dot(pc.model_row2.xyz, s.bitangent));
+    return output;
+}
+#else
 VSOutput VSMain(VSInput input)
 {
     const float4 p = float4(input.position, 1.0);
@@ -212,6 +280,7 @@ VSOutput VSMain(VSInput input)
     output.bitangent = float3(dot(pc.model_row0.xyz, b_obj), dot(pc.model_row1.xyz, b_obj), dot(pc.model_row2.xyz, b_obj));
     return output;
 }
+#endif
 
 float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
 {

@@ -130,6 +130,8 @@ public:
 
     [[nodiscard]] std::optional<CameraView> camera_view() const override { return game_->camera_view(); }
     [[nodiscard]] std::size_t resident_count() const noexcept { return stream_.active_count(); }
+    [[nodiscard]] ChunkPreparationStats preparation_stats() const noexcept { return stream_.preparation_stats(); }
+    [[nodiscard]] std::size_t retained_asset_bytes() const noexcept { return stream_.retained_asset_bytes(); }
 
     [[nodiscard]] bool driving() const noexcept { return game_->driving(); }
     [[nodiscard]] std::optional<CourseVehiclePose> active_vehicle() const { return game_->vehicle_pose(); }

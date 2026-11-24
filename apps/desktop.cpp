@@ -321,6 +321,12 @@ int main(int argc, char** argv) {
 #endif
             const auto [x, y] = streamed_game->absolute_cell();
             std::cout << " world_cell=" << x << ',' << y << " origin_epoch=" << streamed_game->origin_epoch() << '\n';
+            const auto preparation = streamed_game->preparation_stats();
+            std::cout << "SAIGE stream accepted=" << preparation.accepted << " project_imports=" << preparation.project_imports
+                      << " failed=" << preparation.failed << " discarded=" << preparation.discarded
+                      << " accepted_prepare_wall_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                             preparation.accepted_wall_time).count()
+                      << " retained_cpu_asset_bytes=" << streamed_game->retained_asset_bytes() << '\n';
         }
 #endif
         std::cout << "SAIGE desktop frames=" << stats.frames << " ticks=" << stats.ticks

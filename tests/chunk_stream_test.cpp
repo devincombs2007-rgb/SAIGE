@@ -177,6 +177,10 @@ void test_background_stage(const fs::path& fixture) {
     }
     require(failed && !stream.commit_frame() && stream.active_chunk(valid.coord),
             "a current failure rolls back to the previous active set");
+    const auto stats = stream.preparation_stats();
+    require(stats.accepted == 2 && stats.project_imports == 2 && stats.failed == 1 && stats.discarded == 1 &&
+                stats.accepted_wall_time >= std::chrono::nanoseconds::zero(),
+            "account for bootstrap, accepted, superseded and failed preparation without mixing them");
 }
 
 void test_shared_project_preparation(const fs::path& fixture) {
@@ -214,6 +218,9 @@ void test_shared_project_preparation(const fs::path& fixture) {
             "background preparation shares one immutable CPU scene at the exact budget");
     require(stream.staged_collision(west.coord)->empty() && stream.staged_collision(east.coord)->size() == 1,
             "each chunk owns its authored collision");
+    const auto stats = stream.preparation_stats();
+    require(stats.accepted == 2 && stats.project_imports == 1 && stats.failed == 1,
+            "reuse saves one CPU project import while both collision jobs are counted");
     require(stream.commit_frame(), "publish shared scene");
     stream.request(std::array{east});
     require(stream.commit_frame() && stream.active_chunk(east.coord) == shared && stream.retained_asset_bytes() == bytes,

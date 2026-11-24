@@ -99,3 +99,9 @@ Cancellation or supersession discards stale results, and the runtime never waits
 still requires the complete candidate and runs on the simulation thread. The initial checkpoint loads synchronously.
 Disk completion timing may change the tick that opens a streaming boundary. The synchronous path remains available for
 deterministic replay and focused tests. Shutdown joins any outstanding import.
+
+
+Desktop shutdown diagnostics report accepted CPU preparations, fresh project imports, failures, discarded background
+results, accepted preparation wall time, and retained CPU asset bytes. The phase includes boot and file import, and
+excludes polling delays, GPU submission, and failed or discarded job time. The retained count excludes scratch and
+GPU memory. Existing GPU staging wall time is reported separately.

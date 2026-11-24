@@ -58,12 +58,22 @@ ChunkStream::Chunk ChunkStream::preparation_input(const Chunk& chunk) const {
     return input;
 }
 
-ChunkStream::Chunk ChunkStream::prepare(Chunk chunk, std::size_t remaining) {
+ChunkStream::Preparation ChunkStream::prepare(Chunk chunk, std::size_t remaining) {
+    const auto start = std::chrono::steady_clock::now();
     if (!chunk.collision.empty()) {
         chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
     }
-    if (!chunk.scene) chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
-    return chunk;
+    const bool imported = !chunk.scene;
+    if (imported) chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start);
+    return {std::move(chunk), elapsed, imported};
+}
+
+void ChunkStream::accept(Chunk& target, Preparation&& preparation) noexcept {
+    target = std::move(preparation.chunk);
+    ++preparation_stats_.accepted;
+    preparation_stats_.project_imports += preparation.imported_project;
+    preparation_stats_.accepted_wall_time += preparation.wall_time;
 }
 
 bool ChunkStream::stage_next() {
@@ -73,8 +83,9 @@ bool ChunkStream::stage_next() {
     if (next == pending_->end()) return false;
     try {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
-        next->second = prepare(preparation_input(next->second), remaining);
+        accept(next->second, prepare(preparation_input(next->second), remaining));
     } catch (...) {
+        ++preparation_stats_.failed;
         pending_.reset();
         throw;
     }
@@ -86,13 +97,20 @@ void ChunkStream::stage_background() {
         if (loading_->future.wait_for(std::chrono::seconds::zero()) != std::future_status::ready) return;
         auto finished = std::move(*loading_);
         loading_.reset();
-        if (finished.abandoned || !pending_) return;
+        if (finished.abandoned || !pending_) {
+            ++preparation_stats_.discarded;
+            return;
+        }
         const auto target = pending_->find(finished.coord);
         if (target == pending_->end() || target->second.scene ||
-            target->second.project != finished.project || target->second.collision != finished.collision) return;
+            target->second.project != finished.project || target->second.collision != finished.collision) {
+            ++preparation_stats_.discarded;
+            return;
+        }
         try {
-            target->second = finished.future.get();
+            accept(target->second, finished.future.get());
         } catch (...) {
+            ++preparation_stats_.failed;
             pending_.reset();
             throw;
         }
@@ -109,6 +127,7 @@ void ChunkStream::stage_background() {
         });
         loading_ = std::move(task);
     } catch (...) {
+        ++preparation_stats_.failed;
         pending_.reset();
         throw;
     }

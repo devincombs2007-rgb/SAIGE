@@ -64,8 +64,8 @@ edges do not shimmer as the camera moves or turns, and near shadows are sharp wh
 * **Atlas**: the maps are tiles of one D32 texture: 2 cascades side by side (2x1 tiles), 3 and 4 in a 2x2 grid; `map_size` is one tile. No per-layer views, array textures or new RHI
   capability are needed. One render pass clears the atlas and draws the casters once per cascade with that tile's viewport and scissor (`shadow_draw_calls` counts them all).
 * **Lookup**: the shader (`model_shadowed.hlsl`, one shadow-block of four matrices, the cascade's far splits, the camera position and forward) picks the first cascade whose far split
-  reaches the receiver's view-space depth; beyond the last the sun is not occluded. The receiver normal offset is in the cascade's own texels. The PCF taps are clamped to the cascade's
-  tile, so a tap never reads a neighbor's texels. Over the last `cascade_blend` fraction (0 to 0.5, default 0.1) of a cascade's depth range its visibility blends linearly into the next
+  reaches the receiver's view-space depth; beyond the last the sun is not occluded. The receiver normal offset is in the cascade's own texels. The PCF taps are clamped to the centers of the cascade's
+  outermost texels, so a tap never reads a neighbor tile's texels (a tile-local coordinate of exactly 1 would be the first texel of the next tile). Over the last `cascade_blend` fraction (0 to 0.5, default 0.1) of a cascade's depth range its visibility blends linearly into the next
   cascade's, so there is no seam at a split; with blend 0 the switch is hard.
 * **Cost**: casters are drawn once per cascade (culling by cascade is not done yet), and a receiver in a blend band takes twice the taps. The atlas is `tile x columns` by `tile x rows` texels of
   32-bit depth: 4 cascades of 2048 are 4096 x 4096 (64 MB). Hosts that need less choose a smaller tile or fewer cascades.
@@ -88,7 +88,7 @@ continuous shadow with and without the blend; a column beyond `distance` casts n
 
 ## Limits (be careful what you conclude from the images)
 
-- With one cascade resolution falls with distance (a 2048 map over a 60 m range is about 5 cm per texel at the far end); use cascades (above). A cascade's PCF tap clamp at its tile edge is not covered by a pixel test (a shadow would have to straddle a tile border in light space); it is covered by review and the shader only.
+- With one cascade resolution falls with distance (a 2048 map over a 60 m range is about 5 cm per texel at the far end); use cascades (above). The PCF tap clamp at a tile's edges is covered by a pixel test (`test_shadow_cascades.cpp`, a caster filling tile 0 with empty neighbours to its right and below, receivers in the last texel column and row, and the same from the neighbour's side): clamping to tile-local 1 or not clamping fails it. Clamping the *lower* bound to 0 instead of the first texel center is indistinguishable (a sample at exactly a texel boundary rounds into the receiver's own tile), so that half is argued from the shader, not shown by a test.
 - Alpha-masked and blended surfaces do not cast (first slice), so foliage-like content has no shadow until the alpha-tested caster lands.
 - No contact-hardening or soft-shadow model beyond the fixed PCF radius; no shadows from the 0.1 cubes; one sun only.
 - Software Vulkan (lavapipe) has validated correctness only. Nothing here has run on a physical GPU and no performance claim is made: the pass costs one extra draw of every caster plus

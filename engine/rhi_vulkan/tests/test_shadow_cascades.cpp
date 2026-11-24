@@ -337,6 +337,173 @@ TEST_CASE("Cascades: the blend replaces the jump between two cascades that disag
     CHECK(soft_step < 0.6f * hard_step);  // the blend spreads the jump over a ramp
 }
 
+TEST_CASE("Cascades: filter taps at a tile's edges stay inside the tile, whatever the neighbouring tiles hold")
+{
+    // Three cascades in a 2 x 2 atlas. Tile 0 is covered end to end by a caster; the tiles to its right and below it are empty, so a tap that strays into their first column or
+    // row reads "lit" while every tap inside tile 0 reads "shadowed". The receivers sit in tile 0's last texel column and row: their filter taps (radius 1 and 2) reach past the edge, and must
+    // clamp to the last texel of their own tile. (Clamping the tile-local coordinate to exactly 1 lands on the next tile's first texel; no clamp at all lands further out.)
+    const auto device = make_validated_device("cascade_tile_edge", /*synchronization=*/true);
+    GpuResourceRegistry registry(*device);
+    for (const uint32_t variant : {0u, 1u, 2u, 3u}) {
+        const uint32_t radius = 1 + variant % 2;
+        const bool receiver_in_cascade_1 = variant >= 2;  // variant 2 and 3: the receiver reads the empty tile 1, whose left and top neighbours hold the caster's tile
+        ModelRenderSettings ms;
+        ms.shadows.enabled = true;
+        ms.shadows.map_size = 64;
+        ms.shadows.cascades = 3;  // a 2 x 2 atlas: tile 0 has a neighbour to its right (cascade 1) and one below it (cascade 2)
+        ms.fog_density = 0.0f;
+        ModelRenderer models(*device, registry, rhi::Format::RGBA8_SRGB, rhi::Format::D32_FLOAT, ms);
+        MaterialParams grey;
+        grey.base_color[0] = grey.base_color[1] = grey.base_color[2] = 0.5f;
+        const GpuMaterial material = models.create_material(grey, {}, {}, "grey");
+        const auto slab = [&](float half, float z) {
+            const Float3 n{0, 0, 1};
+            const std::vector<ModelVertex> v = {{{-half, -half, z}, n, {0, 0}}, {{half, -half, z}, n, {1, 0}}, {{half, half, z}, n, {1, 1}}, {{-half, half, z}, n, {0, 1}}};
+            GpuModel m;
+            m.name = "slab";
+            m.materials.push_back(material);
+            m.meshes.push_back({make_primitive(registry, v, {0, 1, 2, 0, 2, 3}, 0)});
+            m.placements.push_back({0, Mat4::identity()});
+            return m;
+        };
+        const GpuModel ground = slab(60.0f, 0.0f), caster = slab(30.0f, 5.0f);
+        // A straight-down sun: x and y in [-8, 8] map to the tile, and height z to reverse-Z depth z / 40 + 0.5 (higher is nearer the sun, so greater).
+        Mat4 light = Mat4::identity();
+        light.m[0] = 1.0f / 8.0f;
+        light.m[5] = 1.0f / 8.0f;
+        light.m[10] = 1.0f / 40.0f;
+        light.m[14] = 0.5f;
+        ModelShadowFrame sf;
+        sf.light_view_proj = light;
+        sf.more_view_proj[0] = sf.more_view_proj[1] = light;
+        sf.texel_world_size = 0.25f;
+        sf.more_texel_world_size[0] = sf.more_texel_world_size[1] = 0.25f;
+        sf.normal_offset_texels = 0.0f;
+        sf.filter_radius = radius;
+        sf.cascade_count = 3;
+        sf.split_far = receiver_in_cascade_1 ? std::array<float, 4>{10.0f, 1000.0f, 3000.0f, 0.0f} : std::array<float, 4>{1000.0f, 2000.0f, 3000.0f, 0.0f};  // the ground is 20 m deep
+        sf.camera_position = {0.0f, 0.0f, 20.0f};
+        sf.camera_forward = {0.0f, 0.0f, -1.0f};
+        sf.blend = 0.0f;
+
+        const Camera camera = look_at_camera({0.0f, 0.0f, 20.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f});  // straight down, +X right, +Y up
+        const Mat4 view_proj = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+
+        rhi::TextureDesc cd;
+        cd.format = rhi::Format::RGBA8_SRGB;
+        cd.width = kW;
+        cd.height = kH;
+        cd.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::TransferSrc;
+        const rhi::TextureHandle color = device->create_texture(cd);
+        rhi::TextureDesc dd;
+        dd.format = rhi::Format::D32_FLOAT;
+        dd.width = kW;
+        dd.height = kH;
+        dd.usage = rhi::TextureUsage::DepthStencilAttachment;
+        const rhi::TextureHandle depth = device->create_texture(dd);
+        rhi::BufferDesc bd;
+        bd.size = uint64_t{kW} * kH * 4;
+        bd.usage = rhi::BufferUsage::TransferDst;
+        bd.memory = rhi::MemoryLocation::GpuToCpu;
+        const rhi::BufferHandle readback = device->create_buffer(bd);
+
+        const rhi::ResourceState none{rhi::PipelineStage::AllCommands, rhi::Access::None, rhi::TextureLayout::Undefined};
+        const rhi::ResourceState depth_write{rhi::PipelineStage::EarlyFragmentTests | rhi::PipelineStage::LateFragmentTests, rhi::Access::DepthStencilWrite,
+                                             rhi::TextureLayout::DepthStencilAttachment};
+        const rhi::ResourceState color_write{rhi::PipelineStage::ColorAttachmentOutput, rhi::Access::ColorAttachmentWrite, rhi::TextureLayout::ColorAttachment};
+        rhi::CommandList& cmd = device->begin_frame();
+        models.set_shadow_frame(&sf);
+        const rhi::TextureBarrier init[] = {{models.shadow_map(), none, depth_write, {}}, {depth, none, depth_write, {}}, {color, none, color_write, {}}};
+        cmd.barrier(init);
+        {  // the shadow pass: the caster into tile 0 only
+            rhi::RenderingDesc rd;
+            rhi::DepthAttachment da;
+            da.texture = models.shadow_map();
+            da.load = rhi::AttachmentLoadOp::Clear;
+            da.store = rhi::AttachmentStoreOp::Store;
+            da.clear_depth = 0.0f;
+            rd.depth = da;
+            rd.area = {0, 0, models.shadow_atlas_width(), models.shadow_atlas_height()};
+            cmd.begin_rendering(rd);
+            const uint32_t tile = models.shadow_map_size();
+            cmd.set_viewport({0.0f, 0.0f, static_cast<float>(tile), static_cast<float>(tile), 0.0f, 1.0f});
+            cmd.set_scissor({0, 0, tile, tile});
+            ModelFrameStats shadow_stats;
+            const ModelDraw casters[] = {{&caster, Mat4::identity()}};
+            models.draw_shadow(cmd, light, casters, shadow_stats);
+            cmd.end_rendering();
+        }
+        const rhi::TextureBarrier to_sampled{models.shadow_map(), depth_write, rhi::sampled_texture_state, {}};
+        cmd.barrier(std::span(&to_sampled, 1));
+        {  // the color pass: only the receiver
+            rhi::RenderingDesc rd;
+            rhi::ColorAttachment ca;
+            ca.texture = color;
+            ca.clear = {0.0f, 0.0f, 0.0f, 1.0f};
+            rd.colors.push_back(ca);
+            rhi::DepthAttachment da;
+            da.texture = depth;
+            da.clear_depth = 0.0f;
+            rd.depth = da;
+            rd.area = {0, 0, kW, kH};
+            cmd.begin_rendering(rd);
+            cmd.set_viewport({0.0f, 0.0f, static_cast<float>(kW), static_cast<float>(kH), 0.0f, 1.0f});
+            cmd.set_scissor({0, 0, kW, kH});
+            ModelFrameStats stats;
+            const ModelDraw receivers[] = {{&ground, Mat4::identity()}};
+            models.draw(cmd, view_proj, camera.position, receivers, stats);
+            cmd.end_rendering();
+        }
+        const rhi::TextureBarrier to_transfer{color, color_write, {rhi::PipelineStage::Transfer, rhi::Access::TransferRead, rhi::TextureLayout::TransferSrc}, {}};
+        cmd.barrier(std::span(&to_transfer, 1));
+        cmd.copy_texture_to_buffer(color, readback);
+        (void)device->end_frame();
+        device->wait_idle();
+        const auto mapped = device->map(readback);
+        Image img;
+        img.width = kW;
+        img.height = kH;
+        img.rgba.assign(reinterpret_cast<const uint8_t*>(mapped.data()), reinterpret_cast<const uint8_t*>(mapped.data()) + size_t{kW} * kH * 4);
+
+        const Float3 up{0, 0, 1};
+        const float ndl = std::max(0.0f, dot(up, sun()));
+        const Float3 sky{ms.sky.r * 0.6f, ms.sky.g * 0.6f, ms.sky.b * 0.6f};
+        const Float3 lit = (sky + Float3{1.00f * ndl, 0.95f * ndl, 0.85f * ndl}) * 0.5f, dark = sky * 0.5f;
+        const auto pixel_of = [&](Float3 world) {
+            const Projected p = project_point(view_proj, world);
+            const PixelPos px = ndc_to_pixel(p.ndc_x, p.ndc_y, static_cast<float>(kW), static_cast<float>(kH));
+            return Pixel{static_cast<int>(px.x), static_cast<int>(px.y)};
+        };
+        if (!receiver_in_cascade_1) {
+            // Inside tile 0 everything is shadowed, including the last texel column and row, the corner and the receivers whose taps reach beyond the edge.
+            for (const Float3 q : {Float3{7.86f, 0.0f, 0.0f}, Float3{7.86f, 3.0f, 0.0f}, Float3{0.0f, -7.86f, 0.0f}, Float3{-3.0f, -7.86f, 0.0f}, Float3{7.86f, -7.86f, 0.0f},
+                                   Float3{7.0f, 0.0f, 0.0f}, Float3{0.0f, 0.0f, 0.0f}}) {
+                const Float3 got = linear_at(img, pixel_of(q));
+                const bool ok = near3(got, dark, 0.03f);
+                if (!ok) std::printf("  radius %u at (%.2f, %.2f): got (%.3f %.3f %.3f), shadowed expected (%.3f %.3f %.3f)\n", radius, static_cast<double>(q.x), static_cast<double>(q.y),
+                                     static_cast<double>(got.x), static_cast<double>(got.y), static_cast<double>(got.z), static_cast<double>(dark.x), static_cast<double>(dark.y), static_cast<double>(dark.z));
+                CHECK(ok);
+            }
+            // Beyond the tile there is no shadow data: the sun is not occluded (so the test is not simply "everything is dark").
+            for (const Float3 q : {Float3{9.0f, 0.0f, 0.0f}, Float3{0.0f, -9.0f, 0.0f}}) CHECK(near3(linear_at(img, pixel_of(q)), lit, 0.03f));
+        } else {
+            // The receivers use cascade 1, whose tile is empty: everything in it is lit, also at its left and top edge, where taps must not read tile 0's caster.
+            for (const Float3 q : {Float3{-7.86f, 0.0f, 0.0f}, Float3{-7.86f, 3.0f, 0.0f}, Float3{0.0f, 7.86f, 0.0f}, Float3{-3.0f, 7.86f, 0.0f}, Float3{-7.86f, 7.86f, 0.0f},
+                                   Float3{0.0f, 0.0f, 0.0f}, Float3{7.0f, -7.0f, 0.0f}}) {
+                const Float3 got = linear_at(img, pixel_of(q));
+                const bool ok = near3(got, lit, 0.03f);
+                if (!ok) std::printf("  cascade 1, radius %u at (%.2f, %.2f): got (%.3f %.3f %.3f), lit expected (%.3f %.3f %.3f)\n", radius, static_cast<double>(q.x), static_cast<double>(q.y),
+                                     static_cast<double>(got.x), static_cast<double>(got.y), static_cast<double>(got.z), static_cast<double>(lit.x), static_cast<double>(lit.y), static_cast<double>(lit.z));
+                CHECK(ok);
+            }
+        }
+        CHECK(device->validation_error_count() == 0);
+        device->destroy(readback);
+        device->destroy(depth);
+        device->destroy(color);
+    }
+}
+
 TEST_CASE("Cascades: the atlas is one tile per cascade, and the pass writes every tile")
 {
     for (const uint32_t count : {1u, 2u, 3u, 4u}) {

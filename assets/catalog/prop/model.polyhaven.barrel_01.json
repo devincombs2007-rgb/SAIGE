@@ -1,0 +1,157 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Jorge Camacho"
+ ],
+ "description": "Free worn red metal oil drum with explosive hazard marking - realistic, scratched, rusty industrial barrel ideal for games, VFX, and environment scenes.",
+ "files": [
+  {
+   "bytes": 2711,
+   "format": "gltf",
+   "path": "polyhaven/Barrel_01/1k/Barrel_01_1k.gltf",
+   "role": "model",
+   "sha256": "e084945dedd6a3379c6f3e97842cac89df7169797707e123a5e5b42c135d6888"
+  },
+  {
+   "bytes": 81756,
+   "format": "bin",
+   "path": "polyhaven/Barrel_01/1k/Barrel_01.bin",
+   "role": "dependency",
+   "sha256": "fe8369c1ac796059b62a091c0db7367dc420aa2cee212672e48f991f4208da98"
+  },
+  {
+   "bytes": 179308,
+   "format": "jpg",
+   "path": "polyhaven/Barrel_01/1k/textures/Barrel_01_explosive_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "a7e5a7b03bbe0c9c56bf1ac09b24121a5d19148428e9e6eac326c803fc297098"
+  },
+  {
+   "bytes": 185578,
+   "format": "jpg",
+   "path": "polyhaven/Barrel_01/1k/textures/Barrel_01_explosive_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "fa4750d64c6f568c8de3e36bc631348710329cf2d6d9c8c87bd2e47a96bc4fcb"
+  },
+  {
+   "bytes": 243594,
+   "format": "jpg",
+   "path": "polyhaven/Barrel_01/1k/textures/Barrel_01_explosive_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "eab507df7719f0e7a3615bd22bb7bc0c09fed83bfc44e72a51451f8069c2d374"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.barrel_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jorge Camacho",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Barrel_01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven Barrel_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:24Z",
+  "source_id": "Barrel_01",
+  "url": "https://polyhaven.com/a/Barrel_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "barrel",
+  "oil",
+  "explosive",
+  "radioactive",
+  "metal",
+  "red barrel",
+  "oil barrel",
+  "drums",
+  "fuel barrel",
+  "explosive barrel",
+  "industrial",
+  "industrial",
+  "containers"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.28151753544807434,
+   0.8733857274055481,
+   0.28151771426200867
+  ],
+  "bounds_min": [
+   -0.2815175950527191,
+   -0.006614277604967356,
+   -0.28151750564575195
+  ],
+  "dimensions_mm": [
+   563.0351305007935,
+   563.0352199077606,
+   880.0000050105155
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "Barrel_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 2682,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "Barrel_01_explosive_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "Barrel_01_explosive_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "Barrel_01_explosive_metallic-Barrel_01_explosive_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 2682,
+  "vertices": 2052
+ },
+ "version": 1
+}

@@ -1,9 +1,21 @@
-# Owner checklist (everything is doable from an iPhone)
+# Owner checklist
 
-Nothing here blocks current work: Poly Haven, ambientCG, Khronos and MakeHuman assets already flow without you. Each step unlocks something more. Do them in order; stop whenever you like.
-Never paste a key into a chat or a GitHub file. Keys go only into the secure card or the environment settings described below. Do not buy anything: every paid option below is marked and defaults to **no**.
+**Default: do nothing.** The pipeline already works without any account: Poly Haven, ambientCG, Khronos samples, MakeHuman community assets and OpenGameArt (including real recorded CC0 sound effects) are
+fetched by script, validated against the engine's importer and catalogued with no action from you. There is no connector or login route that lets an agent use your Freesound, ElevenLabs, Tripo, Meshy,
+Higgsfield, Sketchfab or Mixamo accounts by itself (the only connector found for any of them is an ElevenLabs *voice-agent manager*, which does not generate sound effects), so each of those needs either
+an API key you create once or a manual download. They are all optional; here they are ranked by how much they would improve quality for how little effort.
 
-## A. One-time setup (about 10 minutes)
+| Rank | What | Effort | Quality gain | Needed? |
+| --- | --- | --- | --- | --- |
+| 1 | Freesound API key (A2 + A6 below) | about 5 minutes once | a much larger pool of recorded vehicle, impact, foley and ambience sounds than the OpenGameArt packs | only if the current recorded sounds prove too thin |
+| 2 | Mixamo animations (B1) | 15-20 minutes on a computer | real motion-captured human animation (the showcase character only has a walk cycle) | only when character animation becomes the priority |
+| 3 | Sketchfab token (A5) | about 3 minutes once | CC0/CC-BY vehicles, which Poly Haven barely has | only when we need more cars |
+| 4 | everything else (ElevenLabs, Tripo, Meshy, Higgsfield, GPU, Sonniss) | | small or paid | **skip** |
+
+If you do nothing, I carry on with the keyless sources. Do these only if you want the quality jump. Never paste a key into a chat or a GitHub file: keys go only into the secure card or the environment
+settings described below. Do not buy anything.
+
+## A. Optional one-time setup (each item stands alone)
 
 - [ ] **A1. Private assets repository** (for Mixamo files and anything that must not be public).
   GitHub app → your profile → Repositories → **New** → name `saige-assets-private` → **Private** → Create.

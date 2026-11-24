@@ -58,7 +58,7 @@
  "source": {
   "acquire": "saige-assets fetch polyhaven shrub_sorrel_01 --type models --res 1k",
   "name": "polyhaven",
-  "retrieved": "2026-11-24T13:21:53Z",
+  "retrieved": "2026-11-24T13:44:21Z",
   "source_id": "shrub_sorrel_01",
   "url": "https://polyhaven.com/a/shrub_sorrel_01"
  },

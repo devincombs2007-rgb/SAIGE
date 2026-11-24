@@ -1,0 +1,164 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rob Tuytel",
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K model of four realistic fern clumps featuring detailed serrated fronds, varied silhouettes and rich dappled green foliage.",
+ "files": [
+  {
+   "bytes": 6899,
+   "format": "gltf",
+   "path": "polyhaven/fern_02/1k/fern_02_1k.gltf",
+   "role": "model",
+   "sha256": "33974295ee19670af4877705fc7d91f33f42d6302f0d44a625e072271223031f"
+  },
+  {
+   "bytes": 280359,
+   "format": "jpg",
+   "path": "polyhaven/fern_02/1k/textures/fern_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "ebfb5d76ce9cbdaec20bcd22dce9b755f0b1b8650ef29ca13555e3e6961025d7"
+  },
+  {
+   "bytes": 315705,
+   "format": "jpg",
+   "path": "polyhaven/fern_02/1k/textures/fern_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "a828a6e7b4c01c826911e2eac4b3afc7457dab7b3b392a31c681ed88b7d50029"
+  },
+  {
+   "bytes": 367222,
+   "format": "jpg",
+   "path": "polyhaven/fern_02/1k/textures/fern_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "45bce132c6e96a0864bc89ab5da51361ab3f4afa83a6669ae499ab5ca811f621"
+  },
+  {
+   "bytes": 176176,
+   "format": "bin",
+   "path": "polyhaven/fern_02/1k/fern_02.bin",
+   "role": "dependency",
+   "sha256": "fe1abb762bcbbc7ad9e86925c8080437a62add257d9280e9142fdc85c226e64c"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.fern_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Fern 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven fern_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:17Z",
+  "source_id": "fern_02",
+  "url": "https://polyhaven.com/a/fern_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "plant",
+  "fern",
+  "foliage",
+  "jungle",
+  "shrub",
+  "bush",
+  "leaf",
+  "leaves",
+  "green",
+  "nature",
+  "forest",
+  "outdoor",
+  "plants",
+  "nature",
+  "collection: smugglers_cove",
+  "collection: pine_forest"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.4616048336029053,
+   0.39718443155288696,
+   0.4718152582645416
+  ],
+  "bounds_min": [
+   -0.5281425714492798,
+   -0.030510280281305313,
+   -0.421874463558197
+  ],
+  "dimensions_mm": [
+   1972.5302457809448,
+   1724.0281701087952,
+   427.6947118341923
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.7.33",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 4,
+  "node_names_sample": [
+   "fern_02_b",
+   "fern_02_c",
+   "fern_02_a",
+   "fern_02_d"
+  ],
+  "nodes": 4,
+  "polycount_source": 6232,
+  "primitives": 4,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "fern_02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "fern_02_diff-fern_02_alpha",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "fern_02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 6232,
+  "vertices": 4337
+ },
+ "version": 1
+}

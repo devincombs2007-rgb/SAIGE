@@ -1,0 +1,166 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Fran Calvente"
+ ],
+ "description": "Free 8K model of a vintage Victorian leather sofa with carved wooden frame, scrolled arms, patterned fringe cushions and rich antique brown finish.",
+ "files": [
+  {
+   "bytes": 4465,
+   "format": "gltf",
+   "path": "polyhaven/sofa_03/1k/sofa_03_1k.gltf",
+   "role": "model",
+   "sha256": "123f491bef4e9bda153bda770a5d12810bfc9b87ce56aa5973aed041ea17fd92"
+  },
+  {
+   "bytes": 170206,
+   "format": "jpg",
+   "path": "polyhaven/sofa_03/1k/textures/sofa_03_rough_1k.jpg",
+   "role": "dependency",
+   "sha256": "b03b45c92365cddf787db158d7499915d6ba0d67ec51947453f6598f51361e47"
+  },
+  {
+   "bytes": 228984,
+   "format": "bin",
+   "path": "polyhaven/sofa_03/1k/sofa_03.bin",
+   "role": "dependency",
+   "sha256": "e524350933d3d2a84c28f13bc042888a4768adeef88d630111015caede1c2e98"
+  },
+  {
+   "bytes": 151815,
+   "format": "jpg",
+   "path": "polyhaven/sofa_03/1k/textures/sofa_03_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "c0bc221e4cacc3de75aff7744dab1600d008bcf70b5c67fb10ad6847b695a84e"
+  },
+  {
+   "bytes": 112563,
+   "format": "jpg",
+   "path": "polyhaven/sofa_03/1k/textures/sofa_03_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "b961f9e9f38233bd58cdc5275614d3a1b37d5304f5ab86fd19d110657d386025"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.sofa_03",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Fran Calvente",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Sofa 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven sofa_03 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:43:52Z",
+  "source_id": "sofa_03",
+  "url": "https://polyhaven.com/a/sofa_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "chair",
+  "couch",
+  "seat",
+  "fancy",
+  "mansion",
+  "manor",
+  "victorian",
+  "antique",
+  "leather",
+  "furniture",
+  "seating"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   1.365588665008545,
+   1.1188924312591553,
+   0.46120065450668335
+  ],
+  "bounds_min": [
+   -1.365588665008545,
+   0.0006283945986069739,
+   -0.46388354897499084
+  ],
+  "dimensions_mm": [
+   2731.17733001709,
+   925.0842034816742,
+   1118.2640366605483
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 2,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "sofa_03"
+  ],
+  "nodes": 1,
+  "polycount_source": 8004,
+  "primitives": 2,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "sofa_03_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "sofa_03_diff.png",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "sofa_03_rough.png",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "sofa_03_diff.png-sofa_03_opacity",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 8004,
+  "vertices": 5655
+ },
+ "version": 1
+}

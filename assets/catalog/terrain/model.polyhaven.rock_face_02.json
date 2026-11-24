@@ -1,0 +1,162 @@
+{
+ "category": "terrain.landscape",
+ "creators": [
+  "Dario Barresi",
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K rock face model, weathered sandstone cliff with layered strata, moss and lichen patches, rugged fissures and realistic geological detail.",
+ "files": [
+  {
+   "bytes": 2794,
+   "format": "gltf",
+   "path": "polyhaven/rock_face_02/1k/rock_face_02_1k.gltf",
+   "role": "model",
+   "sha256": "ebeab82d463c89eb5f894b85807da111280a73b552d694257118f3f2d47bf760"
+  },
+  {
+   "bytes": 1082942,
+   "format": "jpg",
+   "path": "polyhaven/rock_face_02/1k/textures/rock_face_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "a9dc200810f5488395fdc928b5a9441c007c33047d0375d946f33dcd2ff1c853"
+  },
+  {
+   "bytes": 820389,
+   "format": "jpg",
+   "path": "polyhaven/rock_face_02/1k/textures/rock_face_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "0f3f64b9f56e3c5cecbb99e45d8fa0d4cbf025d4455439d1c5f6672a408365ee"
+  },
+  {
+   "bytes": 702068,
+   "format": "bin",
+   "path": "polyhaven/rock_face_02/1k/rock_face_02.bin",
+   "role": "dependency",
+   "sha256": "cfa3dea8f0f91525b5dfe93d889acacf961d20f7174aae100eae2c6e101edf31"
+  },
+  {
+   "bytes": 920193,
+   "format": "jpg",
+   "path": "polyhaven/rock_face_02/1k/textures/rock_face_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "d777f2c9b598773c2143751c34913cf5eef0ae392af31fb73c28b98afab6fb7b"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.rock_face_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Dario Barresi; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Rock Face 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven rock_face_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:39Z",
+  "source_id": "rock_face_02",
+  "url": "https://polyhaven.com/a/rock_face_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "cliff",
+  "landscape",
+  "rock face",
+  "rock",
+  "formation",
+  "geology",
+  "rocks",
+  "weathered",
+  "lichen",
+  "rugged",
+  "outdoors",
+  "natural",
+  "environment",
+  "rocky surface",
+  "rocks",
+  "nature",
+  "collection: verdant_trail"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.45009371638298035,
+   2.3323476314544678,
+   0.938514769077301
+  ],
+  "bounds_min": [
+   -2.2611024379730225,
+   -0.13961930572986603,
+   -1.188185453414917
+  ],
+  "dimensions_mm": [
+   4870.411515235901,
+   3472.859501838684,
+   4734.235167503357
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.0.44",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "rock_face_02"
+  ],
+  "nodes": 1,
+  "polycount_source": 29566,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "rock_face_02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "rock_face_02_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "rock_face_02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 29566,
+  "vertices": 16396
+ },
+ "version": 1
+}

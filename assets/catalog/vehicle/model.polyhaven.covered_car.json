@@ -1,0 +1,164 @@
+{
+ "category": "vehicle.car",
+ "creators": [
+  "MP"
+ ],
+ "description": "Free 8K model of a car under a worn, dusty fabric cover with natural folds and visible wheels- aged garage/industrial character.",
+ "files": [
+  {
+   "bytes": 9687,
+   "format": "gltf",
+   "path": "polyhaven/covered_car/1k/covered_car_1k.gltf",
+   "role": "model",
+   "sha256": "80b210b08673833a8085812b9ee71286213b2af92654886e5a1a368977265aa7"
+  },
+  {
+   "bytes": 394464,
+   "format": "bin",
+   "path": "polyhaven/covered_car/1k/covered_car.bin",
+   "role": "dependency",
+   "sha256": "dcbd7bf82d415e30d02c3e7056013b44729de7b712868b5ab9bf29f2b3b8bc57"
+  },
+  {
+   "bytes": 641340,
+   "format": "jpg",
+   "path": "polyhaven/covered_car/1k/textures/covered_car_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "6769694abe28c53e5c35ad1cefdd462b56416e7d89a6bcf5a9d9f6c922b46d05"
+  },
+  {
+   "bytes": 745781,
+   "format": "jpg",
+   "path": "polyhaven/covered_car/1k/textures/covered_car_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "e77f73234311701dd8088ec572e61d4ec7838bd28e9ea13ffe5e28f79da8e085"
+  },
+  {
+   "bytes": 558004,
+   "format": "jpg",
+   "path": "polyhaven/covered_car/1k/textures/covered_car_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "c4616a5c7c1327e4bc127b600e59d9dcb2123f8926f1570a1ca4a068d97f4d34"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.covered_car",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "MP",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Covered Car",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven covered_car --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:04Z",
+  "source_id": "covered_car",
+  "url": "https://polyhaven.com/a/covered_car"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "garage",
+  "stored",
+  "vehicle",
+  "car",
+  "workshop",
+  "mechanic",
+  "automotive",
+  "repair shop",
+  "junkyard",
+  "scrapyard",
+  "props",
+  "industrial",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.9046822786331177,
+   1.4111131429672241,
+   2.1763384342193604
+  ],
+  "bounds_min": [
+   -0.8842806816101074,
+   -0.2999999523162842,
+   -2.20391583442688
+  ],
+  "dimensions_mm": [
+   1788.962960243225,
+   4380.25426864624,
+   1411.1130833625793
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_specular",
+   "KHR_materials_ior"
+  ],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.6.27",
+  "materials": 2,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 5,
+  "node_names_sample": [
+   "covered_car_wheel_01",
+   "covered_car_wheel_02",
+   "covered_car_wheel_03",
+   "covered_car_wheel_04",
+   "covered_car"
+  ],
+  "nodes": 5,
+  "polycount_source": 12592,
+  "primitives": 5,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "covered_car_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "covered_car_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "covered_car_metal-covered_car_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 12592,
+  "vertices": 10722
+ },
+ "version": 1
+}

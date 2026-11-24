@@ -1,0 +1,154 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Kirill Sannikov"
+ ],
+ "description": "Free 4K model of a tufted leather sofa with carved wood frame - elegant vintage couch/prop with realistic leather and fabric cushions.",
+ "files": [
+  {
+   "bytes": 4183,
+   "format": "gltf",
+   "path": "polyhaven/sofa_02/1k/sofa_02_1k.gltf",
+   "role": "model",
+   "sha256": "5df114209f9b956ccd4831eaeef469a81339ab371d0056eb6d5d29eee08eb431"
+  },
+  {
+   "bytes": 86514,
+   "format": "jpg",
+   "path": "polyhaven/sofa_02/1k/textures/sofa_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "4ff65c782578b52eee89cb96cc4e258ce1b6848e1a7655019af1f7207c749840"
+  },
+  {
+   "bytes": 121752,
+   "format": "jpg",
+   "path": "polyhaven/sofa_02/1k/textures/sofa_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "f2813f32cd9ec42a9080590d0953ac9e272d9baa0b22fdb5910bf325157393c6"
+  },
+  {
+   "bytes": 139858,
+   "format": "jpg",
+   "path": "polyhaven/sofa_02/1k/textures/sofa_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "c97a359703a8ce1cee62cbd9dc4013b611d821afb7769810983b464ebc5d0cfe"
+  },
+  {
+   "bytes": 74864,
+   "format": "bin",
+   "path": "polyhaven/sofa_02/1k/sofa_02.bin",
+   "role": "dependency",
+   "sha256": "cb337e03211be0309afa1ded2b6cbb2d402c0f794aaf8828fba559d27a42d3f5"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.sofa_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Kirill Sannikov",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Sofa 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven sofa_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:43:46Z",
+  "source_id": "sofa_02",
+  "url": "https://polyhaven.com/a/sofa_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wood",
+  "furniture",
+  "chair",
+  "prop",
+  "couch",
+  "leather",
+  "fabric",
+  "furniture",
+  "seating"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.9035836458206177,
+   0.7094888687133789,
+   0.3087882101535797
+  ],
+  "bounds_min": [
+   -0.9035837054252625,
+   -5.960464477539063e-08,
+   -0.5089631676673889
+  ],
+  "dimensions_mm": [
+   1807.1673512458801,
+   817.7513778209686,
+   709.4888985157013
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 2,
+  "node_names_sample": [
+   "sofa_02_Base",
+   "sofa_02_Seat"
+  ],
+  "nodes": 2,
+  "polycount_source": 2728,
+  "primitives": 2,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "sofa_02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "sofa_02_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "sofa_02_metallic-sofa_02_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 2728,
+  "vertices": 1828
+ },
+ "version": 1
+}

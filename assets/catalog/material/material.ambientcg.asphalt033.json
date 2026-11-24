@@ -86,7 +86,7 @@
  "source": {
   "acquire": "saige-assets fetch ambientcg Asphalt033 --res 1K-JPG",
   "name": "ambientcg",
-  "retrieved": "2026-11-24T13:20:49Z",
+  "retrieved": "2026-11-24T13:46:11Z",
   "source_id": "Asphalt033",
   "url": "https://ambientcg.com/a/Asphalt033"
  },

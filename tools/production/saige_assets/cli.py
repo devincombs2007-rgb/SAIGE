@@ -213,6 +213,54 @@ def cmd_validate(a):
         print("  " + n)
 
 
+def cmd_acquire(a):
+    """Runs an acquisition manifest (JSON list of requests) and records every asset as a candidate. Idempotent: an asset whose files are unchanged is left as it was.
+    Request forms: {"source": "polyhaven", "type": "models|textures|hdris", "category": "plants", "count": 6, "max_polycount": 40000, "res": "1k"}, {"source": "polyhaven", "id": "rock_09", ...},
+    {"source": "ambientcg", "query": "asphalt", "count": 3, "type": "Material"}, {"source": "makehuman", "type": "clothes", "license": "CC0", "count": 6}, {"source": "opengameart", "url": "...", "kind": "audio"}."""
+    cat = Catalog()
+    manifest = json.load(open(a.manifest))
+    done = failed = 0
+    for req in manifest:
+        try:
+            src = req["source"]
+            if src == "polyhaven":
+                from .sources import polyhaven
+                ids = [req["id"]] if "id" in req else []
+                if not ids:
+                    rows = polyhaven.search(req.get("query", ""), req.get("type", "models"), req.get("category"), 400)
+                    mx = req.get("max_polycount")
+                    rows = [r for r in rows if not mx or (r.get("polycount") or 0) <= mx]
+                    ids = [r["id"] for r in rows[: req.get("count", 3)]]
+                for i in ids:
+                    rec = polyhaven.fetch(i, req.get("type", "models"), req.get("res", "1k"), req.get("format", "hdr"))
+                    rec, created, changed = cat.put(rec)
+                    print(f"  {'created' if created else 'updated' if changed else 'unchanged'} {rec['id']} [{rec['category']}]")
+                    done += 1
+            elif src == "ambientcg":
+                from .sources import ambientcg
+                ids = [req["id"]] if "id" in req else [r["id"] for r in ambientcg.search(req.get("query", ""), req.get("type", "Material"), req.get("count", 3))]
+                for i in ids:
+                    rec, created, changed = cat.put(ambientcg.fetch(i, req.get("res", "1K-JPG")))
+                    print(f"  {'created' if created else 'updated' if changed else 'unchanged'} {rec['id']} [{rec['category']}]")
+                    done += 1
+            elif src == "makehuman":
+                from .sources import makehuman
+                rows = makehuman.search(req.get("query", ""), req.get("type"), req.get("license"), req.get("count", 3))
+                for r in rows:
+                    rec, created, changed = cat.put(makehuman.fetch(r["id"]))
+                    print(f"  {'created' if created else 'updated' if changed else 'unchanged'} {rec['id']} [{rec['category']}]")
+                    done += 1
+            elif src == "opengameart":
+                from .sources import opengameart
+                rec, created, changed = cat.put(opengameart.fetch(req["url"], req.get("kind", "audio")))
+                print(f"  {'created' if created else 'updated' if changed else 'unchanged'} {rec['id']} [{rec['category']}]")
+                done += 1
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            print(f"  FAILED {req}: {str(e)[:120]}")
+    print(f"{done} asset(s) recorded, {failed} request(s) failed")
+
+
 def cmd_services(a):
     from .sources import keyed
     import os
@@ -243,6 +291,7 @@ def main(argv=None):
     s = sub.add_parser("approve"); s.add_argument("id"); s.add_argument("--reason"); s.set_defaults(fn=cmd_mark, status="approved")
     s = sub.add_parser("reject"); s.add_argument("id"); s.add_argument("--reason"); s.set_defaults(fn=cmd_mark, status="rejected")
     sub.add_parser("services").set_defaults(fn=cmd_services)
+    s = sub.add_parser("acquire"); s.add_argument("manifest"); s.set_defaults(fn=cmd_acquire)
     s = sub.add_parser("validate"); s.add_argument("id"); s.set_defaults(fn=cmd_validate)
     a = ap.parse_args(argv)
     a.fn(a)

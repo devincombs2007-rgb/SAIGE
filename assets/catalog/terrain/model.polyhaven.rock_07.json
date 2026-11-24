@@ -58,7 +58,7 @@
  "source": {
   "acquire": "saige-assets fetch polyhaven rock_07 --type models --res 1k",
   "name": "polyhaven",
-  "retrieved": "2026-11-24T13:21:50Z",
+  "retrieved": "2026-11-24T13:44:49Z",
   "source_id": "rock_07",
   "url": "https://polyhaven.com/a/rock_07"
  },

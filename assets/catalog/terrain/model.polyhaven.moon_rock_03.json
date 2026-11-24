@@ -1,0 +1,156 @@
+{
+ "category": "terrain.landscape",
+ "creators": [
+  "Greg Zaal",
+  "Rico Cilliers",
+  "Jenelle van Heerden"
+ ],
+ "description": "Free 16K moon rock model with rough, dust-coated regolith - detailed lunar surface, dirty crevices and extraterrestrial character for realistic space scenes.",
+ "files": [
+  {
+   "bytes": 2789,
+   "format": "gltf",
+   "path": "polyhaven/moon_rock_03/1k/moon_rock_03_1k.gltf",
+   "role": "model",
+   "sha256": "aee7860497473cba4d06038abaa37e6da675cc97a4e7fa2fdee28ebf8844eea1"
+  },
+  {
+   "bytes": 686128,
+   "format": "jpg",
+   "path": "polyhaven/moon_rock_03/1k/textures/moon_rock_03_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "b5ace21b213a3c76ba6e0fabd37a9150ef4b525214fb5eba17546ec480f14bf7"
+  },
+  {
+   "bytes": 299288,
+   "format": "jpg",
+   "path": "polyhaven/moon_rock_03/1k/textures/moon_rock_03_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "ab94cec085c5e6c5db832f7c69c504bfefcffce0a0c2215f592ebcbbaa12862b"
+  },
+  {
+   "bytes": 349061,
+   "format": "jpg",
+   "path": "polyhaven/moon_rock_03/1k/textures/moon_rock_03_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "748403657a81b7c38c2cf8ddce22d8f41212a33a41520a92df79ba31c9b229dc"
+  },
+  {
+   "bytes": 131060,
+   "format": "bin",
+   "path": "polyhaven/moon_rock_03/1k/moon_rock_03.bin",
+   "role": "dependency",
+   "sha256": "b9e79d1c12719515f48b8e27ddf692f9e2076ad4eafd1cf4a4d12d1bcc6d85df"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.moon_rock_03",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Greg Zaal; Rico Cilliers; Jenelle van Heerden",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Moon Rock 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven moon_rock_03 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:48Z",
+  "source_id": "moon_rock_03",
+  "url": "https://polyhaven.com/a/moon_rock_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough texture",
+  "lunar",
+  "dirty",
+  "regolith",
+  "dusted",
+  "space",
+  "extraterrestrial",
+  "rocks",
+  "collection: moon",
+  "nature"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.058653734624385834,
+   0.05654335767030716,
+   0.041067589074373245
+  ],
+  "bounds_min": [
+   -0.05336993560194969,
+   -0.0016210168832913041,
+   -0.04499820992350578
+  ],
+  "dimensions_mm": [
+   112.28010803461075,
+   86.23043820261955,
+   58.39346128050238
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.4.55",
+  "materials": 1,
+  "max_resolution": [
+   16384,
+   16384
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "moon_rock_03_LOD0"
+  ],
+  "nodes": 1,
+  "polycount_source": 10492,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "moon_rock_03_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "moon_rock_03_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "moon_rock_03_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 5598,
+  "vertices": 3046
+ },
+ "version": 1
+}

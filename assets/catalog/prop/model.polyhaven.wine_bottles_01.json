@@ -1,0 +1,323 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Rico Cilliers",
+  "Jurita Burger"
+ ],
+ "description": "Free 8K model of four wine and champagne bottles with realistic glass, varied labels, foil/wax tops and subtle wear, evoking a rustic vineyard farmhouse character.",
+ "files": [
+  {
+   "bytes": 29107,
+   "format": "gltf",
+   "path": "polyhaven/wine_bottles_01/1k/wine_bottles_01_1k.gltf",
+   "role": "model",
+   "sha256": "70a8a5eabeac24cf298774aca78bbcf39145ca6bf5ebdf2f296edab73fbce039"
+  },
+  {
+   "bytes": 152387,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_ftero_vinea_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "c07bcbd4cde7bf713b0512d52345b949c4684ec0735c5798ac79a0fb4719b92c"
+  },
+  {
+   "bytes": 323568,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_ftero_vinea_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "3d1f02a201c8d573b155b2ea2265b31bf1d532e4c9a7baf2dfe54e2633e5e9c0"
+  },
+  {
+   "bytes": 104730,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_intertwine_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "712d20fa4caabdf830e454ddc240643319700843e3bda349ae0c3c98dccbd582"
+  },
+  {
+   "bytes": 148172,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_clearwater_crystals_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "fca5e598c73d877c636e3c28345254fb9f6320e765fdd0b923fdb4ead5769ccf"
+  },
+  {
+   "bytes": 214807,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_ftero_vinea_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "5808aed6b27b1812bbead8c6d733d412c1ed56adf587770dedf5f5e9d2e5310f"
+  },
+  {
+   "bytes": 148023,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_clearwater_crystals_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "67041443fc09702bc93c9481d1492aeaad659cdb9a5a5dab478a86f41017e83c"
+  },
+  {
+   "bytes": 207588,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_ftero_vinea_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "5a35e83b08e3be62ae42773727d94d5c41da3df55b79fd7e53fca3fadc382a17"
+  },
+  {
+   "bytes": 980529,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_paper_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "b05b6f021b942032d45f23e46066da715c4f9624acea7d8db77928a90076a049"
+  },
+  {
+   "bytes": 688000,
+   "format": "bin",
+   "path": "polyhaven/wine_bottles_01/1k/wine_bottles_01.bin",
+   "role": "dependency",
+   "sha256": "a520b717c7f9d15b7f114d1be5f454f18b2cfd056757fb4d4c5f5054de5db6d6"
+  },
+  {
+   "bytes": 143130,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_label_intertwine_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "e5571a24e0f025361dfeecd7a09f4c3ee9be36dadf817177ee75919078002513"
+  },
+  {
+   "bytes": 110230,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "f440b6364c87eb440c9ca201759cfdaf2735e3147488eadc24be334f1e457a09"
+  },
+  {
+   "bytes": 194721,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "ed92387b827b7aebf4602e655c8e9cbaf53bbed24b7228106b04b3456e2d779c"
+  },
+  {
+   "bytes": 464325,
+   "format": "jpg",
+   "path": "polyhaven/wine_bottles_01/1k/textures/wine_bottles_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "c3deadf0db4c9c98ad39f389e95fe2b09d8df0e3abb95a47f01478f31fd261a9"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.wine_bottles_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers; Jurita Burger",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wine Bottles 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven wine_bottles_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:43Z",
+  "source_id": "wine_bottles_01",
+  "url": "https://polyhaven.com/a/wine_bottles_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wine",
+  "drink",
+  "bottle",
+  "champagne",
+  "grape",
+  "farmhouse",
+  "vineyard",
+  "props",
+  "containers",
+  "dishes"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.040292561054229736,
+   0.3313671946525574,
+   0.040292561054229736
+  ],
+  "bounds_min": [
+   -0.040292561054229736,
+   -5.820766091346741e-10,
+   -0.04027033969759941
+  ],
+  "dimensions_mm": [
+   676.3246953487396,
+   80.56290075182915,
+   331.367195234634
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_transmission"
+  ],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.8.19",
+  "materials": 12,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 4,
+  "node_names_sample": [
+   "wine_bottles_01_bordeaux",
+   "wine_bottles_01_alsace",
+   "wine_bottles_01_burgundy",
+   "wine_bottles_01_champagne"
+  ],
+  "nodes": 4,
+  "polycount_source": 28848,
+  "primitives": 16,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 67108860,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_metal-wine_bottles_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_diff-wine_bottles_01_alpha",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_paper_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_ftero_vinea_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 6,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_ftero_vinea_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 7,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_clearwater_crystals_01_diff-wine_bottles_01_label_clearwater_crystals_01_alpha",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 8,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_clearwater_crystals_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 9,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_intertwine_01_diff-wine_bottles_01_label_intertwine_01_alpha",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 10,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_intertwine_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 11,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_ftero_vinea_02_diff-wine_bottles_01_label_ftero_vinea_02_alpha",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 12,
+    "mime": "image/jpeg",
+    "name": "wine_bottles_01_label_ftero_vinea_02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 28848,
+  "vertices": 16091
+ },
+ "version": 1
+}

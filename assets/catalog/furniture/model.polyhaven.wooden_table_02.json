@@ -1,0 +1,152 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Serhii Khromov"
+ ],
+ "description": "Free 4K model. Simple wooden table with warm brown grain, worn edges, light scuffs and varnished sheen - rectangular top on four straight legs.",
+ "files": [
+  {
+   "bytes": 2687,
+   "format": "gltf",
+   "path": "polyhaven/wooden_table_02/1k/wooden_table_02_1k.gltf",
+   "role": "model",
+   "sha256": "bb38e301840cb629d72c43c83fdb7fb308518efe2d0bc01e1ed0e9a9e43ed9d3"
+  },
+  {
+   "bytes": 178379,
+   "format": "jpg",
+   "path": "polyhaven/wooden_table_02/1k/textures/wooden_table_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "2334ac3e23d69222322515d9bad066b4e90d7d81989fe231b8fb12f39179ad9e"
+  },
+  {
+   "bytes": 122129,
+   "format": "jpg",
+   "path": "polyhaven/wooden_table_02/1k/textures/wooden_table_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "9470e08e5dab4ab6a7cafab2a488a50fb54fa8f38890e9032c39dcbf7f5846d2"
+  },
+  {
+   "bytes": 7576,
+   "format": "bin",
+   "path": "polyhaven/wooden_table_02/1k/wooden_table_02.bin",
+   "role": "dependency",
+   "sha256": "52ed7cc67b3aa403375cf9bd18050e8cc21bcced6532a0183c1a733f0965df6d"
+  },
+  {
+   "bytes": 174545,
+   "format": "jpg",
+   "path": "polyhaven/wooden_table_02/1k/textures/wooden_table_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "b970a81e4b03f3b8a341c9eb639f112fff1782d681c846255ebc9073cd803ced"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.wooden_table_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Serhii Khromov",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wooden Table 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven wooden_table_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:43:49Z",
+  "source_id": "wooden_table_02",
+  "url": "https://polyhaven.com/a/wooden_table_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wooden",
+  "worn",
+  "village",
+  "rural",
+  "natural",
+  "simple",
+  "furniture",
+  "table"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.5672084093093872,
+   0.7994177341461182,
+   0.35301241278648376
+  ],
+  "bounds_min": [
+   -0.5672082304954529,
+   -0.00012515290291048586,
+   -0.35301241278648376
+  ],
+  "dimensions_mm": [
+   1134.41663980484,
+   706.0248255729675,
+   799.5428870490286
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "wooden_table_02"
+  ],
+  "nodes": 1,
+  "polycount_source": 196,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "wooden_table_02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "wooden_table_02_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "wooden_table_02_metal-wooden_table_02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 196,
+  "vertices": 200
+ },
+ "version": 1
+}

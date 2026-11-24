@@ -1,6 +1,6 @@
 #pragma once
 
-#include "saige/capsule_sweep.hpp"
+#include "saige/capsule_triangle.hpp"
 #include "saige/prepared_scene.hpp"
 
 #include <compare>
@@ -26,6 +26,11 @@ struct ChunkSource {
     std::filesystem::path collision{}; // An empty path requests a scene with no collision file.
 };
 
+struct ChunkCollision {
+    std::vector<Aabb> boxes;
+    std::vector<Triangle> triangles;
+};
+
 struct ChunkStreamLimits {
     std::size_t max_chunks{16}; // Per active or requested set.
     std::size_t max_retained_asset_bytes{std::size_t{256} << 20}; // Active and newly staged payloads.
@@ -49,6 +54,7 @@ public:
     [[nodiscard]] const PreparedScene* staged_chunk(ChunkCoord coord) const noexcept;
     // A present empty span is an authored empty file. The same lifetime rules as staged_chunk apply.
     [[nodiscard]] std::optional<std::span<const Aabb>> staged_collision(ChunkCoord coord) const noexcept;
+    [[nodiscard]] std::optional<std::span<const Triangle>> staged_triangles(ChunkCoord coord) const noexcept;
     // Publish only a complete set. Borrowed active scene pointers expire at the next successful commit.
     bool commit_frame() noexcept;
 
@@ -61,7 +67,7 @@ private:
         std::filesystem::path project;
         std::filesystem::path collision;
         std::shared_ptr<const PreparedScene> scene{};
-        std::shared_ptr<const std::vector<Aabb>> boxes{};
+        std::shared_ptr<const ChunkCollision> geometry{};
     };
     using Chunks = std::map<ChunkCoord, Chunk>;
 

@@ -359,6 +359,31 @@ void test_native_streamed_course(const fs::path& fixture) {
     require(course.camera_view().has_value(), "streamed course retains the existing orbit camera");
 }
 
+void test_rebased_ramp_course(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    const auto play = [&] {
+        saige::World world;
+        CourseKeys keys;
+        saige::sample::StreamedCourse course(world, keys, fixture.parent_path() / "ramp-course-world.json");
+        const auto player = [&] { return world.snapshot().front().position; };
+        require(player() == saige::Vec3{3, 4, 0}, "version 2 uses the authored checkpoint");
+        keys.forward = true;
+        std::vector<saige::Vec3> poses;
+        for (int frame = 0; frame < 170; ++frame) {
+            course.fixed_update(world, 16'666'667ns);
+            poses.push_back(player());
+        }
+        require(course.resident_count() == 2 && player().x > 11 && player().z > 0.7f,
+                "walk across a rebased chunk seam and climb the authored triangle ramp");
+        keys.reset = true;
+        course.fixed_update(world, 16'666'667ns);
+        require(player() == saige::Vec3{3, 4, 0}, "reset restores the supported authored point");
+        return poses;
+    };
+    const auto first = play();
+    require(first == play(), "rebased ramp traversal replays deterministically");
+}
+
 void test_manifest(const std::filesystem::path& fixture) {
     Workspace workspace;
     const auto scene_dir = workspace.root / "scenes";
@@ -428,6 +453,7 @@ int main(int argc, char** argv) {
         test_stream(argv[1]);
         test_manifest(argv[1]);
         test_native_streamed_course(argv[1]);
+        test_rebased_ramp_course(argv[1]);
         test_collision_handoff(argv[1]);
         return 0;
     } catch (const std::exception& e) {

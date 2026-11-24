@@ -31,23 +31,34 @@ class StreamedCourse final : public IGame {
 public:
     StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
                    CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {})
-        : platform_(platform), sources_(load_chunk_manifest(manifest)), output_(output) {
-        const auto spawn_chunk = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
-        if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at [0, 0]");
-        for (const auto& source : sources_) {
-            // Leave room for the capsule, jump and boundary guards inside the local physics envelope.
-            if (source.collision.empty() || source.coord.x < -31 || source.coord.x > 30 ||
-                source.coord.y < -31 || source.coord.y > 30) {
-                throw std::invalid_argument("Course chunks need collision files and coordinates in [-31, 30]");
-            }
+        : platform_(platform), output_(output) {
+        auto world_manifest = read_chunk_manifest(manifest);
+        const ChunkCoord origin = world_manifest.origin.value_or(reset_cell);
+        const Vec3 checkpoint = world_manifest.checkpoint;
+        if (checkpoint.x <= 0 || checkpoint.x >= cell_size || checkpoint.y <= 0 || checkpoint.y >= cell_size ||
+            checkpoint.z <= -8 || checkpoint.z > max_ground_height) {
+            throw std::invalid_argument("Course checkpoint is outside its reset cell");
         }
+        chunk_local_collision_ = world_manifest.origin.has_value();
+        sources_ = std::move(world_manifest.sources);
+        for (auto& source : sources_) {
+            // Subtract grid coordinates before converting to float. This also works at the signed 32-bit limits.
+            const auto x = static_cast<std::int64_t>(source.coord.x) - origin.x;
+            const auto y = static_cast<std::int64_t>(source.coord.y) - origin.y;
+            if (source.collision.empty() || x < -31 || x > 30 || y < -31 || y > 30) {
+                throw std::invalid_argument("Course chunks need collision files within the local grid [-31, 30]");
+            }
+            source.coord = {static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)};
+        }
+        const auto spawn_chunk = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
+        if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at its origin");
         const auto initial = std::span(&*spawn_chunk, 1);
         stream_.request(initial);
         stream_.stage_next();
         const auto geometry = candidate_geometry(initial);
-        CapsuleCharacter controller({4, 4, 0}, geometry, config);
+        CapsuleCharacter controller(checkpoint, geometry.boxes, geometry.triangles, config);
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
-        game_.emplace(world, platform_, std::move(controller), geometry);
+        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles);
         if (output_) {
             World candidate = world;
             const auto assets = candidate_assets(initial);
@@ -100,7 +111,8 @@ private:
             candidate_world = world;
             entities = compose_world(*candidate_world, requested_);
         }
-        if (!game_->replace_course_collision(candidate_geometry(requested_))) {
+        const auto geometry = candidate_geometry(requested_);
+        if (!game_->replace_course_collision(geometry.boxes, geometry.triangles)) {
             throw std::runtime_error("Staged course collision overlaps the player or reset point");
         }
         if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
@@ -153,7 +165,6 @@ private:
                     throw std::invalid_argument("Streamed chunks bind the same asset ID to different files");
                 }
             }
-
         }
         std::vector<CourseAsset> assets;
         assets.reserve(unique_assets.size());
@@ -169,18 +180,27 @@ private:
         chunk_entities_ = std::move(entities);
     }
 
-    [[nodiscard]] std::vector<Aabb> candidate_geometry(std::span<const ChunkSource> requested) const {
-        std::vector<Aabb> geometry;
+    [[nodiscard]] ChunkCollision candidate_geometry(std::span<const ChunkSource> requested) const {
+        ChunkCollision geometry;
         for (const auto& chunk : requested) {
-            const auto boxes = stream_.staged_collision(chunk.coord).value();
-            if (std::ranges::any_of(boxes, [](const Aabb& box) { return box.max.z > max_ground_height; })) {
-                throw std::invalid_argument("Course collision exceeds the supported gameplay height");
-            }
-            geometry.insert(geometry.end(), boxes.begin(), boxes.end());
-
-            // Guard the resident perimeter. A delayed or failed load cannot strand the player in a missing chunk.
             const float x = static_cast<float>(chunk.coord.x) * cell_size;
             const float y = static_cast<float>(chunk.coord.y) * cell_size;
+            const auto to_local = [&](Vec3 point) {
+                if (point.z > max_ground_height) throw std::invalid_argument("Course collision exceeds the supported gameplay height");
+                if (chunk_local_collision_) {
+                    point.x += x;
+                    point.y += y;
+                }
+                return point;
+            };
+            for (const auto& box : stream_.staged_collision(chunk.coord).value()) {
+                geometry.boxes.push_back({to_local(box.min), to_local(box.max)});
+            }
+            for (const auto& triangle : stream_.staged_triangles(chunk.coord).value()) {
+                geometry.triangles.push_back({to_local(triangle.a), to_local(triangle.b), to_local(triangle.c)});
+            }
+
+            // Guard the resident perimeter. A delayed or failed load cannot strand the player in a missing chunk.
             constexpr float edge = 0.125f;
             const std::array neighbors{
                 ChunkCoord{chunk.coord.x - 1, chunk.coord.y}, ChunkCoord{chunk.coord.x + 1, chunk.coord.y},
@@ -194,7 +214,7 @@ private:
             };
             for (std::size_t side = 0; side < neighbors.size(); ++side) {
                 if (std::ranges::find(requested, neighbors[side], &ChunkSource::coord) == requested.end()) {
-                    geometry.push_back(guards[side]);
+                    geometry.boxes.push_back(guards[side]);
                 }
             }
         }
@@ -214,6 +234,7 @@ private:
     std::optional<ChunkCoord> requested_center_;
     std::vector<ChunkSource> requested_;
     bool reset_held_{};
+    bool chunk_local_collision_{};
 };
 
 } // namespace saige::sample

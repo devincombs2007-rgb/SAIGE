@@ -53,3 +53,16 @@ point at `(4, 4, 0)` inside cell `[0, 0]`. Course coordinates are bounded to `[-
 one-cell radius plus the reset cell. Collision files share a simulation origin, and their box tops may reach at most Z=240 m. Imported scene transforms are chunk-local. On a transition the host stages one GPU model per asset ID and adopts the composed render
 world with collision and residency. Resident render entities keep their identities. If two chunks use the same asset ID they
 must name the same normalized project-relative source. Assets at those paths are treated as immutable for the session. The renderer reuses matching resident GPU models and uploads at most one new model per fixed update after startup. A partial candidate stays inactive, and actual resource destruction follows the renderer’s in-flight retirement. Uploads remain synchronous. The course reports successful uploads and their CPU wall time. Asynchronous IO remains future work.
+
+
+## Origin-relative ramp courses
+
+Manifest version 2 adds an integer `origin` cell and a local XYZ `checkpoint` in that cell. The host subtracts the origin in
+64-bit integer space before converting to meters. Neighboring cells can be addressed near either signed 32-bit limit. Their
+collision and model coordinates are authored relative to each cell. Version 1 keeps its shared collision coordinates.
+The checkpoint remains resident and must be supported by walkable collision. Runtime origin shifts while crossing vastly
+separated regions are future work.
+
+Collision file version 2 adds a `triangles` array alongside `boxes`. Each triangle lists three XYZ vertices. The same capsule
+handles box and triangle contact and the camera checks both. The ramp example places a render mesh and collision faces in
+the same cell. It uses a distant grid origin and a non-default checkpoint.

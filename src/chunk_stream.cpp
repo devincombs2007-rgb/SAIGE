@@ -43,7 +43,7 @@ bool ChunkStream::stage_next() {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
         auto& chunk = next->second;
         if (!chunk.collision.empty()) {
-            chunk.boxes = std::make_shared<const std::vector<Aabb>>(load_chunk_collision(chunk.collision));
+            chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
         }
         chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
     } catch (...) {
@@ -70,8 +70,15 @@ const PreparedScene* ChunkStream::staged_chunk(ChunkCoord coord) const noexcept 
 std::optional<std::span<const Aabb>> ChunkStream::staged_collision(ChunkCoord coord) const noexcept {
     if (!pending_) return {};
     const auto it = pending_->find(coord);
-    if (it == pending_->end() || !it->second.boxes) return {};
-    return std::span<const Aabb>(*it->second.boxes);
+    if (it == pending_->end() || !it->second.geometry) return {};
+    return std::span<const Aabb>(it->second.geometry->boxes);
+}
+
+std::optional<std::span<const Triangle>> ChunkStream::staged_triangles(ChunkCoord coord) const noexcept {
+    if (!pending_) return {};
+    const auto it = pending_->find(coord);
+    if (it == pending_->end() || !it->second.geometry) return {};
+    return std::span<const Triangle>(it->second.geometry->triangles);
 }
 
 bool ChunkStream::commit_frame() noexcept {

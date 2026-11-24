@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace saige {
 namespace {
@@ -94,18 +95,29 @@ Vec3 read_box_corner(const Json& corner) {
 
 } // namespace
 
-std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
+ChunkManifest read_chunk_manifest(const fs::path& path) {
     const auto document = read_chunk_document(path);
-    if (!has_fields(document, {"schema_version", "chunks"}) ||
-        !document["schema_version"].is_number_integer() || document["schema_version"] != 1) {
-        throw std::invalid_argument("Expected a version 1 chunk manifest");
+    if (!document.is_object() || !document.contains("schema_version") || !document["schema_version"].is_number_integer()) {
+        throw std::invalid_argument("Expected a versioned chunk manifest");
+    }
+    const auto version = document["schema_version"];
+    const bool modern = version == 2 && has_fields(document, {"schema_version", "origin", "checkpoint", "chunks"});
+    if (!modern && !(version == 1 && has_fields(document, {"schema_version", "chunks"}))) {
+        throw std::invalid_argument("Expected a version 1 or version 2 chunk manifest");
+    }
+    ChunkManifest manifest;
+    if (modern) {
+        const auto& origin = document["origin"];
+        if (!origin.is_array() || origin.size() != 2) throw std::invalid_argument("Expected a chunk origin coordinate pair");
+        manifest.origin = ChunkCoord{read_coord(origin[0]), read_coord(origin[1])};
+        manifest.checkpoint = read_box_corner(document["checkpoint"]);
     }
     const auto& entries = document["chunks"];
     if (!entries.is_array() || entries.size() > max_manifest_chunks) {
         throw std::invalid_argument("Expected a bounded chunk array");
     }
     const auto root = fs::canonical(fs::absolute(path).parent_path());
-    std::vector<ChunkSource> result;
+    auto& result = manifest.sources;
     result.reserve(entries.size());
     for (const auto& entry : entries) {
         if ((!has_fields(entry, {"coord", "project"}) && !has_fields(entry, {"coord", "project", "collision"})) ||
@@ -120,31 +132,55 @@ std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
     if (std::ranges::adjacent_find(result, {}, &ChunkSource::coord) != result.end()) {
         throw std::invalid_argument("Duplicate chunk coordinates");
     }
-    return result;
+    return manifest;
 }
 
-std::vector<Aabb> load_chunk_collision(const fs::path& path) {
+std::vector<ChunkSource> load_chunk_manifest(const fs::path& path) {
+    return read_chunk_manifest(path).sources;
+}
+
+ChunkCollision load_chunk_geometry(const fs::path& path) {
     constexpr std::size_t max_collision_boxes = 4096;
     const auto document = read_chunk_document(path);
-    if (!has_fields(document, {"schema_version", "boxes"}) ||
-        !document["schema_version"].is_number_integer() || document["schema_version"] != 1) {
-        throw std::invalid_argument("Expected a version 1 chunk collision file");
+    const bool boxes_only = has_fields(document, {"schema_version", "boxes"}) && document["schema_version"] == 1;
+    const bool mixed = has_fields(document, {"schema_version", "boxes", "triangles"}) && document["schema_version"] == 2;
+    if ((!boxes_only && !mixed) || !document["schema_version"].is_number_integer()) {
+        throw std::invalid_argument("Expected a version 1 or version 2 chunk collision file");
     }
     const auto& boxes = document["boxes"];
     if (!boxes.is_array() || boxes.size() > max_collision_boxes) {
         throw std::invalid_argument("Expected a bounded collision box array");
     }
-    std::vector<Aabb> result;
-    result.reserve(boxes.size());
+    ChunkCollision result;
+    result.boxes.reserve(boxes.size());
     for (const auto& entry : boxes) {
         if (!has_fields(entry, {"min", "max"})) throw std::invalid_argument("Expected min and max box corners");
         const Aabb box{read_box_corner(entry["min"]), read_box_corner(entry["max"])};
         if (box.min.x >= box.max.x || box.min.y >= box.max.y || box.min.z >= box.max.z) {
             throw std::invalid_argument("Collision box must have positive extent on every axis");
         }
-        result.push_back(box);
+        result.boxes.push_back(box);
+    }
+    if (mixed) {
+        const auto& triangles = document["triangles"];
+        if (!triangles.is_array() || triangles.size() > max_collision_boxes) {
+            throw std::invalid_argument("Expected a bounded collision triangle array");
+        }
+        result.triangles.reserve(triangles.size());
+        for (const auto& face : triangles) {
+            if (!face.is_array() || face.size() != 3) throw std::invalid_argument("Expected three triangle vertices");
+            const Triangle triangle{read_box_corner(face[0]), read_box_corner(face[1]), read_box_corner(face[2])};
+            if (!is_valid_triangle(triangle)) throw std::invalid_argument("Invalid collision triangle");
+            result.triangles.push_back(triangle);
+        }
     }
     return result;
+}
+
+std::vector<Aabb> load_chunk_collision(const fs::path& path) {
+    auto geometry = load_chunk_geometry(path);
+    if (!geometry.triangles.empty()) throw std::invalid_argument("This course requires box-only collision");
+    return std::move(geometry.boxes);
 }
 
 ChunkCoord chunk_containing(Vec3 position, double cell_size) {

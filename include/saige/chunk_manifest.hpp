@@ -9,7 +9,17 @@
 
 namespace saige {
 
-/// Read a version 1 chunk manifest and return its sources in coordinate order.
+struct ChunkManifest {
+    std::vector<ChunkSource> sources;
+    std::optional<ChunkCoord> origin;
+    Vec3 checkpoint{4, 4, 0};
+};
+
+/// Version 2 adds a grid origin and checkpoint in that cell's local coordinates.
+[[nodiscard]] ChunkManifest read_chunk_manifest(const std::filesystem::path& path);
+[[nodiscard]] ChunkCollision load_chunk_geometry(const std::filesystem::path& path);
+
+/// Read a chunk manifest and return its sources in coordinate order.
 [[nodiscard]] std::vector<ChunkSource> load_chunk_manifest(const std::filesystem::path& path);
 
 /// Read ordered axis-aligned boxes from a version 1 collision file in simulation coordinates.

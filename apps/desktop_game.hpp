@@ -40,20 +40,21 @@ public:
     }
 
     DesktopGame(World& world, IDesktopPlatform& platform, CapsuleCharacter controller,
-                std::span<const Aabb> geometry)
+                std::span<const Aabb> boxes, std::span<const Triangle> triangles)
         : marker_(world.create(controller.state().feet)), platform_(platform), motor_(std::move(controller)),
-          camera_geometry_(geometry.begin(), geometry.end()) {
+          camera_geometry_(boxes.begin(), boxes.end()), camera_triangles_(triangles.begin(), triangles.end()) {
         camera_distance_ = clear_camera_distance();
     }
 
     [[nodiscard]] Vec3 course_position() const { return motor_.value().state().feet; }
-    bool replace_course_collision(std::span<const Aabb> geometry) {
-        std::vector<Aabb> camera_geometry(geometry.begin(), geometry.end());
-        if (!motor_->replace_static_geometry(geometry)) return false;
-        camera_geometry_.swap(camera_geometry);
+    bool replace_course_collision(std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
+        std::vector<Aabb> camera_boxes(boxes.begin(), boxes.end());
+        std::vector<Triangle> camera_triangles(triangles.begin(), triangles.end());
+        if (!motor_->replace_static_geometry(boxes, triangles)) return false;
+        camera_geometry_.swap(camera_boxes);
+        camera_triangles_.swap(camera_triangles);
         return true;
     }
-
 
     void fixed_update(World& world, std::chrono::nanoseconds step) override {
         if (motor_) {
@@ -119,10 +120,11 @@ private:
         constexpr float radius = 0.12f;
         const Capsule sphere{{target.x, target.y, target.z - radius}, radius, 2.0f * radius};
         const Vec3 movement{-direction.x * orbit_distance, -direction.y * orbit_distance, -direction.z * orbit_distance};
-        if (const auto hit = sweep_capsule_boxes(sphere, movement, camera_geometry_)) {
-            return std::max(0.0f, hit->t * orbit_distance - 0.03f);
-        }
-        return orbit_distance;
+        const auto box = sweep_capsule_boxes(sphere, movement, camera_geometry_);
+        const auto triangle = sweep_capsule_triangles(sphere, movement, camera_triangles_);
+        const float box_t = box ? box->t : 1.0f;
+        const float triangle_t = triangle ? triangle->t : 1.0f;
+        return box || triangle ? std::max(0.0f, std::min(box_t, triangle_t) * orbit_distance - 0.03f) : orbit_distance;
     }
 
     void update_camera_distance(std::chrono::nanoseconds step) {
@@ -146,6 +148,7 @@ private:
     Vec3 position_{};
     std::optional<CapsuleCharacter> motor_;
     std::vector<Aabb> camera_geometry_;
+    std::vector<Triangle> camera_triangles_;
     FreeCamera orbit_{initial_orbit_};
     float camera_distance_{orbit_distance};
     bool suppress_jump_until_release_{};

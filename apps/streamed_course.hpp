@@ -341,7 +341,7 @@ private:
     ChunkCoord pending_origin_{};
     ChunkCoord checkpoint_cell_{};
     std::uint64_t origin_epoch_{};
-    ChunkStream stream_{{11}};
+    ChunkStream stream_{{.max_chunks = 11, .share_immutable_projects = true}};
     std::optional<DesktopGame> game_;
     std::optional<ChunkCoord> requested_center_;
     std::optional<ChunkCoord> requested_vehicle_cell_;

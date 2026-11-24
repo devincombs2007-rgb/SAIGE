@@ -179,6 +179,50 @@ void test_background_stage(const fs::path& fixture) {
             "a current failure rolls back to the previous active set");
 }
 
+void test_shared_project_preparation(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    const auto old_collision = workspace.root / "west.json";
+    const auto new_collision = workspace.root / "east.json";
+    const ChunkSource west{{0, 0}, fixture, old_collision};
+    const ChunkSource east{{1, 0}, fixture, new_collision};
+    write_chunk_fixture(old_collision, R"({"schema_version":1,"boxes":[]})");
+    const auto bytes = saige::PreparedScene(fixture).asset_payload_bytes();
+    ChunkStream stream({.max_chunks = 2, .max_retained_asset_bytes = bytes, .share_immutable_projects = true});
+    stream.request(std::array{west});
+    require(stream.stage_next() && stream.commit_frame(), "prepare one scene at the full byte budget");
+    const auto* shared = stream.active_chunk(west.coord);
+
+    stream.request(std::array{west, east});
+    bool failed = false;
+    try {
+        stream.stage_next();
+    } catch (const std::runtime_error&) {
+        failed = true;
+    }
+    require(failed && !stream.ready_to_commit() && stream.active_chunk(west.coord) == shared,
+            "shared CPU preparation cannot bypass a missing collision file");
+
+    write_chunk_fixture(new_collision, R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]}]})");
+    stream.request(std::array{west, east});
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!stream.ready_to_commit() && std::chrono::steady_clock::now() < deadline) {
+        stream.stage_background();
+        std::this_thread::sleep_for(1ms);
+    }
+    require(stream.ready_to_commit() && stream.staged_chunk(east.coord) == shared && stream.retained_asset_bytes() == bytes,
+            "background preparation shares one immutable CPU scene at the exact budget");
+    require(stream.staged_collision(west.coord)->empty() && stream.staged_collision(east.coord)->size() == 1,
+            "each chunk owns its authored collision");
+    require(stream.commit_frame(), "publish shared scene");
+    stream.request(std::array{east});
+    require(stream.commit_frame() && stream.active_chunk(east.coord) == shared && stream.retained_asset_bytes() == bytes,
+            "the new cell retains the scene after eviction of its original owner");
+    stream.request({});
+    require(stream.commit_frame() && stream.retained_asset_bytes() == 0,
+            "evict the prepared scene when its final reference is released");
+}
+
 void test_collision_handoff(const std::filesystem::path& fixture) {
     using namespace std::chrono_literals;
     constexpr auto tick = 16'666'667ns;
@@ -729,6 +773,7 @@ int main(int argc, char** argv) {
         test_persistent_checkpoint(argv[1]);
         test_collision_handoff(argv[1]);
         test_background_stage(argv[1]);
+        test_shared_project_preparation(argv[1]);
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

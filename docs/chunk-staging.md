@@ -10,7 +10,9 @@ The combined course/streaming test loads adjacent box floors from disk and exerc
 a successful crossing, and unloading the floor behind the character. A streamed host must keep its reset point resident or select a new supported reset
 point before evicting it. Vehicle entry and exit will also need a resident, supported destination and a clearance check.
 
-The count limit applies separately to the active and requested sets. The asset budget covers retained prepared geometry and encoded image bytes across both sets, counting reused chunks once. Retain headroom to prepare replacements while the old set stays active. Importer scratch allocations, metadata, collision boxes, and GPU allocations are outside this budget. Each staged collision file is separately bounded by its size and box count. Project files retain their existing v1 schema and persisted asset IDs.
+The count limit applies separately to the active and requested sets. The asset budget covers retained prepared geometry and encoded image bytes across both sets, counting reused chunks once. The desktop also shares the prepared CPU scene between chunks that name the same immutable
+project path, counting that scene once. Collision is staged independently for every chunk and must validate before the
+shared scene can publish at a new coordinate. Distinct project paths and scene edits across sessions remain independent. Retain headroom to prepare replacements while the old set stays active. Importer scratch allocations, metadata, collision boxes, and GPU allocations are outside this budget. Each staged collision file is separately bounded by its size and box count. Project files retain their existing v1 schema and persisted asset IDs.
 
 Tests cover neighboring coordinates, eviction, revisits, failed staging and native scene composition.
 

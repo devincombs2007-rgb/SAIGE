@@ -35,6 +35,7 @@ struct ChunkCollision {
 struct ChunkStreamLimits {
     std::size_t max_chunks{16}; // Per active or requested set.
     std::size_t max_retained_asset_bytes{std::size_t{256} << 20}; // Active and newly staged payloads.
+    bool share_immutable_projects{}; // Reuse prepared scenes across coordinates for exactly matching source paths.
 };
 
 // Drive requests and publication from the runtime thread. Background jobs own only CPU data.
@@ -86,6 +87,7 @@ private:
         bool abandoned{};
     };
     static Chunk prepare(Chunk chunk, std::size_t remaining);
+    [[nodiscard]] Chunk preparation_input(const Chunk& chunk) const;
 
     ChunkStreamLimits limits_;
     Chunks active_;

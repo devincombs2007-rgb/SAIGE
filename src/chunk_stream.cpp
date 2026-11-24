@@ -41,11 +41,28 @@ void ChunkStream::request(std::span<const ChunkSource> chunks) {
     pending_ = std::move(candidate);
 }
 
+ChunkStream::Chunk ChunkStream::preparation_input(const Chunk& chunk) const {
+    if (!limits_.share_immutable_projects) return chunk;
+
+    const auto matches = [&chunk](const auto& entry) {
+        return entry.second.scene && entry.second.project == chunk.project;
+    };
+    Chunk input = chunk;
+    const auto existing = std::ranges::find_if(active_, matches);
+    if (existing != active_.end()) {
+        input.scene = existing->second.scene;
+    } else if (pending_) {
+        const auto staged = std::ranges::find_if(*pending_, matches);
+        if (staged != pending_->end()) input.scene = staged->second.scene;
+    }
+    return input;
+}
+
 ChunkStream::Chunk ChunkStream::prepare(Chunk chunk, std::size_t remaining) {
     if (!chunk.collision.empty()) {
         chunk.geometry = std::make_shared<const ChunkCollision>(load_chunk_geometry(chunk.collision));
     }
-    chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
+    if (!chunk.scene) chunk.scene = std::make_shared<const PreparedScene>(chunk.project, remaining);
     return chunk;
 }
 
@@ -56,7 +73,7 @@ bool ChunkStream::stage_next() {
     if (next == pending_->end()) return false;
     try {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
-        next->second = prepare(next->second, remaining);
+        next->second = prepare(preparation_input(next->second), remaining);
     } catch (...) {
         pending_.reset();
         throw;
@@ -87,7 +104,7 @@ void ChunkStream::stage_background() {
     try {
         const auto remaining = limits_.max_retained_asset_bytes - retained_asset_bytes();
         Loading task{next->first, next->second.project, next->second.collision, {}};
-        task.future = std::async(std::launch::async, [chunk = next->second, remaining]() mutable {
+        task.future = std::async(std::launch::async, [chunk = preparation_input(next->second), remaining]() mutable {
             return prepare(std::move(chunk), remaining);
         });
         loading_ = std::move(task);
@@ -144,6 +161,27 @@ const ChunkCollision* ChunkStream::active_geometry(ChunkCoord coord) const noexc
 }
 
 std::size_t ChunkStream::retained_asset_bytes() const noexcept {
+    if (limits_.share_immutable_projects) {
+        // Count each shared scene once without allocation. Desktop course resident sets are small and bounded.
+        const auto earlier = [](auto begin, auto end, const auto& scene) {
+            return std::any_of(begin, end, [&](const auto& item) { return item.second.scene == scene; });
+        };
+        std::size_t bytes = 0;
+        for (auto entry = active_.begin(); entry != active_.end(); ++entry) {
+            const auto& scene = entry->second.scene;
+            if (!earlier(active_.begin(), entry, scene)) bytes += scene->asset_payload_bytes();
+        }
+        if (pending_) {
+            for (auto entry = pending_->begin(); entry != pending_->end(); ++entry) {
+                const auto& scene = entry->second.scene;
+                if (scene && !earlier(active_.begin(), active_.end(), scene) && !earlier(pending_->begin(), entry, scene)) {
+                    bytes += scene->asset_payload_bytes();
+                }
+            }
+        }
+        return bytes;
+    }
+
     std::size_t bytes = 0;
     for (const auto& [coord, chunk] : active_) {
         bytes += chunk.scene->asset_payload_bytes();

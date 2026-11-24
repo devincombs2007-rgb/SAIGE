@@ -78,6 +78,7 @@ struct ModelFrameStats {
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
     uint32_t skinned_draws = 0;      ///< draw calls of skinned primitives (opaque, sorted and shadow phases together)
     uint32_t skinned_skipped = 0;    ///< skinned primitives not drawn: skinning is off in this renderer, or the palette has fewer joints than the primitive uses
+    uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
 };
 
 /// Renderer-local lighting selection. These values also identify the shader modes.
@@ -164,6 +165,11 @@ struct ModelRenderSettings {
     bool skinning = false;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
+    /// Skip primitives whose bounding sphere (`GpuPrimitive::bounds_center`/`bounds_radius`, placed by the instance's world matrix, scaled by its
+    /// largest axis scale) lies outside the frustum extracted from the `view_proj` given to `draw`. That matrix **must** be a reverse-Z infinite
+    /// perspective projection times a view (what SceneRenderer builds), which is why this is off here and on in RendererSettings. The test is
+    /// conservative (it never culls a visible sphere); a primitive without bounds (radius 0, a hand-built one) is never culled.
+    bool frustum_culling = false;
 };
 
 class ModelRenderer {
@@ -296,6 +302,7 @@ private:
     SkinPalette identity_palette_;  ///< the bind pose, for skinned primitives drawn without a palette
     bool blending_supported_ = false;
     bool alpha_blending_ = false;
+    bool frustum_culling_ = false;
     std::vector<BlendedDraw> blended_;
     BindGroupRef constants_group_;  ///< set 1 with shadows off
     // Shadows on (the permutation with set 1 bindings 3..5); all empty or invalid when off.

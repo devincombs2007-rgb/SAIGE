@@ -374,6 +374,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.shadows.depth_bias_slope = settings_.shadows.depth_bias_slope;
         ms.environment = settings_.environment;
         ms.skinning = settings_.skinning;
+        ms.frustum_culling = settings_.frustum_culling;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
@@ -647,6 +648,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_blended_primitives += model_stats.blended_primitives;
                 stats.model_skinned_draws += model_stats.skinned_draws;
                 stats.model_skinned_skipped += model_stats.skinned_skipped;
+                stats.model_primitives_culled += model_stats.primitives_culled;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

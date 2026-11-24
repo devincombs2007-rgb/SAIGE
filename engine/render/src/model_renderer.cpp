@@ -1,5 +1,6 @@
 #include "saige/render/model_renderer.hpp"
 
+#include "saige/render/camera.hpp"
 #include "saige/render/env_brdf.hpp"
 #include "saige/render/shadow_cascades.hpp"
 
@@ -16,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <stdexcept>
 
@@ -287,6 +289,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     pipeline_template_ = pd;
     blending_supported_ = rhi::is_blendable_color_format(color_format);
     alpha_blending_ = settings.alpha_blending;
+    frustum_culling_ = settings.frustum_culling;
     static const char* const names[4] = {"SceneModel.CCW.Back", "SceneModel.CCW.None", "SceneModel.CW.Back", "SceneModel.CW.None"};
     for (int mirrored = 0; mirrored < 2; ++mirrored) {
         for (int two_sided = 0; two_sided < 2; ++two_sided) {
@@ -814,6 +817,8 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
     rhi::BindGroupHandle bound_palette{};  // set 2 of the bound skinned pipeline
     blended_.clear();
     uint32_t sequence = 0;
+    std::optional<Frustum> frustum;
+    if (frustum_culling_) frustum = extract_frustum(view_proj);
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -840,8 +845,26 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             push.camera_sign[2] = camera_position.z;
             push.camera_sign[3] = det < 0.0f ? -1.0f : 1.0f;
             const bool mirrored = det < 0.0f;
+            // The largest axis scale of the instance: a sphere stays a sphere bounded by it under any affine map.
+            float max_scale = 0.0f;
+            if (frustum) {
+                for (int col = 0; col < 3; ++col) {
+                    const float sx = world.at(0, col), sy = world.at(1, col), sz = world.at(2, col);
+                    max_scale = std::max(max_scale, std::sqrt(sx * sx + sy * sy + sz * sz));
+                }
+            }
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
+                if (frustum && prim.bounds_radius > 0.0f) {
+                    const Float3 local = prim.bounds_center;
+                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                    if (!intersects_sphere(*frustum, center, prim.bounds_radius * max_scale)) {
+                        ++stats.primitives_culled;
+                        continue;
+                    }
+                }
                 const GpuMaterial& material = d.model->materials[prim.material];
                 const SkinPalette* palette = nullptr;
                 if (prim.skinned) {

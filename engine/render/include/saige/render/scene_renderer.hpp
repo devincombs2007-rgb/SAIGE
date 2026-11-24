@@ -115,6 +115,9 @@ struct RendererSettings {
     bool skinning = false;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
+    /// Frustum-cull imported-model primitives by their bounding spheres. On by default: it never changes the image (the test is conservative and
+    /// primitives without bounds are always drawn), it only skips draws that cannot reach the screen. Off for debugging.
+    bool frustum_culling = true;
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target
     float cube_edge = 1.0f;                          ///< meters
     float spin_radians_per_second = 0.8f;
@@ -179,6 +182,7 @@ struct FrameStats {
     uint32_t shadow_draw_calls = 0;        ///< draws of the sun shadow pass (also counted in draw_calls)
     uint32_t model_skinned_draws = 0;      ///< draw calls of skinned primitives, shadow pass and scene pass together
     uint32_t model_skinned_skipped = 0;    ///< skinned primitives not drawn (skinning off, or the palette has too few joints)
+    uint32_t model_primitives_culled = 0;  ///< imported-model primitives skipped by frustum culling (their bounding sphere is outside the view)
 };
 
 class SceneRenderer {

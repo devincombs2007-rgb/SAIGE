@@ -16,6 +16,7 @@
 
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <iostream>
@@ -103,6 +104,8 @@ private:
 int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
     bool course = false;
+    bool custom_speed = false;
+    saige::CapsuleCharacterConfig course_config;
 #if defined(SAIGE_DESKTOP_VULKAN)
     bool require_rendered = false;
     bool validate = false;
@@ -114,6 +117,19 @@ int main(int argc, char** argv) {
         const std::string_view argument(argv[i]);
         if (argument == "--character-course" && !course) {
             course = true;
+            continue;
+        }
+        if ((argument == "--walk-speed" || argument == "--sprint-speed") && i + 1 < argc) {
+            const std::string_view value(argv[++i]);
+            float speed{};
+            const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), speed);
+            if (error != std::errc{} || end != value.data() + value.size() || !std::isfinite(speed) || !(speed > 0)) {
+                std::cerr << "Course movement speeds must be positive finite numbers\n";
+                return 2;
+            }
+            custom_speed = true;
+            if (argument == "--walk-speed") course_config.walk_speed = speed;
+            else course_config.sprint_speed = speed;
             continue;
         }
 #if defined(SAIGE_DESKTOP_VULKAN)
@@ -133,7 +149,7 @@ int main(int argc, char** argv) {
         }
 #endif
         if (argument != "--frames" || frames || ++i == argc) {
-            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course]"
+            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--walk-speed MPS] [--sprint-speed MPS]"
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
 #endif
@@ -151,6 +167,11 @@ int main(int argc, char** argv) {
             return 2;
         }
         frames = count;
+    }
+
+    if (custom_speed && (!course || course_config.walk_speed > course_config.sprint_speed)) {
+        std::cerr << "Movement speeds require the character course and sprint speed at least walk speed\n";
+        return 2;
     }
 
     try {
@@ -176,7 +197,7 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
-        saige::sample::DesktopGame game(world, platform, course);
+        saige::sample::DesktopGame game(world, platform, course, course_config);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
         // The sink releases its swapchain and surface before the HWND goes away.

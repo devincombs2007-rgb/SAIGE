@@ -58,3 +58,9 @@ cascades), not by pixels. Nothing here was measured on a physical GPU.
 
 `Sim::checkpoint_json()` stores poses, the script's phase and clock, the damage and the physical props (a save game), not velocities, so it is taken where the world is calm; `horizon_sim_test`
 resumes one at 36 s and checks that the resumed run follows the continuous one. A checkpoint taken mid-drive resumes the vehicle at rest.
+
+## Build record and known defects of the delivered film
+
+The delivered film was rendered by the app at commit 9c87457 on software Vulkan (lavapipe, CPU only; no real-time or 60 FPS claim) and is unchanged. Three visible defects in it (wheels wobbling
+and turning the wrong way, the character walking through the roadside barriers, and the windows popping and clipping to white at dusk) were root-caused and fixed in the app and engine afterwards; the
+measurements, causes, fixes and tests are in [docs/engineering/showcase-03-defects.md](../engineering/showcase-03-defects.md). The fixes are not in the film.

@@ -268,6 +268,15 @@ TEST_CASE("SceneRenderer: invalid lighting is rejected before any GPU object is 
     bad = {};
     bad.sun_direction = {-0.0f, 0.0f, -0.0f};
     CHECK(rejected(bad));  // negative zero is still no direction
+    bad = {};
+    bad.emissive_gain = -0.5f;
+    CHECK(rejected(bad));  // negative emission
+    bad = {};
+    bad.emissive_gain = nan;
+    CHECK(rejected(bad));
+    bad = {};
+    bad.emissive_gain = std::numeric_limits<float>::infinity();
+    CHECK(rejected(bad));
     CHECK(o.device.live_resource_count() == baseline);  // nothing was acquired by the failed constructions
     CHECK(o.device.validation_error_count() == 0);
 
@@ -939,6 +948,12 @@ TEST_CASE("time_of_day_lighting: the sun reddens and dims as it sets, the ambien
     CHECK(noon.sun_color.x > 0.7f * day.sun_color.x);
     CHECK(noon.sun_color.x <= day.sun_color.x);
     CHECK(near(noon.ambient_ground.x, day.ambient_ground.x, 1e-5f));
+    CHECK(noon.emissive_gain == day.emissive_gain);
+    {
+        SceneLighting lit = day;
+        lit.emissive_gain = 0.37f;
+        CHECK(time_of_day_lighting(atmosphere, {0.0f, 0.0f, 1.0f}, lit).emissive_gain == 0.37f);  // passed through
+    }
     // Near the horizon the blue is scattered out first: the ratios change and the sun is dimmer.
     CHECK(low.sun_color.z / low.sun_color.x < noon.sun_color.z / noon.sun_color.x);
     CHECK(low.sun_color.x < noon.sun_color.x);

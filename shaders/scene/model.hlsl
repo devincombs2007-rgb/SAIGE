@@ -70,7 +70,7 @@ struct ModelPush {
     float4 sc_sun_direction;  // unit vector toward the sun
     float4 sc_sun_color;
     float4 sc_ambient_ground; // ambient light from below (+Z up is the sky color)
-    float4 sc_flags;          // x: shading mode (0 legacy, 1 extended, 2 metallic-roughness)
+    float4 sc_flags;          // x: shading mode (0 legacy, 1 extended, 2 metallic-roughness); y: emissive gain (a global multiplier of every material's emission, 1 = as authored)
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
@@ -211,7 +211,7 @@ SurfaceData evaluate_surface(float2 uv, float2 uv_dx, float2 uv_dy, float4 base,
     s.metallic = mat_mr_normal_occ.x * mr.b;
     s.occlusion = lerp(1.0, g_occlusion.SampleGrad(g_occlusion_sampler, uv, uv_dx, uv_dy).r, mat_mr_normal_occ.w);
     s.normal = normal;
-    s.emissive = g_emissive.SampleGrad(g_emissive_sampler, uv, uv_dx, uv_dy).rgb * mat_emissive_cutoff.rgb;
+    s.emissive = g_emissive.SampleGrad(g_emissive_sampler, uv, uv_dx, uv_dy).rgb * mat_emissive_cutoff.rgb * sc_flags.y;
     return s;
 }
 
@@ -364,7 +364,7 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
     float3 lit;
     if (sc_flags.x < 0.5) {
         // Legacy, the 0.2 look exactly: base color texture and factor, the emissive *factor*, hemispherical ambient plus sun.
-        lit = base.rgb * (ambient_radiance(n) + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb;
+        lit = base.rgb * (ambient_radiance(n) + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb * sc_flags.y;
     } else {
         const bool pbr = sc_flags.x >= 1.5;
         const SurfaceData surface = evaluate_surface(input.uv, uv_dx, uv_dy, base, n, t, b, pbr);

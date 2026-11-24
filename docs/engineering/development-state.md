@@ -1,0 +1,36 @@
+# Development state
+
+Checkpoint: 2026-11-24. `main` is at 5239e0c (merge of #59, sorted alpha blending). Nothing below has been merged by this program; nothing has been validated on a physical GPU.
+
+## Branches that carry the Showcase 03 and infrastructure work (no PR yet)
+
+| Branch | Head | Contains | CI (Graphics workflow, Linux and Windows) |
+| --- | --- | --- | --- |
+| `claude/showcase-03-world` | 1d77156 | the film's world, simulation, render app, tools; the CI warning fix | passed after the warning fix |
+| `claude/production-infrastructure` | the commit that carries this file (see `git log`) | everything in `showcase-03-world` plus the asset catalog and production tools, the three Showcase 03 defect fixes (D1 emissive gain, D2 wheel rig, D3 prop table) and these documents | D2 head 895d0d8: passed (run 575). The D1 and documents head: see the checkpoint comment on issue #43 |
+
+The film was built from 9c87457 (ancestor of both branches). It is unchanged.
+
+## Open pull requests (all draft except #64 and #67), grouped by stack
+
+* Physics: #69 capsule-box sweep, #70 capsule character (on #69), #73 capsule-triangle sweep (on #69), #74 capsule on triangles (on #70, #73), #80 static collision (on #73), #88 oriented-box and wheel probes (on #80), #65 character collision course, #68 perf instrumentation.
+* Render, on `main`: #71 scene lighting, #75 depth-only RHI, #77 cascade fitting, #78 constructor rollback, #81 glTF skins, #82 IBL precompute, #83 frustum culling, #92 bloom, #95 FXAA, #98 SSAO.
+* Render, stacked: #76 sun shadows (on #75, #71, #77), #79 alpha-tested shadows and #89 cascades (on #76), #85 IBL GPU (on #76, #82), #87 GPU skinning (on #85, #81), #90 atmosphere (on #71), #91 dynamic lighting (on #90, #89), #96 night sky (on #90), #84 draw state cache (on #83), #94 prepared model (on #87), #99 animated bounds, #93 integration candidate (#91 + #87 + #83), #97 sky IBL (on #93).
+* Core: #60 chunk staging, #63 chunk manifests (on #60), #86 live world origin migration, #64 saved-project transparency test, #42 single-pass project open.
+* Platform: #44 Vulkan-Headers 1.4.363 build, #45 Vulkan version negotiation (on #44), #67 descriptor rollback (ready for review).
+* Evidence and bookkeeping, not for merge: #72 Showcase 01, #34 0.2 integration, #54 0.3 PBR integration, #61 M5 and M6 preparation, #56 0.3 handoff, #58 MikkTSpace tangents.
+
+Merge order and the base each PR must be re-reviewed against belong to the owner's decision per `AGENTS.md`; this program proposes (but does not perform) landing in this order: platform (#67, #44, #45), Core (#64, #60, #63, #86), physics (#69, #70, #73, #74, #80, #88), then the render stacks bottom up (#71, #75, #77, #76, then the rest), re-running the checks on each exact head against its proposed base.
+
+## Test evidence at this checkpoint
+
+Local, Debug with `-DSAIGE_GFX_WARNINGS_AS_ERRORS=ON`, software Vulkan (lavapipe, CPU only, 4 cores): `ctest` on `claude/production-infrastructure` plus the D1 change: 110 tests, 0 failed, 1 skipped
+(`production_tools_python`: an optional Python dependency is missing in the container). Includes `horizon_sim` (about 47 s), `horizon_props`, `horizon_wheel_rig`, `horizon_time_of_day`, the 151 Vulkan model, shadow,
+sky and lighting tests, and the shader-header consistency check. The new tests were each made to fail against their defect (mutation or control) and restored.
+
+Hardware class: software Vulkan only. No frame time in this repository's documents is a physical GPU result.
+
+## Open items
+
+* D1 head CI: confirm on the pushed head.
+* Owner decisions needed: none for this increment. Pending for later: adopting a physics library (Jolt or Bullet), adopting an audio runtime, any merge to `main`.

@@ -552,6 +552,37 @@ TEST_CASE("Models: the emissive slot reads its own texture as sRGB through its o
     CHECK(rig.device->validation_error_count() == 0);
 }
 
+TEST_CASE("Models: SceneLighting::emissive_gain scales emission continuously and leaves everything else alone")
+{
+    // A black material with an emissive factor: the pixel is the emission times the gain and nothing else, in both shading modes. Gain 1 (the default) is the emission as authored.
+    for (const ModelShading shading : {ModelShading::Legacy, ModelShading::Extended}) {
+        float previous = -1.0f;
+        for (const float gain : {0.0f, 0.25f, 0.5f, 1.0f, 2.0f}) {
+            SceneLighting light;
+            light.emissive_gain = gain;
+            Rig rig("model_emissive_gain", shading, light);
+            {
+                const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
+                const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+                MaterialData data;
+                data.base_color[0] = data.base_color[1] = data.base_color[2] = 0.0f;
+                data.emissive[0] = 0.4f;
+                data.emissive[1] = 0.2f;
+                data.emissive[2] = 0.1f;
+                const GpuModel quad = make_quad(rig.renderer->registry(), rig.material(data), 0.0f, 1.5f);
+                const ModelDraw draw{&quad, Mat4::identity()};
+                const Float3 got = linear_at(rig.render(camera, std::span(&draw, 1)), to_pixel(vp, {0, 0, 1.5f}));
+                CHECK(std::fabs(got.x - 0.4f * gain) < 0.02f);
+                CHECK(std::fabs(got.y - 0.2f * gain) < 0.02f);
+                CHECK(std::fabs(got.z - 0.1f * gain) < 0.02f);
+                CHECK(got.x > previous);  // strictly increasing with the gain: no steps, no plateaus
+                previous = got.x;
+            }
+            CHECK(rig.device->validation_error_count() == 0);
+        }
+    }
+}
+
 TEST_CASE("Models: the occlusion slot scales only the ambient term, read as linear data")
 {
     Rig rig("model_slot_occlusion", ModelShading::Extended);

@@ -33,16 +33,15 @@ enum Extra : std::uint32_t {
     ExtraSpark,      // hot, emissive
     ExtraCount
 };
-inline constexpr std::uint32_t emissive_levels = 4;  // 0 off (day), 1 dusk, 2 night, 3 bright
-
 class MaterialLibrary {
 public:
     MaterialLibrary(render::SceneRenderer& renderer, const fs::path& data_root, std::vector<std::string>& warnings);
-    // The material list for an emissive level (windows and lamps glow more at higher levels).
-    [[nodiscard]] const std::vector<render::GpuMaterial>& level(std::uint32_t emissive_level) const { return levels_[emissive_level]; }
+    // The material list. Windows and lamps carry their full emission; how much of it shows is the frame's `SceneLighting::emissive_gain`, a continuous ramp over the evening (the earlier four
+    // pre-scaled material sets switched every lit surface in a single frame at three sun elevations, which read as a pop).
+    [[nodiscard]] const std::vector<render::GpuMaterial>& materials() const { return materials_; }
 
 private:
-    std::array<std::vector<render::GpuMaterial>, emissive_levels> levels_;
+    std::vector<render::GpuMaterial> materials_;
 };
 
 // A model of the given meshes using material list `materials` (their `material` indexes).

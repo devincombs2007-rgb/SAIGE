@@ -4,6 +4,7 @@
 #include "gpu_assets.hpp"
 #include "props.hpp"
 #include "sim.hpp"
+#include "time_of_day.hpp"
 #include "wheel_rig.hpp"
 
 #include "saige/gfx_assets/animation.hpp"
@@ -62,6 +63,8 @@ struct Options {
     float sun_disc = 3500.0f, moon = 14.0f, stars = 60.0f;
     double slow = 1.0;
     std::optional<std::array<double, 7>> cam;  // a fixed debug camera: eye, look, fov
+    std::optional<std::array<double, 7>> cam_to;  // with --cam and --still: the debug camera moves linearly from --cam to this over --cam-steps frames at the one time (a controlled camera sweep)
+    int cam_steps = 0;
 };
 
 [[noreturn]] void usage_error(const std::string& what)
@@ -99,15 +102,16 @@ Options parse(int argc, char** argv)
             else if (a == "--sun-disc") o.sun_disc = std::stof(value());
             else if (a == "--moon") o.moon = std::stof(value());
             else if (a == "--stars") o.stars = std::stof(value());
-            else if (a == "--cam") {
+            else if (a == "--cam" || a == "--cam-to") {
                 std::array<double, 7> c{};
                 std::stringstream ss(value());
                 std::string tok;
                 std::size_t k = 0;
                 while (std::getline(ss, tok, ',') && k < 7) c[k++] = std::stod(tok);
-                if (k != 7) usage_error("--cam takes x,y,z,lx,ly,lz,fov");
-                o.cam = c;
+                if (k != 7) usage_error(a + " takes x,y,z,lx,ly,lz,fov");
+                (a == "--cam" ? o.cam : o.cam_to) = c;
             }
+            else if (a == "--cam-steps") o.cam_steps = std::stoi(value());
             else if (a == "--validate") o.validate = true;
             else if (a == "--no-bloom") o.no_bloom = true;
             else if (a == "--no-ao") o.no_ao = true;
@@ -330,22 +334,12 @@ TrackPoint capture_point(const Sim& sim)
 
 // ---- Time of day --------------------------------------------------------------------------------------------------------------------------------------------------
 
-struct SunKey {
-    double t, elevation_deg, azimuth_deg;
-};
-// Sunrise ahead of the town, noon over the drive, a low sun behind the walker, dusk and night at the overlook.
-constexpr SunKey sun_keys[] = {{0, 4.0, 12}, {6, 5.0, 12}, {14, 7.5, 10}, {24, 11.5, 2}, {47, 24, -15}, {75, 44, -45}, {91, 43, -75}, {100, 38, -95}, {108, 22, -125}, {116, 9, -150},
-                               {121, 3.5, -158}, {126, -0.5, -163}, {131, -6.5, -170}, {136, -12.5, -176}, {142, -17.0, -180}};
-
 Float3 sun_at(double t, double* elevation_out = nullptr)
 {
-    const std::size_t n = sizeof(sun_keys) / sizeof(sun_keys[0]);
-    std::size_t i = 0;
-    while (i + 2 < n && t > sun_keys[i + 1].t) ++i;
-    const double u = smooth((t - sun_keys[i].t) / (sun_keys[i + 1].t - sun_keys[i].t));
-    const double el = lerp(sun_keys[i].elevation_deg, sun_keys[i + 1].elevation_deg, u) * pi / 180.0;
-    const double az = lerp(sun_keys[i].azimuth_deg, sun_keys[i + 1].azimuth_deg, u) * pi / 180.0;
-    if (elevation_out != nullptr) *elevation_out = el * 180.0 / pi;
+    double el_deg = 0, az_deg = 0;
+    sun_angles(t, el_deg, az_deg);
+    const double el = el_deg * pi / 180.0, az = az_deg * pi / 180.0;
+    if (elevation_out != nullptr) *elevation_out = el_deg;
     return {static_cast<float>(std::cos(el) * std::cos(az)), static_cast<float>(std::cos(el) * std::sin(az)), static_cast<float>(std::sin(el))};
 }
 
@@ -364,13 +358,6 @@ double exposure_at(double t)
     return keys[n - 1].ev;
 }
 
-std::uint32_t emissive_level_at(double elevation_deg)
-{
-    if (elevation_deg > 6.0) return 0;
-    if (elevation_deg > 1.0) return 1;
-    if (elevation_deg > -4.0) return 2;
-    return 3;
-}
 
 // ---- The camera director ------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -565,7 +552,7 @@ struct Director {
 // ---- The show -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 struct CellGpu {
-    std::array<render::GpuModel, emissive_levels> models;
+    render::GpuModel model;
     std::vector<PropInstance> props;
     double ox = 0, oy = 0;
 };
@@ -624,12 +611,12 @@ public:
         const double fx0 = -400, fy0 = -520, fx1 = 1500, fy1 = 380;
         far_origin_ = {fx0, fy0};
         MeshPart far = world.far_terrain(fx0, fy0, fx1, fy1, 22.0, 0.9);
-        far_model_ = upload_model(*renderer_, "far terrain", cell_meshes(&far, 1), materials_->level(0));
+        far_model_ = upload_model(*renderer_, "far terrain", cell_meshes(&far, 1), materials_->materials());
         std::printf("far terrain: %zu vertices\n", far.vertices.size());
         // A very coarse skirt out to the horizon, so that the sky pass never shows through below the skyline.
         MeshPart skirt = world.far_terrain(-4000, -3500, 5500, 3500, 100.0, 5.0);
         skirt_origin_ = {-4000, -3500};
-        skirt_model_ = upload_model(*renderer_, "terrain skirt", cell_meshes(&skirt, 1), materials_->level(0));
+        skirt_model_ = upload_model(*renderer_, "terrain skirt", cell_meshes(&skirt, 1), materials_->materials());
     }
 
     [[nodiscard]] render::SceneRenderer& renderer() { return *renderer_; }
@@ -643,7 +630,6 @@ public:
         draws_.clear();
         double elevation = 0;
         const Float3 to_sun = sun_at(t, &elevation);
-        const std::uint32_t level = emissive_level_at(elevation);
 
         const auto local = [&](double wx, double wy, double wz) { return Float3{static_cast<float>(wx - origin.x), static_cast<float>(wy - origin.y), static_cast<float>(wz)}; };
         const Float3 eye = local(shot.eye.x, shot.eye.y, shot.eye.z), look = local(shot.look.x, shot.look.y, shot.look.z);
@@ -664,7 +650,7 @@ public:
                 if (std::min(de, dl) > (radius + 0.5) * cell_size) continue;
                 const CellGpu& c = cell(cx, cy);
                 visible.push_back(&c);
-                draws_.push_back({&c.models[level], translation(local(c.ox, c.oy, 0))});
+                draws_.push_back({&c.model, translation(local(c.ox, c.oy, 0))});
             }
         }
         trim_cells(ccx, ccy, fcx, fcy, radius + 2);
@@ -681,7 +667,7 @@ public:
             Mat4 m = translation(local(d.x, d.y, d.z)) * scaling(d.size * (0.45f + 1.1f * f));
             draws_.push_back({&puffs_[static_cast<std::size_t>(lv)], m});
         }
-        add_car(sim, origin, level, t);
+        add_car(sim, origin, t);
         add_character(sim, origin, t);
 
         render::SceneFrame frame;
@@ -697,6 +683,7 @@ public:
             light.ambient_ground = {light.ambient_ground.x * (1 - n) + moon.x * n, light.ambient_ground.y * (1 - n) + moon.y * n, light.ambient_ground.z * (1 - n) + moon.z * n};
             light.ambient_sky_floor = 1.7f * n;
         }
+        light.emissive_gain = static_cast<float>(emissive_gain_at(elevation));
         frame.lighting = &light;
         frame.exposure_ev = static_cast<float>(exposure_at(t)) + opt_.exposure_bias;
         Rgba img = downsample(target.render(*renderer_, frame, stats), opt_.ssaa);
@@ -752,7 +739,7 @@ private:
         prop_models_[static_cast<std::size_t>(PropType::Barrel)] = prop("barrel_03");
         prop_models_[static_cast<std::size_t>(PropType::BarrelStack)] = prop("wooden_barrels_01");
         prop_models_[static_cast<std::size_t>(PropType::Bench)] = prop("painted_wooden_bench");
-        const std::vector<render::GpuMaterial>& mats = materials_->level(0);
+        const std::vector<render::GpuMaterial>& mats = materials_->materials();
         for (unsigned i = 0; i < 3; ++i) {
             pines_.push_back(upload_model(*renderer_, "pine", tree_pine_meshes(i), mats));
             rounds_.push_back(upload_model(*renderer_, "round tree", tree_round_meshes(i), mats));
@@ -900,7 +887,7 @@ private:
         gpu->oy = cy * cell_size;
         gpu->props = data.props;
         const std::vector<MeshIn> meshes = cell_meshes(data.parts);
-        for (std::uint32_t l = 0; l < emissive_levels; ++l) gpu->models[l] = upload_model(*renderer_, "cell", meshes, materials_->level(l));
+        gpu->model = upload_model(*renderer_, "cell", meshes, materials_->materials());
         cell_seconds_ += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         return *cells_.emplace(key, std::move(gpu)).first->second;
     }
@@ -953,10 +940,9 @@ private:
     }
 
     // ---- The car.
-    void add_car(const Sim& sim, D2 origin, std::uint32_t level, double t)
+    void add_car(const Sim& sim, D2 origin, double t)
     {
         (void)origin;
-        (void)level;
         (void)t;
         const Vehicle* v = sim.vehicle();
         if (v == nullptr) return;
@@ -1174,13 +1160,25 @@ int main(int argc, char** argv)
             } else {
                 for (double t = opt.start; t < end - 1e-9; t += 1.0 / opt.fps) times.push_back(t);
             }
+            // A camera sweep renders the one still time several times, with the debug camera stepped from --cam to --cam-to.
+            const bool sweep = opt.cam && opt.cam_to && opt.cam_steps > 0 && times.size() == 1;
+            if (sweep) {
+                const double t0 = times[0];
+                times.assign(static_cast<std::size_t>(opt.cam_steps) + 1, t0);
+            }
+            std::size_t sweep_index = 0;
             for (const double t : times) {
                 while (sim.time() + 1e-9 < t && sim.phase() != Phase::Done) sim.tick();
                 Shot shot = director.shot(t);
                 if (opt.cam) {
-                    shot.eye = {(*opt.cam)[0], (*opt.cam)[1], (*opt.cam)[2]};
-                    shot.look = {(*opt.cam)[3], (*opt.cam)[4], (*opt.cam)[5]};
-                    shot.fov_deg = (*opt.cam)[6];
+                    std::array<double, 7> c = *opt.cam;
+                    if (sweep) {
+                        const double u = static_cast<double>(sweep_index) / static_cast<double>(opt.cam_steps);
+                        for (std::size_t k = 0; k < 7; ++k) c[k] = (*opt.cam)[k] + ((*opt.cam_to)[k] - (*opt.cam)[k]) * u;
+                    }
+                    shot.eye = {c[0], c[1], c[2]};
+                    shot.look = {c[3], c[4], c[5]};
+                    shot.fov_deg = c[6];
                     shot.name = "debug";
                 }
                 else {
@@ -1197,7 +1195,8 @@ int main(int argc, char** argv)
                 draw_calls_max = std::max<std::uint64_t>(draw_calls_max, stats.draw_calls);
                 if (!opt.stills.empty()) {
                     char name[96];
-                    std::snprintf(name, sizeof name, "still_%07.2f_%s.ppm", t, shot.name);
+                    if (sweep) std::snprintf(name, sizeof name, "sweep_%04zu.ppm", sweep_index);
+                    else std::snprintf(name, sizeof name, "still_%07.2f_%s.ppm", t, shot.name);
                     for (char* p = name; *p; ++p) if (*p == ' ') *p = '_';
                     if (!write_ppm(opt.out / name, img)) throw std::runtime_error("cannot write a still");
                     std::printf("t=%6.2f  %-18s %7.0f ms  draws %u  cells %zu\n", t, shot.name, ms, stats.draw_calls, show.cells_loaded());
@@ -1209,6 +1208,7 @@ int main(int argc, char** argv)
                     if (!write_ppm(opt.out / "seq" / name, img)) throw std::runtime_error("cannot write a frame");
                 }
                 ++frames;
+                ++sweep_index;
                 if (opt.stills.empty() && frames % 30 == 0) std::printf("t=%6.2f s  frame %u  %-16s %6.0f ms\n", t, frames, shot.name, ms);
             }
             std::printf("rendered %u frames at %ux%u (ssaa %u) in %.1f s; cells built %zu in %.1f s\n", frames, opt.width, opt.height, opt.ssaa, render_ms_total / 1000.0, show.cells_loaded(),

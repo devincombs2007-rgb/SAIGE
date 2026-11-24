@@ -100,6 +100,9 @@ struct SceneLighting {
     /// A floor for the sky half of the hemispherical ambient: the sky ambient is max(fog color * 0.6, ambient_ground * ambient_sky_floor). 0 (the default) changes nothing; a host
     /// raises it at night, when the atmosphere's horizon radiance (and with it the sky ambient) falls to nothing, to keep a faint moonlit fill. Finite and non-negative.
     float ambient_sky_floor = 0.0f;
+    /// A global multiplier of the emission of every imported material (emissive factor times texture), applied in the shader. 1 (the default) is the emission as authored and changes nothing; a host
+    /// that lights windows and lamps as the sun sets ramps it continuously from 0 to 1 instead of swapping material sets (which pops). Finite and non-negative.
+    float emissive_gain = 1.0f;
 };
 
 /// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.

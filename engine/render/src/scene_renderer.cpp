@@ -264,6 +264,7 @@ SceneLighting time_of_day_lighting(const AtmosphereSettings& atmosphere, Float3 
     const float k = night_ambient + (1.0f - night_ambient) * s;
     out.ambient_ground = {day.ambient_ground.x * k, day.ambient_ground.y * k, day.ambient_ground.z * k};
     out.ambient_sky_floor = day.ambient_sky_floor;
+    out.emissive_gain = day.emissive_gain;
     return out;
 }
 

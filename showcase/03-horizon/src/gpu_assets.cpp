@@ -50,14 +50,13 @@ constexpr SurfaceStyle surface_style[surface_count] = {
     /* RoofTiles   */ {"clay_roof_tiles_03", {0.95f, 0.85f, 0.80f}, 1.0f, 1.0f, {0, 0, 0}, true, 1.0f},
     /* RoofMetal   */ {"corrugated_iron", {0.80f, 0.82f, 0.85f}, 1.0f, 1.0f, {0, 0, 0}, true, 1.0f},
     /* Apron       */ {"concrete_floor", {0.88f, 0.88f, 0.88f}, 1.0f, 1.0f, {0, 0, 0}, false, 1.0f},
-    /* WindowLit   */ {nullptr, {0.10f, 0.10f, 0.12f}, 0.0f, 0.15f, {3.2f, 2.5f, 1.4f}, true, 1.0f},
+    /* WindowLit   */ {nullptr, {0.10f, 0.10f, 0.12f}, 0.0f, 0.15f, {0.30f, 0.185f, 0.075f}, true, 1.0f},
     /* WindowDark  */ {nullptr, {0.025f, 0.035f, 0.05f}, 0.6f, 0.08f, {0, 0, 0}, true, 1.0f},
     /* Door        */ {nullptr, {0.18f, 0.045f, 0.035f}, 0.0f, 0.5f, {0, 0, 0}, true, 1.0f},
     /* Bark        */ {"bark_brown_01", {0.85f, 0.80f, 0.75f}, 1.0f, 1.0f, {0, 0, 0}, false, 1.0f},
     /* Foliage     */ {"forest_leaves_02", {0.38f, 0.55f, 0.24f}, 1.0f, 1.0f, {0, 0, 0}, true, 0.6f},
     /* LampGlow    */ {nullptr, {0.10f, 0.10f, 0.10f}, 0.0f, 0.3f, {9.0f, 7.0f, 4.0f}, true, 1.0f},
 };
-constexpr float emissive_scale[emissive_levels] = {0.0f, 0.06f, 0.35f, 1.0f};
 
 } // namespace
 
@@ -82,18 +81,18 @@ MaterialLibrary::MaterialLibrary(render::SceneRenderer& renderer, const fs::path
     };
 
     const std::uint32_t total = ExtraCount;
-    for (std::uint32_t level = 0; level < emissive_levels; ++level) {
+    {
         for (std::uint32_t m = 0; m < total; ++m) {
             gfx::Material mat;
             if (m < surface_count) {
                 const SurfaceStyle& st = surface_style[m];
-                mat.name = "surface" + std::to_string(m) + "_L" + std::to_string(level);
+                mat.name = "surface" + std::to_string(m);
                 std::copy(st.color, st.color + 3, mat.base_color);
                 mat.metallic = st.metallic;
                 mat.roughness = st.roughness;
                 mat.double_sided = st.double_sided;
                 mat.normal_scale = st.normal_scale;
-                for (int c = 0; c < 3; ++c) mat.emissive[c] = st.emissive[c] * emissive_scale[level];
+                for (int c = 0; c < 3; ++c) mat.emissive[c] = st.emissive[c];
                 if (st.texture != nullptr) {
                     const std::string name = st.texture;
                     const fs::path dir = root / "textures" / name;
@@ -160,8 +159,8 @@ MaterialLibrary::MaterialLibrary(render::SceneRenderer& renderer, const fs::path
     const render::GpuModel staged = gfx::stage_model(renderer, lib, "materials", ss, &report);
     for (const std::string& w : report.warnings) warnings.push_back("materials: " + w);
     std::printf("material library: %u textures (%.1f MiB), %zu materials\n", report.textures, static_cast<double>(report.texture_bytes) / 1048576.0, staged.materials.size());
-    for (std::uint32_t level = 0; level < emissive_levels; ++level) {
-        levels_[level].assign(staged.materials.begin() + level * total, staged.materials.begin() + (level + 1) * total);
+    {
+        materials_.assign(staged.materials.begin(), staged.materials.begin() + total);
     }
 }
 

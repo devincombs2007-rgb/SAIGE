@@ -463,6 +463,33 @@ void test_outside_the_supported_range_fails_explicitly_and_changes_nothing() {
     }
 }
 
+void test_teleport_at_the_edge_of_the_range_is_transactional() {
+    // Core review of #70: teleport({0, 0, -256}) passes the range check (the capsule's bounds are inside), then the ground probe looks down and leaves the
+    // supported range; the exception used to leave feet.z = -256 behind. The whole teleport, probe included, must leave the character as it was.
+    for (const bool with_geometry : {false, true}) {
+        const std::vector<Aabb> boxes{{{-300, -300, -400}, {300, 300, -300}}};  // far below the edge: nothing within reach of the probe either way
+        CapsuleCharacter c({0.0f, 0.0f, 0.0f}, with_geometry ? std::span<const Aabb>(boxes) : std::span<const Aabb>());
+        c.step(forward, dt);
+        const CapsuleCharacterState before = c.state();
+        for (const Vec3 target : {Vec3{0.0f, 0.0f, -256.0f}, Vec3{0.0f, 0.0f, -255.99f}, Vec3{0.0f, 0.0f, -255.9f}}) {
+            bool threw = false;
+            try {
+                (void)c.teleport(target);
+            } catch (const std::invalid_argument&) {
+                threw = true;
+            }
+            require(threw, "the ground probe at z = " + std::to_string(target.z) + " leaves the supported range, so the teleport throws");
+            require(c.state() == before, "and leaves the character exactly as it was (z = " + std::to_string(target.z) + ")");
+        }
+    }
+    // A position the probe can complete from is fine and changes the state as before.
+    CapsuleCharacter ok({0.0f, 0.0f, 0.0f}, with_floor({}));
+    require(ok.teleport({3.0f, 0.0f, 0.0f}) && ok.state().feet.x == 3.0f && ok.state().grounded, "an ordinary teleport still works");
+    // reset() is strong as well: a spawn whose probe throws cannot be built (the constructor rejects it), so reset() on a valid controller keeps working.
+    ok.reset();
+    require(ok.state().feet == Vec3{0.0f, 0.0f, 0.0f}, "reset returns to the spawn");
+}
+
 void test_teleport_and_overlap_recovery() {
     const std::vector<Aabb> boxes = with_floor({{{3, -50, 0}, {4, 50, 3}}});
     CapsuleCharacter c({0, 0, 0}, boxes);
@@ -604,6 +631,7 @@ int main() {
         test_replay_is_deterministic_and_never_penetrates();
         test_float_rounding_never_leaves_the_capsule_in_a_wall();
         test_outside_the_supported_range_fails_explicitly_and_changes_nothing();
+        test_teleport_at_the_edge_of_the_range_is_transactional();
         test_teleport_and_overlap_recovery();
         test_teleport_into_a_trapped_gap_fails_and_changes_nothing();
         test_reset_and_geometry_replacement_keep_ledge_support();

@@ -296,26 +296,35 @@ bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> geometry) {
 bool CapsuleCharacter::teleport(Vec3 feet) {
     if (!finite(feet)) throw std::invalid_argument("Capsule character teleport position must be finite");
     require_in_envelope(config_, feet);  // outside the supported range: rebase first; nothing has changed
-    const CapsuleCharacterState saved = state_;  // transactional: a blocked teleport leaves the character exactly as it was
-    state_.feet = feet;
-    state_.velocity = {};
-    state_.grounded = false;
-    if (!recover_from_overlap()) {
+    // Transactional: a blocked teleport (false) and a throwing one (the recovery or the ground probe leaving the supported range, as a capsule standing
+    // at the edge of it does when the probe looks down) both leave the character exactly as it was.
+    const CapsuleCharacterState saved = state_;
+    try {
+        state_.feet = feet;
+        state_.velocity = {};
+        state_.grounded = false;
+        if (!recover_from_overlap()) {
+            state_ = saved;
+            return false;
+        }
+        snap_to_ground();
+    } catch (...) {
         state_ = saved;
-        return false;
+        throw;
     }
-    snap_to_ground();
     return true;
 }
 
 void CapsuleCharacter::reset() {
-    state_ = {};
-    state_.feet = spawn_;
-    previous_jump_ = false;
+    // Strong guarantee: the new state is built aside and adopted only when the ground probe has succeeded.
+    CapsuleCharacterState fresh;
+    fresh.feet = spawn_;
     if (const auto ground = probe_ground(spawn_)) {  // the same probe as a step: a spawn touching a ledge's rim still counts as supported
-        state_.grounded = true;
-        state_.ground_normal = ground->normal;
+        fresh.grounded = true;
+        fresh.ground_normal = ground->normal;
     }
+    state_ = fresh;
+    previous_jump_ = false;
 }
 
 } // namespace saige

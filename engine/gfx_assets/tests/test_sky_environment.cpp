@@ -158,7 +158,8 @@ TEST_CASE("Sky environment image: the sky above the horizon is the sky pass's ra
     CHECK(floor_texel[2] > floor_texel[0]);
     SkyEnvironmentSettings none = s;
     none.night_ambient = {0.0f, 0.0f, 0.0f};
-    const float* black = texel_at(sky_environment_image(atm, dir_from(-40.0, 30.0), none), {0, 0, 1});
+    const HdrImage dark = sky_environment_image(atm, dir_from(-40.0, 30.0), none);  // kept alive: texel_at points into it
+    const float* black = texel_at(dark, {0, 0, 1});
     CHECK(black[0] == 0.0f && black[1] == 0.0f && black[2] == 0.0f);
     // By day the floor is not in at all (the sky is exactly the reference above), and it fades in as the sun sets.
     const auto overhead = [&](double elevation) {

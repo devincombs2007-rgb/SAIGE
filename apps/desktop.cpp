@@ -305,7 +305,8 @@ int main(int argc, char** argv) {
                           << " model_draws=" << renderer->stats().model_instances_drawn
                           << " unresolved=" << renderer->stats().unresolved_instances << " gpu_uploads=" << composition->uploads()
                           << " upload_cpu_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
-                                 composition->upload_time()).count();
+                                 composition->upload_time()).count()
+                          << " upload_deferrals=" << composition->deferred_uploads();
             }
 #endif
             const auto [x, y] = streamed_game->absolute_cell();

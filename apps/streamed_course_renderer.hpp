@@ -21,12 +21,17 @@ public:
                 if (retained != active_.end() && retained->second.source == asset.source) {
                     next = pending_.emplace(key, retained->second).first;
                 } else {
-                    if (uploaded) return false;
+                    const auto frame = sink_.stats().frames_submitted;
+                    if (uploaded || (live_ && upload_frame_ == frame)) {
+                        ++deferred_uploads_;
+                        return false;
+                    }
                     const render::SceneAssetRef ref{asset.id, asset.model, format_asset_id(asset.id)};
                     const auto start = std::chrono::steady_clock::now();
                     auto staged = sink_.stage_scene(std::span(&ref, 1));
                     upload_time_ += std::chrono::steady_clock::now() - start;
                     ++uploads_;
+                    upload_frame_ = frame;
                     auto scene = std::make_shared<const render::StagedScene>(std::move(staged));
                     next = pending_.emplace(key, ResidentAsset{asset.source, std::move(scene)}).first;
                     uploaded = true;
@@ -43,6 +48,8 @@ public:
         sink_.activate_scene(std::move(staged_));
         active_.swap(pending_);
         pending_.clear();
+        if (!live_) upload_frame_.reset(); // Bootstrap uploads do not consume the first live frame budget.
+        live_ = true;
     }
 
     void discard() noexcept override {
@@ -51,6 +58,7 @@ public:
     }
 
     [[nodiscard]] std::uint64_t uploads() const noexcept { return uploads_; }
+    [[nodiscard]] std::uint64_t deferred_uploads() const noexcept { return deferred_uploads_; }
     [[nodiscard]] auto upload_time() const noexcept { return upload_time_; }
 
 private:
@@ -63,6 +71,9 @@ private:
     std::map<std::pair<std::uint64_t, std::uint64_t>, ResidentAsset> pending_;
     render::StagedScene staged_;
     std::uint64_t uploads_{};
+    std::uint64_t deferred_uploads_{};
+    std::optional<std::uint64_t> upload_frame_;
+    bool live_{};
     std::chrono::steady_clock::duration upload_time_{};
 };
 

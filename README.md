@@ -75,3 +75,7 @@ and triangle collision with the same capsule and an authored checkpoint.
 Add `--course-vehicle` for the flat driving prototype. Walk near the parked vehicle marker and press E to enter.
 Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E while stopped to exit when a supported side
 is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.
+
+
+The vehicle option also works with `--course-world`. While driving, the vehicle leads chunk selection. Its parked cell and the
+checkpoint stay resident. Vehicles require level support, including on the ramp course. Use the capsule to climb the ramp on foot.

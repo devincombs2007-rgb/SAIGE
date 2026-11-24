@@ -252,11 +252,15 @@ public:
     saige::NativeWindowHandle native_window() const noexcept override { return {}; }
     saige::SurfaceState surface() const noexcept override { return {}; }
     bool key_down(saige::Key key) const noexcept override {
-        return (key == saige::Key::w && forward) || (key == saige::Key::s && back) || (key == saige::Key::r && reset);
+        return (key == saige::Key::w && forward) || (key == saige::Key::s && back) || (key == saige::Key::r && reset) || (key == saige::Key::d && right) ||
+               (key == saige::Key::space && brake) || (key == saige::Key::e && interact);
     }
     bool forward{};
     bool back{};
     bool reset{};
+    bool right{};
+    bool brake{};
+    bool interact{};
 };
 
 class CourseOutputProbe final : public saige::sample::CourseSceneOutput {
@@ -372,6 +376,77 @@ void test_native_streamed_course(const fs::path& fixture) {
     require(course.camera_view().has_value(), "streamed course retains the existing orbit camera");
 }
 
+void test_streamed_vehicle(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    fs::copy(fixture.parent_path(), workspace.root / "assets", fs::copy_options::recursive);
+    const auto manifest = workspace.root / "vehicle.json";
+    const auto east = workspace.root / "east.json";
+    write_chunk_fixture(manifest, R"({"schema_version":2,"origin":[-2147483648,0],"checkpoint":[4,4,0],"chunks":[
+        {"coord":[-2147483648,0],"project":"assets/saige.scene.json","collision":"floor.json"},
+        {"coord":[-2147483647,0],"project":"assets/saige.scene.json","collision":"east.json"},
+        {"coord":[-2147483646,0],"project":"assets/saige.scene.json","collision":"floor.json"},
+        {"coord":[-2147483645,0],"project":"assets/saige.scene.json","collision":"floor.json"}
+    ]})");
+    constexpr std::string_view floor = R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]}]})";
+    write_chunk_fixture(workspace.root / "floor.json", floor);
+
+    saige::World world;
+    CourseKeys keys;
+    saige::sample::StreamedCourse course(world, keys, manifest, nullptr, {}, true);
+    const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
+    const auto player = [&] { return world.snapshot().front().position; };
+    const auto car = [&] { return world.snapshot().back().position; };
+    const auto enter = [&] {
+        keys.right = true;
+        for (int i = 0; i < 49; ++i) tick();
+        keys.right = false;
+        keys.interact = true;
+        tick();
+        require(course.driving(), "enter a supported streamed vehicle");
+        keys.interact = false;
+    };
+    enter();
+    keys.forward = true;
+    for (int i = 0; i < 160; ++i) tick();
+    require(course.resident_count() == 1 && car().x < 7.41f && car().x > 7.2f,
+            "vehicle stops before the missing chunk and leaves the rider seated");
+
+    // Repair the chunk, reset the pair and retry the existing stream request.
+    write_chunk_fixture(east, floor);
+    keys.forward = false;
+    keys.reset = true;
+    tick();
+    keys.reset = false;
+    require(!course.driving() && player() == saige::Vec3{4, 4, 0} && car() == saige::Vec3{4, 1, 0},
+            "reset returns the rider and vehicle to their supported positions");
+    enter();
+    keys.forward = true;
+    for (int i = 0; i < 100; ++i) tick();
+    keys.forward = false;
+    keys.brake = true;
+    for (int i = 0; i < 50; ++i) tick();
+    require(course.driving() && car().x > 8.0f && car().x < 16.0f &&
+                course.absolute_cell().first == -2147483647LL,
+            "crossing the seam tracks the vehicle in the rebased world");
+    keys.interact = true;
+    tick();
+    require(!course.driving() && player().z < 0.001f && player().y > car().y + 1.0f,
+            "exit in the streamed cell finds supported collision and clears held brake");
+    const auto parked = car();
+    keys.interact = false;
+    keys.brake = false;
+    keys.forward = true;
+    for (int i = 0; i < 450; ++i) tick();
+    require(player().x > 24.0f && course.resident_count() == 4 && car() == parked,
+            "the parked vehicle cell remains resident beyond the pedestrian streaming radius");
+    keys.reset = true;
+    tick();
+    require(player() == saige::Vec3{4, 4, 0} && car() == saige::Vec3{4, 1, 0} &&
+                course.absolute_cell().first == -2147483648LL,
+            "the original world checkpoint remains exact after walking and driving");
+}
+
 void test_rebased_ramp_course(const fs::path& fixture) {
     using namespace std::chrono_literals;
     const auto play = [&] {
@@ -467,6 +542,7 @@ int main(int argc, char** argv) {
         test_manifest(argv[1]);
         test_native_streamed_course(argv[1]);
         test_rebased_ramp_course(argv[1]);
+        test_streamed_vehicle(argv[1]);
         test_collision_handoff(argv[1]);
         return 0;
     } catch (const std::exception& e) {

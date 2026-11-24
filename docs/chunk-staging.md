@@ -66,3 +66,13 @@ separated regions are future work.
 Collision file version 2 adds a `triangles` array alongside `boxes`. Each triangle lists three XYZ vertices. The same capsule
 handles box and triangle contact and the camera checks both. The ramp example places a render mesh and collision faces in
 the same cell. It uses a distant grid origin and a non-default checkpoint.
+
+
+The playable vehicle mode retains the checkpoint and the vehicle's cell alongside the current walking or driving neighborhood.
+A candidate must retain clear, level support at the car's live pose and its reset pose. While seated, the capsule's inactive state
+is kept at the checkpoint. Exit requires a clear sweep and supported ground in the active collision set. The absolute grid address
+in diagnostics is computed with integer arithmetic relative to the startup origin.
+
+Do not spend multiple GPU uploads in one render iteration during fixed-step catch-up. The candidate remains staged until the next
+submission opens an upload slot. Unchanged resident sets bypass restaging. Uploads are still synchronous and a single asset can
+exceed the frame budget.

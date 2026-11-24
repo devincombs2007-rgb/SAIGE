@@ -67,6 +67,9 @@ int main(int argc, char** argv) {
         };
         require(!output.stage(requested) && output.uploads() == 2 && sink.active_model_count() == 1,
                 "First staging step uploads one missing asset and leaves the active scene unchanged");
+        require(!output.stage(requested) && output.uploads() == 2 && output.deferred_uploads() > 0,
+                "Fixed-step catch-up cannot spend another upload budget in the same rendered iteration");
+        require(frame(1) == after, "A partial candidate leaves the active framebuffer unchanged");
         require(output.stage(requested) && output.uploads() == 3 && sink.active_model_count() == 1,
                 "Second staging step finishes the candidate without publishing it");
         output.publish();

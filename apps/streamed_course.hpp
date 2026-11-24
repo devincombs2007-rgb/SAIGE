@@ -53,6 +53,7 @@ public:
         const auto spawn_chunk = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
         if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at its origin");
         const auto initial = std::span(&*spawn_chunk, 1);
+        resident_coords_ = {reset_cell};
         stream_.request(initial);
         stream_.stage_next();
         const auto geometry = candidate_geometry(initial);
@@ -105,6 +106,12 @@ private:
             requested_ = select_chunks(sources_, center, 1);
             retain_source(reset_cell);
             if (vehicle_cell) retain_source(*vehicle_cell);
+            pending_coords_.clear();
+            for (const auto& source : requested_) pending_coords_.push_back(source.coord);
+            if (pending_coords_ == resident_coords_) {
+                stream_.cancel();
+                return;
+            }
             stream_.request(requested_);
         }
         stream_.stage_next(); // At most one new disk payload per fixed update.
@@ -123,6 +130,7 @@ private:
         }
         if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
         stream_.commit_frame();
+        resident_coords_.swap(pending_coords_);
     }
 
     void retain_source(ChunkCoord coord) {
@@ -250,6 +258,8 @@ private:
     std::optional<ChunkCoord> requested_center_;
     std::optional<ChunkCoord> requested_vehicle_cell_;
     std::vector<ChunkSource> requested_;
+    std::vector<ChunkCoord> resident_coords_;
+    std::vector<ChunkCoord> pending_coords_;
     bool reset_held_{};
     bool chunk_local_collision_{};
 };

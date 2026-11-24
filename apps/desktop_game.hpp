@@ -126,6 +126,8 @@ private:
             driving_ = false;
             suppress_jump_until_release_ = jump_held;
         } else if (vehicle_->can_enter(motor_->state(), motor_->config(), camera_geometry_, camera_triangles_)) {
+            // The capsule is inactive while seated. Park its state at the pinned reset point until exit.
+            motor_->reset();
             driving_ = true;
         }
     }

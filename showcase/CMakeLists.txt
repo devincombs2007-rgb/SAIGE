@@ -27,3 +27,13 @@ if(TARGET saige::core AND TARGET saige::gfx_assets)
         endif()
     endif()
 endif()
+
+# Showcase 03 "Beyond the Horizon": a streamed world, a character, a rigid-body vehicle, a scripted player. The simulation needs only Core.
+if(TARGET saige::core)
+    find_package(Threads REQUIRED)
+    add_library(saige_horizon_sim STATIC 03-horizon/src/world.cpp 03-horizon/src/sim.cpp)
+    target_include_directories(saige_horizon_sim PUBLIC 03-horizon/src)
+    target_link_libraries(saige_horizon_sim PUBLIC saige::core Threads::Threads)
+    add_executable(saige_horizon_sim_run 03-horizon/src/sim_main.cpp)
+    target_link_libraries(saige_horizon_sim_run PRIVATE saige_horizon_sim)
+endif()

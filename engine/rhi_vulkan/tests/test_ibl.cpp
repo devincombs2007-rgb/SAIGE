@@ -46,7 +46,7 @@ GpuModel make_sphere(GpuResourceRegistry& registry, GpuMaterial material, float 
         for (int s = 0; s <= sectors; ++s) {
             const double phi = 2.0 * pi_d * s / sectors;
             const Float3 n{static_cast<float>(std::sin(theta) * std::cos(phi)), static_cast<float>(std::sin(theta) * std::sin(phi)), static_cast<float>(std::cos(theta))};
-            v.push_back({{n.x * radius, n.y * radius, n.z * radius}, n, {static_cast<float>(s) / sectors, static_cast<float>(r) / rings}});
+            v.push_back({{n.x * radius, n.y * radius, n.z * radius}, n, {static_cast<float>(s) / static_cast<float>(sectors), static_cast<float>(r) / static_cast<float>(rings)}});
         }
     }
     for (int r = 0; r < rings; ++r) {

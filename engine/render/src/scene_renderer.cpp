@@ -93,13 +93,25 @@ void validate_shadows(const RendererSettings& settings)
     }
 }
 
+/// The environment is validated, and refused for a shading mode that would ignore it, before the renderer acquires anything from the device.
+void validate_environment(const RendererSettings& settings)
+{
+    if (!settings.environment) {
+        return;
+    }
+    validate_environment_lighting(*settings.environment);
+    if (settings.model_shading != ModelShading::MetallicRoughness) {
+        throw std::invalid_argument("SceneRenderer: an environment needs model_shading = MetallicRoughness (the other modes would ignore it)");
+    }
+}
+
 } // namespace
 
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_((validate_lighting(settings.lighting), validate_shadows(settings), settings)),
+      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_environment(settings), settings)),
       registry_(device)
 {
     using namespace saige::shaders;
@@ -256,6 +268,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
         ms.alpha_blending = settings_.alpha_blending;
+        ms.environment = settings_.environment;
         ms.shadows = {settings_.shadows.enabled, settings_.shadows.map_size, settings_.shadows.depth_bias_constant, settings_.shadows.depth_bias_slope};
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }

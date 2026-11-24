@@ -30,6 +30,9 @@
 #ifndef SAIGE_SUN_SHADOWS
 #define SAIGE_SUN_SHADOWS 0
 #endif
+#ifndef SAIGE_IBL
+#define SAIGE_IBL 0
+#endif
 
 struct ModelPush {
     column_major float4x4 view_proj;
@@ -68,6 +71,36 @@ struct ModelPush {
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
+#if SAIGE_IBL
+// Image-based lighting (metallic-roughness shading only; model_ibl.hlsl): the prefiltered environment as one equirect texture whose mip i is the
+// environment at perceptual roughness i / (levels - 1), and nine SH coefficients for the diffuse term. docs/rendering/ibl-environment.md.
+[[vk::binding(6, 1)]] Texture2D<float4> g_ibl_env;
+[[vk::binding(7, 1)]] SamplerState g_ibl_sampler;  // linear, linear mips, wrap in u, clamp in v
+[[vk::binding(8, 1)]] cbuffer IblConstants
+{
+    float4 ibl_sh[9];   // radiance coefficients, order 00, 1-1, 10, 11, 2-2, 2-1, 20, 21, 22
+    float4 ibl_params;  // x: levels - 1, y: intensity
+};
+
+/// The diffuse radiance factor (irradiance / pi) for unit normal n: the SH coefficients scaled by the clamped cosine's band weights 1, 2/3, 1/4.
+float3 ibl_diffuse(float3 n)
+{
+    const float x = n.x, y = n.y, z = n.z;
+    float3 sum = ibl_sh[0].rgb * 0.282094791773878;
+    sum += (ibl_sh[1].rgb * (0.488602511902920 * y) + ibl_sh[2].rgb * (0.488602511902920 * z) + ibl_sh[3].rgb * (0.488602511902920 * x)) * (2.0 / 3.0);
+    sum += (ibl_sh[4].rgb * (1.092548430592079 * x * y) + ibl_sh[5].rgb * (1.092548430592079 * y * z) + ibl_sh[6].rgb * (0.315391565252520 * (3.0 * z * z - 1.0)) +
+            ibl_sh[7].rgb * (1.092548430592079 * x * z) + ibl_sh[8].rgb * (0.546274215296040 * (x * x - y * y))) * 0.25;
+    return max(sum, float3(0.0, 0.0, 0.0)) * ibl_params.y;
+}
+
+/// The prefiltered environment toward direction r at perceptual roughness (explicit LOD, so it is safe in any control flow). u = atan2(y, x) / 2 pi + 0.5 and
+/// v = acos(z) / pi: +X is the middle of the image and +Z the top row.
+float3 ibl_specular(float3 r, float roughness)
+{
+    const float2 uv = float2(atan2(r.y, r.x) * 0.15915494309189535 + 0.5, acos(clamp(r.z, -1.0, 1.0)) * 0.3183098861837907);
+    return g_ibl_env.SampleLevel(g_ibl_sampler, uv, saturate(roughness) * ibl_params.x).rgb * ibl_params.y;
+}
+#endif
 #if SAIGE_SUN_SHADOWS
 [[vk::binding(3, 1)]] Texture2D<float> g_shadow_map;            // sun depth, reverse-Z (1 nearest the light)
 [[vk::binding(4, 1)]] SamplerComparisonState g_shadow_sampler;  // nearest filtering, GreaterEqual
@@ -234,8 +267,13 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
             const float3 r = reflect(-v, mapped);
             const float2 table_uv = float2(saturate(dot(mapped, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
             const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
+#if SAIGE_IBL
+            lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
+                  shade_ambient(surface, env_brdf, ibl_diffuse(mapped), ibl_specular(r, clamp(surface.roughness, MIN_ROUGHNESS, 1.0))) + surface.emissive;
+#else
             lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
                   shade_ambient(surface, env_brdf, ambient_radiance(mapped), ambient_radiance(r)) + surface.emissive;
+#endif
         } else {
             lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;
         }

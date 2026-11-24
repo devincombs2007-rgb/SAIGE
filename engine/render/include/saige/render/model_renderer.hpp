@@ -13,12 +13,14 @@
 // blending composites `alpha_blend` materials source-over in a sorted phase after all opaque draws (see MaterialData).
 #pragma once
 
+#include "saige/render/environment_lighting.hpp"
 #include "saige/render/gpu_resources.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/model.hpp"
 #include "saige/rhi/device.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -114,6 +116,11 @@ struct ModelShadowFrame {
 
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
+    /// Image-based lighting (see environment_lighting.hpp). Null (the default) is off: the shader, layout and resources are exactly the ones without it. With an
+    /// environment the renderer uses the IBL shader permutation, which replaces the hemispherical ambient of metallic-roughness shading with the
+    /// environment's diffuse SH and prefiltered specular; the sun stays a directional light. Requires `shading == MetallicRoughness` (anything else
+    /// would ignore the environment silently, so the constructor throws std::invalid_argument). The data is validated and uploaded at construction.
+    std::shared_ptr<const EnvironmentLighting> environment;
     SceneLighting lighting;
     ModelShadowSettings shadows;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
@@ -165,6 +172,7 @@ public:
     /// disagree (SceneLighting::sun_direction normalized).
     [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }
     [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
+    [[nodiscard]] bool ibl_enabled() const noexcept { return ibl_enabled_; }
     /// The sun shadow map: a D32_FLOAT texture, valid only when shadows are enabled. The caller (SceneRenderer's render graph) owns its
     /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
     [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }
@@ -223,6 +231,10 @@ private:
     SamplerRef shadow_sampler_;
     uint32_t shadow_map_size_ = 0;
     bool shadows_enabled_ = false;
+    bool ibl_enabled_ = false;
+    TextureRef ibl_texture_;  ///< the prefiltered equirect environment with its roughness mips (empty when IBL is off)
+    SamplerRef ibl_sampler_;
+    BufferRef ibl_block_;
     bool shadow_frame_written_ = false;
     uint64_t shadow_frame_number_ = 0;
     Float3 sun_direction_{};

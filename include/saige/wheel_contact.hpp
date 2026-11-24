@@ -19,7 +19,8 @@
 //  * Miss versus initial overlap. `Miss`: the segment never touches anything. `InitialOverlap`: the probe starts touching or inside the world (a ray whose origin
 //    is inside a solid box, a sphere that already penetrates a primitive): distance 0, the normal is the push-out direction (a ray: the reverse of the direction),
 //    and the caller recovers (raises the wheel or the chassis) before trusting a support. A probe that merely touches a surface from outside and moves away or
-//    along it is a Miss for that surface, the capsule sweeps' rule.
+//    along it is a Miss for that surface, the capsule sweeps' rule, and it never masks what lies beyond: a ray uses RayMode::Surface, so a radius-0 probe leaving or running
+//    along a box face skips that box and finds the next. A triangle has no inside to leave: a ray starting on one is in contact with it (distance 0).
 //
 // Envelope. A sphere probe is a capsule sweep, so it shares capsule_sweep.hpp's: the whole path inside +-max_local_extent chunk-local meters and `length` at
 // most max_sweep_length, else std::invalid_argument. A ray accepts any finite coordinates (and the same length bound). Invalid input throws.
@@ -60,7 +61,8 @@ struct WheelContact {
 [[nodiscard]] WheelContact probe_wheel(const StaticCollision& world, const WheelProbe& probe, QueryScratch& scratch);
 
 // One probe per wheel, in order; `out` must have exactly as many elements. Equal to calling probe_wheel for each (nothing is shared between wheels). All probes are
-// validated before any is answered, so a bad one leaves `out` untouched.
+// validated before any is answered, to the exact condition the answer would throw on (including a sphere's sweep envelope), so a bad one anywhere leaves `out` untouched
+// (std::bad_alloc from the scratch growing aside). A ray allocates nothing; a sphere allocates nothing once `scratch` has grown to what it gathers.
 void probe_wheels(const StaticCollision& world, std::span<const WheelProbe> probes, std::span<WheelContact> out, QueryScratch& scratch);
 
 } // namespace saige

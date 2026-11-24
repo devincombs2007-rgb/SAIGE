@@ -4,10 +4,26 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <atomic>
+#include <cstdlib>
 #include <limits>
+#include <new>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+namespace {
+std::atomic<std::size_t> allocation_count{0};
+}
+
+// Counting allocator for the whole test executable: the allocation claims in the documentation are measured, not asserted.
+void* operator new(std::size_t size) {
+    allocation_count.fetch_add(1, std::memory_order_relaxed);
+    if (void* p = std::malloc(size == 0 ? 1 : size)) return p;
+    throw std::bad_alloc();
+}
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 
 namespace {
 
@@ -335,6 +351,121 @@ void test_validation() {
     require(throws_invalid([&] { saige::probe_wheels(world, probes, wrong, scratch); }), "probe_wheels: one output per probe");
 }
 
+void test_batch_strong_guarantee() {
+    const StaticCollision world = flat_world();
+    saige::QueryScratch scratch;
+    // A valid ray over the floor, then a sphere whose path leaves the +-256 m envelope: scalars pass validation, the capsule sweep would throw.
+    std::vector<WheelProbe> probes{down({0, 0, 0.5f}, 2.0f), down({256.0f, 0, 0.5f}, 2.0f, 0.25f)};
+    std::vector<WheelContact> out(2);
+    for (WheelContact& c : out) c.distance = 999.0;
+    require(throws_invalid([&] { saige::probe_wheels(world, probes, out, scratch); }), "an out-of-envelope sphere probe throws");
+    require(out[0].distance == 999.0 && out[1].distance == 999.0, "the batch leaves every output untouched when a later sphere is out of the envelope");
+    // The same probe alone throws the same way, and in-envelope neighbours still answer.
+    require(throws_invalid([&] { static_cast<void>(saige::probe_wheel(world, probes[1])); }), "probe_wheel throws for the out-of-envelope sphere");
+    probes[1].origin = {255.0f - 0.25f, 0, 0.5f};  // path (including the radius) stays inside
+    saige::probe_wheels(world, probes, out, scratch);
+    require(out[0].status == WheelContactStatus::Support && near(out[0].distance, 0.5, 1e-9), "a valid batch answers after the refusal");
+    // A path that leaves the envelope only through its displacement, not its origin.
+    probes[1].origin = {0, 0, 0.5f};
+    probes[1].direction = {1.0f, 0, 0};
+    probes[1].origin.x = 255.5f;
+    for (WheelContact& c : out) c.distance = 999.0;
+    require(throws_invalid([&] { saige::probe_wheels(world, probes, out, scratch); }) && out[0].distance == 999.0 && out[1].distance == 999.0,
+            "a sphere that sweeps out of the envelope leaves the outputs untouched");
+}
+
+// A radius-0 probe is a ray; one that only touches a box (starts on its boundary and moves outward or along it) is a Miss for that box and must not mask
+// what lies beyond.
+void test_ray_touching_is_not_a_hit() {
+    const Aabb a{{0, 0, 0}, {1, 1, 1}};
+    const Aabb beyond{{-5, 0, 0}, {-4, 1, 1}};  // downstream of a ray leaving a's min-X face
+    const StaticCollision world(std::vector<Aabb>{a, beyond}, {});
+    const auto probe = [](Vec3 o, Vec3 d, float length) {
+        WheelProbe p;
+        p.origin = o;
+        p.direction = d;
+        p.length = length;
+        return p;
+    };
+    // Core's repro: on the min-X face, moving -X. Miss for `a`; the box beyond is the first thing it meets.
+    {
+        const WheelContact c = saige::probe_wheel(world, probe({0, 0.5f, 0.5f}, {-1, 0, 0}, 10.0f));
+        require(c.primitive.kind == StaticPrimitive::Kind::Box && c.primitive.index == 1, "leaving the min face finds the box downstream, not the box it leaves");
+        require(near(c.distance, 4.0, 1e-9) && c.status != WheelContactStatus::InitialOverlap, "the downstream box is hit at its face");
+    }
+    {
+        const WheelContact c = saige::probe_wheel(world, probe({0, 0.5f, 0.5f}, {-1, 0, 0}, 3.0f));
+        require(c.status == WheelContactStatus::Miss, "leaving the min face with nothing within the length is a Miss");
+    }
+    // Max face, moving +X.
+    {
+        const WheelContact c = saige::probe_wheel(world, probe({1, 0.5f, 0.5f}, {1, 0, 0}, 10.0f));
+        require(c.status == WheelContactStatus::Miss, "leaving the max face is a Miss");
+    }
+    // Tangent: along a face, and in the plane of one (top face moving +X, on the boundary of the min/max Y faces).
+    require(saige::probe_wheel(world, probe({-0.5f, 0.5f, 1}, {1, 0, 0}, 10.0f)).status == WheelContactStatus::Miss, "running along the top face is a Miss");
+    require(saige::probe_wheel(world, probe({0.25f, 0, 0.5f}, {0, 0, 1}, 10.0f)).status == WheelContactStatus::Miss, "running in a face's plane inside the box's extent is a Miss");
+    // An edge origin moving in on one axis and out on another leaves at once (max-Z edge of the min-X face: +X is inward, +Z is outward).
+    require(saige::probe_wheel(world, probe({0, 0.5f, 1}, {1, 0, 1}, 10.0f)).status == WheelContactStatus::Miss, "an origin on an edge moving in on one axis and out on another leaves at once");
+    // Exact inward contact: on the min-X face, moving +X. A hit at distance 0 with the face's outward normal; it is not "inside" (a surface, not an overlap).
+    {
+        const WheelContact c = saige::probe_wheel(world, probe({0, 0.5f, 0.5f}, {1, 0, 0}, 10.0f));
+        require(c.primitive.kind == StaticPrimitive::Kind::Box && c.primitive.index == 0 && c.distance == 0.0, "an origin on the min face moving in hits at distance 0");
+        require(c.status != WheelContactStatus::InitialOverlap && c.normal.x == -1.0f && c.normal.y == 0.0f && c.normal.z == 0.0f, "with the face's outward normal");
+    }
+    // The same from the top face moving down (the common wheel case): a support at distance 0, normal up.
+    {
+        const WheelContact c = saige::probe_wheel(world, probe({0.5f, 0.5f, 1}, {0, 0, -1}, 10.0f));
+        require(c.status == WheelContactStatus::Support && c.distance == 0.0 && c.normal.z == 1.0f, "standing exactly on a top face supports at distance 0");
+    }
+    // Strictly inside is still an InitialOverlap with the reverse-direction normal.
+    {
+        const WheelContact c = saige::probe_wheel(world, probe({0.5f, 0.5f, 0.5f}, {1, 0, 0}, 10.0f));
+        require(c.status == WheelContactStatus::InitialOverlap && c.normal.x == -1.0f && c.distance == 0.0, "strictly inside is an initial overlap");
+    }
+    // Triangles have no interior: an origin on one is in contact with it (distance 0), and a ray in its plane misses it, without masking a box beyond.
+    {
+        const Triangle tri{{-1, -1, 0}, {1, -1, 0}, {0, 2, 0}};
+        const Aabb wall{{3, -1, -1}, {4, 1, 1}};
+        const StaticCollision w(std::vector<Aabb>{wall}, std::vector<Triangle>{tri});
+        const WheelContact on = saige::probe_wheel(w, probe({0, 0, 0}, {0, 0, -1}, 5.0f));
+        require(on.primitive.kind == StaticPrimitive::Kind::Triangle && on.distance == 0.0, "an origin on a triangle is in contact with it");
+        const WheelContact plane = saige::probe_wheel(w, probe({-0.5f, 0, 0}, {1, 0, 0}, 10.0f));
+        require(plane.primitive.kind == StaticPrimitive::Kind::Box && near(plane.distance, 3.5, 1e-9), "a ray in a triangle's plane misses it and finds the box beyond");
+    }
+}
+
+// Measured, not asserted: ray probes allocate nothing; a sphere probe allocates nothing once its scratch has grown; probe_wheels adds nothing of its own.
+void test_allocations() {
+    std::vector<Aabb> boxes;
+    for (int i = 0; i < 40; ++i) boxes.push_back({{static_cast<float>(i) * 2.0f, 0, -1}, {static_cast<float>(i) * 2.0f + 1.0f, 1, 0}});
+    const StaticCollision world(boxes, {});
+    std::vector<WheelProbe> rays, spheres;
+    for (int i = 0; i < 4; ++i) {
+        rays.push_back(down({static_cast<float>(i) * 8.0f + 0.5f, 0.5f, 1}, 3.0f));
+        spheres.push_back(down({static_cast<float>(i) * 8.0f + 0.5f, 0.5f, 1}, 3.0f, 0.3f));
+    }
+    std::vector<WheelContact> out(rays.size());
+    saige::QueryScratch scratch;
+    // Warm the scratch (a sphere path gathers primitives into it).
+    saige::probe_wheels(world, spheres, out, scratch);
+    saige::probe_wheels(world, spheres, out, scratch);
+    std::size_t before = allocation_count.load();
+    for (int round = 0; round < 3; ++round) {
+        saige::probe_wheels(world, rays, out, scratch);
+        for (const WheelProbe& p : rays) static_cast<void>(saige::probe_wheel(world, p, scratch));
+    }
+    std::size_t used = allocation_count.load() - before;  // read before require() builds its message string
+    require(used == 0, "ray probes allocate nothing (single and batch)");
+    before = allocation_count.load();
+    for (int round = 0; round < 3; ++round) {
+        saige::probe_wheels(world, spheres, out, scratch);
+        for (const WheelProbe& p : spheres) static_cast<void>(saige::probe_wheel(world, p, scratch));
+    }
+    used = allocation_count.load() - before;
+    require(used == 0, "sphere probes allocate nothing once the scratch has grown");
+}
+
 } // namespace
 
 int main() {
@@ -348,6 +479,9 @@ int main() {
         test_seams_ties_and_replay();
         test_equals_brute_force();
         test_validation();
+        test_batch_strong_guarantee();
+        test_ray_touching_is_not_a_hit();
+        test_allocations();
     } catch (const std::exception& error) {
         std::cerr << "wheel contact test failed: " << error.what() << '\n';
         return 1;

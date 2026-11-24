@@ -71,8 +71,20 @@ only: Core owns suspension, traction, wheel state and gameplay.
 Rules: the **nearest contact wins whatever it is** (a blocker between the mount and the ground, such as a beam, a steep face or an underside, is `Blocked`, not skipped to find ground behind it); exact ties go to the lower shape id,
 boxes before triangles (a box wins an exact tie against a triangle), the rule of every sweep here; boxes are solid and **triangles are two-sided**, the normal always facing the probe's origin side, so a ramp mesh with flipped winding
 still supports and the same triangle from below is an underside; the slope limit is a closed bound on `dot(normal, up)` with `up` the chassis' or the world's (a tilted `up` makes a matching ramp flat to the chassis); touching a
-surface from outside and moving away or along it is a `Miss` for that surface (a wheel resting on the ground and driving off is not blocked by it). A sphere probe shares the capsule envelope (path inside +-256 m, `length` at
-most 64 m); a ray accepts any finite coordinates. Invalid probes throw, and `probe_wheels` validates every probe before answering any.
+surface from outside and moving away or along it is a `Miss` for that surface (a wheel resting on the ground and driving off is not blocked by it). For a ray that is `RayMode::Surface` (below): the ray skips a box it only
+touches and goes on to what lies beyond, so a ray leaving a face never masks a box downstream. A **triangle** has no interior and no outside to leave: a ray whose origin lies on one is in contact with it (distance 0), and a ray in its plane
+misses it. A sphere probe shares the capsule envelope (path inside +-256 m, `length` at most 64 m); a ray accepts any finite coordinates.
+
+**Invalid probes and the batch.** A probe is invalid if a scalar is not finite or out of range or, for a sphere, its exact sweep leaves the capsule envelope. `probe_wheels` checks every probe to that exact condition (the same
+`check_sweep_envelope` the sweep will run) before answering any, so a bad probe anywhere in the batch throws `std::invalid_argument` with `out` untouched. Only `std::bad_alloc` from the scratch growing is outside that guarantee.
+
+**Ray modes.** `StaticCollision::raycast(origin, direction, max, RayMode)`: `Solid` (what the two-argument overload does, unchanged) counts every touching, including an origin on a box's boundary moving away; `Surface` (the wheel probe's
+mode) does not hit a box the ray only touches: an origin on the boundary moving outward or along a face, or a ray in a face's plane. An origin on the boundary moving in is a hit at distance 0 with that face's outward normal (the face the
+direction is most aligned with, on an edge); `RayHit::started_inside` is true only when the origin is strictly inside, which is what makes a wheel ray an `InitialOverlap`.
+
+**Allocation (measured, `wheel_contact_test` counts `operator new`).** A ray probe, alone or in a batch, allocates nothing. A sphere probe allocates nothing once the `QueryScratch` it is given has grown to the neighbourhood it gathers
+(the first query on a fresh scratch grows its vectors); the two-argument `probe_wheel` constructs a fresh scratch and so allocates when it gathers. `probe_wheels` adds no allocation of its own: it validates each probe twice rather than store the
+normalized forms.
 
 `tests/wheel_contact_test.cpp`: flat ground (ray and sphere, oblique and normalized directions, out of reach, pointing away), ramps at 10, 30 and 45 degrees and a tilted `up`, the slope limit (60 degrees blocked at the default, supported when
 allowed, the closed bound at zero), a plateau ledge (ray misses, a sphere just past the edge rolls on its corner, farther misses), undersides and two-sided triangles, a plank between the mount and the floor and a steep sheet that blocks
@@ -94,7 +106,7 @@ permutation of validation failures.
 
 Build is O(n log n). On a Debug build of 20000 primitives (4000 boxes, 16000 triangles) 200 local sweeps take about 0.3 ms with the hierarchy
 against about 840 ms brute force; the tree is under 40 levels deep and a local sweep examines fewer than 100 primitives. These are
-software-CPU numbers for scale only; no physical-hardware claim is made. Hold a `QueryScratch` across calls to avoid per-query allocation.
+software-CPU numbers for scale only; no physical-hardware claim is made. Hold a `QueryScratch` across calls to avoid per-query allocation (rays need none).
 
 ## Not here
 

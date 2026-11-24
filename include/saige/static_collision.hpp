@@ -45,7 +45,17 @@ struct RayHit {
     Vec3 point;             // origin + direction * distance, rounded to float
     Vec3 normal;            // unit; faces the ray's origin (for a box entered from outside, the entry face's outward normal)
     StaticPrimitive primitive;
+    bool started_inside{false};  // a box hit at distance 0 with the origin strictly inside it (not merely on its boundary)
 };
+
+// How a ray treats a surface it only touches.
+//  * Solid (the default, unchanged): every touching counts, including an origin on a box's boundary moving away from it (a hit at distance 0, normal = the reverse of the
+//    direction) and a triangle hit at distance 0.
+//  * Surface: a ray is a probe of what lies ahead, so a box it merely touches is not hit and the search goes on to what lies beyond it: an origin on the box's boundary that
+//    moves outward or along a face, and a ray running in a face's plane. An origin on the boundary moving in is a hit at distance 0 with that face's outward normal (on an
+//    edge, the face the direction is most aligned with; the lowest axis on a tie). Triangles are the same in both modes: they have no interior, so an origin on one is in
+//    contact with it (distance 0) and a ray in its plane misses it.
+enum class RayMode : std::uint8_t { Solid, Surface };
 
 struct StaticCapsuleHit {
     CapsuleHit hit;              // as the primitive sweeps report it: t, stop, contact_t, normal, point, started_overlapping
@@ -90,6 +100,7 @@ public:
     // Boxes are solid (an origin inside one hits at distance 0); triangles are two-sided. An exact tie in distance goes to the lower id.
     // Throws std::invalid_argument for a non-finite origin or direction, a zero direction, or a negative or non-finite max_distance.
     [[nodiscard]] std::optional<RayHit> raycast(Vec3 origin, Vec3 direction, float max_distance) const;
+    [[nodiscard]] std::optional<RayHit> raycast(Vec3 origin, Vec3 direction, float max_distance, RayMode mode) const;
 
     // Appends the primitives whose bounds overlap `region` (touching counts), in ascending id order (boxes, then triangles), to `out`.
     void query_region(const Aabb& region, std::vector<StaticPrimitive>& out) const;

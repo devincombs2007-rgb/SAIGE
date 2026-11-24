@@ -347,9 +347,41 @@ void test_scaling_is_logarithmic_in_practice() {
 
 } // namespace
 
+void test_ray_modes() {
+    using saige::RayMode;
+    const StaticCollision world(std::vector<Aabb>{{{0, 0, 0}, {1, 1, 1}}, {{-5, 0, 0}, {-4, 1, 1}}}, {});
+    const Vec3 on_min_face{0, 0.5f, 0.5f};
+    // Solid (the default) is unchanged: an origin on the boundary is in the closed box whatever its direction.
+    auto solid = world.raycast(on_min_face, {-1, 0, 0}, 10.0f);
+    require(solid && solid->distance == 0.0 && solid->primitive.index == 0 && !solid->started_inside, "Solid: a boundary origin leaving a box still hits it at 0, not 'inside'");
+    require(world.raycast(on_min_face, {-1, 0, 0}, 10.0f, RayMode::Solid)->primitive.index == 0, "the explicit Solid mode is the default");
+    require(solid->normal.x == 1.0f && solid->normal.y == 0.0f && solid->normal.z == 0.0f, "Solid: a boundary origin's normal is the reverse of the direction, as before");
+    // Surface skips what the ray only touches and finds what lies beyond.
+    auto surface = world.raycast(on_min_face, {-1, 0, 0}, 10.0f, RayMode::Surface);
+    require(surface && surface->primitive.index == 1 && std::fabs(surface->distance - 4.0) < 1e-9 && surface->normal.x == 1.0f, "Surface: leaving a face finds the box beyond, entered at its max face");
+    require(!world.raycast(on_min_face, {-1, 0, 0}, 3.0f, RayMode::Surface), "Surface: nothing within the length is a miss");
+    auto in = world.raycast(on_min_face, {1, 0, 0}, 10.0f, RayMode::Surface);
+    require(in && in->distance == 0.0 && in->normal.x == -1.0f && !in->started_inside, "Surface: moving in through a face hits it at 0 with the face's outward normal, not 'inside'");
+    auto inside = world.raycast({0.5f, 0.5f, 0.5f}, {0, 1, 0}, 10.0f, RayMode::Surface);
+    require(inside && inside->distance == 0.0 && inside->started_inside && inside->normal.y == -1.0f, "Surface: strictly inside is started_inside with the reverse direction");
+    // An edge origin picks the entry face the direction is most aligned with: on the min-X/min-Y edge moving (1, 0.25, 0) enters through min X.
+    auto edge = world.raycast({0, 0, 0.5f}, {1, 0.25f, 0}, 10.0f, RayMode::Surface);
+    require(edge && edge->distance == 0.0 && edge->normal.x == -1.0f, "Surface: an edge origin enters through the face it moves in through most");
+    // A shallow entry: the direction is mostly along the face, so its component through the face is small (0.2 / |d|), but it is still the face it enters through.
+    auto shallow = world.raycast({0, 0.5f, 0.2f}, {0.2f, 0, 1}, 10.0f, RayMode::Surface);
+    require(shallow && shallow->distance == 0.0 && shallow->normal.x == -1.0f && shallow->normal.z == 0.0f, "Surface: a shallow entry still reports the face it enters through");
+    auto tie = world.raycast({0, 0, 0.5f}, {1, 1, 0}, 10.0f, RayMode::Surface);
+    require(tie && tie->normal.x == -1.0f && tie->normal.y == 0.0f, "an exact tie between faces goes to the lowest axis");
+    auto edge_y = world.raycast({0, 0, 0.5f}, {0.25f, 1, 0}, 10.0f, RayMode::Surface);
+    require(edge_y && edge_y->normal.y == -1.0f, "and through the other face when the direction favours it");
+    auto edge_hi = world.raycast({1, 1, 0.5f}, {-0.25f, -1, 0}, 10.0f, RayMode::Surface);
+    require(edge_hi && edge_hi->normal.y == 1.0f, "a max-face origin enters through the max face (outward normal +)");
+}
+
 int main() {
     try {
         test_specific_cases();
+        test_ray_modes();
         test_capsule_sweeps_equal_brute_force();
         test_rays_equal_brute_force();
         test_region_query_equals_brute_force_and_build_is_deterministic();

@@ -1,12 +1,14 @@
 #include "saige/render/tonemap.hpp"
 
 #include "saige/shaders/scene_tonemap.spv.hpp"
+#include "saige/shaders/scene_tonemap_bloom.spv.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <span>
+#include <stdexcept>
 
 namespace saige::render {
 
@@ -75,17 +77,26 @@ Float3 tone_map(Float3 c, const ToneMapSettings& requested) noexcept
     return {curve(clean(c.x * scale), settings), curve(clean(c.y * scale), settings), curve(clean(c.z * scale), settings)};
 }
 
-ToneMapper::ToneMapper(rhi::Device& device, rhi::Format target_format) : device_(device)
+ToneMapper::ToneMapper(rhi::Device& device, rhi::Format target_format, bool bloom) : device_(device), bloom_(bloom)
 {
     // The destructor does not run if a constructor throws, so every acquisition after the first can fail only inside this try block:
     // whatever was created is released before the exception leaves.
     try {
     rhi::BindGroupLayoutDesc ld;
     ld.entries = {{0, rhi::BindingType::SampledTexture}, {1, rhi::BindingType::Sampler}};
+    if (bloom_) {
+        ld.entries.push_back({2, rhi::BindingType::SampledTexture});
+        ld.entries.push_back({3, rhi::BindingType::Sampler});
+    }
     ld.debug_name = "ToneMapLayout";
     layout_ = device_.create_bind_group_layout(ld);
-    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(shaders::scene_tone_map_vs_main), "VSMain", "ToneMap.VS"});
-    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(shaders::scene_tone_map_ps_main), "PSMain", "ToneMap.PS"});
+    if (bloom_) {
+        vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(shaders::scene_tone_map_bloom_vs_main), "VSMain", "ToneMapBloom.VS"});
+        ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(shaders::scene_tone_map_bloom_ps_main), "PSMain", "ToneMapBloom.PS"});
+    } else {
+        vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(shaders::scene_tone_map_vs_main), "VSMain", "ToneMap.VS"});
+        ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(shaders::scene_tone_map_ps_main), "PSMain", "ToneMap.PS"});
+    }
     rhi::GraphicsPipelineDesc pd;
     pd.vertex_shader = vs_;
     pd.pixel_shader = ps_;
@@ -102,6 +113,12 @@ ToneMapper::ToneMapper(rhi::Device& device, rhi::Format target_format) : device_
     sd.address_u = rhi::AddressMode::ClampToEdge;
     sd.address_v = rhi::AddressMode::ClampToEdge;
     sampler_ = device_.create_sampler(sd);
+    if (bloom_) {
+        rhi::SamplerDesc linear = sd;  // the bloom is smaller than the scene: it is magnified with bilinear filtering
+        linear.mag_filter = rhi::Filter::Linear;
+        linear.min_filter = rhi::Filter::Linear;
+        bloom_sampler_ = device_.create_sampler(linear);
+    }
     } catch (...) {
         release();
         throw;
@@ -116,6 +133,7 @@ void ToneMapper::release() noexcept
             handle = {};
         }
     };
+    destroy_if(bloom_sampler_);
     destroy_if(sampler_);
     destroy_if(pipeline_);
     destroy_if(ps_);
@@ -128,22 +146,32 @@ ToneMapper::~ToneMapper()
     release();
 }
 
-rhi::BindGroupHandle ToneMapper::create_input(rhi::TextureHandle hdr)
+rhi::BindGroupHandle ToneMapper::create_input(rhi::TextureHandle hdr, rhi::TextureHandle bloom_texture)
 {
-    rhi::BindGroupEntry entries[2];
+    if (bloom_ != bloom_texture.is_valid()) {
+        throw std::invalid_argument(bloom_ ? "ToneMapper::create_input: the bloom permutation needs a bloom texture" : "ToneMapper::create_input: this tone mapper has no bloom");
+    }
+    rhi::BindGroupEntry entries[4];
     entries[0].binding = 0;
     entries[0].texture = hdr;
     entries[1].binding = 1;
     entries[1].sampler = sampler_;
-    return device_.create_bind_group(layout_, entries);
+    if (bloom_) {
+        entries[2].binding = 2;
+        entries[2].texture = bloom_texture;
+        entries[3].binding = 3;
+        entries[3].sampler = bloom_sampler_;
+    }
+    return device_.create_bind_group(layout_, std::span(entries, bloom_ ? 4u : 2u));
 }
 
-void ToneMapper::draw(rhi::CommandList& cmd, rhi::BindGroupHandle input, const ToneMapSettings& settings)
+void ToneMapper::draw(rhi::CommandList& cmd, rhi::BindGroupHandle input, const ToneMapSettings& settings, float bloom_intensity)
 {
     cmd.bind_pipeline(pipeline_);
     cmd.bind_group(0, input);
     const ToneMapSettings s = sanitize(settings);  // the same values the CPU reference uses
-    Push push{exposure_scale(s.exposure_ev), static_cast<uint32_t>(s.op), s.white_point, 0.0f};
+    const float bloom = bloom_ && std::isfinite(bloom_intensity) ? std::min(std::max(bloom_intensity, 0.0f), 16.0f) : 0.0f;
+    Push push{exposure_scale(s.exposure_ev), static_cast<uint32_t>(s.op), s.white_point, bloom};
     cmd.push_constants(std::as_bytes(std::span(&push, 1)), 0);
     cmd.draw(3);
 }

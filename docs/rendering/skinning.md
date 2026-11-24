@@ -70,11 +70,16 @@ The existing permutations' SPIR-V is byte-identical (only the source-hash lines 
 * Mirrored bones (a joint matrix with negative determinant) flip the triangle winding; mirror the instance (`ModelDraw::world`) instead.
 * Normal-mapped tangent frames are exact for rotations, translations and uniform scale; under strong non-uniform bone scale the skinned bitangent (the linear
   part applied to the unskinned `cross(n, t)`) is not the cross product of the skinned normal and tangent. Positions and normals are exact in all cases.
-* **Culling and bounds**: a skinned primitive's `bounds_*` are its bind-pose bounds (staging cannot know the animation), which say nothing about the posed mesh. Frustum culling
-  (#83) therefore **never culls a skinned primitive** (`ModelFrameStats::skinned_cull_bypassed` / `FrameStats::model_skinned_cull_bypassed` count them), in every pass; the
-  sun shadow pass does not cull casters at all. A mesh whose bind pose is far outside the view but whose pose puts it inside is drawn (`test_skinning.cpp`), and a rigid primitive
-  with the same bounds is still culled. This stays so until a conservative per-pose bound is supplied together with the pose (then culling can use it); that is the remaining
-  animated-bounds work.
+* **Culling and bounds**: a skinned primitive's own `bounds_*` are its bind-pose bounds (staging cannot know the animation), which say nothing about the posed mesh, so culling never uses them
+  for it. Instead staging records, per skinned primitive, **one bind-space box per joint** (`GpuPrimitive::joint_bounds`: the vertices each joint influences with a weight above zero).
+  A posed vertex is the weighted sum `sum w_j * (skin_matrix_j * bind_position)` with the weights summing to one, a convex combination of points that each lie inside that joint's box
+  carried by its skin matrix, so the union of the carried boxes bounds the posed primitive **whatever the pose**. `ModelRenderer::posed_world_bounds` forms it per frame from the
+  palette's matrices (the frozen CPU copy) and the draw's world matrix (one affine product and one box transform per used joint, plus a hair of margin for the float precision of the
+  weights) and frustum culling (#83) tests that box (`ModelFrameStats::skinned_culled` / `FrameStats::model_skinned_culled`, also counted in `primitives_culled`). A primitive without
+  joint bounds (hand-built models, a joint nobody uses, or vertex weights that do not sum to one within 1e-3, which are not convex combinations) is never culled
+  (`skinned_cull_bypassed`). With no palette the bind pose (identity matrices) is tested. The box is tight for a one-joint primitive and looser for several (it does not follow the
+  skeleton's bones), so a character slightly outside the view may still be drawn: it errs toward drawing. The sorted alpha-blended phase still sorts a skinned primitive by its bind-pose
+  sphere center, and the sun shadow pass does not cull casters at all (a caster outside the view can cast into it); per-cascade caster culling is separate work.
 * Skins with more than 256 joints are not supported by this path (the importer's limit is 512). Morph targets, root motion, IK and retargeting are not part of
   this slice.
 * Everything is software-Vulkan correctness; no physical-GPU timing is claimed.

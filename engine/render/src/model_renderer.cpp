@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -722,6 +723,48 @@ float ModelRenderer::blend_sort_depth(const Mat4& view_proj, Float3 c) noexcept
     return std::isfinite(w) ? w : 0.0f;  // a non-finite key would break the sort's ordering: such a primitive sorts as if at the camera
 }
 
+bool ModelRenderer::posed_world_bounds(const GpuPrimitive& prim, const SkinPalette& palette, const Mat4& world, Float3& lo, Float3& hi) noexcept
+{
+    constexpr float inf = std::numeric_limits<float>::infinity();
+    lo = {inf, inf, inf};
+    hi = {-inf, -inf, -inf};
+    const std::size_t joints = prim.joint_bounds.size();
+    if (joints > palette.joint_count_ || joints * 12 > palette.rows_.size()) return false;  // the palette must hold a matrix for every joint the bounds name
+    for (std::size_t j = 0; j < joints; ++j) {
+        const JointBounds& jb = prim.joint_bounds[j];
+        if (!jb.used) continue;
+        const float* s = &palette.rows_[j * 12];  // the joint's skin matrix: three rows of (x, y, z, translation)
+        // world * skin: both affine, so the product's rows are world's 3x3 times skin's rows, plus world's translation in the last column.
+        float m[3][4];
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                m[r][c] = world.at(r, 0) * s[c] + world.at(r, 1) * s[4 + c] + world.at(r, 2) * s[8 + c] + (c == 3 ? world.at(r, 3) : 0.0f);
+            }
+        }
+        const float cx = (jb.min.x + jb.max.x) * 0.5f, cy = (jb.min.y + jb.max.y) * 0.5f, cz = (jb.min.z + jb.max.z) * 0.5f;
+        const float hx = (jb.max.x - jb.min.x) * 0.5f, hy = (jb.max.y - jb.min.y) * 0.5f, hz = (jb.max.z - jb.min.z) * 0.5f;
+        for (int r = 0; r < 3; ++r) {
+            const float center = m[r][0] * cx + m[r][1] * cy + m[r][2] * cz + m[r][3];
+            const float extent = std::fabs(m[r][0]) * hx + std::fabs(m[r][1]) * hy + std::fabs(m[r][2]) * hz;
+            if (!std::isfinite(center) || !std::isfinite(extent)) return false;
+            float* l = r == 0 ? &lo.x : (r == 1 ? &lo.y : &lo.z);
+            float* h = r == 0 ? &hi.x : (r == 1 ? &hi.y : &hi.z);
+            *l = std::min(*l, center - extent);
+            *h = std::max(*h, center + extent);
+        }
+    }
+    if (!(lo.x <= hi.x && lo.y <= hi.y && lo.z <= hi.z)) return false;  // no joint is used
+    // The weights of a vertex sum to S within 1e-3 of one (the tolerance staging accepts; the importer normalizes to float precision). With world = L x + t, a posed vertex is
+    // L (S c) + t = (L c + t) + (S - 1) L c for a point c of the hull in pose space, so it can leave the box by |S - 1| |L c| <= 1e-3 (|L c + t| + |t|): the box's distance from the
+    // origin plus the placement's translation, times 1e-3, plus a hair for float rounding.
+    const float reach = std::max({std::fabs(lo.x), std::fabs(lo.y), std::fabs(lo.z), std::fabs(hi.x), std::fabs(hi.y), std::fabs(hi.z)});
+    const float shift = std::max({std::fabs(world.at(0, 3)), std::fabs(world.at(1, 3)), std::fabs(world.at(2, 3))});
+    const float margin = 1e-3f * (reach + shift) + 1e-4f;
+    lo = {lo.x - margin, lo.y - margin, lo.z - margin};
+    hi = {hi.x + margin, hi.y + margin, hi.z + margin};
+    return true;
+}
+
 SkinPalette ModelRenderer::make_palette(uint32_t joint_count, const char* name)
 {
     const uint32_t slots = std::max(1u, device_.info().frames_in_flight);
@@ -856,9 +899,25 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
                 if (frustum && prim.skinned) {
-                    // A skinned primitive's bounds are its bind pose's: the pose the palette holds can put the mesh anywhere (a character walking out of its bind-pose
-                    // sphere), so culling it by them would drop visible geometry. It is never culled until a per-pose conservative bound is supplied (docs/rendering/skinning.md).
-                    ++stats.skinned_cull_bypassed;
+                    // A skinned primitive's own bounds are its bind pose's, which say nothing about the posed mesh. With per-joint bounds the pose gives a conservative world box:
+                    // the union of each used joint's bind-space box carried by that joint's skin matrix and the instance's world matrix. Without them it is never culled.
+                    const SkinPalette* pose = d.palette != nullptr ? d.palette : &identity_palette_;
+                    bool culled = false;
+                    if (!prim.joint_bounds.empty() && pose->valid() && pose->joint_count() >= prim.joint_limit) {
+                        Float3 lo, hi;
+                        if (posed_world_bounds(prim, *pose, world, lo, hi)) {
+                            culled = !intersects_aabb(*frustum, lo, hi);
+                        } else {
+                            ++stats.skinned_cull_bypassed;
+                        }
+                    } else {
+                        ++stats.skinned_cull_bypassed;
+                    }
+                    if (culled) {
+                        ++stats.primitives_culled;
+                        ++stats.skinned_culled;
+                        continue;
+                    }
                 } else if (frustum && prim.bounds_radius > 0.0f) {
                     const Float3 local = prim.bounds_center;
                     const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),

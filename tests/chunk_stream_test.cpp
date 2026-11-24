@@ -252,9 +252,10 @@ public:
     saige::NativeWindowHandle native_window() const noexcept override { return {}; }
     saige::SurfaceState surface() const noexcept override { return {}; }
     bool key_down(saige::Key key) const noexcept override {
-        return (key == saige::Key::w && forward) || (key == saige::Key::r && reset);
+        return (key == saige::Key::w && forward) || (key == saige::Key::s && back) || (key == saige::Key::r && reset);
     }
     bool forward{};
+    bool back{};
     bool reset{};
 };
 
@@ -353,6 +354,18 @@ void test_native_streamed_course(const fs::path& fixture) {
     for (int frame = 0; frame < 460; ++frame) tick();
     require(player().x > 25 && player().z >= 0 && course.resident_count() == 3,
             "the course evicts an intermediate chunk while retaining reset and current neighbors");
+    keys.forward = false;
+    keys.back = true;
+    for (int frame = 0; frame < 330; ++frame) tick();
+    require(player().x < 16 && player().z >= 0, "reverse traversal revisits retired ground");
+    for (int frame = 0; frame < 48; ++frame) {
+        keys.forward = frame % 2 == 0;
+        keys.back = !keys.forward;
+        tick();
+        require(player().z >= 0, "rapid direction changes preserve contact");
+    }
+    keys.forward = false;
+    keys.back = false;
     keys.reset = true;
     tick();
     require(player() == spawn && course.resident_count() == 2, "reset remains resident across streaming");

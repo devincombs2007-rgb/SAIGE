@@ -51,6 +51,8 @@ of the poses.
   edge throws `std::invalid_argument` and, like every step, has the strong guarantee (state and jump memory unchanged). The host rebases
   larger world coordinates and streams chunks; the controller never answers from a lower-precision sweep.
 
+- **Driven by an action (`CapsuleInput::drive`).** An action that carries the character (a roll, from a clip's root motion) sets the horizontal velocity directly while grounded: `{active, x, y}` in world axes, in m/s, replacing the acceleration toward the input's target for that tick. The step is otherwise unchanged (collide, slide, step up, ground snap), so a drive cannot carry the capsule through geometry; in the air it is ignored, a non-finite value is an invalid input, its magnitude is capped at `terminal_speed`, and an inactive drive (the default, whatever its numbers) leaves every state bit-identical to a controller without the field (`tests/character_drive_test.cpp`). The animation side (`engine/animation/.../action.hpp`) turns a clip's travel into drives and reads back how far the capsule got.
+
 ## Non-box geometry (triangles)
 
 `CapsuleCharacter` also takes static triangles (`capsule_triangle.hpp`, #73) beside the boxes: ramps, crests and slopes. They are two-sided,

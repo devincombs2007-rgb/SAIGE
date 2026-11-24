@@ -2,14 +2,18 @@
 //
 //  * `locomotion_input` turns the capsule's state into what the locomotion controller needs: its real horizontal speed, whether it is grounded, and its vertical speed. The animation follows the
 //    physics, not the input, so a character pushing into a wall does not run on the spot.
+//  * `capsule_drive` and `drive_progress` connect a root-motion action (action.hpp) to the capsule: the action's velocity in the character's frame becomes `CapsuleInput::drive`, and the share of the
+//    commanded travel the capsule really covered goes back to the action.
 //  * `ground_query` and `obstacle_query` answer the IK functions from a StaticCollision by ray casts.
 #pragma once
 
+#include "saige/animation/action.hpp"
 #include "saige/animation/ik.hpp"
 #include "saige/animation/locomotion.hpp"
 #include "saige/capsule_character.hpp"
 #include "saige/static_collision.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -21,6 +25,29 @@ namespace saige::anim {
     in.grounded = s.grounded;
     in.vertical_speed = s.velocity.z;
     return in;
+}
+
+// The action's velocity in the character's own frame (forward, left) as a world-axes drive for the capsule, for a character facing `yaw` radians counter-clockwise about +Z from +X (the axes of the
+// capsule's input). An action that is not travelling gives an inactive drive.
+[[nodiscard]] inline CapsuleDrive capsule_drive(const ActionPlayer& action, float dt, float yaw) {
+    CapsuleDrive d;
+    const PlanarVelocity v = action.command(dt);
+    if (!action.travelling()) return d;
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    d.active = true;
+    d.x = v.forward * c - v.left * s;
+    d.y = v.forward * s + v.left * c;
+    return d;
+}
+
+// How much of the commanded travel of one step the capsule covered, in [0, 1]: the displacement of the feet along the commanded direction over the commanded distance. 1 when nothing was commanded
+// (so a pause in a clip is not a stall). `before` and `after` are the feet around the step; the drive and dt are what was given to it.
+[[nodiscard]] inline float drive_progress(const Vec3& before, const Vec3& after, const CapsuleDrive& drive, float dt) {
+    const float cx = drive.x * dt, cy = drive.y * dt;
+    const float commanded = std::hypot(cx, cy);
+    if (!drive.active || commanded < 1e-5f) return 1.0f;
+    const float achieved = ((after.x - before.x) * cx + (after.y - before.y) * cy) / commanded;
+    return std::clamp(achieved / commanded, 0.0f, 1.0f);
 }
 
 // The ground under a point: a ray straight down from `up` meters above the reference height, for `up + down` meters. Positions are the collision's (chunk-local) meters. The collision must outlive the query.

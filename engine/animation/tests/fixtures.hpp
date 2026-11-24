@@ -206,4 +206,35 @@ inline gfx::AnimationClip make_pose_clip(const Biped& b, float duration, float p
     return clip;
 }
 
+// A root-motion clip: the hips travel `distance` meters forward (and `side` to the left) over `duration` seconds with an ease-in-ease-out profile (so the speed is far from constant: a linear drift
+// removal would leave the body swimming), dipping `dip` meters in the middle like a roll, and the clip is held still for `hold` seconds at the end.
+inline gfx::AnimationClip make_root_motion_clip(const Biped& b, float duration, float distance, float side = 0.0f, float dip = 0.20f, float hold = 0.0f, int samples = 60) {
+    const std::size_t pelvis = static_cast<std::size_t>(b.map[anim::Bone::Hips]);
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const std::vector<anim::JointWorld> rest_w = anim::joint_world(b.skin, rest);
+    const anim::JointWorld parent = anim::parent_world(b.skin, rest_w, pelvis);
+    gfx::AnimationClip clip;
+    clip.name = "root_motion";
+    clip.duration = duration + hold;
+    gfx::AnimationSampler pos;
+    pos.components = 3;
+    for (int k = 0; k <= samples; ++k) {
+        const float u = static_cast<float>(k) / static_cast<float>(samples);
+        const float e = u * u * (3.0f - 2.0f * u);
+        const Float3 world = rest_w[pelvis].position + b.rig.forward * (distance * e) + b.rig.left * (side * e) + Float3{0, 0, -dip * std::sin(3.14159265f * u)};
+        const Float3 local = render::rotate(render::conjugate(parent.rotation), world - parent.position);
+        pos.times.push_back(duration * u);
+        pos.values.insert(pos.values.end(), {local.x, local.y, local.z});
+    }
+    if (hold > 0.0f) {
+        pos.times.push_back(duration + hold);
+        const std::size_t n = pos.values.size();
+        const float lx = pos.values[n - 3], ly = pos.values[n - 2], lz = pos.values[n - 1];
+        pos.values.insert(pos.values.end(), {lx, ly, lz});
+    }
+    clip.samplers.push_back(pos);
+    clip.channels.push_back({b.skin.joint_nodes[pelvis], gfx::AnimationPath::Translation, 0});
+    return clip;
+}
+
 } // namespace fixtures

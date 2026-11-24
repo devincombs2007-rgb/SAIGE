@@ -1,6 +1,7 @@
 // A small runnable example of the whole chain: a capsule character (Core's controller on static collision) runs a scripted course (flat ground, a jump, a ramp, a wall) while a locomotion controller
 // animates a humanoid from the capsule's real speed, ground IK plants its feet on the ramp and wall IK keeps them out of the wall. It prints a line every half second.
 // Usage: saige_anim_character_demo ASSET_DIR      (ASSET_DIR from tools/animation/fetch_humanoid_assets.py)
+#include "saige/animation/action.hpp"
 #include "saige/animation/bvh.hpp"
 #include "saige/animation/capsule_glue.hpp"
 #include "saige/animation/retarget.hpp"
@@ -9,6 +10,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 using namespace saige;
@@ -89,25 +91,41 @@ int main(int argc, char** argv) {
     const GroundQuery ground = ground_query(world);
     const ObstacleQuery obstacle = obstacle_query(world);
     const std::chrono::nanoseconds dt{16666667};
+    const gfx::AnimationClip* roll_clip = find_clip(ual, "Roll_RM");
+    std::optional<ActionClip> roll;
+    if (roll_clip != nullptr) roll.emplace(skin, *map, rig, *roll_clip);
+    ActionPlayer action;
     for (int i = 0; i < 60 * 24; ++i) {
         const float t = static_cast<float>(i) / 60.0f;
         CapsuleInput in{1.0f, 0.0f, false, t > 3.0f};  // walk, then sprint from 3 s
         if (t < 1.0f) in.forward = 0.0f;                // stand for a second
         in.jump = i == 60 * 6;
+        if (roll && roll->valid() && i == 120) action.start(*roll);
+        const bool rolling = action.active();
+        if (rolling) {
+            in.drive = capsule_drive(action, 1.0f / 60.0f, 0.0f);  // facing +X
+            in.jump = false;
+        }
+        const Vec3 before = character.state().feet;
         character.step(in, dt);
         const CapsuleCharacterState& s = character.state();
+        if (rolling) {
+            if (!s.grounded) action.cancel();
+            action.advance(1.0f / 60.0f, drive_progress(before, s.feet, in.drive, 1.0f / 60.0f));
+        }
         anim.update(1.0f / 60.0f, locomotion_input(s));
         gfx::Pose pose = anim.pose();
         const render::Transform rt{{s.feet.x, s.feet.y, s.feet.z}, {0, 0, 0, 1}, {1, 1, 1}};
-        if (s.grounded && anim.state() == LocomotionState::Ground) {
+        if (action.active()) blend_into(pose, action.pose(), action.weight());
+        if (s.grounded && anim.state() == LocomotionState::Ground && !action.active()) {
             adapt_feet_to_ground(skin, *map, rig, pose, rt, ground, {}, ik, 1.0f / 60.0f);
             lock_planted_feet(skin, *map, rig, pose, rt, {}, lock, 1.0f / 60.0f);
         }
         const int moved = keep_feet_outside_obstacles(skin, *map, pose, rt, obstacle, {});
-        if (i % 30 == 0) {
-            std::printf("t=%5.1f s  x=%6.2f z=%5.2f  speed=%5.2f  %-7s idle=%.2f rate=%.2f c/s  pelvis %+.2f%s\n", static_cast<double>(t), static_cast<double>(s.feet.x), static_cast<double>(s.feet.z),
+        if (i % 30 == 0 || (rolling && !action.active())) {
+            std::printf("t=%5.1f s  x=%6.2f z=%5.2f  speed=%5.2f  %-7s idle=%.2f rate=%.2f c/s  pelvis %+.2f%s%s\n", static_cast<double>(t), static_cast<double>(s.feet.x), static_cast<double>(s.feet.z),
                         static_cast<double>(std::hypot(s.velocity.x, s.velocity.y)), state_name(anim.state()), static_cast<double>(anim.idle_weight()), static_cast<double>(anim.cycle_rate()),
-                        static_cast<double>(ik.pelvis_offset), moved > 0 ? "  (foot kept out of the wall)" : "");
+                        static_cast<double>(ik.pelvis_offset), moved > 0 ? "  (foot kept out of the wall)" : "", action.active() ? "  [roll]" : "");
         }
     }
     return 0;

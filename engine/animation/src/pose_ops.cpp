@@ -96,3 +96,17 @@ float pose_distance(const gfx::Pose& a, const gfx::Pose& b, float* max_translati
 }
 
 } // namespace saige::anim
+
+namespace saige::anim {
+
+void translate_model(const gfx::Skin& skin, render::Float3 shift, gfx::Pose& pose) {
+    for (std::size_t j = 0; j < skin.joint_count(); ++j) {
+        if (skin.parent[j] >= 0) continue;
+        const render::Mat4& b = skin.base[j];
+        const render::Float3 local{b.at(0, 0) * shift.x + b.at(1, 0) * shift.y + b.at(2, 0) * shift.z, b.at(0, 1) * shift.x + b.at(1, 1) * shift.y + b.at(2, 1) * shift.z,
+                                   b.at(0, 2) * shift.x + b.at(1, 2) * shift.y + b.at(2, 2) * shift.z};
+        pose.local[j].position = pose.local[j].position + local;
+    }
+}
+
+} // namespace saige::anim

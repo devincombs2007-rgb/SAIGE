@@ -301,7 +301,7 @@ void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
 }
 
 void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt) {
-    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left) || !std::isfinite(input.traction)) {
+    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left) || !std::isfinite(input.traction) || !std::isfinite(input.drive.x) || !std::isfinite(input.drive.y)) {
         throw std::invalid_argument("Capsule character step requires finite input and a fixed step in (0, 100 ms]");
     }
     const float seconds = std::chrono::duration<float>(dt).count();
@@ -325,7 +325,13 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
     const float traction = std::clamp(input.traction, 0.02f, 1.0f);
     const float limit = (state_.grounded ? config_.ground_acceleration * traction : config_.air_acceleration) * seconds;
     const float fraction = change > limit ? limit / change : 1.0f;
-    if (!keep_horizontal_speed) {
+    if (input.drive.active && state_.grounded) {
+        // An action owns the horizontal velocity this tick (see CapsuleDrive); the collision below still decides how far it really goes.
+        const float magnitude = std::hypot(input.drive.x, input.drive.y);
+        const float cap = magnitude > config_.terminal_speed ? config_.terminal_speed / magnitude : 1.0f;
+        state_.velocity.x = input.drive.x * cap;
+        state_.velocity.y = input.drive.y * cap;
+    } else if (!keep_horizontal_speed) {
         state_.velocity.x += dx * fraction;
         state_.velocity.y += dy * fraction;
     }

@@ -20,7 +20,7 @@
 1. Done (`docs/animation-character.md`): humanoid map, BVH import and loop extraction, retargeting, locomotion state machine with stride-matched playback, ground and wall foot IK, capsule glue, real UAL and CMU assets.
 2. Done: foot locking (`lock_planted_feet`): the retargeted capture cycles went from 10 to 27% to 0.1 to 4.8% of the speed. Next: apply the pelvis correction when a lock pulls a leg to its limit, and put lock and ground IK behind one call on the controller.
 3. Replace CesiumMan in Showcase-class apps with the UAL rig and this controller (not Showcase 03: it stays as delivered); upload the UAL mesh through gfx_scene skinned staging.
-4. Strafing and turn in place; crouch; a root-motion mode for clips that carry the character (roll, climb) with the capsule taking the clip's delta as a movement request; upper-body layering (aim, carry); look-at; hand IK for vehicle entry; a second jump.
+4. Done: root-motion actions (`action.hpp`, `CapsuleInput::drive`; roll and attack verified on the UAL clips). Next: strafing and turn in place (the UAL has no clips for them: procedural or mocap); crouch (the UAL has `Crouch_Fwd_Loop` and `Crouch_Idle_Loop`; needs a capsule height change first); climbing and vaulting with vertical root motion; action heading change; upper-body layering (aim, carry); look-at; hand IK for vehicle entry; a second jump.
 5. Ragdoll, then active ragdoll toward physical animation.
 6. A speed ladder agreed with the animator: the UAL has a walk at 1.05 m/s and a sprint at 8.96 m/s and no jog; add a jog and check the capsule's walk and sprint speeds against the cycles.
 

@@ -210,14 +210,7 @@ void evaluate_in_place(const gfx::Skin& skin, const HumanoidMap&, const RigInfo&
     float t = std::fmod(std::isfinite(time) ? time : 0.0f, clip.duration);
     if (t < 0.0f) t += clip.duration;
     const Float3 shift{-info.drift_velocity.x * t, -info.drift_velocity.y * t, 0.0f};
-    for (std::size_t j = 0; j < skin.joint_count(); ++j) {
-        if (skin.parent[j] >= 0) continue;
-        // `shift` is in model space; a top joint's translation is in its parent node's space (Skin::base), so bring the shift through the transpose of its rotation.
-        const render::Mat4& b = skin.base[j];
-        const Float3 local{b.at(0, 0) * shift.x + b.at(1, 0) * shift.y + b.at(2, 0) * shift.z, b.at(0, 1) * shift.x + b.at(1, 1) * shift.y + b.at(2, 1) * shift.z,
-                           b.at(0, 2) * shift.x + b.at(1, 2) * shift.y + b.at(2, 2) * shift.z};
-        pose.local[j].position = pose.local[j].position + local;
-    }
+    translate_model(skin, shift, pose);
 }
 
 } // namespace saige::anim

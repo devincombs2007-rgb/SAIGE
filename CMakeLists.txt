@@ -37,7 +37,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course static_collision oriented_box wheel_contact vehicle vehicle_surface character_surface)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course static_collision oriented_box wheel_contact vehicle vehicle_surface character_surface character_drive)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)

@@ -1,5 +1,6 @@
 // The animation module on real assets: Quaternius' Universal Animation Library rig and clips (CC0) and CMU motion capture (BVH), retargeted onto that rig. Skipped (exit 77) when the assets are not
 // fetched: run tools/animation/fetch_humanoid_assets.py DIR and pass DIR as argv[1] or in SAIGE_ANIM_ASSETS.
+#include "saige/animation/action.hpp"
 #include "saige/animation/bvh.hpp"
 #include "saige/animation/ik.hpp"
 #include "saige/animation/locomotion.hpp"
@@ -85,6 +86,39 @@ int main(int argc, char** argv) {
         check(ci.loop_error < 0.05f, std::string(e.name) + " loops", static_cast<double>(ci.loop_error));
     }
     for (const char* n : {"Idle_Loop", "Jump_Start", "Jump_Loop", "Jump_Land"}) check(find_clip(ual, n) != nullptr, std::string("clip ") + n);
+
+    // The root-motion clips (the "_RM" variants carry the travel; the plain "Roll" is the same motion in place): an action measures their travel, commands it step by step, and plays the pose in place.
+    {
+        const std::size_t hips = static_cast<std::size_t>((*map)[Bone::Hips]);
+        struct Rm {
+            const char* name;
+            float lo, hi;  // plausible travel, meters
+        };
+        for (const Rm r : {Rm{"Roll_RM", 4.0f, 6.0f}, Rm{"Sword_Attack_RM", 0.8f, 2.0f}, Rm{"Roll", 0.0f, 0.3f}}) {
+            const gfx::AnimationClip* c = find_clip(ual, r.name);
+            check(c != nullptr, std::string("clip ") + r.name);
+            if (c == nullptr) continue;
+            const ActionClip action(skin, *map, rig, *c);
+            ActionPlayer player;
+            player.start(action);
+            const render::Float3 start_hips = joint_world(skin, player.pose())[hips].position;  // where the clip's first frame has the hips (not the rest pose's)
+            float commanded = 0.0f, swim = 0.0f;
+            int steps = 0;
+            while (player.active() && steps < 900) {
+                commanded += player.command(1.0f / 60.0f).forward / 60.0f;
+                player.advance(1.0f / 60.0f, 1.0f);
+                const render::Float3 h = joint_world(skin, player.pose())[hips].position;
+                swim = std::max(swim, std::hypot(h.x - start_hips.x, h.y - start_hips.y));
+                ++steps;
+            }
+            std::printf("  %-16s action: travel %.2f m forward (%.2f m total), commanded %.2f m, body %.1f mm from its start over %d ticks\n", r.name, static_cast<double>(action.travel().forward),
+                        static_cast<double>(action.travel_length()), static_cast<double>(commanded), static_cast<double>(swim) * 1000.0, steps);
+            check(action.valid() && action.travel_length() >= r.lo && action.travel_length() <= r.hi, std::string(r.name) + " travel in its plausible range", static_cast<double>(action.travel_length()));
+            check(std::fabs(commanded - action.travel().forward) < 0.01f, std::string(r.name) + " commands exactly the travel it measured", static_cast<double>(commanded));
+            // Hips travel in the model's own frame can swing a little off the heading during a roll; the in-place pose must still hold the body at the origin to within a few millimeters.
+            check(swim < 0.005f, std::string(r.name) + " is played in place", static_cast<double>(swim));
+        }
+    }
 
     // The mocap: import, loop, retarget, and compare with what the capture itself says.
     const gfx::Pose urest = gfx::rest_pose(skin);

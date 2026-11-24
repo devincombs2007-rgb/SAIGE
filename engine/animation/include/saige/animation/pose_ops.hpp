@@ -19,6 +19,10 @@ struct JointWorld {
 // The world transform of one joint's parent (identity for a top joint, ignoring Skin::base).
 [[nodiscard]] JointWorld parent_world(const gfx::Skin& skin, const std::vector<JointWorld>& world, std::size_t joint);
 
+// Moves the whole skeleton by `shift` in model space: every top joint's translation (which is in its parent node's space, see Skin::base) is changed by the shift brought through the transpose of that
+// node's rotation.
+void translate_model(const gfx::Skin& skin, render::Float3 shift, gfx::Pose& pose);
+
 // dst <- dst * (1 - t) + src * t, joint by joint: translation and scale linearly, rotation by the shortest-arc slerp. Both poses must have the same joint count. t is clamped to [0, 1].
 void blend_into(gfx::Pose& dst, const gfx::Pose& src, float t);
 [[nodiscard]] gfx::Pose blend_poses(const gfx::Pose& a, const gfx::Pose& b, float t);

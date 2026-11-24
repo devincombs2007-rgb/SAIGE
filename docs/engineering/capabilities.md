@@ -18,7 +18,7 @@ correctness evidence only, never performance evidence. No capability here is har
 | Physics | Static collision (BVH, ray casts, region and shape queries), oriented-box and wheel probes | yes | yes | draft PRs | no | no | #80, #88 | |
 | Physics | Raycast vehicle (suspension, tire friction circle, drivetrain, oriented-box chassis, impacts) | yes | yes | yes | no | no | `include/saige/vehicle.hpp` | on the showcase branches |
 | Animation | glTF skins and clips, CPU reference, GPU skinning | yes | yes | draft PRs | no | no | #81, #87 | |
-| Animation | `saige::animation`: humanoid map, BVH import, loop extraction, retargeting, two-bone and foot IK, locomotion state machine with stride-matched playback, capsule glue | yes | yes | module head passed (run 581); later heads pending | no | no | `engine/animation`, `docs/animation-character.md` | CPU only; real UAL and CMU clips; foot locking, strafing, root-motion clips not yet |
+| Animation | `saige::animation`: humanoid map, BVH import, loop extraction, retargeting, two-bone and foot IK, locomotion state machine with stride-matched playback, capsule glue | yes | yes | run 583 passed (through foot locking); actions pending | no | no | `engine/animation`, `docs/animation-character.md` | CPU only; real UAL and CMU clips; foot locking and root-motion actions (roll, attack) on the capsule; strafing, turn in place, crouch, climbing not yet |
 | Core | Streaming cells, origin migration, background preparation | yes | yes | draft PRs | no | no | #60, #63, #86 | |
 | Core | Perf instrumentation | yes | yes | draft | no | no | #68 | |
 | Showcase | Showcase 03 sim, props table, wheel rig, time-of-day ramp | yes | yes | yes (run 579) | no | no | `claude/production-infrastructure` | film delivered, build 9c87457 |

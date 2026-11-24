@@ -17,6 +17,7 @@ endif()
 
 add_library(saige_animation STATIC
     src/bvh.cpp
+    src/action.cpp
     src/clip_analysis.cpp
     src/humanoid.cpp
     src/ik.cpp
@@ -42,6 +43,7 @@ if(SAIGE_ANIMATION_BUILD_TESTS)
     saige_gfx_add_test(saige_animation_tests
         SOURCES
             tests/test_humanoid.cpp
+            tests/test_action.cpp
             tests/test_ik.cpp
             tests/test_locomotion.cpp
             tests/test_retarget.cpp

@@ -50,6 +50,16 @@ struct CapsuleCharacterConfig {
     float ground_snap = 0.12f;          // how far below the feet the ground is still "underfoot" (small drops, step edges)
 };
 
+// A velocity the host drives the character at while it stands on the ground, in the same world axes as the state's velocity (+X, +Y horizontal, meters per second). An action that carries the character (a
+// roll, a lunge: the root motion of an animation clip) uses it: the horizontal velocity is set to the drive instead of accelerating toward the input's target, and the character still collides, slides,
+// steps up and keeps to the ground exactly as it does when walking, so an action can never carry it through geometry. In the air it is ignored (the air keeps its own rules); a non-finite drive is an
+// invalid input and its magnitude is limited to the terminal speed. Inactive (the default) changes nothing: the step is bit-identical to one with no drive field.
+struct CapsuleDrive {
+    bool active{};
+    float x{};
+    float y{};
+};
+
 struct CapsuleInput {
     float forward{};
     float left{};
@@ -59,6 +69,7 @@ struct CapsuleInput {
     // up to speed and longer to stop. The host derives it from the surface under the feet (see physics_material.hpp: `ground_traction`); the controller does not know about materials. Clamped to
     // [0.02, 1]; it only affects the ground, never the air. A non-finite value is an invalid input.
     float traction = 1.0f;
+    CapsuleDrive drive{};
 };
 
 struct CapsuleCharacterState {

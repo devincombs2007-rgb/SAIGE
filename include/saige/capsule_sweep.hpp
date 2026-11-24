@@ -100,8 +100,8 @@ namespace detail {
 template <class Clear>
 [[nodiscard]] Vec3 conservative_stop(Vec3 feet, Vec3 displacement, double exact_t, Clear&& clear)
 {
-    const double length = std::sqrt(static_cast<double>(displacement.x) * displacement.x + static_cast<double>(displacement.y) * displacement.y +
-                                    static_cast<double>(displacement.z) * displacement.z);
+    const double dx = static_cast<double>(displacement.x), dy = static_cast<double>(displacement.y), dz = static_cast<double>(displacement.z);
+    const double length = std::sqrt(dx * dx + dy * dy + dz * dz);
     const auto at = [&](double t) {
         return Vec3{static_cast<float>(static_cast<double>(feet.x) + static_cast<double>(displacement.x) * t),
                     static_cast<float>(static_cast<double>(feet.y) + static_cast<double>(displacement.y) * t),

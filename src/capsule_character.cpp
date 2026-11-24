@@ -421,6 +421,12 @@ bool CapsuleCharacter::teleport(Vec3 feet) {
     return true;
 }
 
+bool CapsuleCharacter::remember_grounded_checkpoint() noexcept {
+    if (!state_.grounded) return false;
+    spawn_ = state_.feet;
+    return true;
+}
+
 void CapsuleCharacter::reset() {
     // Strong guarantee: the new state is built aside and adopted only when the ground probe has succeeded.
     CapsuleCharacterState fresh;

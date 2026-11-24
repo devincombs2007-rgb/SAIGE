@@ -1,4 +1,5 @@
 #include "saige/chunk_manifest.hpp"
+#include "atomic_save.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -94,6 +95,27 @@ Vec3 read_box_corner(const Json& corner) {
 }
 
 } // namespace
+
+CourseCheckpoint load_course_checkpoint(const fs::path& path) {
+    const auto document = read_chunk_document(path);
+    if (!has_fields(document, {"checkpoint_version", "cell", "feet"}) ||
+        !document["checkpoint_version"].is_number_integer() || document["checkpoint_version"] != 1) {
+        throw std::invalid_argument("Expected a version 1 course checkpoint");
+    }
+    const auto& cell = document["cell"];
+    if (!cell.is_array() || cell.size() != 2) throw std::invalid_argument("Expected a checkpoint coordinate pair");
+    return {{read_coord(cell[0]), read_coord(cell[1])}, read_box_corner(document["feet"])};
+}
+
+void save_course_checkpoint(const CourseCheckpoint& checkpoint, const fs::path& path) {
+    const auto& feet = checkpoint.feet;
+    if (!std::isfinite(feet.x) || !std::isfinite(feet.y) || !std::isfinite(feet.z)) {
+        throw std::invalid_argument("Checkpoint requires finite local coordinates");
+    }
+    const Json document{{"checkpoint_version", 1}, {"cell", {checkpoint.cell.x, checkpoint.cell.y}},
+                        {"feet", {feet.x, feet.y, feet.z}}};
+    detail::replace_save_file(path, document.dump() + '\n');
+}
 
 ChunkManifest read_chunk_manifest(const fs::path& path) {
     const auto document = read_chunk_document(path);

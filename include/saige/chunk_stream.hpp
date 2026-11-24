@@ -64,6 +64,8 @@ public:
     bool commit_frame() noexcept;
 
     [[nodiscard]] const PreparedScene* active_chunk(ChunkCoord coord) const;
+    // Borrowed from the current active set. Expires at the next successful commit.
+    [[nodiscard]] const ChunkCollision* active_geometry(ChunkCoord coord) const noexcept;
     [[nodiscard]] std::size_t active_count() const noexcept { return active_.size(); }
     [[nodiscard]] std::size_t retained_asset_bytes() const noexcept;
 

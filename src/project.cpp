@@ -1,4 +1,5 @@
 #include "saige/project.hpp"
+#include "atomic_save.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -7,7 +8,6 @@
 #include <cmath>
 #include <fstream>
 #include <map>
-#include <random>
 #include <set>
 #include <stdexcept>
 #include <string_view>
@@ -168,15 +168,6 @@ Json encode(const Project& project) {
                         {"fov_y_radians", camera.fov_y_radians}, {"near_plane", camera.near_plane}}}};
 }
 
-struct SaveStaging {
-    fs::path directory;
-    ~SaveStaging() {
-        if (!directory.empty()) {
-            std::error_code ignored;
-            fs::remove_all(directory, ignored);
-        }
-    }
-};
 } // namespace
 
 std::vector<WorldMatrix> resolve_project_matrices(const Project& project) {
@@ -238,20 +229,7 @@ void save_project(const Project& project, const fs::path& path) {
     const auto wire = encode(project).dump(2) + '\n';
     if (wire.size() > max_file_bytes) invalid("Serialized project exceeds file limit");
 
-    // Stage on the same filesystem; replace the destination only after close succeeds.
-    SaveStaging staging;
-    std::random_device random;
-    for (int attempts = 0; attempts < 16 && staging.directory.empty(); ++attempts) {
-        auto directory = root / (".saige-save-" + std::to_string(random()));
-        if (fs::create_directory(directory)) staging.directory = std::move(directory);
-    }
-    if (staging.directory.empty()) throw std::runtime_error("Cannot create project staging directory");
-    const auto temporary = staging.directory / "project.json";
-    std::ofstream output(temporary, std::ios::binary);
-    output.exceptions(std::ios::failbit | std::ios::badbit);
-    output.write(wire.data(), static_cast<std::streamsize>(wire.size()));
-    output.close();
-    fs::rename(temporary, root / path.filename());
+    detail::replace_save_file(root / path.filename(), wire);
 }
 
 } // namespace saige

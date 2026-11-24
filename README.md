@@ -62,15 +62,17 @@ For the live-streamed course, run:
 saige_desktop --character-course --course-world examples/textured-scene/course-world.json --require-rendered
 ```
 
-The host starts in cell `[0, 0]` and keeps its reset floor resident. It stages nearby scene and collision files one chunk per
-simulation tick. A completed candidate takes effect before movement on the next fixed step. Boundary guards keep the capsule
+The host starts in cell `[0, 0]` and keeps its reset floor resident. It prepares nearby scene and collision files using one background CPU job after startup. A completed candidate takes effect before movement on the next fixed step. Boundary guards keep the capsule
 inside the current set while loading. If a neighbor fails to load or overlaps the capsule or spawn, the course keeps its last
 working set. Press R to reset and retry nearby loads. The Vulkan course draws imported nodes from all resident chunks alongside the player marker. The host offsets project nodes
-by the owning cell and publishes their GPU models with collision. The course keeps resident GPU models and uploads at most one new model per fixed update after startup. Uploads are synchronous.
+by the owning cell and publishes their GPU models with collision. The course keeps resident GPU models and uploads at most one new model per rendered frame after startup. Uploads are synchronous.
 
 
 Use `examples/textured-scene/ramp-course-world.json` with `--course-world` for the origin-relative ramp fixture. It combines box
-and triangle collision with the same capsule and an authored checkpoint.
+and triangle collision with the same capsule and an authored checkpoint. In a version 2 walking course, add
+`--course-checkpoint FILE.json` to enable persistent checkpoints. Use a separate file per world. Press C while grounded
+and away from a cell edge to save. R returns to the latest saved point, and relaunching with the same file starts there.
+Saving in a new cell releases the previous checkpoint's residency pin. A new file starts at the authored checkpoint.
 
 Add `--course-vehicle` for the flat driving prototype. Walk near the parked vehicle marker and press E to enter.
 Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E while stopped to exit when a supported side

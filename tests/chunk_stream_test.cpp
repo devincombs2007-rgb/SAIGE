@@ -296,7 +296,7 @@ public:
     saige::SurfaceState surface() const noexcept override { return {}; }
     bool key_down(saige::Key key) const noexcept override {
         return (key == saige::Key::w && forward) || (key == saige::Key::s && back) || (key == saige::Key::r && reset) || (key == saige::Key::d && right) ||
-               (key == saige::Key::space && brake) || (key == saige::Key::e && interact);
+               (key == saige::Key::space && brake) || (key == saige::Key::e && interact) || (key == saige::Key::c && checkpoint);
     }
     bool forward{};
     bool back{};
@@ -304,6 +304,7 @@ public:
     bool right{};
     bool brake{};
     bool interact{};
+    bool checkpoint{};
 };
 
 class CourseOutputProbe final : public saige::sample::CourseSceneOutput {
@@ -419,22 +420,29 @@ void test_native_streamed_course(const fs::path& fixture) {
     require(course.camera_view().has_value(), "streamed course retains the existing orbit camera");
 }
 
-void test_live_origin_migration(const fs::path& fixture) {
-    using namespace std::chrono_literals;
-    Workspace workspace;
+constexpr std::int32_t long_course_start = std::numeric_limits<std::int32_t>::min();
+
+fs::path write_long_course(const fs::path& fixture, const Workspace& workspace, int count) {
     fs::copy(fixture.parent_path(), workspace.root / "assets", fs::copy_options::recursive);
     const auto manifest = workspace.root / "long-course.json";
-    constexpr std::int64_t first_cell = -2147483648;
     std::string json = R"({"schema_version":2,"origin":[-2147483648,0],"checkpoint":[4,4,0],"chunks":[)";
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < count; ++i) {
         if (i != 0) json += ',';
-        json += R"({"coord":[)" + std::to_string(first_cell + i) +
+        json += R"({"coord":[)" + std::to_string(long_course_start + i) +
                 R"(,0],"project":"assets/saige.scene.json","collision":"floor.json"})";
     }
     write_chunk_fixture(manifest, json + "]}");
     write_chunk_fixture(workspace.root / "floor.json",
         R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]}]})");
 
+    return manifest;
+}
+
+void test_live_origin_migration(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    const auto manifest = write_long_course(fixture, workspace, 12);
+    constexpr auto first_cell = long_course_start;
     saige::World world;
     CourseKeys keys;
     CourseOutputProbe output;
@@ -470,6 +478,84 @@ void test_live_origin_migration(const fs::path& fixture) {
     for (int i = 0; i < 5; ++i) tick();
     require(world.snapshot().front().position == saige::Vec3{4, 4, 0} && course.origin_epoch() > epoch,
             "the retained checkpoint and render data return to their starting frame");
+}
+
+void test_persistent_checkpoint(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    const auto manifest = write_long_course(fixture, workspace, 88);
+    const auto file = workspace.root / "checkpoint.json";
+    saige::World world;
+    CourseKeys keys;
+    CourseOutputProbe output;
+    saige::sample::StreamedCourse course(world, keys, manifest, &output, {}, false, false, file);
+    const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
+    const auto save = [&] {
+        keys.checkpoint = true;
+        tick();
+        keys.checkpoint = false;
+        tick();
+    };
+
+    // Force a filesystem failure after construction. Reset must still return to the authored point.
+    fs::create_directory(file);
+    keys.forward = true;
+    for (int frame = 0; frame < 48; ++frame) tick();
+    keys.forward = false;
+    save();
+    keys.reset = true;
+    tick();
+    keys.reset = false;
+    require(world.snapshot().front().position == saige::Vec3{4, 4, 0} && fs::is_directory(file),
+            "a failed file replacement cannot move the live reset point");
+    fs::remove(file);
+    save(); // Create the initial valid file so later saves exercise replacement.
+
+    const auto starting_entity = world.snapshot()[1].entity;
+    keys.forward = true;
+    for (int target : {18, 36, 54, 72}) {
+        for (int frame = 0; frame < 3000; ++frame) {
+            const auto local = world.snapshot().front().position.x;
+            const float within_cell = local - std::floor(local / 8.0f) * 8.0f;
+            if (course.absolute_cell().first == long_course_start + target && within_cell >= 3.0f) break;
+            tick();
+        }
+        require(course.absolute_cell().first == long_course_start + target, "traverse beyond the original origin window");
+        save();
+        const auto saved = saige::load_course_checkpoint(file);
+        require(saved.cell.x == long_course_start + target && saved.feet.x > 2 && saved.feet.x < 4,
+                "save the absolute cell and bounded local coordinates");
+    }
+    const auto active = world.snapshot();
+    require(std::ranges::find(active, starting_entity, &saige::RenderInstance::entity) == active.end(),
+            "the original spawn chunk and its render entities can be evicted");
+
+    keys.forward = false;
+    const auto saved = saige::load_course_checkpoint(file);
+    keys.brake = true;
+    tick(); // Jump.
+    save();
+    require(saige::load_course_checkpoint(file).feet == saved.feet, "airborne saves preserve the last grounded checkpoint");
+    keys.brake = false;
+    keys.reset = true;
+    tick();
+    require(course.absolute_cell().first == saved.cell.x, "reset restores the last saved cell");
+
+    saige::World reopened;
+    CourseKeys reopened_keys;
+    saige::sample::StreamedCourse resumed(reopened, reopened_keys, manifest, nullptr, {}, false, false, file);
+    require(resumed.absolute_cell().first == saved.cell.x && reopened.snapshot().front().position == saved.feet,
+            "relaunch restores the same authored-world position independently of the previous origin");
+
+    write_chunk_fixture(file, R"({"checkpoint_version":1,"cell":[0,0],"feet":[3,4,0]})");
+    saige::World invalid_world;
+    bool rejected = false;
+    try {
+        saige::sample::StreamedCourse invalid(invalid_world, reopened_keys, manifest, nullptr, {}, false, false, file);
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    require(rejected && invalid_world.snapshot().empty(), "a checkpoint outside the manifest must fail before world publication");
 }
 
 void test_streamed_vehicle(const fs::path& fixture) {
@@ -640,6 +726,7 @@ int main(int argc, char** argv) {
         test_rebased_ramp_course(argv[1]);
         test_streamed_vehicle(argv[1]);
         test_live_origin_migration(argv[1]);
+        test_persistent_checkpoint(argv[1]);
         test_collision_handoff(argv[1]);
         test_background_stage(argv[1]);
         return 0;

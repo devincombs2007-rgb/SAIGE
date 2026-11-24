@@ -138,6 +138,11 @@ const PreparedScene* ChunkStream::active_chunk(ChunkCoord coord) const {
     return it == active_.end() ? nullptr : it->second.scene.get();
 }
 
+const ChunkCollision* ChunkStream::active_geometry(ChunkCoord coord) const noexcept {
+    const auto it = active_.find(coord);
+    return it == active_.end() ? nullptr : it->second.geometry.get();
+}
+
 std::size_t ChunkStream::retained_asset_bytes() const noexcept {
     std::size_t bytes = 0;
     for (const auto& [coord, chunk] : active_) {

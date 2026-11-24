@@ -31,17 +31,30 @@ public:
 class StreamedCourse final : public IGame {
 public:
     StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
-                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {}, bool enable_vehicle = false, bool background = false)
-        : platform_(platform), output_(output), background_(background) {
+                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {}, bool enable_vehicle = false, bool background = false,
+                   const std::filesystem::path& checkpoint_file = {})
+        : platform_(platform), output_(output), checkpoint_file_(checkpoint_file), checkpoint_radius_(config.radius),
+          background_(background) {
         auto world_manifest = read_chunk_manifest(manifest);
-        origin_ = world_manifest.origin.value_or(ChunkCoord{0, 0});
-        checkpoint_cell_ = pending_origin_ = origin_;
-        const Vec3 checkpoint = world_manifest.checkpoint;
-        if (checkpoint.x <= 0 || checkpoint.x >= cell_size || checkpoint.y <= 0 || checkpoint.y >= cell_size ||
-            checkpoint.z <= -8 || checkpoint.z > max_ground_height) {
+        chunk_local_collision_ = world_manifest.origin.has_value();
+        CourseCheckpoint checkpoint{world_manifest.origin.value_or(ChunkCoord{0, 0}), world_manifest.checkpoint};
+        if (!checkpoint_file_.empty()) {
+            if (!chunk_local_collision_ || enable_vehicle) {
+                throw std::invalid_argument("Checkpoint files require an origin-relative walking course");
+            }
+            if (std::filesystem::exists(checkpoint_file_)) {
+                checkpoint = load_course_checkpoint(checkpoint_file_);
+                if (!usable_checkpoint(checkpoint.feet)) {
+                    throw std::invalid_argument("Saved checkpoint needs clearance inside its cell");
+                }
+            }
+        }
+        checkpoint_cell_ = pending_origin_ = origin_ = checkpoint.cell;
+        if (checkpoint.feet.x <= 0 || checkpoint.feet.x >= cell_size ||
+            checkpoint.feet.y <= 0 || checkpoint.feet.y >= cell_size ||
+            checkpoint.feet.z <= -8 || checkpoint.feet.z > max_ground_height) {
             throw std::invalid_argument("Course checkpoint is outside its reset cell");
         }
-        chunk_local_collision_ = world_manifest.origin.has_value();
         sources_ = std::move(world_manifest.sources);
         for (const auto& source : sources_) {
             if (source.collision.empty() || (!chunk_local_collision_ && !fits_frame(source.coord, origin_))) {
@@ -49,13 +62,13 @@ public:
             }
         }
         const auto spawn_chunk = std::ranges::find(sources_, checkpoint_cell_, &ChunkSource::coord);
-        if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a reset chunk at its origin");
+        if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a chunk at its checkpoint");
         const auto initial = std::span(&*spawn_chunk, 1);
         resident_coords_ = {checkpoint_cell_};
         stream_.request(initial);
         stream_.stage_next();
         const auto geometry = candidate_geometry(initial);
-        CapsuleCharacter controller(checkpoint, geometry.boxes, geometry.triangles, config);
+        CapsuleCharacter controller(checkpoint.feet, geometry.boxes, geometry.triangles, config);
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
         game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles, enable_vehicle);
         if (output_) {
@@ -70,6 +83,15 @@ public:
 
     void fixed_update(World& world, std::chrono::nanoseconds step) override {
         const bool reset = platform_.key_down(Key::r);
+        const bool checkpoint_key = platform_.key_down(Key::c);
+        if (checkpoint_key && !checkpoint_held_ && !reset) {
+            try {
+                save_checkpoint();
+            } catch (const std::exception& error) {
+                std::clog << "SAIGE kept the previous checkpoint: " << error.what() << '\n';
+            }
+        }
+        checkpoint_held_ = checkpoint_key;
         const ChunkCoord center = reset ? checkpoint_cell_ : cell_at(game_->course_position());
         try {
             update_candidate(world, center, reset);
@@ -112,6 +134,37 @@ private:
         const auto x = static_cast<std::int64_t>(cell.x) - origin.x;
         const auto y = static_cast<std::int64_t>(cell.y) - origin.y;
         return x >= -31 && x <= 30 && y >= -31 && y <= 30;
+    }
+
+    [[nodiscard]] bool usable_checkpoint(Vec3 local) const {
+        // The checkpoint must be reloadable with only its home cell and perimeter guards resident.
+        const float guard_margin = checkpoint_radius_ + 0.01f;
+        return local.x > guard_margin && local.x < cell_size - guard_margin &&
+               local.y > guard_margin && local.y < cell_size - guard_margin &&
+               local.z > -8 && local.z <= max_ground_height;
+    }
+
+    void save_checkpoint() {
+        if (checkpoint_file_.empty()) return;
+        if (!game_->grounded_on_foot()) throw std::runtime_error("Stand on supported ground to save");
+        const auto feet = game_->course_position();
+        const auto cell = cell_at(feet);
+        const auto placement = offset(cell, origin_);
+        const CourseCheckpoint candidate{cell, {feet.x - placement.x, feet.y - placement.y, feet.z}};
+        if (!usable_checkpoint(candidate.feet)) throw std::runtime_error("Move away from the chunk edge to save");
+
+        // Prove the checkpoint can be reopened without adjacent collision before replacing it.
+        const auto source = std::ranges::find(sources_, cell, &ChunkSource::coord);
+        if (source == sources_.end()) throw std::runtime_error("Cannot save outside a world chunk");
+        const auto geometry = stream_.active_geometry(cell);
+        if (!geometry) throw std::runtime_error("Cannot save outside resident collision");
+        const CapsuleCharacter reloaded(candidate.feet, geometry->boxes, geometry->triangles, game_->course_config());
+        if (!reloaded.state().grounded) throw std::runtime_error("Checkpoint needs ground in its home chunk");
+
+        save_course_checkpoint(candidate, checkpoint_file_);
+        game_->remember_grounded_checkpoint();
+        checkpoint_cell_ = cell;
+        requested_center_.reset(); // Recompute the pin even if the player stays in this cell.
     }
 
     void update_candidate(World& world, ChunkCoord center, bool reset) {
@@ -281,6 +334,8 @@ private:
     IDesktopPlatform& platform_;
     std::vector<ChunkSource> sources_;
     CourseSceneOutput* output_;
+    std::filesystem::path checkpoint_file_;
+    float checkpoint_radius_;
     ChunkEntities chunk_entities_;
     ChunkCoord origin_{};
     ChunkCoord pending_origin_{};
@@ -294,6 +349,7 @@ private:
     std::vector<ChunkCoord> resident_coords_;
     std::vector<ChunkCoord> pending_coords_;
     bool reset_held_{};
+    bool checkpoint_held_{};
     bool chunk_local_collision_{};
     bool background_{};
 };

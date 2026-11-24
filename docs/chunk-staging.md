@@ -65,8 +65,12 @@ cells (32 m) from the simulation origin, the desktop can move the origin to the 
 requested neighborhood and pinned cells fit the supported local frame. It stages collision and render placement in the
 new frame before committing at a fixed-step boundary. Durable chunk coordinates, resident entity handles and controller
 velocities survive the shift. Reset returns to the retained checkpoint and recenters when its neighborhood is ready.
-The checkpoint and parked vehicle constrain the reachable area. Moving those pins across distant regions requires a
-future persistent checkpoint and vehicle policy.
+For a version 2 walking course, `--course-checkpoint FILE.json` lets C save the grounded position into a new checkpoint
+cell and release the previous residency pin. The save stores signed grid coordinates and cell-local feet. The host proves
+the pose can boot with collision from its home cell, then atomically replaces the sidecar before changing the live reset.
+A failed save keeps the previous checkpoint. Use one sidecar per world. Invalid saves fail before checkpoint publication.
+Vehicle courses retain the existing vehicle and checkpoint pins while vehicle persistence is pending. The current
+checkpoint still pins its cell until relocated. Saving is explicit and synchronous; it does not run during traversal.
 
 Collision file version 2 adds a `triangles` array alongside `boxes`. Each triangle lists three XYZ vertices. The same capsule
 handles box and triangle contact and the camera checks both. The ramp example places a render mesh and collision faces in

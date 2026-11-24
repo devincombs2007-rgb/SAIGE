@@ -54,6 +54,10 @@ public:
     }
 
     [[nodiscard]] Vec3 course_position() const { return driving_ ? vehicle_->position() : motor_->state().feet; }
+    [[nodiscard]] const CapsuleCharacterConfig& course_config() const noexcept { return motor_->config(); }
+    [[nodiscard]] bool grounded_on_foot() const noexcept { return !driving_ && motor_->state().grounded; }
+    void remember_grounded_checkpoint() noexcept { motor_->remember_grounded_checkpoint(); }
+
     [[nodiscard]] std::optional<Vec3> vehicle_position() const {
         return vehicle_ ? std::optional(vehicle_->position()) : std::nullopt;
     }

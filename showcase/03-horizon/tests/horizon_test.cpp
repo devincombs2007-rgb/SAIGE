@@ -1,8 +1,14 @@
 // Showcase 03 simulation tests: the world is a pure function of the cell, the run is deterministic, streaming keeps three-by-three cells resident while the origin
 // migrates, a checkpoint resumes the same run, and the script reaches its crash and its aftermath.
+#include "props.hpp"
 #include "sim.hpp"
+#include "saige/capsule_character.hpp"
+#include "saige/static_collision.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <vector>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -83,6 +89,99 @@ int main()
             check(d < 3.0, "the resumed run follows the continuous one");
             check(b->phase() == a.phase(), "both runs are in the same phase");
         }
+    }
+
+    // What is drawn is what collides. Showcase 03 shipped with the barriers' collision turned 90 degrees from their rendered models; these tests tie the two together for every solid prop.
+    {
+        const auto inside = [](const PlacedBox& b, double x, double y, double margin) {
+            const double c = std::cos(b.heading), sn = std::sin(b.heading);
+            const double dx = x - b.cx, dy = y - b.cy;
+            const double lx = c * dx + sn * dy, ly = -sn * dx + c * dy;
+            return std::fabs(lx) <= b.half_length - margin && std::fabs(ly) <= b.half_width - margin;
+        };
+        std::vector<PropInstance> barriers;
+        std::vector<PropInstance> solids;
+        std::vector<saige::Triangle> tris;
+        const double ox = 10 * cell_size, oy = -2 * cell_size;  // a common frame for the crash site's cells (floats stay small)
+        for (int cy = -3; cy <= -1; ++cy) {
+            for (int cx = 9; cx <= 12; ++cx) {
+                const CellData cell = world.build_cell(cx, cy);
+                for (const PropInstance& p : cell.props) {
+                    if (p.type == PropType::Barrier) barriers.push_back(p);
+                    if (prop_spec(p.type).solid && p.scale > 0.0f) solids.push_back(p);
+                }
+                for (saige::Triangle t : cell.triangles) {  // cell-corner relative to the shared frame
+                    const float dx = static_cast<float>(cx * cell_size - ox), dy = static_cast<float>(cy * cell_size - oy);
+                    for (saige::Vec3* v : {&t.a, &t.b, &t.c}) { v->x += dx; v->y += dy; }
+                    tris.push_back(t);
+                }
+            }
+        }
+        check(barriers.size() >= 8, "the crash site has a row of barriers");
+        const saige::StaticCollision collision({}, tris);
+        // 1. The hull has the same orientation and about the same footprint as the model.
+        bool aligned = true;
+        for (const PropInstance& p : solids) {
+            const PlacedBox v = placed_visual_box(p), h = placed_hull_box(p);
+            if (p.type == PropType::Barrier) {
+                aligned = aligned && std::fabs(v.half_length - h.half_length) < 0.03 && std::fabs(v.half_width - h.half_width) < 0.03 && std::hypot(v.cx - h.cx, v.cy - h.cy) < 0.03;
+                aligned = aligned && v.half_length > v.half_width;  // the long side lies along the heading
+            }
+            aligned = aligned && std::hypot(h.cx - v.cx, h.cy - v.cy) < std::max(v.half_length, v.half_width);  // a hull never wanders off its model
+        }
+        check(aligned, "every solid prop's hull sits inside its model's footprint and barriers share its orientation");
+        // 2. Rays from outside toward the middle of a rendered barrier hit the collision before they reach it, from all four sides.
+        int missed = 0;
+        for (const PropInstance& p : barriers) {
+            const PlacedBox v = placed_visual_box(p);
+            const double c = std::cos(v.heading), sn = std::sin(v.heading);
+            const double zmid = (v.z_min + v.z_max) * 0.5;
+            for (int side = 2; side < 4; ++side) {  // across the line; along it the neighbouring pieces touch end to end and stand in the way
+                const double ax = side == 0 ? 1 : side == 1 ? -1 : 0, ay = side == 2 ? 1 : side == 3 ? -1 : 0;
+                const double reach = v.half_width + 1.0;
+                const double lx = ax * reach, ly = ay * reach;
+                const saige::Vec3 from{static_cast<float>(v.cx + c * lx - sn * ly - ox), static_cast<float>(v.cy + sn * lx + c * ly - oy), static_cast<float>(zmid)};
+                const double dx = -(c * ax - sn * ay), dy = -(sn * ax + c * ay);
+                const auto hit = collision.raycast(from, saige::Vec3{static_cast<float>(dx), static_cast<float>(dy), 0.0f}, static_cast<float>(reach));
+                if (!hit) { ++missed; if (missed < 4) std::printf("  miss: no hit, side %d reach %.2f heading %.2f at z %.2f\n", side, reach, v.heading, zmid); continue; }
+                // the hit point must be on the model's surface (within 4 cm), not somewhere short of or past it
+                const double hx = static_cast<double>(hit->point.x) + ox, hy = static_cast<double>(hit->point.y) + oy;
+                if (!inside(v, hx, hy, -0.04) || inside(v, hx, hy, 0.04 + 0.5 * std::min(v.half_length, v.half_width))) { ++missed; if (missed < 4) std::printf("  miss: side %d hit distance %.3f of reach %.2f, point (%.2f, %.2f) vs box center (%.2f, %.2f) half %.2f x %.2f\n", side, hit->distance, reach, hx, hy, v.cx, v.cy, v.half_length, v.half_width); }
+            }
+        }
+        check(missed == 0, "the collision stands where each barrier is drawn");
+        // 3. A walking capsule cannot enter a drawn barrier: it walks at a barrier for five seconds from the road side.
+        int entered = 0;
+        for (std::size_t i = 0; i < barriers.size(); i += 3) {
+            const PropInstance& p = barriers[i];
+            const PlacedBox v = placed_visual_box(p);
+            const double nx = -std::sin(v.heading), ny = std::cos(v.heading);  // across the line
+            for (const double side : {1.0, -1.0}) {
+                const double sx = v.cx + nx * side * 3.0, sy = v.cy + ny * side * 3.0;
+                const auto ground = collision.raycast(saige::Vec3{static_cast<float>(sx - ox), static_cast<float>(sy - oy), static_cast<float>(v.z_max + 3.0)}, saige::Vec3{0.0f, 0.0f, -1.0f}, 12.0f);
+                if (!ground) continue;
+                const double spawn_z = static_cast<double>(v.z_max + 3.0) - ground->distance + 0.02;
+                saige::CapsuleCharacterConfig cfg;
+                cfg.radius = 0.30f; cfg.height = 1.75f; cfg.walk_speed = 3.4f; cfg.step_height = 0.4f;
+                saige::CapsuleCharacter ch(saige::Vec3{static_cast<float>(sx - ox), static_cast<float>(sy - oy), static_cast<float>(spawn_z)}, std::span<const saige::Aabb>{}, std::span<const saige::Triangle>{}, cfg);
+                for (int t = 0; t < 300; ++t) {
+                    const saige::Vec3 f = ch.state().feet;
+                    {   // the controller is handed the primitives near the feet each tick, as the simulation does
+                        std::vector<saige::StaticPrimitive> ids;
+                        collision.query_region({{f.x - 4.0f, f.y - 4.0f, f.z - 3.0f}, {f.x + 4.0f, f.y + 4.0f, f.z + 3.0f}}, ids);
+                        std::vector<saige::Triangle> near;
+                        for (const saige::StaticPrimitive& id : ids) if (id.kind == saige::StaticPrimitive::Kind::Triangle) near.push_back(collision.triangles()[id.index]);
+                        (void)ch.replace_static_geometry({}, near);
+                    }
+                    // world-space input toward the barrier's center (the controller takes a world-space direction)
+                    const double dx = v.cx - (static_cast<double>(f.x) + ox), dy = v.cy - (static_cast<double>(f.y) + oy), d = std::max(std::hypot(dx, dy), 0.05);  // standing on the target (only possible when nothing stops the walk) must not make a NaN input
+                    ch.step({static_cast<float>(dx / d), static_cast<float>(dy / d), false, false}, std::chrono::nanoseconds(16666667));
+                    const saige::Vec3 g = ch.state().feet;
+                    if (inside(v, static_cast<double>(g.x) + ox, static_cast<double>(g.y) + oy, 0.0) && static_cast<double>(g.z) < v.z_max - 0.3) ++entered;
+                }
+            }
+        }
+        check(entered == 0, "a walking character never enters a drawn barrier");
     }
 
     // The crash and what follows.

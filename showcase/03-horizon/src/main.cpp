@@ -2,6 +2,7 @@
 // sprints and jumps to a parked car, drives it across the countryside and into a roadside barrier, climbs out and walks away as the sun sets. Nothing is composited from
 // outside footage: every pixel is read back from the renderer's output target, and report.json records the device, the resolution, the cadence and the build.
 #include "gpu_assets.hpp"
+#include "props.hpp"
 #include "sim.hpp"
 
 #include "saige/gfx_assets/animation.hpp"
@@ -935,16 +936,9 @@ private:
                 return;
             default: break;
         }
-        float s = p.scale, yaw_off = 0.0f;
-        switch (p.type) {
-            case PropType::Lamp: s *= 1.5f; break;
-            case PropType::RockLarge: s *= 0.7f; break;
-            case PropType::ShrubA: s *= 1.2f; break;
-            case PropType::ShrubB: s *= 4.0f; break;
-            case PropType::Bench: s *= 0.7f; break;
-            default: break;
-        }
-        draws_.push_back({&prop_models_[static_cast<std::size_t>(p.type)], translation(pos) * rot_z(yaw + yaw_off) * scaling(s)});
+        // How the model is turned and sized comes from the prop table, the same one that builds the collision hull.
+        const PropSpec& spec = prop_spec(p.type);
+        draws_.push_back({&prop_models_[static_cast<std::size_t>(p.type)], translation(pos) * rot_z(yaw + spec.yaw_offset) * scaling(p.scale * spec.scale)});
     }
 
     void add_body(const PropBody& b, D2 origin)

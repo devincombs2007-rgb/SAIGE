@@ -1,4 +1,5 @@
 #include "world.hpp"
+#include "props.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -497,9 +498,15 @@ CellData World::build_cell(int cx, int cy) const {
         return std::hypot(x - (ax + t * dx), y - (ay + t * dy)) < 12.0;
     };
     // ---- Props.
+    const auto add_prop_collision = [&](const PropInstance& inst) {
+        if (inst.scale <= 0.0f || !prop_spec(inst.type).solid) return;
+        append_box_hull(b.tris, placed_hull_box(inst), ox, oy, 0.4);
+    };
     const auto prop = [&](PropType t, double x, double y, float yaw, float scale) {
         if (!in_cell(x, y)) return;
-        cell.props.push_back({t, x, y, height(x, y), yaw, scale});
+        const PropInstance inst{t, x, y, height(x, y), yaw, scale};
+        cell.props.push_back(inst);
+        add_prop_collision(inst);
     };
     // Street lamps along the main street through the town, on the sidewalks, every 24 m.
     for (double x = 12.0; x < 232.0; x += 24.0) {
@@ -507,7 +514,11 @@ CellData World::build_cell(int cx, int cy) const {
             if (x > 104.0 && x < 140.0) continue;  // the intersection
             if (side > 0 && x > 140.0 && x < 204.0) continue;  // the gas station frontage
             const double y = side * (3.6 + 1.9);
-            if (in_cell(x, y)) cell.props.push_back({PropType::Lamp, x, y, 0.0, side > 0 ? static_cast<float>(-pi / 2) : static_cast<float>(pi / 2), 1.0f});
+            if (in_cell(x, y)) {
+                const PropInstance lamp{PropType::Lamp, x, y, 0.0, side > 0 ? static_cast<float>(-pi / 2) : static_cast<float>(pi / 2), 1.0f};
+                cell.props.push_back(lamp);
+                add_prop_collision(lamp);
+            }
         }
     }
     // Pump islands, benches, barrels and a utility box.
@@ -545,15 +556,9 @@ CellData World::build_cell(int cx, int cy) const {
         for (int k = -9; k < 9; ++k) {
             const double bx = landmarks_.crash_barrier.x + dxv * (k + 0.5) * 1.64, by = landmarks_.crash_barrier.y + dyv * (k + 0.5) * 1.64;
             if (!in_cell(bx, by)) continue;
-            const double z = height(bx, by);
-            cell.props.push_back({PropType::Barrier, bx, by, z, static_cast<float>(hdg), 1.0f});
-            // Collision hull: a 1.6 x 0.55 x 1.1 box turned to the heading, as 12 triangles.
-            const double hl = 0.82, hw2 = 0.28, hh = 1.1;
-            const double c = std::cos(hdg), sn = std::sin(hdg);
-            const auto corner = [&](double lx, double ly, double lz) { return Vec3{static_cast<float>(bx + c * lx - sn * ly - ox), static_cast<float>(by + sn * lx + c * ly - oy), static_cast<float>(z - 0.4 + lz)}; };
-            const Vec3 v[8] = {corner(-hl, -hw2, 0), corner(hl, -hw2, 0), corner(hl, hw2, 0), corner(-hl, hw2, 0), corner(-hl, -hw2, hh + 0.4), corner(hl, -hw2, hh + 0.4), corner(hl, hw2, hh + 0.4), corner(-hl, hw2, hh + 0.4)};
-            const int faces[12][3] = {{0, 2, 1}, {0, 3, 2}, {4, 5, 6}, {4, 6, 7}, {0, 1, 5}, {0, 5, 4}, {1, 2, 6}, {1, 6, 5}, {2, 3, 7}, {2, 7, 6}, {3, 0, 4}, {3, 4, 7}};
-            for (const auto& f : faces) b.tris.push_back({v[f[0]], v[f[1]], v[f[2]]});
+            const PropInstance barrier{PropType::Barrier, bx, by, height(bx, by), static_cast<float>(hdg), 1.0f};
+            cell.props.push_back(barrier);
+            add_prop_collision(barrier);
         }
     }
 

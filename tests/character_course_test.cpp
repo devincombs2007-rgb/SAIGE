@@ -96,12 +96,13 @@ public:
     NativeWindowHandle native_window() const noexcept override { return {}; }
     SurfaceState surface() const noexcept override { return {}; }
     bool key_down(Key key) const noexcept override {
-        return (key == Key::w && forward) || (key == Key::space && jump) || (key == Key::r && reset);
+        return (key == Key::w && forward) || (key == Key::d && right) || (key == Key::a && left) ||
+               (key == Key::space && jump) || (key == Key::r && reset) || (key == Key::e && interact);
     }
     LookDelta consume_look_delta() noexcept override { return std::exchange(look, {}); }
 
     LookDelta look{};
-    bool forward{}, jump{}, reset{};
+    bool forward{}, jump{}, reset{}, right{}, left{}, interact{};
 };
 
 void test_desktop_course() {
@@ -221,6 +222,65 @@ void test_authored_course_geometry() {
     }
 }
 
+void test_vehicle_controls_and_transfer() {
+    using sample::CourseVehicle;
+    constexpr std::array floor{Aabb{{-20, -20, -1}, {20, 20, 0}}};
+    const auto replay = [&] {
+        CourseVehicle vehicle({});
+        for (int i = 0; i < 40; ++i) vehicle.step({1, 0}, false, tick, floor);
+        require(vehicle.speed() > 3.5f && vehicle.position().x > 1, "throttle accelerates the vehicle");
+        for (int i = 0; i < 30; ++i) vehicle.step({1, 1}, false, tick, floor);
+        require(vehicle.position().y > 0.3f && vehicle.heading() > 0.3f, "steering changes the direction of travel");
+        require(!vehicle.exit_point({}, floor), "a moving car does not hand control back to the character");
+        for (int i = 0; i < 50; ++i) vehicle.step({}, true, tick, floor);
+        require(vehicle.speed() == 0 && vehicle.exit_point({}, floor), "braking stops the vehicle on a supported surface");
+        return vehicle.position();
+    };
+    require(replay() == replay(), "replay produces the same vehicle pose");
+
+    constexpr std::array walled{floor[0], Aabb{{2, -3, 0}, {3, 3, 2}}};
+    CourseVehicle blocked({});
+    for (int i = 0; i < 80; ++i) blocked.step({1, 0}, false, tick, walled);
+    require(std::abs(blocked.position().x - 1.4f) < 0.001f, "a wall stops throttle without penetration");
+    constexpr std::array blocked_sides{floor[0], Aabb{{-1, 0.6f, 0}, {1, 2, 2}},
+                                      Aabb{{-1, -2, 0}, {1, -0.6f, 2}}};
+    CourseVehicle trapped({});
+    require(!trapped.exit_point({}, blocked_sides), "a blocked exit keeps the rider seated");
+    require(!trapped.can_enter({.feet = {0, 1.0f, 0}, .grounded = true}, {}, blocked_sides),
+            "interaction cannot enter through a wall");
+
+    World world;
+    CourseInput input;
+    sample::DesktopGame game(world, input, true, {}, {}, true);
+    const auto advance = [&] { game.fixed_update(world, tick); };
+    input.interact = true;
+    advance();
+    require(!game.driving(), "out-of-range interaction leaves the player on foot");
+    input.interact = false;
+    input.right = true;
+    for (int i = 0; i < 49; ++i) advance();
+    input.right = false;
+    input.interact = true;
+    advance();
+    require(game.driving(), "a grounded player can enter a nearby vehicle");
+    input.forward = true;
+    for (int i = 0; i < 40; ++i) advance();
+    require(game.driving() && world.snapshot().back().position.x > 1, "held interact does not toggle and the vehicle moves");
+    input.forward = false;
+    input.jump = true;
+    input.interact = false;
+    for (int i = 0; i < 35; ++i) advance();
+    input.interact = true;
+    advance();
+    require(!game.driving() && world.snapshot().front().position.z < 0.001f &&
+                world.snapshot().front().position.y > world.snapshot().back().position.y + 1,
+            "exit restores the capsule beside the vehicle without replaying the brake as a jump");
+    input.reset = true;
+    advance();
+    require(!game.driving() && world.snapshot().back().position == Vec3{0, -3, 0} &&
+                world.snapshot().front().position == Vec3{}, "reset restores both actor and vehicle");
+}
+
 class ScriptClock final : public IPlatform {
 public:
     std::chrono::steady_clock::time_point now() override { return time_; }
@@ -286,6 +346,7 @@ int main() {
         test_desktop_course();
         test_obstructed_camera_and_speeds();
         test_authored_course_geometry();
+        test_vehicle_controls_and_transfer();
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

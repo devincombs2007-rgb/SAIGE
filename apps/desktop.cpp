@@ -118,6 +118,7 @@ private:
 int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
     bool course = false;
+    bool course_vehicle = false;
     bool custom_speed = false;
     saige::CapsuleCharacterConfig course_config;
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
@@ -147,6 +148,10 @@ int main(int argc, char** argv) {
             continue;
         }
 #endif
+        if (argument == "--course-vehicle" && !course_vehicle) {
+            course_vehicle = true;
+            continue;
+        }
         if ((argument == "--walk-speed" || argument == "--sprint-speed") && i + 1 < argc) {
             const std::string_view value(argv[++i]);
             float speed{};
@@ -177,7 +182,7 @@ int main(int argc, char** argv) {
         }
 #endif
         if (argument != "--frames" || frames || ++i == argc) {
-            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--walk-speed MPS] [--sprint-speed MPS]"
+            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--course-vehicle] [--walk-speed MPS] [--sprint-speed MPS]"
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
                       << " [--course-collision FILE.json | --course-world FILE.json]"
 #endif
@@ -198,6 +203,11 @@ int main(int argc, char** argv) {
             return 2;
         }
         frames = count;
+    }
+
+    if (course_vehicle && !course) {
+        std::cerr << "--course-vehicle requires --character-course\n";
+        return 2;
     }
 
     if (custom_speed && (!course || course_config.walk_speed > course_config.sprint_speed)) {
@@ -235,7 +245,8 @@ int main(int argc, char** argv) {
         }
 #endif
 #if defined(SAIGE_DESKTOP_VULKAN)
-        const auto title = course ? L"SAIGE course | WASD | Shift sprint | Space jump | Right drag camera | R reset"
+        const auto title = course_vehicle ? L"SAIGE vehicle | WASD | Space brake | E enter / exit | R reset"
+                                  : course ? L"SAIGE course | WASD | Shift sprint | Space jump | Right drag camera | R reset"
                                   : L"SAIGE | WASD to move | Right drag to look | Esc to quit";
         const bool strict = require_rendered || validate;
         saige::Win32Platform platform(title, 960, 540, strict ? saige::DesktopPresentation::renderer_paced
@@ -258,9 +269,9 @@ int main(int argc, char** argv) {
         if (course_world && sink.renderer()) output = &composition.emplace(*sink.renderer());
 #endif
         std::optional<saige::sample::StreamedCourse> streamed_game;
-        if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output, course_config);
+        if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output, course_config, course_vehicle);
 #endif
-        if (!game) game = &local_game.emplace(world, platform, course, course_boxes, course_config);
+        if (!game) game = &local_game.emplace(world, platform, course, course_boxes, course_config, course_vehicle);
 #if defined(SAIGE_DESKTOP_VULKAN)
 #if defined(SAIGE_DESKTOP_SCENE)
         if (prepared) {
@@ -297,7 +308,8 @@ int main(int argc, char** argv) {
                                  composition->upload_time()).count();
             }
 #endif
-            std::cout << '\n';
+            const auto [x, y] = streamed_game->absolute_cell();
+            std::cout << " world_cell=" << x << ',' << y << '\n';
         }
 #endif
         std::cout << "SAIGE desktop frames=" << stats.frames << " ticks=" << stats.ticks

@@ -30,10 +30,10 @@ public:
 class StreamedCourse final : public IGame {
 public:
     StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
-                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {})
+                   CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {}, bool enable_vehicle = false)
         : platform_(platform), output_(output) {
         auto world_manifest = read_chunk_manifest(manifest);
-        const ChunkCoord origin = world_manifest.origin.value_or(reset_cell);
+        origin_ = world_manifest.origin.value_or(reset_cell);
         const Vec3 checkpoint = world_manifest.checkpoint;
         if (checkpoint.x <= 0 || checkpoint.x >= cell_size || checkpoint.y <= 0 || checkpoint.y >= cell_size ||
             checkpoint.z <= -8 || checkpoint.z > max_ground_height) {
@@ -43,8 +43,8 @@ public:
         sources_ = std::move(world_manifest.sources);
         for (auto& source : sources_) {
             // Subtract grid coordinates before converting to float. This also works at the signed 32-bit limits.
-            const auto x = static_cast<std::int64_t>(source.coord.x) - origin.x;
-            const auto y = static_cast<std::int64_t>(source.coord.y) - origin.y;
+            const auto x = static_cast<std::int64_t>(source.coord.x) - origin_.x;
+            const auto y = static_cast<std::int64_t>(source.coord.y) - origin_.y;
             if (source.collision.empty() || x < -31 || x > 30 || y < -31 || y > 30) {
                 throw std::invalid_argument("Course chunks need collision files within the local grid [-31, 30]");
             }
@@ -58,7 +58,7 @@ public:
         const auto geometry = candidate_geometry(initial);
         CapsuleCharacter controller(checkpoint, geometry.boxes, geometry.triangles, config);
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
-        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles);
+        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles, enable_vehicle);
         if (output_) {
             World candidate = world;
             const auto assets = candidate_assets(initial);
@@ -86,19 +86,25 @@ public:
     [[nodiscard]] std::optional<CameraView> camera_view() const override { return game_->camera_view(); }
     [[nodiscard]] std::size_t resident_count() const noexcept { return stream_.active_count(); }
 
+    [[nodiscard]] bool driving() const noexcept { return game_->driving(); }
+    [[nodiscard]] std::pair<std::int64_t, std::int64_t> absolute_cell() const {
+        const auto local = chunk_containing(game_->course_position(), cell_size);
+        return {static_cast<std::int64_t>(origin_.x) + local.x, static_cast<std::int64_t>(origin_.y) + local.y};
+    }
+
 private:
     using ChunkEntities = std::map<ChunkCoord, std::vector<Entity>>;
 
     void update_candidate(World& world, ChunkCoord center, bool reset) {
-        if (!requested_center_ || center != *requested_center_ || (reset && !reset_held_)) {
+        const auto parked = game_->vehicle_position();
+        const auto vehicle_cell = parked ? std::optional(chunk_containing(*parked, cell_size)) : std::nullopt;
+        if (!requested_center_ || center != *requested_center_ || vehicle_cell != requested_vehicle_cell_ || (reset && !reset_held_)) {
             if (output_) output_->discard();
             requested_center_ = center;
+            requested_vehicle_cell_ = vehicle_cell;
             requested_ = select_chunks(sources_, center, 1);
-            const auto origin = std::ranges::lower_bound(requested_, reset_cell, {}, &ChunkSource::coord);
-            if (origin == requested_.end() || origin->coord != reset_cell) {
-                const auto spawn = std::ranges::find(sources_, reset_cell, &ChunkSource::coord);
-                requested_.insert(origin, *spawn);
-            }
+            retain_source(reset_cell);
+            if (vehicle_cell) retain_source(*vehicle_cell);
             stream_.request(requested_);
         }
         stream_.stage_next(); // At most one new disk payload per fixed update.
@@ -117,6 +123,13 @@ private:
         }
         if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
         stream_.commit_frame();
+    }
+
+    void retain_source(ChunkCoord coord) {
+        const auto entry = std::ranges::lower_bound(requested_, coord, {}, &ChunkSource::coord);
+        if (entry != requested_.end() && entry->coord == coord) return;
+        const auto source = std::ranges::find(sources_, coord, &ChunkSource::coord);
+        if (source != sources_.end()) requested_.insert(entry, *source);
     }
 
     [[nodiscard]] ChunkEntities compose_world(World& candidate, std::span<const ChunkSource> requested) const {
@@ -231,9 +244,11 @@ private:
     std::vector<ChunkSource> sources_;
     CourseSceneOutput* output_;
     ChunkEntities chunk_entities_;
-    ChunkStream stream_{{10}};
+    ChunkCoord origin_{};
+    ChunkStream stream_{{11}};
     std::optional<DesktopGame> game_;
     std::optional<ChunkCoord> requested_center_;
+    std::optional<ChunkCoord> requested_vehicle_cell_;
     std::vector<ChunkSource> requested_;
     bool reset_held_{};
     bool chunk_local_collision_{};

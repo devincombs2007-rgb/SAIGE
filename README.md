@@ -71,3 +71,7 @@ by the owning cell and publishes their GPU models with collision. The course kee
 
 Use `examples/textured-scene/ramp-course-world.json` with `--course-world` for the origin-relative ramp fixture. It combines box
 and triangle collision with the same capsule and an authored checkpoint.
+
+Add `--course-vehicle` for the flat driving prototype. Walk near the parked vehicle marker and press E to enter.
+Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E while stopped to exit when a supported side
+is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.

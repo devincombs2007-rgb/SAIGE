@@ -386,10 +386,25 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     }
     Float3 frame_sun{};
     (void)unit_sun_direction(frame_lighting.sun_direction, frame_sun);  // validated non-zero: the one direction the sky, fog, lighting and shadow fit all read
+    const LightingSnapshot snapshot{frame_sun, frame_lighting.sun_color, frame_lighting.ambient_ground};
+    const uint64_t device_frame = device_.frame_number();
+    if (settings_.dynamic_lighting && lighting_snapshot_frame_ == device_frame) {
+        // A second render of this device frame (a second view, or a sky-only view and a model view): one effective lighting per frame, enforced here as well as in the
+        // model renderer, because a view without models publishes nothing to it.
+        const auto same = [](Float3 a, Float3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
+        if (!same(snapshot.sun, lighting_snapshot_.sun) || !same(snapshot.sun_color, lighting_snapshot_.sun_color) ||
+            !same(snapshot.ambient_ground, lighting_snapshot_.ambient_ground)) {
+            throw std::logic_error("SceneRenderer::render: this device frame already has a different lighting (one effective lighting per frame: a second view must supply the same one)");
+        }
+    }
     if (settings_.atmosphere.enabled) {
         ensure_sky();  // first, with nothing else created yet: a device failure is a failed frame that leaves nothing behind
     }
     ensure_targets(target.width, target.height);
+    if (settings_.dynamic_lighting) {
+        lighting_snapshot_ = snapshot;  // after the last throw that leaves nothing behind: this frame's lighting is now fixed
+        lighting_snapshot_frame_ = device_frame;
+    }
 
     const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
     DrawConstants constants{};
@@ -406,14 +421,15 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     // Sun shadows (imported models only, and only when asked for). The model renderer is created up front when there are models, because
     // the shadow map's synchronization is part of the graph built below. With shadows off none of this runs: no fit, no pass, no import.
     ModelRenderer* shadow_models = (settings_.shadows.enabled && !frame.models.empty()) ? &model_renderer() : nullptr;
-    if (settings_.dynamic_lighting && !frame.models.empty()) {
-        // One immutable payload per renderer per frame, published before the first draw of the frame reads the slot.
+    if (settings_.dynamic_lighting && !frame.models.empty() && lighting_published_frame_ != device_frame) {
+        // One immutable payload per renderer per frame, published before the first draw of the frame reads the slot (once: a second view of the frame has the same lighting).
         ModelRenderer& mr = model_renderer();
         ModelLightingFrame lf;
         lf.lighting = frame_lighting;
         lf.lighting.sun_direction = frame_sun;
         lf.sky_color = {clear.r, clear.g, clear.b};
         mr.set_lighting_frame(&lf);
+        lighting_published_frame_ = device_frame;
     }
     std::optional<ShadowCascades> sun_cascades;
     if (shadow_models != nullptr) {

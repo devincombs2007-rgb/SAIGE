@@ -681,6 +681,11 @@ void ModelRenderer::write_scene_block(const float* constants, Float3 sun)
     frame_sun_ = sun;
 }
 
+bool ModelRenderer::lighting_written_this_frame() const noexcept
+{
+    return dynamic_lighting_ && lighting_written_ && lighting_frame_number_ == device_.frame_number();
+}
+
 Float3 ModelRenderer::frame_sun_direction() const noexcept
 {
     return dynamic_lighting_ && lighting_written_ && lighting_frame_number_ == device_.frame_number() ? frame_sun_ : sun_direction_;

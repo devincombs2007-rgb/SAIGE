@@ -1010,3 +1010,71 @@ TEST_CASE("Dynamic lighting (null device): publishing nullptr writes the constru
     (void)o.device.end_frame();
     CHECK(o.device.validation_error_count() == 0);
 }
+
+TEST_CASE("Dynamic lighting (null device): one effective lighting per device frame at the scene level, also across a sky-only view and a model view, and the next frame starts fresh")
+{
+    Offscreen o;
+    RendererSettings settings = dynamic_settings();
+    settings.atmosphere.enabled = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    ModelRenderer& models = renderer.model_renderer();
+    const SceneLighting l1 = evening(1.0f, 0.0f, 1.0f), l2 = evening(0.0f, 1.0f, 1.0f), l1_scaled = evening(5.0f, 0.0f, 5.0f);
+    SceneLighting l3 = l1;
+    l3.sun_color = {1.0f, 1.0f, 1.0f};  // the same sun, another color
+    SceneLighting l4 = l1;
+    l4.ambient_ground = {0.5f, 0.5f, 0.5f};  // the same sun and color, another ambient
+    const auto render = [&](rhi::CommandList& cmd, std::span<const ModelDraw> d, const SceneLighting* l) {
+        SceneFrame f;
+        f.models = d;
+        f.lighting = l;
+        return renderer.render(cmd, f, o.target());
+    };
+    const auto refused = [&](rhi::CommandList& cmd, std::span<const ModelDraw> d, const SceneLighting* l) {
+        try {
+            (void)render(cmd, d, l);
+        } catch (const std::logic_error&) {
+            return true;
+        }
+        return false;
+    };
+
+    // Frame A: a sky-only view fixes the frame's lighting without publishing anything to the model renderer.
+    rhi::CommandList& cmd = o.device.begin_frame();
+    const uint32_t slot_a = static_cast<uint32_t>(o.device.frame_number() % 2);
+    (void)render(cmd, {}, &l1);
+    CHECK(!models.lighting_written_this_frame());
+    // A model view with different lighting (any of the sun, its color or the ambient) is refused before anything is written, and the slot stays unwritten.
+    CHECK(refused(cmd, draws, &l2));
+    CHECK(refused(cmd, draws, &l3));
+    CHECK(refused(cmd, draws, &l4));
+    CHECK(refused(cmd, draws, nullptr));  // the construction-time lighting is another lighting too
+    CHECK(!models.lighting_written_this_frame());
+    // The same lighting (a scaled direction is the same sun) is accepted and publishes it; a third view with it too (the publication is not repeated).
+    (void)render(cmd, draws, &l1_scaled);
+    CHECK(models.lighting_written_this_frame());
+    const Block published = read_block(o.device, models.lighting_block(slot_a));
+    CHECK(near(published[4], 1.0f / std::sqrt(2.0f)));
+    CHECK(near(published[6], 1.0f / std::sqrt(2.0f)));
+    (void)render(cmd, draws, &l1);
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == published);
+    CHECK(refused(cmd, draws, &l2));  // and a conflicting one is still refused after the models have drawn
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == published);
+    (void)o.device.end_frame();
+
+    // Frame B starts fresh (its own slot): a different lighting is fine, and frame A's slot keeps what A drew with.
+    rhi::CommandList& cmd_b = o.device.begin_frame();
+    const uint32_t slot_b = static_cast<uint32_t>(o.device.frame_number() % 2);
+    CHECK(slot_b != slot_a);
+    CHECK(!refused(cmd_b, draws, &l2));
+    CHECK(near(read_block(o.device, models.lighting_block(slot_b))[5], 1.0f / std::sqrt(2.0f)));
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == published);
+    (void)o.device.end_frame();
+    // Frame C (slot A again), an unchanged recovery: nothing sticks from the refusals.
+    rhi::CommandList& cmd_c = o.device.begin_frame();
+    CHECK(!refused(cmd_c, draws, nullptr));
+    CHECK(near(read_block(o.device, models.lighting_block(slot_a))[4], evening(-0.40f, -0.55f, 0.73f).sun_direction.x / unit_len(-0.40f, -0.55f, 0.73f)));
+    (void)o.device.end_frame();
+    // (Several renders in one frame also write the frame's timestamps more than once; that device-level rule is the caller's, so the validation count is not checked here.)
+}

@@ -202,6 +202,8 @@ public:
     void set_lighting_frame(const ModelLightingFrame* frame);
     /// The normalized sun direction of the current frame: the published one, or the construction-time one. What the sky, the shadow fit and the lighting all read.
     [[nodiscard]] Float3 frame_sun_direction() const noexcept;
+    /// Whether this device frame's slot has been written (by `set_lighting_frame`, or by a draw completing it).
+    [[nodiscard]] bool lighting_written_this_frame() const noexcept;
     /// The scene-constants buffer of frame slot `slot` (80 bytes: fog color and density, sun direction, sun color, ground ambient, flags), for tests and diagnostics;
     /// an invalid handle when dynamic lighting is off or `slot` is out of range. Read it only when the device has finished the slot's frames.
     [[nodiscard]] rhi::BufferHandle lighting_block(uint32_t slot) const noexcept { return slot < scene_blocks_.size() ? scene_blocks_[slot].handle() : rhi::BufferHandle{}; }

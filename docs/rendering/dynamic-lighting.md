@@ -45,6 +45,15 @@ The fog **density**, the shading mode and everything else in the scene constants
 fitted for that frame: nothing is shadowed by a sun that is not up, and the shadow pass is skipped (the lighting's sun color is what makes the night dark; shadows add
 nothing).
 
+### One effective lighting per device frame, at the scene level too
+
+A first `render` of a device frame fixes that frame's effective lighting (the normalized sun, the sun color and the ground ambient), whether or not the view draws models: a sky-only
+view publishes nothing to the model renderer, so the model renderer alone could not tell that a later model view of the same frame brings different lighting. Another `render` in
+the same device frame (a second view) must supply the *same* lighting (`nullptr` means the construction-time lighting, which counts as a lighting like any other; a scaled
+direction is the same sun) or it is refused with `std::logic_error` **before** anything is created, recorded or written. The models' publication happens once per frame, by the first
+view that has models; later views with the same lighting do not repeat it. The next frame starts fresh, so a refusal leaves nothing behind. The clock that chooses the lighting is
+Core's: it publishes one value per simulation snapshot, and gameplay never writes a renderer slot.
+
 ### `time_of_day_lighting`
 
 `time_of_day_lighting(atmosphere, to_sun, day, night_ambient = 0.08)` is pure and deterministic:

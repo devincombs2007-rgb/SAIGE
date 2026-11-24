@@ -134,6 +134,9 @@ struct SceneFrame {
     const Camera* camera = nullptr;
     /// Imported models to draw this frame (not retained after render()); they share the depth buffer with everything else.
     std::span<const ModelDraw> models;
+    /// One effective lighting per device frame: the first `render` of a frame fixes it, whether or not it draws models, and another `render` in the same device frame (a second
+    /// view) must supply the same lighting (the same normalized sun, sun color and ground ambient) or it is refused with std::logic_error before anything is created, recorded
+    /// or written. The next frame starts fresh.
     /// This frame's sun and ambient (needs `RendererSettings::dynamic_lighting`; not retained after render()). `nullptr`: the construction-time `lighting`. Validated,
     /// like the settings' lighting, before anything is recorded or written: `render` throws std::invalid_argument for a bad value and std::logic_error if the renderer
     /// was not built with dynamic lighting, and nothing has changed when it does.
@@ -208,6 +211,15 @@ private:
     rhi::ShaderHandle sky_vs_, sky_ps_;
     rhi::PipelineHandle sky_pipeline_;
     void ensure_sky();
+    // Dynamic lighting: the one effective lighting of the current device frame (set by its first render; a later render of the same frame must supply the same lighting).
+    struct LightingSnapshot {
+        Float3 sun{};
+        Float3 sun_color{};
+        Float3 ambient_ground{};
+    };
+    uint64_t lighting_snapshot_frame_ = ~uint64_t{0};
+    LightingSnapshot lighting_snapshot_;
+    uint64_t lighting_published_frame_ = ~uint64_t{0};  ///< the device frame for which this renderer published the models' lighting
     [[nodiscard]] Camera sky_camera(const SceneFrame& frame) const;  ///< the camera the frame is drawn with (the explicit one, or the follow/fixed camera's)
     [[nodiscard]] Float3 atmosphere_fog(Float3 to_sun) const;  ///< the horizon color the fog fades to when the atmosphere is on, display-referred in an LDR scene
     rhi::BufferHandle cube_vertices_, cube_indices_;

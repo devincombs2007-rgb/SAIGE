@@ -5,6 +5,7 @@
 #pragma once
 
 #include "saige/render/camera.hpp"
+#include "saige/render/fxaa.hpp"
 #include "saige/render/gpu_resources.hpp"
 #include "saige/render/model.hpp"
 #include "saige/render/model_renderer.hpp"
@@ -73,6 +74,9 @@ struct RendererSettings {
     /// (docs/rendering/material-architecture.md section 4). Off by default: the 0.2 path draws straight into the output target.
     bool hdr = false;
     ToneMapSettings tone_map;                       ///< used when `hdr` is set
+    /// FXAA (render/fxaa.hpp): smooths the finished image's aliased edges in one extra full-screen pass. **Off by default**: with it off nothing is created and every image is what
+    /// it was before. On, the scene (and the tone map, in HDR) renders into an intermediate target of the output's format and the pass writes the output; works with `hdr` on or off.
+    FxaaSettings fxaa;
 };
 
 struct SceneInstance {
@@ -113,6 +117,7 @@ struct FrameStats {
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
+    uint32_t fxaa_draw_calls = 0;          ///< 1 when the FXAA pass ran (also counted in draw_calls)
 };
 
 class SceneRenderer {
@@ -158,6 +163,10 @@ private:
     rhi::TextureHandle hdr_;                   ///< HDR only: the scene's linear float target, sized like the output
     rhi::BindGroupHandle hdr_input_;           ///< the tone mapper's view of hdr_
     rhi::ResourceState hdr_state_;
+    std::unique_ptr<FxaaPass> fxaa_;  ///< FXAA only
+    rhi::TextureHandle aa_;           ///< FXAA only: the finished image before the pass, in the output's format and size
+    rhi::BindGroupHandle aa_input_;   ///< the pass's view of aa_
+    rhi::ResourceState aa_state_;
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
     std::unique_ptr<ModelRenderer> models_;

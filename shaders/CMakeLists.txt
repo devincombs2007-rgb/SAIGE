@@ -8,6 +8,7 @@
 
 set(SAIGE_SHADER_SOURCES
     scene/cube.hlsl
+    scene/fxaa.hlsl
     scene/ground.hlsl
     scene/model.hlsl
     test/blend_color.hlsl

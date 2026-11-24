@@ -14,9 +14,21 @@ namespace {
 
 constexpr rhi::Format depth_format = rhi::Format::D32_FLOAT;
 
-void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
-                     rhi::BindGroupHandle hdr_input)
+const RendererSettings& validated_fxaa(const RendererSettings& s)
 {
+    if (s.fxaa.enabled) validate_fxaa(s.fxaa);
+    return s;
+}
+
+void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
+                     rhi::BindGroupHandle hdr_input, rhi::TextureHandle aa = {}, rhi::BindGroupHandle aa_input = {})
+{
+    if (aa_input.is_valid()) {
+        device.destroy(aa_input);
+    }
+    if (aa.is_valid()) {
+        device.destroy(aa);
+    }
     if (hdr_input.is_valid()) {
         device.destroy(hdr_input);
     }
@@ -80,12 +92,15 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_(settings),
+      settings_(validated_fxaa(settings)),
       registry_(device)
 {
     using namespace saige::shaders;
     if (settings_.hdr) {
         tone_mapper_ = std::make_unique<ToneMapper>(device_, color_format_);
+    }
+    if (settings_.fxaa.enabled) {
+        fxaa_ = std::make_unique<FxaaPass>(device_, color_format_);
     }
     cube_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_cube_vs_main), "VSMain", "SceneCube.VS"});
     cube_ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_cube_ps_main), "PSMain", "SceneCube.PS"});
@@ -132,7 +147,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
 
 SceneRenderer::~SceneRenderer()
 {
-    release_targets(device_, depth_, hdr_, hdr_input_);
+    release_targets(device_, depth_, hdr_, hdr_input_, aa_, aa_input_);
     device_.destroy(cube_indices_);
     device_.destroy(cube_vertices_);
     device_.destroy(ground_pipeline_);
@@ -159,6 +174,8 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
     rhi::TextureHandle next_depth;
     rhi::TextureHandle next_hdr;
     rhi::BindGroupHandle next_input;
+    rhi::TextureHandle next_aa;
+    rhi::BindGroupHandle next_aa_input;
     try {
         next_depth = device_.create_texture(depth_desc);
 
@@ -172,8 +189,18 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
             next_hdr = device_.create_texture(hdr_desc);
             next_input = tone_mapper_->create_input(next_hdr);
         }
+        if (fxaa_) {
+            rhi::TextureDesc aa_desc;
+            aa_desc.format = color_format_;
+            aa_desc.width = width;
+            aa_desc.height = height;
+            aa_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+            aa_desc.debug_name = "FxaaInput";
+            next_aa = device_.create_texture(aa_desc);
+            next_aa_input = fxaa_->create_input(next_aa);
+        }
     } catch (...) {
-        release_targets(device_, next_depth, next_hdr, next_input);
+        release_targets(device_, next_depth, next_hdr, next_input, next_aa, next_aa_input);
         throw;
     }
 
@@ -181,11 +208,14 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
     std::swap(depth_, next_depth);
     std::swap(hdr_, next_hdr);
     std::swap(hdr_input_, next_input);
+    std::swap(aa_, next_aa);
+    std::swap(aa_input_, next_aa_input);
     target_width_ = width;
     target_height_ = height;
     depth_state_ = {};
     hdr_state_ = {};
-    release_targets(device_, next_depth, next_hdr, next_input);
+    aa_state_ = {};
+    release_targets(device_, next_depth, next_hdr, next_input, next_aa, next_aa_input);
 }
 
 Float3 SceneRenderer::camera_target(const SceneFrame& frame) const
@@ -264,8 +294,20 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     const RGTexture color = graph_.import_texture("SceneColor", *color_desc, target.texture, target.initial_state,
                                                   target.final_state);
     // The texture the Scene pass draws into: the output itself, or the HDR target that the tone-map pass resolves to it.
-    rhi::TextureHandle scene_texture = target.texture;
-    RGTexture scene_color = color;
+    // With FXAA the finished image first goes to an intermediate target of the output's format, and the FXAA pass writes the output.
+    rhi::TextureHandle final_texture = target.texture;
+    RGTexture final_color = color;
+    if (fxaa_) {
+        rhi::TextureDesc aa_desc;
+        aa_desc.format = color_format_;
+        aa_desc.width = target.width;
+        aa_desc.height = target.height;
+        aa_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+        final_texture = aa_;
+        final_color = graph_.import_texture("FxaaInput", aa_desc, aa_, aa_state_, rhi::sampled_texture_state);
+    }
+    rhi::TextureHandle scene_texture = final_texture;
+    RGTexture scene_color = final_color;
     if (settings_.hdr) {
         rhi::TextureDesc hdr_desc;
         hdr_desc.format = rhi::Format::RGBA16_FLOAT;
@@ -346,6 +388,33 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
             "ToneMap", rhi::QueueType::Graphics,
             [&](PassBuilder& b) {
                 b.sample(scene_color, rhi::PipelineStage::PixelShader);
+                b.write_color(final_color, LoadOp::DontCare);  // the full-screen triangle covers every pixel
+            },
+            [&](PassContext& ctx) {
+                rhi::CommandList& c = *ctx.command_list();
+                rhi::RenderingDesc rd;
+                rhi::ColorAttachment ca;
+                ca.texture = final_texture;
+                ca.load = rhi::AttachmentLoadOp::DontCare;
+                ca.store = rhi::AttachmentStoreOp::Store;
+                rd.colors.push_back(ca);
+                rd.area = {0, 0, target.width, target.height};
+                c.begin_debug_label("ToneMap");
+                c.begin_rendering(rd);
+                c.set_viewport({0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f});
+                c.set_scissor({0, 0, target.width, target.height});
+                tone_mapper_->draw(c, hdr_input_, settings_.tone_map);
+                ++stats.draw_calls;
+                c.end_rendering();
+                c.end_debug_label();
+            });
+    }
+
+    if (fxaa_) {
+        graph_.add_pass(
+            "Fxaa", rhi::QueueType::Graphics,
+            [&](PassBuilder& b) {
+                b.sample(final_color, rhi::PipelineStage::PixelShader);
                 b.write_color(color, LoadOp::DontCare);  // the full-screen triangle covers every pixel
             },
             [&](PassContext& ctx) {
@@ -357,12 +426,13 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 ca.store = rhi::AttachmentStoreOp::Store;
                 rd.colors.push_back(ca);
                 rd.area = {0, 0, target.width, target.height};
-                c.begin_debug_label("ToneMap");
+                c.begin_debug_label("Fxaa");
                 c.begin_rendering(rd);
                 c.set_viewport({0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f});
                 c.set_scissor({0, 0, target.width, target.height});
-                tone_mapper_->draw(c, hdr_input_, settings_.tone_map);
+                fxaa_->draw(c, aa_input_, settings_.fxaa, target.width, target.height);
                 ++stats.draw_calls;
+                ++stats.fxaa_draw_calls;
                 c.end_rendering();
                 c.end_debug_label();
             });
@@ -399,6 +469,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     depth_state_ = depth_attachment_state;
     if (settings_.hdr) {
         hdr_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
+    }
+    if (fxaa_) {
+        aa_state_ = rhi::sampled_texture_state;
     }
     return stats;
 }

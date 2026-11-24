@@ -123,6 +123,7 @@ struct MeshInstance {
 struct Skin {
     std::string name;
     std::vector<int32_t> joint_nodes;           ///< the glTF node of each joint, in joint order (what JOINTS_0 indexes)
+    std::vector<std::string> joint_names;       ///< per joint: the node's name (possibly empty), for mapping a skeleton onto another by bone name
     std::vector<int32_t> parent;                ///< per joint: the index of its parent joint, or -1 for a top joint
     std::vector<render::Transform> rest;        ///< per joint: the local rest transform (translation, rotation, scale)
     std::vector<render::Mat4> base;             ///< per joint: where the joint's parent node stands at rest (identity when the joint has no parent); used only for top joints

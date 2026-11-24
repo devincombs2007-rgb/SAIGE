@@ -7,7 +7,7 @@ Checkpoint: 2026-11-24. `main` is at 5239e0c (merge of #59, sorted alpha blendin
 | Branch | Head | Contains | CI (Graphics workflow, Linux and Windows) |
 | --- | --- | --- | --- |
 | `claude/showcase-03-world` | 1d77156 | the film's world, simulation, render app, tools; the CI warning fix | passed after the warning fix |
-| `claude/production-infrastructure` | the commit that carries this file (see `git log`) | everything in `showcase-03-world` plus the asset catalog and production tools, the three Showcase 03 defect fixes (D1 emissive gain, D2 wheel rig, D3 prop table) and these documents | D2 head 895d0d8: passed (run 575). The D1 and documents head: see the checkpoint comment on issue #43 |
+| `claude/production-infrastructure` | the commit that carries this file (see `git log`) | everything in `showcase-03-world` plus the asset catalog and production tools, the three Showcase 03 defect fixes (D1 emissive gain, D2 wheel rig, D3 prop table) and these documents | 6a6893d (D1, D2, D3, audit, Windows scripts, physics surfaces): passed (run 579). Earlier heads: 895d0d8 passed; 44a5d37 was cancelled by a later push; cae1e23 failed once on Windows (a test target lacked C++20), fixed in 6a6893d |
 
 The film was built from 9c87457 (ancestor of both branches). It is unchanged.
 
@@ -32,5 +32,4 @@ Hardware class: software Vulkan only. No frame time in this repository's documen
 
 ## Open items
 
-* D1 head CI: confirm on the pushed head.
 * Owner decisions needed: none for this increment. Pending for later: adopting a physics library (Jolt or Bullet), adopting an audio runtime, any merge to `main`.

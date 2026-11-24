@@ -17,6 +17,7 @@ endif()
 
 add_library(saige_gfx_assets STATIC
     src/environment.cpp
+    src/animation.cpp
     src/gltf.cpp
     src/hdr_image.cpp
     src/json.cpp
@@ -54,6 +55,7 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
             tests/test_environment.cpp
             tests/test_gltf.cpp
             tests/test_hdr_image.cpp
+            tests/test_gltf_skin.cpp
             tests/test_json.cpp
             tests/test_resource_uri.cpp
             tests/test_tangents.cpp

@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -198,4 +199,35 @@ TEST_CASE("HDR: hostile and unsupported input is an error, never a crash")
         v.insert(v.end(), {1, 1, 1, 130, 5, 5, 5, 130});
         CHECK(mentions(v, "old run-length"));
     }
+}
+
+TEST_CASE("HDR: raised limits cannot make the decoded-size check wrap (Core review of #82)")
+{
+    // A caller may raise the limits; the product width * height * 12 must still be checked without overflowing 64 bits. With both dimensions at
+    // 2^31 (or 2^32 - 1, or past 2^64) the old multiplication wrapped to a small number and let a huge allocation through.
+    HdrLimits raised;
+    raised.max_dimension = std::numeric_limits<uint32_t>::max();
+    raised.max_decoded_bytes = std::numeric_limits<std::size_t>::max();
+    const auto header_text = [](const std::string& dims) {
+        const std::string text = "#?RADIANCE\n\n" + dims + "\n";
+        return std::vector<uint8_t>(text.begin(), text.end());
+    };
+    const auto rejects = [&](const std::string& dims, const char* what) {
+        const HdrDecodeResult r = decode_hdr(header_text(dims), raised);
+        const bool ok = !r.ok() && r.error.find(what) != std::string::npos;
+        if (!ok) std::printf("  '%s': expected '%s', got '%s'\n", dims.c_str(), what, r.error.c_str());
+        return ok;
+    };
+    CHECK(rejects("-Y 2147483648 +X 2147483648", "decoded size"));       // 2^31 x 2^31: the product wraps to 0 in 64 bits
+    CHECK(rejects("-Y 4294967295 +X 4294967295", "decoded size"));
+    CHECK(rejects("-Y 1537228672809129302 +X 12", "over the limit"));     // above the 32-bit dimension limit
+    CHECK(rejects("-Y 99999999999999999999999 +X 4", "too large"));       // does not fit in 64 bits
+    CHECK(rejects("-Y 4 +X 99999999999999999999999", "too large"));
+    CHECK(rejects("-Y -5 +X 4", "malformed"));                              // no sign inside a number
+    CHECK(rejects("-Y 4 +X 4 x", "trailing"));
+    CHECK(rejects("-Y 4 +X", "malformed"));
+    // With the default limits the same headers fail earlier, and an image that does fit still decodes with raised limits.
+    CHECK(!decode_hdr(header_text("-Y 2147483648 +X 2147483648")).ok());
+    const auto small = flat_file(4, 2, [](uint32_t, uint32_t) { return std::array<float, 3>{1, 1, 1}; });
+    CHECK(decode_hdr(small, raised).ok());
 }

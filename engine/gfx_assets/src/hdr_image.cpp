@@ -1,8 +1,11 @@
 #include "saige/gfx_assets/hdr_image.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <string_view>
 
 namespace saige::gfx {
@@ -58,31 +61,58 @@ HdrDecodeResult decode_hdr(std::span<const uint8_t> bytes, const HdrLimits& limi
     bool flip = false;
     uint64_t height = 0, width = 0;
     {
-        std::string text(line);
-        char ya = 0, xa = 0;
-        char yaxis = 0, xaxis = 0;
-        unsigned long long h = 0, w = 0;
-        int consumed = 0;
-        if (std::sscanf(text.c_str(), " %c%c %llu %c%c %llu%n", &ya, &yaxis, &h, &xa, &xaxis, &w, &consumed) != 6 || yaxis != 'Y' || xaxis != 'X' || xa != '+' ||
-            (ya != '-' && ya != '+')) {
-            return fail("unsupported orientation or malformed resolution line '" + text + "' (only '-Y h +X w' and '+Y h +X w')");
-        }
-        for (std::size_t i = static_cast<std::size_t>(consumed); i < text.size(); ++i) {
-            if (text[i] != ' ' && text[i] != '\r' && text[i] != '\t') return fail("trailing characters on the resolution line");
-        }
-        flip = ya == '+';
-        height = h;
-        width = w;
+        // "<sign>Y <height> +X <width>", parsed by hand: sscanf's behavior on an out-of-range number is undefined, and the dimensions are untrusted.
+        const std::string_view text = line;
+        std::size_t i = 0;
+        const auto skip_space = [&] {
+            while (i < text.size() && (text[i] == ' ' || text[i] == '\t')) ++i;
+        };
+        const auto bad = [&] { return fail("unsupported orientation or malformed resolution line '" + std::string(text) + "' (only '-Y h +X w' and '+Y h +X w')"); };
+        const auto read_axis = [&](char axis, char& sign) {
+            skip_space();
+            if (i + 1 >= text.size() || (text[i] != '+' && text[i] != '-') || text[i + 1] != axis) return false;
+            sign = text[i];
+            i += 2;
+            return true;
+        };
+        // Digits only, no sign, at most 20 of them, and the value must fit in 64 bits.
+        bool overflow = false;
+        const auto read_number = [&](uint64_t& out) {
+            skip_space();
+            const std::size_t start = i;
+            uint64_t v = 0;
+            while (i < text.size() && text[i] >= '0' && text[i] <= '9') {
+                const uint64_t digit = static_cast<uint64_t>(text[i] - '0');
+                if (v > (std::numeric_limits<uint64_t>::max() - digit) / 10) overflow = true;
+                else v = v * 10 + digit;
+                ++i;
+            }
+            out = v;
+            return i > start;
+        };
+        char ysign = 0, xsign = 0;
+        if (!read_axis('Y', ysign) || !read_number(height) || !read_axis('X', xsign) || !read_number(width) || xsign != '+') return bad();
+        skip_space();
+        while (i < text.size() && (text[i] == '\r')) ++i;
+        if (i != text.size()) return fail("trailing characters on the resolution line");
+        if (overflow) return fail("a dimension is too large to represent");
+        flip = ysign == '+';
     }
     if (width == 0 || height == 0 || width > limits.max_dimension || height > limits.max_dimension) {
         return fail("the dimensions " + std::to_string(width) + "x" + std::to_string(height) + " are zero or over the limit of " + std::to_string(limits.max_dimension));
     }
-    if (width * height * 12ull > limits.max_decoded_bytes) return fail("the decoded size is over the limit of " + std::to_string(limits.max_decoded_bytes) + " bytes");
+    // Checked without multiplying: width and height are each at most 2^32 - 1 (max_dimension is 32-bit), but their product need not fit in 64 bits.
+    const uint64_t byte_limit = std::min<uint64_t>(limits.max_decoded_bytes, std::numeric_limits<std::size_t>::max() / 4);
+    if (height > byte_limit / 12 / width) return fail("the decoded size is over the limit of " + std::to_string(limits.max_decoded_bytes) + " bytes");
 
     HdrImage image;
     image.width = static_cast<uint32_t>(width);
     image.height = static_cast<uint32_t>(height);
-    image.rgb.assign(static_cast<std::size_t>(width * height * 3), 0.0f);
+    try {
+        image.rgb.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3, 0.0f);
+    } catch (const std::exception&) {
+        return fail("not enough memory for a " + std::to_string(width) + "x" + std::to_string(height) + " image");
+    }
 
     std::vector<uint8_t> scan(static_cast<std::size_t>(width) * 4);
     for (uint64_t row = 0; row < height; ++row) {
@@ -120,7 +150,7 @@ HdrDecodeResult decode_hdr(std::span<const uint8_t> bytes, const HdrLimits& limi
             std::memcpy(scan.data(), bytes.data() + pos, static_cast<std::size_t>(width) * 4);
             pos += static_cast<std::size_t>(width) * 4;
         }
-        float* out = image.rgb.data() + static_cast<std::size_t>(y * width) * 3;
+        float* out = image.rgb.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 3;
         for (std::size_t x = 0; x < width; ++x) {
             const uint8_t* p = scan.data() + x * 4;
             out[x * 3] = rgbe_channel(p[0], p[3]);

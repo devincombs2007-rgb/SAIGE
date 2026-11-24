@@ -55,6 +55,10 @@ struct CapsuleInput {
     float left{};
     bool jump{};
     bool sprint{};
+    // How well the feet grip what the character stands on, in (0, 1]: 1 (the default) is the configured ground acceleration; less is a slipperier surface (ice) on which the character takes longer to get
+    // up to speed and longer to stop. The host derives it from the surface under the feet (see physics_material.hpp: `ground_traction`); the controller does not know about materials. Clamped to
+    // [0.02, 1]; it only affects the ground, never the air. A non-finite value is an invalid input.
+    float traction = 1.0f;
 };
 
 struct CapsuleCharacterState {

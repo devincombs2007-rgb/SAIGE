@@ -301,7 +301,7 @@ void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
 }
 
 void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt) {
-    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left)) {
+    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left) || !std::isfinite(input.traction)) {
         throw std::invalid_argument("Capsule character step requires finite input and a fixed step in (0, 100 ms]");
     }
     const float seconds = std::chrono::duration<float>(dt).count();
@@ -322,7 +322,8 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
     const float dx = forward * scale - state_.velocity.x;
     const float dy = left * scale - state_.velocity.y;
     const float change = std::hypot(dx, dy);
-    const float limit = (state_.grounded ? config_.ground_acceleration : config_.air_acceleration) * seconds;
+    const float traction = std::clamp(input.traction, 0.02f, 1.0f);
+    const float limit = (state_.grounded ? config_.ground_acceleration * traction : config_.air_acceleration) * seconds;
     const float fraction = change > limit ? limit / change : 1.0f;
     if (!keep_horizontal_speed) {
         state_.velocity.x += dx * fraction;

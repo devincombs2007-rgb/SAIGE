@@ -17,6 +17,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -60,6 +61,12 @@ static_assert(sizeof(physics_material_table) / sizeof(physics_material_table[0])
 [[nodiscard]] inline float combine_friction(float a, float b) noexcept { return std::sqrt(a * b); }
 [[nodiscard]] constexpr float combine_restitution(float a, float b) noexcept { return a > b ? a : b; }
 
+// How well a character's feet grip a material relative to dry asphalt, in [0.02, 1] (CapsuleInput::traction): its body friction over asphalt's.
+[[nodiscard]] inline float foot_traction(const PhysicsMaterial& m) noexcept {
+    const float t = m.friction / physics_material(Surface::Asphalt).friction;
+    return t < 0.02f ? 0.02f : (t > 1.0f ? 1.0f : t);
+}
+
 // One Surface per box and per triangle of a StaticCollision, indexed by the primitive ids the collision reports.
 class SurfaceMap {
 public:
@@ -87,5 +94,12 @@ private:
     }
     std::vector<Surface> boxes_, triangles_;
 };
+
+// The traction under a character's feet: a ray straight down from `up` above them for `up + down` meters, and the material of the primitive it hits; 1 when there is nothing underfoot (the character is
+// airborne, where traction does not matter). The collision and the map must describe the same primitives the character collides with (the same arrays, in the same order).
+[[nodiscard]] inline float ground_traction(const StaticCollision& world, const SurfaceMap& map, Vec3 feet, float up = 0.2f, float down = 0.4f) {
+    const std::optional<RayHit> hit = world.raycast(Vec3{feet.x, feet.y, feet.z + up}, Vec3{0.0f, 0.0f, -1.0f}, up + down, RayMode::Surface);
+    return hit ? foot_traction(map.material_at(hit->primitive)) : 1.0f;
+}
 
 } // namespace saige

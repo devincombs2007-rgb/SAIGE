@@ -170,6 +170,27 @@ ClipInfo analyze_cycle(const gfx::Skin& skin, const HumanoidMap& map, const RigI
     refine(lf, pl);
     refine(rf, pr);
     if (pl.start < 0 || pr.start < 0) return info;
+    // With the true stance windows known, the ground speed is the mean backward speed over their interior (the middle 70%), which is what the planted foot actually does: a median over the
+    // whole low run (the first pass) is robust to the landing and the lift but sits a little off when the speed varies through the stance.
+    {
+        double sum = 0.0;
+        int count = 0;
+        const auto interior = [&](const std::vector<Float3>& f, const Planted& p) {
+            int len = 0;
+            while (len < n && p.flag[static_cast<std::size_t>((p.start + len) % n)]) ++len;
+            const int skip = static_cast<int>(std::floor(0.15f * static_cast<float>(len)));
+            for (int i = skip; i < len - skip; ++i) {
+                sum += static_cast<double>(backward_speed(f, (p.start + i) % n));
+                ++count;
+            }
+        };
+        interior(lf, pl);
+        interior(rf, pr);
+        if (count >= 4) {
+            info.ground_speed = static_cast<float>(sum / count);
+            info.stride_length = info.ground_speed * clip.duration;
+        }
+    }
     const auto cycle = [&](const Planted& p) {
         FootCycle c;
         c.contact_start = static_cast<float>(p.start) / static_cast<float>(n);

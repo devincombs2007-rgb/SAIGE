@@ -10,7 +10,7 @@
 
 ## Physics (22%)
 
-1. Physical materials: table, vehicle tires and vehicle body contacts done (`docs/physics-materials.md`); next consumers are character ground friction (the capsule controller does not report which primitive it stands on yet: that is a Core API addition to propose first), debris restitution, and a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
+1. Physical materials: table, vehicle tires and vehicle body contacts done (`docs/physics-materials.md`); character traction is done (`CapsuleInput::traction`, derived by the host from the surface under the feet: no change to what the controller reports); next are debris restitution and a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
 2. Vehicle: engine and gearbox curves, differential, tire load sensitivity, damage state, handbrake and drift tests.
 3. Rigid-body stacking and joints; evaluate Jolt and Bullet (license, determinism, maintenance) behind a backend interface; owner approval to adopt.
 4. Water (buoyancy, drag), destruction (fracture of authored meshes).

@@ -75,8 +75,12 @@ gfx::Pose blend_poses(const gfx::Pose& a, const gfx::Pose& b, float t) {
 }
 
 float rotation_angle_between(Quat a, Quat b) {
-    const float d = std::fabs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
-    return 2.0f * std::acos(std::min(1.0f, d));
+    // The same rotation (identical quaternions, or one the negative of the other) is exactly 0 apart: neither acos of a dot product that rounds to 0.99999994 nor the rounding in a quaternion
+    // product gives that. For the rest, the relative rotation conj(a) * b through atan2 keeps small angles accurate.
+    if (a == b || a == Quat{-b.x, -b.y, -b.z, -b.w}) return 0.0f;
+    const Quat r = render::conjugate(a) * b;
+    const float v = std::sqrt(r.x * r.x + r.y * r.y + r.z * r.z);
+    return 2.0f * std::atan2(v, std::fabs(r.w));
 }
 
 float pose_distance(const gfx::Pose& a, const gfx::Pose& b, float* max_translation) {

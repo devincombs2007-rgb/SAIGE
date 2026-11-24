@@ -277,3 +277,16 @@ TEST_CASE("Locomotion: bad input is rejected, a stationary tick does not advance
     }
     CHECK(pose_distance(a.pose(), b.pose()) == 0.0f);
 }
+
+TEST_CASE("Pose distance: identical poses are exactly 0 apart, small rotations are measured accurately") {
+    const fixtures::Biped b = fixtures::make_biped();
+    gfx::Pose a = gfx::rest_pose(b.skin);
+    for (std::size_t j = 0; j < a.local.size(); ++j) a.local[j].rotation = render::normalize(render::from_axis_angle({0.3f, 0.5f, 0.8f}, 0.37f * static_cast<float>(j + 1)));  // unit quaternions that do not square to exactly 1
+    const gfx::Pose copy = a;
+    CHECK(pose_distance(a, copy) == 0.0f);
+    CHECK(rotation_angle_between(a.local[3].rotation, a.local[3].rotation) == 0.0f);
+    const render::Quat q = a.local[2].rotation;
+    const render::Quat turned = render::normalize(render::from_axis_angle({0, 0, 1}, 0.001f) * q);
+    CHECK(std::fabs(rotation_angle_between(q, turned) - 0.001f) < 2e-5f);
+    CHECK(std::fabs(rotation_angle_between(q, render::Quat{-q.x, -q.y, -q.z, -q.w})) < 1e-6f);  // q and -q are the same rotation
+}

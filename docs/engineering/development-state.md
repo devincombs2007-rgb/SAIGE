@@ -13,7 +13,7 @@ The film was built from 9c87457 (ancestor of both branches). It is unchanged.
 
 ## Humanoid animation increment (on `claude/production-infrastructure`, no PR)
 
-`engine/animation` (target `saige::animation`) with its tests (`saige_animation_tests` 21 cases, `saige_animation_character_tests` 3, `saige_animation_assets` skipped unless `SAIGE_ANIM_ASSETS` points at fetched assets), the runnable `saige_anim_character_demo`, `tools/animation/` (asset fetch with SHA-256 manifest), six CMU mocap catalog records, and `docs/animation-character.md`. The glTF importer now carries `Skin::joint_names`. Local result: all pass under the CI flags on software Vulkan hosts (the module is CPU only). CI for the head that adds it: see the checkpoint on issue #43.
+`engine/animation` (target `saige::animation`) with its tests (`saige_animation_tests` 21 cases, `saige_animation_character_tests` 3, `saige_animation_assets` skipped unless `SAIGE_ANIM_ASSETS` points at fetched assets), the runnable `saige_anim_character_demo`, `tools/animation/` (asset fetch with SHA-256 manifest), six CMU mocap catalog records, and `docs/animation-character.md`. The glTF importer now carries `Skin::joint_names`. Local result: all pass under the CI flags on software Vulkan hosts (the module is CPU only). CI: `b543124` (the module) passed on all three jobs (run 581); the next head `894491d` failed once on Windows in `saige_animation_tests` (a test compared two identical poses with `pose_distance == 0`, which MSVC's rounding made 7e-4 rad; `rotation_angle_between` is now exact for identical rotations and uses atan2), fixed in the following commit; foot locking and the traction change ride on top of it.
 
 ## Open pull requests (all draft except #64 and #67), grouped by stack
 

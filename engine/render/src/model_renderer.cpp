@@ -1,6 +1,7 @@
 #include "saige/render/model_renderer.hpp"
 
 #include "saige/render/env_brdf.hpp"
+#include "saige/render/shadow_cascades.hpp"
 
 #include "saige/shaders/scene_model.spv.hpp"
 #include "saige/shaders/scene_model_shadowed.spv.hpp"
@@ -39,11 +40,25 @@ struct SceneConstants {
 
 /// Shadow block (set 1, binding 5 of the shadowed permutation), matching `ShadowConstants` in the shader. Rewritten every frame.
 struct ShadowBlock {
-    float light_view_proj[16];  ///< column-major, like Mat4
-    float params[4];            ///< texel world size, normal offset (texels), filter radius (texels), 1 when shadows are on
-    float map[4];               ///< 1 / map size in texels
+    float light_view_proj[4][16];  ///< world to each cascade's clip space, column-major like Mat4
+    float texel[4];                ///< meters per shadow texel, cascades 0 to 3
+    float splits[4];               ///< view-space depth where cascade 0 to 3 ends
+    float params[4];               ///< normal offset (texels), filter radius (texels), cascade count, 1 when shadows are on
+    float map[4];                  ///< 1 / tile size in texels, blend fraction, atlas tile scale x and y
+    float camera_pos[4];           ///< the view the cascades are selected by
+    float camera_fwd[4];           ///< w: atlas columns
 };
-static_assert(sizeof(ShadowBlock) == 96);
+static_assert(sizeof(ShadowBlock) == 352);
+
+/// The parts of the block that depend only on the renderer: the tile size, the atlas layout, one cascade, shadows off.
+void fill_shadow_layout(ShadowBlock& block, uint32_t tile_size, uint32_t columns, uint32_t rows) noexcept
+{
+    block.map[0] = 1.0f / static_cast<float>(tile_size);
+    block.map[2] = 1.0f / static_cast<float>(columns);
+    block.map[3] = 1.0f / static_cast<float>(rows);
+    block.camera_fwd[3] = static_cast<float>(columns);
+    block.params[2] = 1.0f;
+}
 
 /// Push constants of the shadow pass (shaders/scene/shadow_depth.hlsl).
 struct ShadowPush {
@@ -95,7 +110,7 @@ rhi::BufferHandle make_uniform(rhi::Device& device, GpuResourceRegistry& registr
                                std::size_t size, const char* name)
 {
     rhi::BufferDesc ub;
-    ub.size = 256;  // a multiple of every uniform alignment; only `size` bytes are bound
+    ub.size = std::max<std::size_t>(256, (size + 255) / 256 * 256);  // a multiple of every uniform alignment; only `size` bytes are bound
     ub.usage = rhi::BufferUsage::Uniform;
     ub.memory = rhi::MemoryLocation::CpuToGpu;
     ub.debug_name = name;
@@ -161,6 +176,9 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
         const ModelShadowSettings& sh = settings.shadows;
         if (sh.map_size < 16 || sh.map_size > 8192 || !std::isfinite(sh.depth_bias_constant) || !std::isfinite(sh.depth_bias_slope)) {
             throw std::invalid_argument("ModelRenderer: shadow map size must be 16 to 8192 and the depth bias finite");
+        }
+        if (sh.cascades < 1 || sh.cascades > kMaxShadowCascades) {
+            throw std::invalid_argument("ModelRenderer: the number of shadow cascades must be 1 to 4");
         }
     }
     shadows_enabled_ = settings.shadows.enabled;
@@ -229,6 +247,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
 
     if (shadows_enabled_) {
         shadow_map_size_ = settings.shadows.map_size;
+        shadow_cascades_ = settings.shadows.cascades;
         shadow_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_shadow_depth_vs_main), "VSMain", "SceneShadowDepth.VS"});
         rhi::GraphicsPipelineDesc sp;
         sp.vertex_shader = shadow_vs_;  // no pixel shader: depth only
@@ -322,7 +341,8 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     {
         rhi::TextureDesc d;
         d.format = rhi::Format::D32_FLOAT;
-        d.width = d.height = shadow_map_size_;
+        d.width = shadow_atlas_width();  // one tile per cascade
+        d.height = shadow_atlas_height();
         d.usage = rhi::TextureUsage::DepthStencilAttachment | rhi::TextureUsage::Sampled;
         d.debug_name = "ModelSunShadowMap";
         shadow_map_ = registry_.create_texture(d);
@@ -340,7 +360,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     // CPU rewrites every frame and so must not be shared with a frame the GPU may still be reading.
     const uint32_t slots = std::max(1u, device_.info().frames_in_flight);
     ShadowBlock off{};  // params.w = 0: the sun is never occluded
-    off.map[0] = 1.0f / static_cast<float>(shadow_map_size_);
+    fill_shadow_layout(off, shadow_map_size_, shadow_atlas_columns(), shadow_atlas_rows());
     constants_groups_.reserve(slots);
     shadow_blocks_.reserve(slots);
     for (uint32_t i = 0; i < slots; ++i) {
@@ -620,14 +640,31 @@ void ModelRenderer::set_shadow_frame(const ModelShadowFrame* frame)
         throw std::logic_error("ModelRenderer::set_shadow_frame: already set for this frame (one write per renderer per frame)");
     }
     const uint32_t slot = static_cast<uint32_t>(frame_number % constants_groups_.size());
+    if (frame != nullptr) {  // checked before anything is modified
+        const bool bad = frame->cascade_count < 1 || frame->cascade_count > shadow_cascades_ || !std::isfinite(frame->blend) || frame->blend < 0.0f || frame->blend > 0.5f;
+        if (bad) throw std::invalid_argument("ModelRenderer::set_shadow_frame: the cascade count is outside 1 to the renderer's cascades, or the blend is outside 0 to 0.5");
+    }
     ShadowBlock block{};
-    block.map[0] = 1.0f / static_cast<float>(shadow_map_size_);
+    fill_shadow_layout(block, shadow_map_size_, shadow_atlas_columns(), shadow_atlas_rows());
     if (frame != nullptr) {
-        std::memcpy(block.light_view_proj, &frame->light_view_proj, sizeof(block.light_view_proj));
-        block.params[0] = frame->texel_world_size;
-        block.params[1] = frame->normal_offset_texels;
-        block.params[2] = static_cast<float>(frame->filter_radius);
+        std::memcpy(block.light_view_proj[0], &frame->light_view_proj, sizeof(block.light_view_proj[0]));
+        block.texel[0] = frame->texel_world_size;
+        for (uint32_t i = 1; i < frame->cascade_count; ++i) {
+            std::memcpy(block.light_view_proj[i], &frame->more_view_proj[i - 1], sizeof(block.light_view_proj[i]));
+            block.texel[i] = frame->more_texel_world_size[i - 1];
+        }
+        for (uint32_t i = 0; i < 4; ++i) block.splits[i] = frame->split_far[i];
+        block.params[0] = frame->normal_offset_texels;
+        block.params[1] = static_cast<float>(frame->filter_radius);
+        block.params[2] = static_cast<float>(frame->cascade_count);
         block.params[3] = 1.0f;
+        block.map[1] = frame->blend;
+        block.camera_pos[0] = frame->camera_position.x;
+        block.camera_pos[1] = frame->camera_position.y;
+        block.camera_pos[2] = frame->camera_position.z;
+        block.camera_fwd[0] = frame->camera_forward.x;
+        block.camera_fwd[1] = frame->camera_forward.y;
+        block.camera_fwd[2] = frame->camera_forward.z;
     }
     std::span<std::byte> mapped = device_.map(shadow_blocks_[slot].handle());  // may throw: nothing has been modified yet
     std::memcpy(mapped.data(), &block, sizeof(block));

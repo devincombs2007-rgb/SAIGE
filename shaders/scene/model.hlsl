@@ -73,36 +73,72 @@ struct ModelPush {
 [[vk::binding(4, 1)]] SamplerComparisonState g_shadow_sampler;  // nearest filtering, GreaterEqual
 [[vk::binding(5, 1)]] cbuffer ShadowConstants
 {
-    column_major float4x4 sh_light_view_proj;
-    float4 sh_params; // x: shadow-map texel size in meters, y: normal offset in texels, z: filter radius in texels (0 = one tap), w: 1 when shadows are on
-    float4 sh_map;    // x: 1 / shadow-map size in texels
+    column_major float4x4 sh_light_view_proj[4];  // world to each cascade's clip space
+    float4 sh_texel;       // meters per shadow-map texel of cascade 0..3
+    float4 sh_splits;      // view-space depth where cascade 0..3 ends
+    float4 sh_params;      // x: normal offset in texels, y: filter radius in texels (0 = one tap), z: cascade count, w: 1 when shadows are on
+    float4 sh_map;         // x: 1 / tile size in texels, y: blend fraction, z, w: the size of one atlas tile in uv
+    float4 sh_camera_pos;  // xyz: the view the cascade is selected by
+    float4 sh_camera_fwd;  // xyz: its forward direction, w: atlas columns
 };
 
-/// The fraction of the sun that reaches `world_pos` (1 = fully lit, 0 = shadowed): a percentage-closer filter over (2r+1)^2 comparison
-/// taps. The position is first moved along the geometric normal by a fixed number of shadow texels, which removes the self-shadowing
-/// that a depth bias alone cannot (grazing surfaces). Outside the map, or beyond its depth range, the sun is not occluded. Explicit-LOD
-/// sampling only, so it is safe in any control flow.
-float sun_visibility(float3 world_pos, float3 geometric_normal)
+/// The fraction of the sun that reaches `world_pos` according to one cascade (1 = fully lit, 0 = shadowed): a percentage-closer filter over
+/// (2r+1)^2 comparison taps inside the cascade's atlas tile (a tap that would leave the tile reads the tile's edge texel, never a neighbor's).
+/// The position is first moved along the geometric normal by a fixed number of this cascade's texels, which removes the self-shadowing that
+/// a depth bias alone cannot (grazing surfaces). Outside the cascade's map, or beyond its depth range, the sun is not occluded. Explicit-LOD
+/// comparison reads are legal in non-uniform control flow, which the early returns create.
+float cascade_visibility(uint cascade, float3 world_pos, float3 geometric_normal)
 {
-    if (sh_params.w < 0.5) {
-        return 1.0;
-    }
-    const float3 offset_pos = world_pos + geometric_normal * (sh_params.y * sh_params.x);
-    const float4 clip = mul(sh_light_view_proj, float4(offset_pos, 1.0));
+    const float3 offset_pos = world_pos + geometric_normal * (sh_params.x * sh_texel[cascade]);
+    const float4 clip = mul(sh_light_view_proj[cascade], float4(offset_pos, 1.0));
     const float3 ndc = clip.xyz / clip.w;
     const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);  // texture v = 0 is the top row; NDC +Y is up
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
         return 1.0;
     }
-    const int radius = (int)sh_params.z;
+    const uint columns = (uint)sh_camera_fwd.w;
+    const float2 origin = float2((float)(cascade % columns), (float)(cascade / columns)) * sh_map.zw;
+    const int radius = (int)sh_params.y;
     float sum = 0.0;
     for (int y = -radius; y <= radius; ++y) {
         for (int x = -radius; x <= radius; ++x) {
-            sum += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, uv + float2(x, y) * sh_map.x, ndc.z);
+            const float2 tap = clamp(uv + float2(x, y) * sh_map.x, float2(0.0, 0.0), float2(1.0, 1.0));
+            sum += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, origin + tap * sh_map.zw, ndc.z);
         }
     }
     const float taps = (float)(2 * radius + 1);
     return sum / (taps * taps);
+}
+
+/// The fraction of the sun that reaches `world_pos` (1 = fully lit, 0 = shadowed). With one cascade this is that cascade's lookup. With
+/// several, the receiver's cascade is the first whose far split reaches its view-space depth (beyond the last there is no shadow), and over
+/// the last `blend` fraction of that cascade's depth range the result blends into the next cascade's, so there is no seam at a split.
+float sun_visibility(float3 world_pos, float3 geometric_normal)
+{
+    if (sh_params.w < 0.5) {
+        return 1.0;
+    }
+    const uint count = (uint)sh_params.z;
+    if (count <= 1u) {
+        return cascade_visibility(0u, world_pos, geometric_normal);
+    }
+    const float depth = dot(world_pos - sh_camera_pos.xyz, sh_camera_fwd.xyz);
+    uint c = 0u;
+    while (c < count && depth > sh_splits[c]) {
+        ++c;
+    }
+    if (c >= count) {
+        return 1.0;
+    }
+    float visibility = cascade_visibility(c, world_pos, geometric_normal);
+    if (c + 1u < count) {
+        const float previous = c == 0u ? 0.0 : sh_splits[c - 1u];
+        const float band = sh_map.y * (sh_splits[c] - previous);
+        if (band > 0.0 && depth > sh_splits[c] - band) {
+            visibility = lerp(visibility, cascade_visibility(c + 1u, world_pos, geometric_normal), (depth - (sh_splits[c] - band)) / band);
+        }
+    }
+    return visibility;
 }
 #endif
 

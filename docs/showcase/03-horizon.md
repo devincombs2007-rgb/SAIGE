@@ -18,7 +18,7 @@ Owner of the work while Codex is away: Claude Code (Core, Graphics, physics, gam
 | Animation | CesiumMan's walk clip, GPU skinning; gait follows distance covered; the standing pose is the clip frame with the feet closest together | real skinning; **the asset has a walk clip only** (no run, jump, idle or seated clips) |
 | Rendering | PBR metallic-roughness, HDR, three-cascade dynamic sun shadows, single-scattering atmosphere with sun disc, moon and stars, time-of-day lighting, screen-space AO, bloom, FXAA, alpha-blended dust, per-frame exposure | real, see docs/rendering |
 | Lighting at night | emissive windows and lamps with bloom, a moonlit ambient floor | **no point lights**: lights do not illuminate their surroundings |
-| Audio | `tools/audio.py` synthesises everything from the simulation trace (engine from rpm, tires and wind from speed, footsteps from distance, doors from the script, the crash from the impact event) and a generated pad | synthesised, no samples |
+| Audio | `tools/audio_recorded.py` mixes **recorded CC0 sound effects from the asset catalog** (six engine loops cross-faded by the vehicle's rpm, footsteps by distance covered, doors, breaking glass, metal, rock and debris at the recorded impact, wind by speed) driven by the simulation trace, with a generated pad, birds and crickets; `tools/audio.py` is the fully synthesised fallback | recorded where a recording was reachable; stereo, not spatialised |
 | Not implemented | pedestrians, a seated driver, image-based lighting in this film (the renderer supports it; its environment is fixed per renderer and the film changes the light continuously), soft-body deformation, sampled audio | disclosed on the end card |
 
 ## Assets and licences
@@ -26,6 +26,7 @@ Owner of the work while Codex is away: Claude Code (Core, Graphics, physics, gam
 Fetched by `tools/fetch_assets.py` (checksums in `assets.json`). They are not committed.
 
 * Poly Haven textures and props: CC0-1.0.
+* Sound effects: CC0 packs from OpenGameArt by domasx2 (racing car engine loops), qubodup (door set), Fantozzi (footsteps), rubberduck (breaking, falling, hit), tinyworlds (glass break) and ignasd (wind).
 * Car Concept, (c) Khronos Group, created by Eric Chadwick of Darmstadt Graphics Group GmbH, 2024, CC BY 4.0.
 * Cesium Man, (c) Cesium, CC BY 4.0.
 
@@ -39,7 +40,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_
 build/showcase/horizon_sim_test                                   # determinism, streaming, checkpoint, crash
 build/showcase/saige_horizon_sim_run --out TRACE_DIR              # headless run, trace.csv / impacts.csv / timeline.csv / checkpoint.json
 showcase/03-horizon/tools/render_video.sh build ASSET_DIR OUT 1920 1080 30
-python3 showcase/03-horizon/tools/audio.py TRACE_DIR OUT/audio.wav 142
+python3 showcase/03-horizon/tools/audio_recorded.py TRACE_DIR OUT/audio.wav 142   # needs the OpenGameArt packs: saige-assets fetch opengameart <page> --kind audio
 showcase/03-horizon/tools/assemble.sh OUT/video_silent.mp4 OUT/audio.wav OUT/film.mp4 1920 1080 30
 ```
 

@@ -37,6 +37,9 @@ def cmd_search(a):
     elif a.source == "makehuman":
         from .sources import makehuman
         _print_rows(makehuman.search(a.query, a.type, None, a.limit))
+    elif a.source == "opengameart":
+        from .sources import opengameart
+        _print_rows(opengameart.search(a.query, a.type or "audio", a.limit))
     elif a.source == "freesound":
         from .sources import keyed
         _print_rows([{"id": r["id"], "name": r["name"], "license": r["license"], "dur": r["duration"], "by": r["username"]} for r in keyed.freesound_search(a.query, page_size=a.limit)])

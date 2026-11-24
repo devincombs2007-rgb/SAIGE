@@ -1,0 +1,81 @@
+{
+ "category": "audio.ambience",
+ "creators": [
+  "ignasd"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 263555,
+   "format": "zip",
+   "path": "opengameart/wind/wind.zip",
+   "role": "content",
+   "sha256": "8f6185f6eb836a5c35c492e8dabd276e507ba3e4dca0e7d551d04c689d0c0d63"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.wind",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Wind by ignasd (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Wind",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/wind --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:40:19Z",
+  "source_id": "wind",
+  "url": "https://opengameart.org/content/wind"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "zip",
+  "pack_contents": [
+   {
+    "bytes": 59861,
+    "channels": 1,
+    "duration_s": 6.635,
+    "file": "wind/Wind.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.85,
+    "peak_dbfs": -20.68,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 57568,
+    "channels": 1,
+    "duration_s": 6.655,
+    "file": "wind/Wind2.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.81,
+    "peak_dbfs": -20.71,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17776,
+    "channels": 1,
+    "duration_s": 1.708,
+    "file": "wind/Wind3.ogg",
+    "loop_seam_ratio": 0.14,
+    "lufs_integrated": -34.87,
+    "peak_dbfs": -21.2,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 3,
+  "pack_seconds": 15.0
+ },
+ "version": 1
+}

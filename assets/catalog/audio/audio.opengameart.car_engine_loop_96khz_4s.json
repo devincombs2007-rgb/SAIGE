@@ -1,0 +1,71 @@
+{
+ "category": "audio.vehicle",
+ "creators": [
+  "qubodup"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 2679125,
+   "format": "7z",
+   "path": "opengameart/car_engine_loop_96khz_4s/engine-loop.7z",
+   "role": "content",
+   "sha256": "06b14b760fde613b357d043517f604dfde024318e764dff209a179ea39c566d6"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.car_engine_loop_96khz_4s",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Car Engine Loop 96kHz, 4s by qubodup (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed-with-attribution",
+  "spdx": "CC-BY-3.0",
+  "url": "http://creativecommons.org/licenses/by/3.0/"
+ },
+ "name": "Car Engine Loop 96kHz, 4s",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/car-engine-loop-96khz-4s --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:40:54Z",
+  "source_id": "car_engine_loop_96khz_4s",
+  "url": "https://opengameart.org/content/car-engine-loop-96khz-4s"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "7z",
+  "pack_contents": [
+   {
+    "bytes": 705644,
+    "channels": 2,
+    "duration_s": 4.0,
+    "file": "engine-loop/engine-loop-1-normalized.wav",
+    "loop_seam_ratio": 0.06,
+    "lufs_integrated": -6.73,
+    "peak_dbfs": 0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2304164,
+    "channels": 2,
+    "duration_s": 4.0,
+    "file": "engine-loop/engine-loop-1.wav",
+    "loop_seam_ratio": 1.84,
+    "lufs_integrated": -26.96,
+    "peak_dbfs": -19.24,
+    "sample_rate": 96000
+   }
+  ],
+  "pack_files": 2,
+  "pack_seconds": 8.0
+ },
+ "version": 1
+}

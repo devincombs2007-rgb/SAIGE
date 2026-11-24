@@ -1,0 +1,56 @@
+{
+ "category": "audio.impact",
+ "creators": [
+  "tinyworlds"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 230924,
+   "format": "wav",
+   "path": "opengameart/glass_break/glass_breaking.wav",
+   "role": "content",
+   "sha256": "37d29069c885afe3f7ca639293fa679fb6511a6a1e54316f0e403e4493f502b3"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.glass_break",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Glass Break by tinyworlds (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Glass Break",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/glass-break --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:39:45Z",
+  "source_id": "glass_break",
+  "url": "https://opengameart.org/content/glass-break"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "bytes_pcm16": 230880,
+  "channels": 2,
+  "duration_s": 1.309,
+  "loop_edge_rms_ratio": 3450.565,
+  "loop_seam_discontinuity": 0.0049,
+  "loop_seam_ratio": 0.26,
+  "lufs_integrated": -17.12,
+  "peak_dbfs": 0.0,
+  "sample_rate": 44100,
+  "silence_ratio": 0.314
+ },
+ "version": 1
+}

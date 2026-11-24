@@ -1,0 +1,636 @@
+{
+ "category": "audio.ambience",
+ "creators": [
+  "rubberduck"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 1624406,
+   "format": "zip",
+   "path": "opengameart/75_cc0_breaking_falling_hit_sfx/sfx_breaking_and_falling.zip",
+   "role": "content",
+   "sha256": "e6ee04d91c5f4d30cfda1260d2c9d1faf96fda36319287215fbd07bcb1a80451"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.75_cc0_breaking_falling_hit_sfx",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "75 CC0 breaking / falling / hit sfx by rubberduck (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "75 CC0 breaking / falling / hit sfx",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:39:51Z",
+  "source_id": "75_cc0_breaking_falling_hit_sfx",
+  "url": "https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "zip",
+  "pack_contents": [
+   {
+    "bytes": 48222,
+    "channels": 2,
+    "duration_s": 1.063,
+    "file": "bfh1_breaking_01.ogg",
+    "loop_seam_ratio": 0.03,
+    "lufs_integrated": -23.38,
+    "peak_dbfs": -2.36,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 21954,
+    "channels": 2,
+    "duration_s": 0.542,
+    "file": "bfh1_breaking_02.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -26.11,
+    "peak_dbfs": -3.53,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 19730,
+    "channels": 2,
+    "duration_s": 0.612,
+    "file": "bfh1_breaking_03.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -23.18,
+    "peak_dbfs": -6.39,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 48286,
+    "channels": 2,
+    "duration_s": 1.069,
+    "file": "bfh1_falling_01.ogg",
+    "loop_seam_ratio": 0.92,
+    "lufs_integrated": -24.29,
+    "peak_dbfs": -1.01,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 45614,
+    "channels": 2,
+    "duration_s": 1.044,
+    "file": "bfh1_falling_02.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -24.67,
+    "peak_dbfs": -1.95,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 39014,
+    "channels": 2,
+    "duration_s": 0.812,
+    "file": "bfh1_falling_03.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -28.13,
+    "peak_dbfs": -2.53,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 49591,
+    "channels": 2,
+    "duration_s": 1.489,
+    "file": "bfh1_falling_04.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -15.79,
+    "peak_dbfs": -2.1,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 31488,
+    "channels": 2,
+    "duration_s": 0.927,
+    "file": "bfh1_falling_05.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -17.44,
+    "peak_dbfs": -2.1,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 27461,
+    "channels": 2,
+    "duration_s": 0.626,
+    "file": "bfh1_falling_06.ogg",
+    "loop_seam_ratio": 0.16,
+    "lufs_integrated": -21.55,
+    "peak_dbfs": -2.05,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 44299,
+    "channels": 2,
+    "duration_s": 1.112,
+    "file": "bfh1_falling_07.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -18.26,
+    "peak_dbfs": -2.53,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 27455,
+    "channels": 2,
+    "duration_s": 0.761,
+    "file": "bfh1_glass_breaking_01.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.17,
+    "peak_dbfs": -4.62,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 20727,
+    "channels": 2,
+    "duration_s": 0.388,
+    "file": "bfh1_glass_breaking_02.ogg",
+    "loop_seam_ratio": 0.09,
+    "peak_dbfs": -2.83,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 31276,
+    "channels": 2,
+    "duration_s": 0.776,
+    "file": "bfh1_glass_breaking_03.ogg",
+    "loop_seam_ratio": 0.17,
+    "lufs_integrated": -28.07,
+    "peak_dbfs": -2.06,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 32779,
+    "channels": 2,
+    "duration_s": 0.763,
+    "file": "bfh1_glass_breaking_04.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -22.93,
+    "peak_dbfs": -1.82,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 21425,
+    "channels": 2,
+    "duration_s": 0.438,
+    "file": "bfh1_glass_breaking_05.ogg",
+    "loop_seam_ratio": 0.09,
+    "lufs_integrated": -19.36,
+    "peak_dbfs": -1.69,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 36433,
+    "channels": 2,
+    "duration_s": 0.916,
+    "file": "bfh1_glass_breaking_06.ogg",
+    "loop_seam_ratio": 0.05,
+    "lufs_integrated": -14.52,
+    "peak_dbfs": -3.4,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 20124,
+    "channels": 2,
+    "duration_s": 0.431,
+    "file": "bfh1_glass_falling_01.ogg",
+    "loop_seam_ratio": 0.02,
+    "lufs_integrated": -13.93,
+    "peak_dbfs": -1.51,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 39114,
+    "channels": 2,
+    "duration_s": 0.825,
+    "file": "bfh1_glass_falling_02.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -21.45,
+    "peak_dbfs": -2.31,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 25853,
+    "channels": 2,
+    "duration_s": 0.554,
+    "file": "bfh1_glass_falling_03.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -25.89,
+    "peak_dbfs": -2.08,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 29033,
+    "channels": 2,
+    "duration_s": 0.589,
+    "file": "bfh1_glass_falling_04.ogg",
+    "loop_seam_ratio": 0.02,
+    "lufs_integrated": -17.15,
+    "peak_dbfs": -1.51,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 11267,
+    "channels": 2,
+    "duration_s": 0.302,
+    "file": "bfh1_glass_hit_01.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -2.08,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 14091,
+    "channels": 2,
+    "duration_s": 0.333,
+    "file": "bfh1_glass_hit_02.ogg",
+    "loop_seam_ratio": 0.03,
+    "peak_dbfs": -3.46,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 28246,
+    "channels": 2,
+    "duration_s": 0.729,
+    "file": "bfh1_hit_01.ogg",
+    "loop_seam_ratio": 0.03,
+    "lufs_integrated": -23.33,
+    "peak_dbfs": -2.98,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 30619,
+    "channels": 2,
+    "duration_s": 0.797,
+    "file": "bfh1_hit_02.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -23.26,
+    "peak_dbfs": -7.22,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 19171,
+    "channels": 2,
+    "duration_s": 0.485,
+    "file": "bfh1_hit_03.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -26.26,
+    "peak_dbfs": -4.26,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 16929,
+    "channels": 2,
+    "duration_s": 0.497,
+    "file": "bfh1_hit_04.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -26.02,
+    "peak_dbfs": -2.22,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 8330,
+    "channels": 2,
+    "duration_s": 0.276,
+    "file": "bfh1_hit_05.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -2.07,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 16231,
+    "channels": 2,
+    "duration_s": 0.595,
+    "file": "bfh1_hit_06.ogg",
+    "loop_seam_ratio": 0.48,
+    "lufs_integrated": -23.46,
+    "peak_dbfs": -2.65,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 21880,
+    "channels": 2,
+    "duration_s": 0.456,
+    "file": "bfh1_hit_07.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -19.19,
+    "peak_dbfs": -3.62,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 19704,
+    "channels": 2,
+    "duration_s": 0.39,
+    "file": "bfh1_hit_08.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -2.18,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 10881,
+    "channels": 2,
+    "duration_s": 0.262,
+    "file": "bfh1_hit_09.ogg",
+    "loop_seam_ratio": 0.03,
+    "peak_dbfs": -1.57,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 13017,
+    "channels": 2,
+    "duration_s": 0.303,
+    "file": "bfh1_hit_10.ogg",
+    "loop_seam_ratio": 0.03,
+    "peak_dbfs": -1.48,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 10651,
+    "channels": 2,
+    "duration_s": 0.302,
+    "file": "bfh1_hit_11.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -2.23,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 24811,
+    "channels": 2,
+    "duration_s": 0.511,
+    "file": "bfh1_hit_12.ogg",
+    "loop_seam_ratio": 0.04,
+    "lufs_integrated": -21.69,
+    "peak_dbfs": -2.24,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 15630,
+    "channels": 2,
+    "duration_s": 0.377,
+    "file": "bfh1_hit_13.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -2.38,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 42021,
+    "channels": 2,
+    "duration_s": 1.16,
+    "file": "bfh1_metal_falling_01.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -20.07,
+    "peak_dbfs": -3.62,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 31167,
+    "channels": 2,
+    "duration_s": 0.741,
+    "file": "bfh1_metal_falling_02.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -15.58,
+    "peak_dbfs": -2.14,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 13766,
+    "channels": 2,
+    "duration_s": 0.42,
+    "file": "bfh1_metal_falling_03.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -15.1,
+    "peak_dbfs": -0.93,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 14609,
+    "channels": 2,
+    "duration_s": 0.43,
+    "file": "bfh1_metal_falling_04.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -14.41,
+    "peak_dbfs": -1.35,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 17013,
+    "channels": 2,
+    "duration_s": 0.403,
+    "file": "bfh1_metal_falling_05.ogg",
+    "loop_seam_ratio": 0.07,
+    "lufs_integrated": -19.36,
+    "peak_dbfs": -2.36,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 11820,
+    "channels": 2,
+    "duration_s": 0.238,
+    "file": "bfh1_metal_hit_01.ogg",
+    "loop_seam_ratio": 0.3,
+    "peak_dbfs": -1.45,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 23524,
+    "channels": 2,
+    "duration_s": 0.55,
+    "file": "bfh1_metal_hit_02.ogg",
+    "loop_seam_ratio": 0.02,
+    "lufs_integrated": -16.67,
+    "peak_dbfs": -2.09,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 16778,
+    "channels": 2,
+    "duration_s": 0.46,
+    "file": "bfh1_metal_hit_03.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -22.72,
+    "peak_dbfs": -2.5,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 13131,
+    "channels": 2,
+    "duration_s": 0.406,
+    "file": "bfh1_metal_hit_04.ogg",
+    "loop_seam_ratio": 0.47,
+    "lufs_integrated": -19.42,
+    "peak_dbfs": -2.7,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 15916,
+    "channels": 2,
+    "duration_s": 0.33,
+    "file": "bfh1_metal_hit_05.ogg",
+    "loop_seam_ratio": 0.98,
+    "peak_dbfs": -4.05,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 18001,
+    "channels": 2,
+    "duration_s": 0.371,
+    "file": "bfh1_metal_hit_06.ogg",
+    "loop_seam_ratio": 32.59,
+    "peak_dbfs": -2.2,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 23824,
+    "channels": 2,
+    "duration_s": 0.518,
+    "file": "bfh1_misc_01.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -24.67,
+    "peak_dbfs": -3.65,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 28709,
+    "channels": 2,
+    "duration_s": 0.935,
+    "file": "bfh1_misc_02.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -20.46,
+    "peak_dbfs": -3.53,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 22266,
+    "channels": 2,
+    "duration_s": 0.415,
+    "file": "bfh1_misc_03.ogg",
+    "loop_seam_ratio": 0.03,
+    "lufs_integrated": -23.0,
+    "peak_dbfs": -2.69,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 12814,
+    "channels": 2,
+    "duration_s": 0.258,
+    "file": "bfh1_misc_04.ogg",
+    "loop_seam_ratio": 0.02,
+    "peak_dbfs": -2.67,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 13658,
+    "channels": 2,
+    "duration_s": 0.238,
+    "file": "bfh1_misc_05.ogg",
+    "loop_seam_ratio": 0.25,
+    "peak_dbfs": -2.68,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 41746,
+    "channels": 2,
+    "duration_s": 0.99,
+    "file": "bfh1_misc_06.ogg",
+    "loop_seam_ratio": 1.0,
+    "lufs_integrated": -20.96,
+    "peak_dbfs": -3.09,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 30071,
+    "channels": 2,
+    "duration_s": 0.729,
+    "file": "bfh1_misc_07.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -20.82,
+    "peak_dbfs": -2.51,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 30092,
+    "channels": 2,
+    "duration_s": 1.147,
+    "file": "bfh1_rock_breaking_01.ogg",
+    "loop_seam_ratio": 0.31,
+    "lufs_integrated": -28.47,
+    "peak_dbfs": -3.18,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 45809,
+    "channels": 2,
+    "duration_s": 0.865,
+    "file": "bfh1_rock_breaking_02.ogg",
+    "loop_seam_ratio": 0.82,
+    "lufs_integrated": -22.96,
+    "peak_dbfs": -1.94,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 26580,
+    "channels": 2,
+    "duration_s": 0.455,
+    "file": "bfh1_rock_breaking_03.ogg",
+    "loop_seam_ratio": 0.78,
+    "lufs_integrated": -27.33,
+    "peak_dbfs": -2.0,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 36250,
+    "channels": 2,
+    "duration_s": 0.916,
+    "file": "bfh1_rock_falling_01.ogg",
+    "loop_seam_ratio": 0.08,
+    "lufs_integrated": -21.56,
+    "peak_dbfs": -1.67,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 18412,
+    "channels": 2,
+    "duration_s": 0.506,
+    "file": "bfh1_rock_falling_02.ogg",
+    "loop_seam_ratio": 0.06,
+    "lufs_integrated": -26.55,
+    "peak_dbfs": -5.8,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 40966,
+    "channels": 2,
+    "duration_s": 0.851,
+    "file": "bfh1_rock_falling_03.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -27.66,
+    "peak_dbfs": -1.15,
+    "sample_rate": 48000
+   },
+   {
+    "bytes": 15560,
+    "channels": 2,
+    "duration_s": 0.32,
+    "file": "bfh1_rock_falling_04.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.91,
+    "sample_rate": 48000
+   }
+  ],
+  "pack_files": 60,
+  "pack_seconds": 37.0
+ },
+ "version": 1
+}

@@ -106,8 +106,12 @@
  },
  "status": "candidate",
  "suitability": {
-  "notes": [],
-  "runtime_ready": null
+  "checked_with": "saige_asset_inspect",
+  "notes": [
+   "validator did not run (is the Node toolchain installed?)",
+   "engine: loads, 33142 triangles, textures 48.0 MiB on the GPU"
+  ],
+  "runtime_ready": true
  },
  "tags": [
   "barrel",

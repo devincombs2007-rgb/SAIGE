@@ -64,8 +64,12 @@
  },
  "status": "candidate",
  "suitability": {
-  "notes": [],
-  "runtime_ready": null
+  "checked_with": "saige_asset_inspect",
+  "notes": [
+   "validator did not run (is the Node toolchain installed?)",
+   "engine: loads, 3319 triangles, textures 16.0 MiB on the GPU"
+  ],
+  "runtime_ready": true
  },
  "tags": [
   "nature",

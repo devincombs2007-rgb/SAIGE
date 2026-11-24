@@ -78,7 +78,9 @@ int main(int argc, char** argv)
         tex_json += std::string(i ? "," : "") + "{\"image\":" + std::to_string(i) + ",\"width\":" + std::to_string(d.image->width) + ",\"height\":" + std::to_string(d.image->height) + ",\"alpha\":" + (d.image->has_alpha ? "true" : "false") + "}";
     }
     std::string reasons;
+    std::string advisories;
     const auto add = [&](const std::string& s) { reasons += std::string(reasons.empty() ? "" : ",") + "\"" + esc(s) + "\""; };
+    const auto advise = [&](const std::string& s) { advisories += std::string(advisories.empty() ? "" : ",") + "\"" + esc(s) + "\""; };
     if (tris > max_tris) add("triangle count " + std::to_string(tris) + " exceeds the budget " + std::to_string(max_tris) + ": simplify or build LODs");
     if (tex_bytes > max_tex_bytes) add("texture memory exceeds the budget: resize the textures");
     if (undecodable > 0) add(std::to_string(undecodable) + " image(s) cannot be decoded (only PNG and JPEG are supported)");
@@ -89,7 +91,7 @@ int main(int argc, char** argv)
     if (no_tangent > 0) {
         bool needs = false;
         for (const gfx::Material& m : a.materials) needs = needs || m.normal_texture.valid();
-        if (needs && no_uv > 0) add("a normal-mapped primitive has no UVs: its normal map is ignored");
+        if (needs && no_uv > 0) advise("a normal-mapped primitive has no UVs: its normal map is ignored (not blocking)");
     }
     gfx::Aabb b = a.bounds;
     std::printf(" \"loads\": true,\n \"meshes\": %zu, \"primitives\": %zu, \"triangles\": %llu, \"vertices\": %llu,\n \"materials\": %zu, \"images\": %zu, \"samplers\": %zu, \"instances\": %zu,\n", a.meshes.size(), prims,
@@ -109,6 +111,6 @@ int main(int argc, char** argv)
     }
     std::printf(" \"warnings\": [");
     for (std::size_t i = 0; i < a.warnings.size(); ++i) std::printf("%s\"%s\"", i ? "," : "", esc(a.warnings[i]).c_str());
-    std::printf("],\n \"runtime_ready\": %s,\n \"reasons\": [%s]\n}\n", reasons.empty() ? "true" : "false", reasons.c_str());
+    std::printf("],\n \"runtime_ready\": %s,\n \"reasons\": [%s],\n \"advisories\": [%s]\n}\n", reasons.empty() ? "true" : "false", reasons.c_str(), advisories.c_str());
     return reasons.empty() ? 0 : 1;
 }

@@ -163,7 +163,9 @@ def describe_audio(path, analyse=True):
         n = min(len(mono) // 8, int(0.05 * sr))
         if n > 16:
             head, tail = mono[:n], mono[-n:]
+            step = float(np.mean(np.abs(np.diff(mono[: min(len(mono), 4 * sr)]))) + 1e-9)
             out["loop_seam_discontinuity"] = round(float(abs(mono[0] - mono[-1])), 4)
+            out["loop_seam_ratio"] = round(float(abs(mono[0] - mono[-1])) / step, 2)  # about 1 or less when the wrap is as smooth as the signal itself, much more when it clicks
             out["loop_edge_rms_ratio"] = round(float((np.sqrt(np.mean(head ** 2)) + 1e-9) / (np.sqrt(np.mean(tail ** 2)) + 1e-9)), 3)
     return out
 

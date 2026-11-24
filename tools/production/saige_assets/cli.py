@@ -8,6 +8,7 @@
   saige-assets scan PATH --source local --license CC0-1.0          # catalog files you already have (hashes, technical data)
   saige-assets find rock --kind model --redistributable
   saige-assets show model.polyhaven.rock_09 | stats | verify | dedupe | licenses | approve ID | reject ID --reason ...
+  saige-assets validate ID                                         # Khronos validator + the engine importer; stores the verdict in the record
   saige-assets services                                            # read-only checks of the keyed services (no credits are spent)
 """
 import argparse, json, sys
@@ -33,6 +34,9 @@ def cmd_search(a):
     elif a.source == "khronos":
         from .sources import khronos
         _print_rows(khronos.search(a.query, a.limit))
+    elif a.source == "makehuman":
+        from .sources import makehuman
+        _print_rows(makehuman.search(a.query, a.type, None, a.limit))
     elif a.source == "freesound":
         from .sources import keyed
         _print_rows([{"id": r["id"], "name": r["name"], "license": r["license"], "dur": r["duration"], "by": r["username"]} for r in keyed.freesound_search(a.query, page_size=a.limit)])
@@ -57,6 +61,9 @@ def cmd_fetch(a):
     elif a.source == "opengameart":
         from .sources import opengameart
         rec = opengameart.fetch(a.id, a.kind)
+    elif a.source == "makehuman":
+        from .sources import makehuman
+        rec = makehuman.fetch(a.id)
     else:
         sys.exit(f"no scripted fetch for {a.source}; see docs/assets/integration-report.md")
     rec, created, changed = cat.put(rec)
@@ -145,6 +152,64 @@ def cmd_mark(a):
     print(f"{a.id} -> {a.status}")
 
 
+def _find_inspector():
+    import os, shutil
+    for c in (os.environ.get("SAIGE_ASSET_INSPECT"), shutil.which("saige_asset_inspect"), *(str(p) for p in Path("/tmp").glob("b*/tools/production/inspect/saige_asset_inspect")),
+              *(str(p) for p in (Path(__file__).resolve().parents[3] / "build").rglob("saige_asset_inspect"))):
+        if c and Path(c).exists():
+            return c
+    return None
+
+
+def cmd_validate(a):
+    """Runs the Khronos validator and the engine's own importer on a record's model, and stores the verdict in the record's `suitability`."""
+    import os, subprocess
+    cat = Catalog()
+    r = cat.get(a.id)
+    if not r:
+        sys.exit("no such record")
+    model = next((f for f in r["files"] if f["format"] in ("glb", "gltf") and f["role"] in ("model", "content")), None)
+    if model is None:
+        sys.exit("the record has no glTF model file")
+    path = CACHE_DIR / model["path"]
+    here = Path(__file__).resolve().parents[1]
+    notes, checked, ready = [], [], True
+    v = subprocess.run(["node", str(here / "prep" / "validate_gltf.mjs"), str(path)], capture_output=True, text=True, env={**os.environ})
+    try:
+        vr = json.loads(v.stdout.strip().splitlines()[-1])
+        checked.append("khronos-gltf-validator")
+        if vr["errors"]:
+            ready = False
+            notes.append(f"validator: {vr['errors']} error(s): {'; '.join(vr['first_errors'])}")
+        else:
+            notes.append(f"validator: no errors, {vr['warnings']} warning(s)")
+    except Exception:  # noqa: BLE001
+        notes.append("validator did not run (is the Node toolchain installed?)")
+    insp = _find_inspector()
+    if insp:
+        i = subprocess.run([insp, str(path)], capture_output=True, text=True)
+        try:
+            ir = json.loads(i.stdout)
+            checked.append("saige_asset_inspect")
+            if not ir.get("runtime_ready", False):
+                ready = False
+                notes += ["engine: " + x for x in (ir.get("reasons") or [ir.get("error", "rejected")])]
+            else:
+                notes.append(f"engine: loads, {ir['triangles']} triangles, textures {human(ir['texture_gpu_bytes'])} on the GPU")
+            notes += ["engine advisory: " + x for x in ir.get("advisories", [])]
+        except Exception:  # noqa: BLE001
+            notes.append("the engine inspector produced no result")
+    else:
+        notes.append("saige_asset_inspect is not built: the engine importer was not consulted (build the target, or set SAIGE_ASSET_INSPECT)")
+        ready = None
+    r["suitability"] = {"runtime_ready": ready, "checked_with": ", ".join(checked), "notes": notes}
+    cat.validate(r)
+    dump_json(cat.path_for(r), r)
+    print(f"{a.id}: runtime_ready={ready}")
+    for n in notes:
+        print("  " + n)
+
+
 def cmd_services(a):
     from .sources import keyed
     import os
@@ -175,6 +240,7 @@ def main(argv=None):
     s = sub.add_parser("approve"); s.add_argument("id"); s.add_argument("--reason"); s.set_defaults(fn=cmd_mark, status="approved")
     s = sub.add_parser("reject"); s.add_argument("id"); s.add_argument("--reason"); s.set_defaults(fn=cmd_mark, status="rejected")
     sub.add_parser("services").set_defaults(fn=cmd_services)
+    s = sub.add_parser("validate"); s.add_argument("id"); s.set_defaults(fn=cmd_validate)
     a = ap.parse_args(argv)
     a.fn(a)
 

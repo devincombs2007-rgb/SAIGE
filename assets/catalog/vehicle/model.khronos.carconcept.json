@@ -45,8 +45,13 @@
  },
  "status": "candidate",
  "suitability": {
-  "notes": [],
-  "runtime_ready": null
+  "checked_with": "khronos-gltf-validator, saige_asset_inspect",
+  "notes": [
+   "validator: no errors, 0 warning(s)",
+   "engine: loads, 213347 triangles, textures 38.3 MiB on the GPU",
+   "engine advisory: a normal-mapped primitive has no UVs: its normal map is ignored (not blocking)"
+  ],
+  "runtime_ready": true
  },
  "tags": [
   "showcase",

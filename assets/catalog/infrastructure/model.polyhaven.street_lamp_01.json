@@ -64,8 +64,12 @@
  },
  "status": "candidate",
  "suitability": {
-  "notes": [],
-  "runtime_ready": null
+  "checked_with": "khronos-gltf-validator, saige_asset_inspect",
+  "notes": [
+   "validator: no errors, 3 warning(s)",
+   "engine: loads, 30610 triangles, textures 21.3 MiB on the GPU"
+  ],
+  "runtime_ready": true
  },
  "tags": [
   "street",

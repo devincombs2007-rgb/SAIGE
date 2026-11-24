@@ -45,8 +45,12 @@
  },
  "status": "candidate",
  "suitability": {
-  "notes": [],
-  "runtime_ready": null
+  "checked_with": "khronos-gltf-validator, saige_asset_inspect",
+  "notes": [
+   "validator: no errors, 1 warning(s)",
+   "engine: loads, 4672 triangles, textures 5.3 MiB on the GPU"
+  ],
+  "runtime_ready": true
  },
  "tags": [
   "core",

@@ -8,6 +8,7 @@ add_library(saige_core STATIC
     src/capsule_character.cpp
     src/capsule_sweep.cpp
     src/capsule_triangle.cpp
+    src/perf.cpp
     src/free_camera.cpp
     src/static_collision.cpp
     src/oriented_box.cpp
@@ -201,3 +202,5 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
         endif()
     endif()
 endif()
+
+add_subdirectory(showcase)

@@ -19,6 +19,7 @@
 #include <functional>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace saige;
@@ -63,7 +64,7 @@ GpuModel make_sphere(GpuResourceRegistry& registry, GpuMaterial material, float 
     return m;
 }
 
-std::shared_ptr<const EnvironmentLighting> make_environment(const Env& env, uint32_t base_width = 128, uint32_t levels = 4, float intensity = 1.0f)
+std::shared_ptr<const EnvironmentLighting> make_environment(const Env& env, uint32_t base_width = 128, uint32_t levels = 4, float intensity = 1.0f, gfx::Environment* cpu = nullptr)
 {
     gfx::HdrImage image;
     image.width = 256;
@@ -84,6 +85,7 @@ std::shared_ptr<const EnvironmentLighting> make_environment(const Env& env, uint
     s.samples = 192;
     const gfx::EnvironmentResult r = gfx::precompute_environment(image, s);
     REQUIRE(r.ok());
+    if (cpu != nullptr) *cpu = *r.environment;
     return std::make_shared<const EnvironmentLighting>(gfx::to_environment_lighting(*r.environment, intensity));
 }
 
@@ -343,6 +345,185 @@ TEST_CASE("IBL: rougher metal reflects a blurrier environment (the roughness sel
     CHECK(mirror > 0.4f);
     CHECK(mid < mirror * 0.3f);  // (the rough floor is the split-sum scale varying across the sphere, not the sky)
     CHECK(rough < mid * 0.8f);
+}
+
+TEST_CASE("IBL: filtering crosses the longitude seam and clamps at the poles; a one-level map is safe")
+{
+    // A sawtooth in longitude (0 at one side of the seam, 1 at the other) read by a near-mirror looking at the seam (reflection toward -x). The
+    // sampler repeats in u, so the texels across the seam are blended and at least one pixel of the row is a strict intermediate value; a sampler
+    // that clamped would show only the two edge values. The same sphere under a one-level map renders the same mirror as before.
+    const Env saw = [](Float3 d) {
+        const float v = std::atan2(d.y, d.x) / (2.0f * 3.14159265f) + 0.5f;
+        return Float3{v, v, v};
+    };
+    for (const uint32_t levels : {1u, 2u}) {  // a 16-texel-wide base, so the seam blend spans many pixels (a texel is 22.5 degrees of longitude)
+        Setup s;
+        s.metallic = 1.0f;
+        s.base = {1.0f, 1.0f, 1.0f};
+        s.roughness = 0.04f;
+        s.environment = make_environment(saw, 16, levels);
+        const Float3 offset{-5.0f, 0.0f, 0.0f};
+        const Rendered r = render_sphere(s, offset);
+        int intermediate = 0;
+        for (int step = -140; step <= 140; ++step) {
+            const float beta = static_cast<float>(step) * 0.005f;  // radians of yaw on the sphere's equator, as seen from the camera
+            const Float3 n{-std::cos(beta), std::sin(beta), 0.0f};
+            const float v = linear_at(r.image, to_pixel(r.view_proj, kCenter + n * kRadius)).x;
+            if (v > 0.12f && v < 0.88f && std::fabs(beta) < 0.1f) ++intermediate;  // the seam is at beta = 0; elsewhere the ramp is far from 0 and 1
+        }
+        CHECK(intermediate >= 3);
+    }
+    // The poles: a mirror pointed along the pole's axis reads the top row and does not leak the bottom row (latitude clamps, it does not wrap).
+    const Env polar = [](Float3 d) { return d.z > 0.0f ? Float3{0.9f, 0.9f, 0.9f} : Float3{0.1f, 0.1f, 0.1f}; };
+    Setup top;
+    top.metallic = 1.0f;
+    top.base = {1.0f, 1.0f, 1.0f};
+    top.roughness = 0.04f;
+    top.environment = make_environment(polar, 16, 1);  // 8 rows of 22.5 degrees: the pole's half-texel zone is wide enough to land in
+    const Rendered up = render_sphere(top, {0.2f, 0.1f, 5.0f});  // looking down on the sphere: the top reflects toward +z (and back toward the camera)
+    const float at_top = linear_at(up.image, to_pixel(up.view_proj, kCenter + Float3{0, 0, kRadius})).x;
+    CHECK(at_top > 0.82f);  // clamping reads the top row only (about 0.9 times the split-sum scale); wrapping would blend in the dark bottom row
+    const Rendered down = render_sphere(top, {0.2f, 0.1f, -5.0f});
+    const float at_bottom = linear_at(down.image, to_pixel(down.view_proj, kCenter + Float3{0, 0, -kRadius})).x;
+    CHECK(at_bottom < 0.18f);
+}
+
+namespace {
+
+struct ShadowedRender {
+    Image image;
+    Mat4 view_proj;
+};
+
+/// A white dielectric sphere under an environment and (optionally) the sun, with a small sphere between the sun and the big one casting a shadow
+/// on it. `shadows` turns the sun shadow pass on; `sun` scales the sun color.
+ShadowedRender render_with_occluder(const std::shared_ptr<const EnvironmentLighting>& environment, bool shadows, float sun, Float3 occluder_center, Float3 camera_offset)
+{
+    const auto device = make_validated_device("ibl_shadows");
+    RendererSettings settings = deterministic_settings();
+    settings.fog_density = 0.0f;
+    settings.model_shading = ModelShading::MetallicRoughness;
+    settings.lighting.sun_color = settings.lighting.sun_color * sun;
+    settings.environment = environment;
+    settings.shadows.enabled = shadows;
+    settings.shadows.map_size = 1024;
+    SceneRenderer renderer(*device, rhi::Format::RGBA8_SRGB, settings);
+    CHECK(renderer.model_renderer().ibl_enabled());
+    CHECK(renderer.model_renderer().shadows_enabled() == shadows);
+    OffscreenTarget target(*device, kW, kH);
+    MaterialParams mp;
+    mp.base_color[0] = mp.base_color[1] = mp.base_color[2] = 0.8f;
+    mp.metallic = 0.0f;
+    mp.roughness = 1.0f;
+    GpuMaterial material = renderer.model_renderer().create_material(mp, {}, {}, "white");
+    const GpuModel big = make_sphere(renderer.registry(), material, kRadius, 32, 64);
+    const GpuModel small = make_sphere(renderer.registry(), material, 0.6f, 24, 48);
+    const Camera camera = look_at_camera(kCenter + camera_offset, kCenter);
+    const ModelDraw draws[] = {{&big, translation(kCenter)}, {&small, translation(occluder_center)}};
+    ShadowedRender out;
+    out.view_proj = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+    out.image = target.render(renderer, {}, camera, 0, draws);
+    CHECK(device->validation_error_count() == 0);
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("IBL with sun shadows: both permutations' bindings coexist; the shadow removes exactly the sun and leaves the environment")
+{
+    const Float3 sun = normalize(SceneLighting{}.sun_direction);
+    const Float3 camera_offset = normalize(Float3{4.0f, -3.0f, 2.0f}) * 5.0f;
+    const Float3 view = normalize(camera_offset);
+    const Float3 n0 = normalize(sun + view);  // lit and visible: 25-ish degrees from both
+    const Float3 side = normalize(cross(sun, view));
+    const Float3 n1 = normalize(n0 + side * 0.9f);  // still lit and visible, well outside the occluder's shadow
+    CHECK(dot(n0, sun) > 0.8f && dot(n0, view) > 0.8f);
+    CHECK(dot(n1, sun) > 0.35f && dot(n1, view) > 0.35f);
+    const Float3 occluder = kCenter + n0 * kRadius + sun * 2.0f;
+    const auto environment = make_environment([](Float3 d) { return Float3{0.35f + 0.1f * d.z, 0.4f + 0.1f * d.z, 0.5f + 0.1f * d.z}; });
+
+    const ShadowedRender unshadowed = render_with_occluder(environment, false, 1.0f, occluder, camera_offset);  // IBL + sun, no shadow pass
+    const ShadowedRender shadowed = render_with_occluder(environment, true, 1.0f, occluder, camera_offset);     // IBL + sun + shadow pass
+    const ShadowedRender no_sun = render_with_occluder(environment, false, 0.0f, occluder, camera_offset);      // the environment alone
+    const Pixel p0 = to_pixel(shadowed.view_proj, kCenter + n0 * kRadius), p1 = to_pixel(shadowed.view_proj, kCenter + n1 * kRadius);
+    const Float3 lit0 = linear_at(unshadowed.image, p0), sh0 = linear_at(shadowed.image, p0), amb0 = linear_at(no_sun.image, p0);
+    const Float3 lit1 = linear_at(unshadowed.image, p1), sh1 = linear_at(shadowed.image, p1);
+    std::printf("  under the occluder: lit %.3f shadowed %.3f environment only %.3f; away from it: lit %.3f shadowed %.3f\n", static_cast<double>(lit0.x),
+                static_cast<double>(sh0.x), static_cast<double>(amb0.x), static_cast<double>(lit1.x), static_cast<double>(sh1.x));
+    CHECK(lit0.x - amb0.x > 0.2f);              // the sun matters here (so the test can fail)
+    CHECK(near3(sh0, amb0, 0.03f));             // in the shadow only the environment remains
+    CHECK(near3(sh1, lit1, 0.02f));             // outside the shadow nothing changes
+}
+
+TEST_CASE("IBL: a device that cannot filter RGBA16F is refused cleanly, and one that can is asked about the right format")
+{
+    const auto device = make_validated_device("ibl_capability");
+    CHECK(device->supports_filtered_sampling(rhi::Format::RGBA16_FLOAT));  // required by the Vulkan specification, so every conformant device says yes
+    CHECK(!device->supports_filtered_sampling(rhi::Format::Unknown));
+    const auto environment = make_environment([](Float3) { return Float3{0.4f, 0.4f, 0.4f}; });
+    RendererSettings with_env = deterministic_settings();
+    with_env.model_shading = ModelShading::MetallicRoughness;
+    with_env.environment = environment;
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+    const uint32_t baseline = device->memory_stats().allocation_count;
+    rhi::testing::deny_filtered_sampling_of(rhi::Format::RGBA16_FLOAT);
+    CHECK(!device->supports_filtered_sampling(rhi::Format::RGBA16_FLOAT));
+    std::string message;
+    try {
+        SceneRenderer renderer(*device, rhi::Format::RGBA8_SRGB, with_env);
+        (void)renderer.model_renderer();
+    } catch (const std::invalid_argument& e) {
+        message = e.what();
+    }
+    CHECK(message.find("cannot sample RGBA16_FLOAT with linear filtering") != std::string::npos);
+    // The refusal leaves nothing behind, and the same device renders without an environment (it does not need the format for anything else).
+    device->wait_idle();
+    CHECK(device->memory_stats().allocation_count == baseline);
+    RendererSettings without = deterministic_settings();
+    without.model_shading = ModelShading::MetallicRoughness;
+    SceneRenderer plain(*device, rhi::Format::RGBA8_SRGB, without);
+    CHECK(!plain.model_renderer().ibl_enabled());
+    rhi::testing::deny_filtered_sampling_of(rhi::Format::Unknown);
+    CHECK(device->supports_filtered_sampling(rhi::Format::RGBA16_FLOAT));
+    SceneRenderer restored(*device, rhi::Format::RGBA8_SRGB, with_env);
+    CHECK(restored.model_renderer().ibl_enabled());
+#endif
+    CHECK(device->validation_error_count() == 0);
+}
+
+TEST_CASE("IBL: roughness between two levels interpolates them (trilinear), as the CPU reference does")
+{
+    // Red carries a high-frequency band whose contrast falls quickly from level to level; green and blue are constant and pin the per-pixel split-sum
+    // scale k. The red channel must then equal k times the CPU trilinear sample (level 1 and 2 averaged at roughness 0.5 of a four-level map).
+    const Env env = [](Float3 d) { return Float3{0.1f + 0.8f * (0.5f + 0.5f * std::sin(14.0f * d.z)), 0.4f, 0.4f}; };
+    gfx::Environment cpu;
+    Setup s;
+    s.metallic = 1.0f;
+    s.base = {1.0f, 1.0f, 1.0f};
+    s.roughness = 0.5f;
+    s.environment = make_environment(env, 256, 4, 1.0f, &cpu);
+    int checked = 0;
+    float most_vs_nearest = 0.0f;
+    for (const Float3 camera : {Float3{5, 0, 0}, Float3{0, 5, 0}, Float3{-3, -3, 3}}) {
+        const Rendered r = render_sphere(s, camera);
+        for (const Float3 n : sample_normals(camera)) {
+            const Float3 view = normalize(camera - n * kRadius);
+            const Float3 refl = n * (2.0f * dot(n, view)) - view;
+            const Float3 got = linear_at(r.image, to_pixel(r.view_proj, kCenter + n * kRadius));
+            const float k = got.y / 0.4f;  // blue and green are constant, so this is the scale
+            const float expected = k * cpu.sample(refl, 0.5f).x;
+            const float level1 = k * cpu.sample(refl, 1.0f / 3.0f).x, level2 = k * cpu.sample(refl, 2.0f / 3.0f).x;
+            most_vs_nearest = std::max(most_vs_nearest, std::max(std::fabs(level1 - expected), std::fabs(level2 - expected)));
+            if (std::fabs(got.x - expected) > 0.04f) {
+                std::printf("  normal (%.2f %.2f %.2f): red %.3f expected %.3f (level 1 would give %.3f, level 2 %.3f)\n", static_cast<double>(n.x), static_cast<double>(n.y),
+                            static_cast<double>(n.z), static_cast<double>(got.x), static_cast<double>(expected), static_cast<double>(level1), static_cast<double>(level2));
+            }
+            CHECK(std::fabs(got.x - expected) <= 0.04f);
+            ++checked;
+        }
+    }
+    CHECK(checked >= 60);
+    CHECK(most_vs_nearest > 0.08f);  // the test could tell: reading the nearest level instead would be off by far more than the tolerance somewhere
 }
 
 TEST_CASE("IBL: off changes nothing, intensity scales the sky, and an environment with the wrong shading mode is refused")

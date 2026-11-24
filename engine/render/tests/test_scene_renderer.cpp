@@ -11,6 +11,7 @@
 #include <span>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -640,6 +641,34 @@ TEST_CASE("IBL (null device): a bad environment, or one with a shading mode that
     CHECK(mutated([](EnvironmentLighting& e) { e.intensity = -1.0f; }));
     CHECK(mutated([](EnvironmentLighting& e) { e.intensity = std::numeric_limits<float>::infinity(); }));
     CHECK(!mutated([](EnvironmentLighting&) {}));  // the unmutated one is accepted (the harness is not refusing everything)
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+}
+
+TEST_CASE("IBL (null device): a device that cannot filter RGBA16F refuses the environment before acquiring anything, and the renderer without one is unaffected")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    o.device.deny_filtered_sampling(rhi::Format::RGBA16_FLOAT);
+    bool refused = false;
+    try {
+        SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, false));
+        (void)r.model_renderer();
+    } catch (const std::invalid_argument& e) {
+        refused = std::string(e.what()).find("linear filtering") != std::string::npos;
+    }
+    CHECK(refused);
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    {
+        SceneRenderer plain(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(false, true));  // no environment: the format is not needed
+        CHECK(!plain.model_renderer().ibl_enabled());
+    }
+    o.device.deny_filtered_sampling(rhi::Format::Unknown);
+    {
+        SceneRenderer ok(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, true));
+        CHECK(ok.model_renderer().ibl_enabled());
+    }
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == baseline);
 }

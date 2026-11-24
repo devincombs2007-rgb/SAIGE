@@ -70,20 +70,47 @@ SceneRenderer renderer(device, format, rs);
   not part of this slice.
 * **Intensity** scales the sky's diffuse and specular contribution only; it is not an exposure and the sun is independent of it.
 
-Backend assumptions: no new device capability. Sampling uses an explicit LOD, so it is valid in any control flow; the texture is sampled as filterable
+Conventions (the contract Core asked to have pinned):
+* **Directions**: world space, z up. Texel (u, v) of the equirect image is the direction `(sin(pi v) cos(phi), sin(pi v) sin(phi), cos(pi v))` with
+  `phi = (u - 1/2) 2 pi`; equivalently `u = atan2(y, x) / 2 pi + 1/2` and `v = acos(z) / pi`. +X is the middle of the image, +Z the top row, +Y a quarter turn
+  to the right of +X.
+* **Units**: linear scene radiance, the unit of the sun color and `ambient_ground`. A uniform environment of radiance L lights a white diffuse
+  surface to L, exactly like a uniform ambient of the same value (tested). No exposure is applied in the shader; the tone map owns exposure. `intensity`
+  multiplies the environment only.
+* **Seam and poles**: the sampler repeats in u, so bilinear filtering crosses the longitude seam (u = 0 and u = 1 are the same direction), and clamps in v,
+  so the poles read the top and bottom rows without wrapping to the opposite pole.
+* **Roughness to LOD**: `lod = roughness * (levels - 1)`, trilinear. Level i holds the environment prefiltered at roughness `i / (levels - 1)`; roughness is the
+  shading roughness clamped to the BRDF's minimum. A one-level map (`levels == 1`) is valid: the maximum LOD is 0 and every roughness reads level 0.
+* **SH9**: coefficients of the radiance in the real basis (order 00, 1-1, 10, 11, 2-2, 2-1, 20, 21, 22, z up, as `sh_basis` in `environment.cpp`). The lookup
+  weights band l by the clamped cosine's 1, 2/3, 1/4 and returns irradiance divided by pi, the factor the Lambert term multiplies.
+* **Capability**: the environment texture is RGBA16F sampled with linear filtering across mips. `Device::supports_filtered_sampling(Format)` answers from
+  `VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | SAMPLED_IMAGE_FILTER_LINEAR_BIT` (required of every conformant Vulkan device for this format); the model renderer asks
+  before creating anything and throws `std::invalid_argument` when the answer is no. A renderer without an environment never asks.
+* **With shadows**: IBL and sun shadows use distinct bindings in set 1 (3..5 for shadows, 6..8 for IBL) and the combined permutation; the sun is the only
+  term the shadow removes.
+
+Backend assumptions: no new device capability beyond the query above. Sampling uses an explicit LOD, so it is valid in any control flow; the texture is sampled as filterable
 RGBA16F, which every Vulkan 1.3 device supports for sampled images. Equirect sampling has the usual seam at u = 0/1 (the sampler repeats) and pole pinching
 (the reason the last level stays at least 16 wide).
 
 ## GPU verification
 
-`engine/rhi_vulkan/tests/test_ibl.cpp` (validated Vulkan, lavapipe in CI): a uniform environment renders within 3 8-bit levels of the previous uniform-ambient
-path for dielectric and metal at three roughnesses (the existing path is the oracle); a sky varying with z differs from the hemispherical ambient by exactly the
-documented 2/3 diffuse factor, looking down and up; the diffuse term follows an environment varying along x, y and z from four viewpoints (about 190 probes,
-axes and orientation); a white metal mirror equals `k L(r)` per channel with `r` the reflection vector at 190 probes (this is what proves the equirect mapping
-and the roughness-to-mip rule); rougher metal reflects a progressively blurrier high-frequency sky; intensity doubles the contribution; nothing changes
-without an environment; refused configurations throw. `engine/render/tests/test_scene_renderer.cpp` (null device): off allocates nothing for the environment, on
-allocates its resources, with and without shadows, and releases them; a creation-failure sweep over every acquisition step leaves the device at its baseline
-and the renderer usable; every invalid environment is refused before acquisition.
+`engine/rhi_vulkan/tests/test_ibl.cpp` (validated Vulkan, lavapipe in CI):
+* a uniform environment renders within 3 8-bit levels of the previous uniform-ambient path for dielectric and metal at three roughnesses (the existing path is
+  the oracle);
+* a sky varying with z differs from the hemispherical ambient by exactly the documented 2/3 diffuse factor, looking down and up;
+* the diffuse term follows linear environments along x, y and z from four viewpoints, and pure band-2 harmonics are weighted by 1/4 (about 300 probes);
+* a white metal mirror equals `k L(r)` per channel at about 190 probes, which pins the equirect mapping and the roughness-to-mip rule; rougher metal reflects
+  a progressively blurrier high-frequency sky; intensity scales diffuse and specular;
+* filtering crosses the longitude seam (a sawtooth in longitude gives intermediate pixels there, for a one-level and a two-level 16-texel map) and the poles
+  read their own row;
+* with sun shadows on, a pixel in an occluder's shadow equals the environment-only render and a pixel outside the shadow equals the unshadowed render;
+* the device capability query and the refusal path (the hook simulates a device without linear RGBA16F filtering), nothing without an environment changes,
+  and refused configurations throw.
+
+`engine/render/tests/test_scene_renderer.cpp` (null device): off allocates nothing for the environment, on allocates its resources, with and without shadows,
+and releases them; a creation-failure sweep over every acquisition step leaves the device at its baseline and the renderer usable; every invalid
+environment is refused before acquisition; the capability refusal acquires nothing.
 
 These are software-Vulkan correctness results. They say nothing about physical-GPU cost; the 60 FPS verdict remains `not_evaluated`.
 

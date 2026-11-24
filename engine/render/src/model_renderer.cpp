@@ -347,6 +347,10 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     // Image-based lighting: the prefiltered environment (a 2D RGBA16F texture with one mip per roughness level), its sampler and the SH block.
     if (ibl_enabled_) {
         const EnvironmentLighting& env = *settings.environment;
+        // The prefiltered chain is read with trilinear filtering: refuse a device that cannot, before creating anything for it.
+        if (!device_.supports_filtered_sampling(rhi::Format::RGBA16_FLOAT)) {
+            throw std::invalid_argument("ModelRenderer: the device cannot sample RGBA16_FLOAT with linear filtering, which the image-based lighting environment needs");
+        }
         rhi::TextureDesc d;
         d.format = rhi::Format::RGBA16_FLOAT;
         d.width = env.width;

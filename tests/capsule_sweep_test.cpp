@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -303,6 +305,39 @@ void test_multiple_boxes_and_ties() {
     require(!saige::sweep_capsule_boxes(c, {1, 0, 0}, boxes), "none reached");
 }
 
+void test_nearly_equal_hits_are_ordered_by_the_exact_contact_time() {
+    // Core review of #69: hits were compared by their float t, so two contact times closer than a float step collapsed into a tie and the
+    // lowest index won although another box was hit first.
+    const Capsule c{{-30.0f, 0.0f, 0.0f}, 0.3f, 1.7f};
+    const Vec3 move{60.0f, 0.0f, 0.0f};
+    const float later = std::nextafter(0.5f, 1.0f);
+    const Aabb near_box{{0.5f, -1, 0}, {1, 1, 2}};
+    const Aabb far_box{{later, -1, 0}, {1, 1, 2}};
+    const std::vector<Aabb> far_first{far_box, near_box};
+    const std::vector<Aabb> near_first{near_box, far_box};
+    const auto a = saige::sweep_capsule_boxes(c, move, far_first);
+    const auto b = saige::sweep_capsule_boxes(c, move, near_first);
+    require(a && a->index == 1, "the box hit first wins although it has the higher index (nearly equal float times)");
+    require(b && b->index == 0, "and the lower index wins when it is also the first hit");
+    // The two float times really are equal, so the test would pass for the wrong reason if the rule compared them.
+    const auto only_far = saige::sweep_capsule_box(c, move, far_box);
+    const auto only_near = saige::sweep_capsule_box(c, move, near_box);
+    require(only_far && only_near && only_far->t == only_near->t, "the contact times differ by less than a float step");
+    require(only_near->contact_t < only_far->contact_t && only_near->contact_t > 0.0 && only_far->contact_t < 1.0, "while the exact contact fractions (contact_t) tell them apart");
+    // Every permutation of three boxes, including a genuine tie (two identical boxes), is decided by the same rule.
+    const std::vector<Aabb> trio{far_box, near_box, near_box};
+    const int orders[6][3] = {{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}};
+    for (const auto& order : orders) {
+        const std::vector<Aabb> boxes{trio[order[0]], trio[order[1]], trio[order[2]]};
+        const auto hit = saige::sweep_capsule_boxes(c, move, boxes);
+        std::size_t first_near = 3;
+        for (std::size_t i = 0; i < 3; ++i) {
+            if (boxes[i].min.x == 0.5f) { first_near = i; break; }
+        }
+        require(hit && hit->index == first_near, "among permutations the first of the identical earliest boxes wins (a genuine tie goes to the lowest index)");
+    }
+}
+
 void test_slopes() {
     const auto tilted = [](double degrees) {
         const double r = degrees * 3.14159265358979323846 / 180.0;
@@ -381,6 +416,181 @@ void test_invalid_input_is_rejected() {
     require(throws([&] { (void)saige::capsule_box_gap({{0, 0, 0}, -1.0f, 1.7f}, box); }), "gap validates too");
 }
 
+// ---------------------------------------------------------------------------------------------------------------------------
+// Supported envelope and the conservative stop (issue #43 decision: chunk-local meters, +-256 m, 64 m per sweep).
+
+bool throws_invalid(const Capsule& capsule, Vec3 displacement, const Aabb& box) {
+    try {
+        (void)saige::sweep_capsule_box(capsule, displacement, box);
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
+// The independent double oracle's signed gap with the capsule's feet moved to `feet`.
+double gap_at(Capsule capsule, Vec3 feet, const Aabb& box) {
+    capsule.feet = feet;
+    return reference_gap(capsule, {0, 0, 0}, box);
+}
+
+void test_envelope_is_enforced() {
+    const Capsule c{{-1e8f, 0.0f, 0.0f}, 0.30f, 1.70f};
+    const Aabb wall{{0, -2, -2}, {1, 2, 4}};
+    // Core's reproducer (a 2e8 m sweep that used to report t = 0.5 and a 0.30 m penetration) is rejected, not answered at low precision.
+    require(throws_invalid(c, {2e8f, 0, 0}, wall), "a sweep from -1e8 m is outside the envelope");
+    require(throws_invalid({{-1000.0f, 0, 0}, 0.30f, 1.70f}, {2000.0f, 0, 0}, wall), "a 2000 m sweep is outside the envelope");
+
+    const Capsule edge{{-255.5f, 0, 0}, 0.30f, 1.70f};  // bounding box reaches -255.8
+    const Aabb far_wall{{-200, -2, -2}, {-199, 2, 4}};
+    require(!throws_invalid(edge, {64.0f, 0, 0}, far_wall), "a 64 m sweep at the extent limit is supported");
+    require(throws_invalid(edge, {64.01f, 0, 0}, far_wall), "a sweep just over 64 m is rejected");
+    require(throws_invalid(edge, {50.0f, 50.0f, 0}, far_wall), "the limit is on the length, not per axis");
+    require(!throws_invalid(edge, {40.0f, 40.0f, 0}, far_wall), "a 56.6 m diagonal is supported");
+    require(throws_invalid({{-255.8f, 0, 0}, 0.30f, 1.70f}, {1.0f, 0, 0}, far_wall), "a capsule whose radius crosses -256 is rejected");
+    require(throws_invalid({{255.8f, 0, 0}, 0.30f, 1.70f}, {-1.0f, 0, 0}, far_wall), "a capsule whose radius crosses +256 is rejected");
+    require(throws_invalid({{0, 0, 254.4f}, 0.30f, 1.70f}, {0, 0, -1.0f}, far_wall), "a capsule whose top crosses +256 is rejected");
+    require(throws_invalid({{0, 0, -256.5f}, 0.30f, 1.70f}, {0, 0, 1.0f}, far_wall), "a capsule whose feet are below -256 is rejected");
+    require(throws_invalid({{0, 0, 0}, 0.30f, 1.70f}, {300.0f, 0, 0}, far_wall), "a displacement that ends outside is rejected even if short enough");
+    require(throws_invalid({{250.0f, 0, 0}, 0.30f, 1.70f}, {10.0f, 0, 0}, far_wall), "the end of the sweep must be inside as well");
+
+    // The same rule applies to the set query (also with an empty set) and to push-out.
+    bool empty_throws = false;
+    try {
+        (void)saige::sweep_capsule_boxes(c, {2e8f, 0, 0}, {});
+    } catch (const std::invalid_argument&) {
+        empty_throws = true;
+    }
+    require(empty_throws, "an out-of-range query throws against an empty set");
+    bool push_throws = false;
+    try {
+        (void)saige::capsule_box_push_out({{300.0f, 0, 0}, 0.30f, 1.70f}, wall);
+    } catch (const std::invalid_argument&) {
+        push_throws = true;
+    }
+    require(push_throws, "push-out outside the envelope throws");
+
+    // Obstacles may extend beyond the envelope: only the capsule's path is bounded.
+    const Aabb ground{{-5000, -5000, -10}, {5000, 5000, 0}};
+    const auto hit = saige::sweep_capsule_box({{0, 0, 10.0f}, 0.30f, 1.70f}, {0, 0, -20.0f}, ground);
+    require(hit && gap_at({{0, 0, 10.0f}, 0.30f, 1.70f}, hit->stop, ground) >= 0.0, "a huge ground box is supported");
+}
+
+void test_long_sweeps_at_the_limits_stop_clear() {
+    const Capsule base{{0, 0, 0}, 0.30f, 1.70f};
+    struct Case {
+        Vec3 feet;
+        Vec3 move;
+        Aabb box;
+    };
+    const Case cases[] = {
+        {{-255.5f, 0.0f, 0.0f}, {64.0f, 0, 0}, {{-200, -2, -2}, {-199, 2, 4}}},                  // +x from the -256 limit
+        {{255.5f, 0.0f, 0.0f}, {-64.0f, 0, 0}, {{199, -2, -2}, {200, 2, 4}}},                    // -x from the +256 limit
+        {{0.0f, -255.5f, 0.0f}, {0, 64.0f, 0}, {{-2, -200, -2}, {2, -199, 4}}},                  // +y
+        {{0.0f, 255.5f, 0.0f}, {0, -64.0f, 0}, {{-2, 199, -2}, {2, 200, 4}}},                    // -y
+        {{0.0f, 0.0f, 200.0f}, {0, 0, -64.0f}, {{-5, -5, 130}, {5, 5, 140}}},                    // fall onto a floor
+        {{0.0f, 0.0f, -255.0f}, {0, 0, 64.0f}, {{-5, -5, -195}, {5, 5, -190}}},                  // rise into a ceiling
+        {{-250.0f, -250.0f, 0.0f}, {44.0f, 44.0f, 0.0f}, {{-210, -210, -2}, {-200, -200, 4}}},   // oblique at the corner of the range
+        {{249.7f, 250.1f, 3.0f}, {-30.0f, -40.0f, -10.0f}, {{210, 210, -50}, {220, 220, 50}}},   // oblique and descending
+    };
+    for (const Case& c : cases) {
+        Capsule capsule = base;
+        capsule.feet = c.feet;
+        const auto hit = saige::sweep_capsule_box(capsule, c.move, c.box);
+        require(hit.has_value(), "the long sweep reaches the box");
+        const double gap = gap_at(capsule, hit->stop, c.box);
+        require(gap >= 0.0, "the applied stop is clear: gap " + std::to_string(gap));
+        require(gap < 1e-4, "and close to the contact: gap " + std::to_string(gap));
+        require(near(hit->t * std::sqrt(static_cast<double>(c.move.x) * c.move.x + static_cast<double>(c.move.y) * c.move.y +
+                                         static_cast<double>(c.move.z) * c.move.z),
+                     std::sqrt(std::pow(static_cast<double>(hit->stop.x) - c.feet.x, 2) + std::pow(static_cast<double>(hit->stop.y) - c.feet.y, 2) +
+                               std::pow(static_cast<double>(hit->stop.z) - c.feet.z, 2)),
+                     2e-4),
+                "t is the fraction at the stop");
+    }
+}
+
+void test_stop_is_clear_for_random_hits_across_the_range() {
+    Random random(20260101);
+    int hits = 0;
+    int skipped = 0;
+    for (int i = 0; i < 1500; ++i) {
+        Capsule capsule{{0, 0, 0}, static_cast<float>(random.range(0.2, 0.6)), 0.0f};
+        capsule.height = capsule.radius * 2.0f + static_cast<float>(random.range(0.0, 1.5));
+        const Vec3 center{static_cast<float>(random.range(-190, 190)), static_cast<float>(random.range(-190, 190)), static_cast<float>(random.range(-100, 100))};
+        const Vec3 half{static_cast<float>(random.range(0.25, 3.0)), static_cast<float>(random.range(0.25, 3.0)), static_cast<float>(random.range(0.25, 3.0))};
+        std::vector<Aabb> boxes;
+        boxes.push_back({{center.x - half.x, center.y - half.y, center.z - half.z}, {center.x + half.x, center.y + half.y, center.z + half.z}});
+        for (int extra = 0; extra < 2; ++extra) {  // neighbours around the target, so stops are judged against several boxes
+            const Vec3 c2{center.x + static_cast<float>(random.range(-6, 6)), center.y + static_cast<float>(random.range(-6, 6)), center.z + static_cast<float>(random.range(-6, 6))};
+            const float h2 = static_cast<float>(random.range(0.25, 2.0));
+            boxes.push_back({{c2.x - h2, c2.y - h2, c2.z - h2}, {c2.x + h2, c2.y + h2, c2.z + h2}});
+        }
+        const double distance = random.range(1.0, 60.0);
+        const double azimuth = random.range(0.0, 6.283185307179586);
+        const double elevation = random.range(-0.6, 0.6);
+        const Vec3 direction{static_cast<float>(std::cos(azimuth) * std::cos(elevation)), static_cast<float>(std::sin(azimuth) * std::cos(elevation)),
+                             static_cast<float>(std::sin(elevation))};
+        capsule.feet = {center.x + direction.x * static_cast<float>(distance), center.y + direction.y * static_cast<float>(distance),
+                        center.z + direction.z * static_cast<float>(distance)};
+        const double length = std::min(distance + 1.0, 64.0);
+        const Vec3 move{static_cast<float>(-direction.x * length), static_cast<float>(-direction.y * length), static_cast<float>(-direction.z * length)};
+        bool start_clear = true;
+        for (const Aabb& box : boxes) start_clear = start_clear && gap_at(capsule, capsule.feet, box) > 0.001;
+        if (!start_clear) {
+            ++skipped;
+            continue;
+        }
+        const auto hit = saige::sweep_capsule_boxes(capsule, move, boxes);
+        if (!hit) continue;
+        ++hits;
+        // The oracle is independent of the implementation and uses the stop exactly as the caller applies it: no arithmetic in float.
+        double hit_gap = gap_at(capsule, hit->stop, boxes[hit->index]);
+        require(hit_gap >= 0.0, "scenario " + std::to_string(i) + ": the hit box is cleared, gap " + std::to_string(hit_gap));
+        require(hit_gap < 1e-4, "scenario " + std::to_string(i) + ": the stop is within a few coordinate steps of the contact, gap " + std::to_string(hit_gap));
+        for (const Aabb& box : boxes) {
+            require(gap_at(capsule, hit->stop, box) >= -0.5e-5, "scenario " + std::to_string(i) + ": every box is cleared within the contact tolerance");
+        }
+        require(hit->t >= 0.0f && hit->t <= 1.0f, "t stays in [0, 1]");
+    }
+    require(hits >= 700, "too few hits for a meaningful sample: " + std::to_string(hits) + " (skipped " + std::to_string(skipped) + ")");
+}
+
+void test_stop_is_clear_of_every_box_at_an_inner_corner() {
+    // A path into an inner corner reaches two walls at almost the same time, and the two faces sit at unrelated float coordinates so
+    // the rounding error differs between the axes. Whichever wall is reported, the rounded stop must not enter the other: that is what
+    // judging the stop against every box (not only the hit one) is for.
+    Random random(7);
+    int hits = 0;
+    for (int i = 0; i < 3000; ++i) {
+        const float fx = static_cast<float>(random.range(130, 200)) * (random.next() < 0.5 ? -1.0f : 1.0f);
+        const float fy = static_cast<float>(random.range(30, 200)) * (random.next() < 0.5 ? -1.0f : 1.0f);
+        const float osx = fx < 0 ? 1.0f : -1.0f;  // the side of each wall facing the capsule (toward the origin)
+        const float osy = fy < 0 ? 1.0f : -1.0f;
+        const auto interval = [](float a, float b) { return std::pair<float, float>{std::min(a, b), std::max(a, b)}; };
+        const auto ax = interval(fx, fx - osx * 4.0f), ay = interval(fy - 10.0f, fy + 10.0f);  // wall A: face at x = fx
+        const auto bx = interval(fx - 10.0f, fx + 10.0f), by = interval(fy, fy - osy * 4.0f);  // wall B: face at y = fy
+        const std::vector<Aabb> boxes{{{ax.first, ay.first, -2}, {ax.second, ay.second, 6}}, {{bx.first, by.first, -2}, {bx.second, by.second, 6}}};
+        // The capsule's feet are the contact point's projection, so both faces are reached together at (fx + osx r, fy + osy r).
+        const float radius = static_cast<float>(random.range(0.2, 0.6));  // varies where the contact falls between two float coordinates
+        const double a = random.range(3.0, 30.0), b = random.range(3.0, 30.0);
+        const Capsule c{{static_cast<float>(fx + osx * radius + osx * a), static_cast<float>(fy + osy * radius + osy * b), 0.0f}, radius, 1.70f};
+        bool start_clear = true;
+        for (const Aabb& box : boxes) start_clear = start_clear && gap_at(c, c.feet, box) > 0.001;
+        if (!start_clear) continue;
+        const Vec3 move{static_cast<float>(-osx * a * 1.2), static_cast<float>(-osy * b * 1.2), 0.0f};
+        const auto hit = saige::sweep_capsule_boxes(c, move, boxes);
+        if (!hit) continue;
+        ++hits;
+        for (const Aabb& box : boxes) {
+            const double gap = gap_at(c, hit->stop, box);
+            require(gap >= -0.5e-5, "scenario " + std::to_string(i) + ": the stop is clear of both walls, gap " + std::to_string(gap));
+        }
+        require(gap_at(c, hit->stop, boxes[hit->index]) >= 0.0, "and the wall that was hit is cleared exactly");
+    }
+    require(hits >= 1000, "too few corner hits: " + std::to_string(hits));
+}
+
 void test_results_are_reproducible() {
     const Aabb box{{0, 0, 0}, {1, 1, 3}};
     const Capsule c{{2.0f, 1.7f, 0.2f}, 0.4f, 1.9f};
@@ -397,11 +607,16 @@ int main() {
         test_touching_and_overlap();
         test_push_out();
         test_multiple_boxes_and_ties();
+        test_nearly_equal_hits_are_ordered_by_the_exact_contact_time();
         test_slopes();
         test_query_is_validated_even_for_an_empty_set();
         test_invalid_input_is_rejected();
         test_results_are_reproducible();
         test_randomized_against_reference();
+        test_envelope_is_enforced();
+        test_long_sweeps_at_the_limits_stop_clear();
+        test_stop_is_clear_for_random_hits_across_the_range();
+        test_stop_is_clear_of_every_box_at_an_inner_corner();
     } catch (const std::exception& error) {
         std::cerr << "capsule sweep test failed: " << error.what() << '\n';
         return 1;

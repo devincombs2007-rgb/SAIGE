@@ -7,6 +7,9 @@
 # available, that every shader still compiles and passes spirv-val.
 
 set(SAIGE_SHADER_SOURCES
+    scene/bloom_down.hlsl
+    scene/bloom_prefilter.hlsl
+    scene/bloom_up.hlsl
     scene/cube.hlsl
     scene/ground.hlsl
     scene/model.hlsl
@@ -21,6 +24,7 @@ set(SAIGE_SHADER_SOURCES
     test/depth_only.hlsl
     test/shadow_probe.hlsl
     scene/tonemap.hlsl
+    scene/tonemap_bloom.hlsl
     test/textured_fullscreen.hlsl
 )
 

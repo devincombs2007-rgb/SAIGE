@@ -30,6 +30,8 @@ endif()
 
 add_library(saige_render STATIC
     src/atmosphere.cpp
+    src/bloom.cpp
+    src/bloom_pass.cpp
     src/camera.cpp
     src/environment_lighting.cpp
     src/env_brdf.cpp
@@ -72,6 +74,7 @@ if(SAIGE_RENDER_BUILD_TESTS)
     saige_gfx_add_test(saige_render_tests
         SOURCES
             tests/test_atmosphere.cpp
+            tests/test_bloom.cpp
             tests/test_camera.cpp
             tests/test_gpu_resources.cpp
             tests/test_math.cpp

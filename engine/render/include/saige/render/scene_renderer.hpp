@@ -5,6 +5,7 @@
 #pragma once
 
 #include "saige/render/atmosphere.hpp"
+#include "saige/render/bloom.hpp"
 #include "saige/render/camera.hpp"
 #include "saige/render/gpu_resources.hpp"
 #include "saige/render/model.hpp"
@@ -126,6 +127,10 @@ struct RendererSettings {
     /// (docs/rendering/material-architecture.md section 4). Off by default: the 0.2 path draws straight into the output target.
     bool hdr = false;
     ToneMapSettings tone_map;                       ///< used when `hdr` is set
+    /// Bloom (render/bloom.hpp): a thresholded, blurred copy of the HDR scene is added back before tone mapping. **Off by default**, and it needs `hdr` (the constructor throws
+    /// std::invalid_argument for `bloom.enabled` without it): with it off nothing is created and every image is what it was before. Costs about two thirds of an HDR
+    /// target's memory (the half-size chain) and 2 x levels - 1 full-screen draws.
+    BloomSettings bloom;
 };
 
 struct SceneInstance {
@@ -185,6 +190,7 @@ struct FrameStats {
     uint32_t model_skinned_cull_bypassed = 0;  ///< skinned primitives drawn without a frustum test (no per-joint bounds)
     uint32_t model_skinned_culled = 0;     ///< skinned primitives skipped because their conservative posed bounds are outside the view (also counted in model_primitives_culled)
     uint32_t model_primitives_culled = 0;  ///< imported-model primitives skipped by frustum culling (their bounding sphere is outside the view)
+    uint32_t bloom_draw_calls = 0;         ///< draws of the bloom chain (also counted in draw_calls)
 };
 
 class SceneRenderer {
@@ -247,6 +253,8 @@ private:
     rhi::ResourceState hdr_state_;
     rhi::ResourceState shadow_state_;  ///< the sun shadow map's state after the last frame (undefined until its first use)
     bool shadow_ready_ = false;        ///< the shadow map has been taken out of the undefined layout
+    std::unique_ptr<BloomPass> bloom_;         ///< bloom only; the destructor releases the chain before it goes
+    BloomChain bloom_chain_;                   ///< bloom only: the half-size chain for the current target size
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
     std::unique_ptr<ModelRenderer> models_;

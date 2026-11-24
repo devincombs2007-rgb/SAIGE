@@ -116,6 +116,7 @@ struct FrameStats {
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
+    uint32_t model_binds_skipped = 0;      ///< redundant material and geometry binds the model renderer left out
     uint32_t model_primitives_culled = 0;  ///< imported-model primitives skipped by frustum culling (their bounding sphere is outside the view)
 };
 

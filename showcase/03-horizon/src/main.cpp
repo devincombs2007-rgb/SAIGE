@@ -4,6 +4,7 @@
 #include "gpu_assets.hpp"
 #include "props.hpp"
 #include "sim.hpp"
+#include "wheel_rig.hpp"
 
 #include "saige/gfx_assets/animation.hpp"
 #include "saige/gfx_assets/gltf.hpp"
@@ -778,24 +779,14 @@ private:
         car_.fix = Mat4::identity();
         const std::size_t n = asset.instances.size();
         std::vector<bool> body(n, false), door_l(n, false), door_r(n, false), hood(n, false);
-        std::array<std::vector<bool>, 4> wheel;
-        for (auto& w : wheel) w.assign(n, false);
-        int current_wheel = -1;
-        const auto starts = [](const std::string& s, const char* p) { return s.rfind(p, 0) == 0; };
+        const std::array<std::vector<bool>, 4> wheel = wheel_masks(asset);
         for (std::size_t i = 0; i < n; ++i) {
             const std::string& nm = asset.instances[i].name;
-            if (starts(nm, "WheelFrontL")) current_wheel = 0;
-            else if (starts(nm, "WheelFrontR")) current_wheel = 1;
-            else if (starts(nm, "WheelRearL")) current_wheel = 2;
-            else if (starts(nm, "WheelRearR")) current_wheel = 3;
-            else if (nm == "None" || nm.empty()) {
-                // the tire nodes carry no name: they follow the rim and the brake of their wheel
-            } else current_wheel = -1;
-            if (current_wheel >= 0 && !starts(nm, "WheelFrontL") && false) {}
-            if (current_wheel >= 0 && !starts(nm, "Body") && !starts(nm, "Interior") && !starts(nm, "Axles")) wheel[static_cast<std::size_t>(current_wheel)][i] = true;
-            else if (starts(nm, "BodyDoorL") || starts(nm, "InteriorDoorL")) door_l[i] = true;
-            else if (starts(nm, "BodyDoorR") || starts(nm, "InteriorDoorR")) door_r[i] = true;
-            else if (starts(nm, "BodyHood")) hood[i] = true;
+            const bool in_wheel = wheel[0][i] || wheel[1][i] || wheel[2][i] || wheel[3][i];
+            if (in_wheel) continue;
+            if (nm.rfind("BodyDoorL", 0) == 0 || nm.rfind("InteriorDoorL", 0) == 0) door_l[i] = true;
+            else if (nm.rfind("BodyDoorR", 0) == 0 || nm.rfind("InteriorDoorR", 0) == 0) door_r[i] = true;
+            else if (nm.rfind("BodyHood", 0) == 0) hood[i] = true;
             else body[i] = true;
         }
         if (full.placements.size() != n) {
@@ -828,12 +819,15 @@ private:
         std::printf("car body bounds (engine frame, model units): x %.2f..%.2f  y %.2f..%.2f  z %.2f..%.2f   whole: x %.2f..%.2f z %.2f..%.2f\n", static_cast<double>(car_.body_lo.x),
                     static_cast<double>(car_.body_hi.x), static_cast<double>(car_.body_lo.y), static_cast<double>(car_.body_hi.y), static_cast<double>(car_.body_lo.z),
                     static_cast<double>(car_.body_hi.z), static_cast<double>(lo.x), static_cast<double>(hi.x), static_cast<double>(lo.z), static_cast<double>(hi.z));
+        // Each wheel is measured from its vertices, not from its node: the model's front wheels are authored with about 30 degrees of steer baked in (and every wheel with an arbitrary spin), so the node's
+        // axes and bounds say nothing about where the axle is. Rolled about the car's +Y as it was, a front wheel wobbled. See wheel_rig.hpp and the horizon_wheel_rig test.
         for (std::size_t w = 0; w < 4; ++w) {
-            bounds_of(wheel[w], lo, hi);
-            car_.wheel_center[w] = (lo + hi) * 0.5f;
-            car_.wheel_radius = (hi.z - lo.z) * 0.5f;
-            std::printf("wheel %zu: center (%.3f, %.3f, %.3f) radius %.3f width %.3f\n", w, static_cast<double>(car_.wheel_center[w].x), static_cast<double>(car_.wheel_center[w].y),
-                        static_cast<double>(car_.wheel_center[w].z), static_cast<double>(car_.wheel_radius), static_cast<double>(hi.y - lo.y));
+            wheel_fit_[w] = fit_wheel(wheel_points(asset, wheel[w]));
+            car_.wheel_center[w] = wheel_fit_[w].center;
+            car_.wheel_radius = wheel_fit_[w].radius;
+            std::printf("wheel %zu: center (%.3f, %.3f, %.3f) radius %.3f half width %.3f; the model's axle is %.1f degrees off the car's +Y\n", w, static_cast<double>(car_.wheel_center[w].x),
+                        static_cast<double>(car_.wheel_center[w].y), static_cast<double>(car_.wheel_center[w].z), static_cast<double>(car_.wheel_radius), static_cast<double>(wheel_fit_[w].half_width),
+                        std::acos(static_cast<double>(wheel_fit_[w].axle.y)) * 180.0 / 3.14159265358979323846);
         }
         bounds_of(door_l, lo, hi);
         car_.door_l_hinge = {hi.x, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};  // the door's front edge: +X is forward, the hinge is at its front
@@ -848,7 +842,7 @@ private:
         car_.door_l = filter_placements(full, door_l, car_.fix);
         car_.door_r = filter_placements(full, door_r, car_.fix);
         car_.hood = filter_placements(full, hood, car_.fix);
-        for (std::size_t w = 0; w < 4; ++w) car_.wheels[w] = filter_placements(full, wheel[w], translation({-car_.wheel_center[w].x, -car_.wheel_center[w].y, -car_.wheel_center[w].z}) * car_.fix);
+        for (std::size_t w = 0; w < 4; ++w) car_.wheels[w] = filter_placements(full, wheel[w], wheel_to_rig_frame(wheel_fit_[w]) * car_.fix);
         car_.ok = true;
     }
 
@@ -1003,7 +997,7 @@ private:
             const VehicleWheelConfig& wc = cfg.wheels[w];
             const VehicleWheelState& ws = st.wheels[w];
             const Float3 center_body{wc.mount.x, wc.mount.y, wc.mount.z - cfg.suspension_travel + ws.compression};
-            Mat4 m = body_world * translation(center_body) * rot_z(ws.steer_angle) * rot_y(-ws.spin);
+            Mat4 m = body_world * translation(center_body) * rot_z(ws.steer_angle) * wheel_spin(ws.spin);
             draws_.push_back({&car_.wheels[w], m});
         }
     }
@@ -1055,6 +1049,7 @@ private:
     std::array<render::GpuModel, 6> puffs_;
     CarParts car_;
     float rest_wheel_z_ = 0.0f;
+    std::array<WheelFit, 4> wheel_fit_{};
     std::unique_ptr<gfx::GltfAsset> man_asset_;
     render::GpuModel man_model_;
     render::SkinPalette palette_;

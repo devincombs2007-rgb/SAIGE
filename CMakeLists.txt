@@ -5,6 +5,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(saige_core STATIC
     src/asset_id.cpp
+    src/capsule_character.cpp
+    src/capsule_sweep.cpp
+    src/capsule_triangle.cpp
+    src/perf.cpp
     src/free_camera.cpp
     src/runtime.cpp
     src/scene_hierarchy.cpp
@@ -135,3 +139,5 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
         endif()
     endif()
 endif()
+
+add_subdirectory(showcase)

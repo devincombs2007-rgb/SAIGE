@@ -1,0 +1,102 @@
+{
+  "wooden_crate_01": {
+    "source": "https://polyhaven.com/a/wooden_crate_01",
+    "license": "CC0-1.0",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "files": {
+      "wooden_crate_01.gltf": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wooden_crate_01/wooden_crate_01_1k.gltf",
+        "md5": "33df4d2ae00186d4b64e878466c9e22e"
+      },
+      "textures/wooden_crate_01_diff_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_crate_01/wooden_crate_01_diff_1k.jpg",
+        "md5": "266e0462d06e77c5745f66e89820544f"
+      },
+      "textures/wooden_crate_01_nor_gl_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_crate_01/wooden_crate_01_nor_gl_1k.jpg",
+        "md5": "e31626a1fcf6f7062c2ffd9fc982b942"
+      },
+      "wooden_crate_01.bin": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/wooden_crate_01/wooden_crate_01.bin",
+        "md5": "8318f76b0c24b5538ce23051dbcb79a0"
+      },
+      "textures/wooden_crate_01_arm_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wooden_crate_01/wooden_crate_01_arm_1k.jpg",
+        "md5": "67c4aeb1154af98f95516b21ef62291c"
+      }
+    }
+  },
+  "wine_barrel_01": {
+    "source": "https://polyhaven.com/a/wine_barrel_01",
+    "license": "CC0-1.0",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "files": {
+      "wine_barrel_01.gltf": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/wine_barrel_01/wine_barrel_01_1k.gltf",
+        "md5": "5397e6d959dd3ef20d1fc14436d0eb70"
+      },
+      "wine_barrel_01.bin": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/wine_barrel_01/wine_barrel_01.bin",
+        "md5": "84f578460020912056a1e3fbe3ec1b97"
+      },
+      "textures/wine_barrel_01_diff_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wine_barrel_01/wine_barrel_01_diff_1k.jpg",
+        "md5": "fdea9538acf01a04a61626919a84b3fb"
+      },
+      "textures/wine_barrel_01_arm_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wine_barrel_01/wine_barrel_01_arm_1k.jpg",
+        "md5": "2f0cc81ac07fdbe8c22927feac722927"
+      },
+      "textures/wine_barrel_01_nor_gl_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/wine_barrel_01/wine_barrel_01_nor_gl_1k.jpg",
+        "md5": "6b3ce558fa74d3760fa0192dfc4564a3"
+      }
+    }
+  },
+  "potted_plant_04": {
+    "source": "https://polyhaven.com/a/potted_plant_04",
+    "license": "CC0-1.0",
+    "authors": [
+      "James Ray Cock"
+    ],
+    "files": {
+      "potted_plant_04.gltf": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/potted_plant_04/potted_plant_04_1k.gltf",
+        "md5": "077d481764145f6e5e256593aab427bb"
+      },
+      "potted_plant_04.bin": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/potted_plant_04/potted_plant_04.bin",
+        "md5": "03774ca8e28e2aa30fb26cb68d5e0093"
+      },
+      "textures/potted_plant_04_nor_gl_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/potted_plant_04/potted_plant_04_nor_gl_1k.jpg",
+        "md5": "1c0b87906fd92c7b7ce5508110976474"
+      },
+      "textures/potted_plant_04_arm_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/potted_plant_04/potted_plant_04_arm_1k.jpg",
+        "md5": "ed0030c6085bba45b6f63f3043b0b237"
+      },
+      "textures/potted_plant_04_diff_1k.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/potted_plant_04/potted_plant_04_diff_1k.jpg",
+        "md5": "4a72fb3667fd3686ca4014f6676f59c4"
+      }
+    }
+  },
+  "aerial_grass_rock": {
+    "source": "https://polyhaven.com/a/aerial_grass_rock",
+    "license": "CC0-1.0",
+    "authors": [
+      "Rob Tuytel"
+    ],
+    "files": {
+      "textures/landscape.jpg": {
+        "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/aerial_grass_rock/aerial_grass_rock_diff_1k.jpg",
+        "md5": "e920ce36afd0abff000b8366d3d768d3"
+      }
+    }
+  }
+}

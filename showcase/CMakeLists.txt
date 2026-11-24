@@ -1,0 +1,29 @@
+# SAIGE Showcase 01: a scripted, real-renderer demonstration (docs/showcase/01-courtyard.md).
+# The course library needs only Core and the glTF/JSON parser; the renderer app needs the Vulkan backend.
+if(TARGET saige::core AND TARGET saige::gfx_assets)
+    add_library(saige_showcase_course STATIC 01-courtyard/src/course.cpp)
+    target_include_directories(saige_showcase_course PUBLIC 01-courtyard/include)
+    target_link_libraries(saige_showcase_course PUBLIC saige::core PRIVATE saige::gfx_assets)
+    saige_gfx_configure_target(saige_showcase_course)
+
+    if(BUILD_TESTING)
+        add_executable(showcase_course_test 01-courtyard/tests/course_test.cpp)
+        target_link_libraries(showcase_course_test PRIVATE saige_showcase_course)
+        target_compile_definitions(showcase_course_test PRIVATE SAIGE_SHOWCASE_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/01-courtyard/assets")
+        saige_gfx_configure_target(showcase_course_test)
+        add_test(NAME showcase_course COMMAND showcase_course_test)
+    endif()
+
+    if(TARGET saige::rhi_vulkan AND TARGET saige::gfx_scene AND TARGET saige::render)
+        add_executable(saige_showcase 01-courtyard/src/main.cpp)
+        target_link_libraries(saige_showcase PRIVATE saige_showcase_course saige::rhi_vulkan saige::gfx_scene saige::gfx_assets saige::render)
+        target_compile_definitions(saige_showcase PRIVATE SAIGE_SHOWCASE_DEFAULT_ASSETS="${CMAKE_CURRENT_SOURCE_DIR}/01-courtyard/assets")
+        saige_gfx_configure_target(saige_showcase)
+        if(BUILD_TESTING)
+            # A short end-to-end run on the real renderer. Exit code 77 = no Vulkan 1.3 device: reported as skipped.
+            add_test(NAME showcase_smoke COMMAND saige_showcase --out ${CMAKE_CURRENT_BINARY_DIR}/smoke --width 320 --height 180
+                     --stills 1 --sequence-seconds 1 --validate --self-check)
+            set_tests_properties(showcase_smoke PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+        endif()
+    endif()
+endif()

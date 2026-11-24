@@ -1,0 +1,136 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 447781,
+   "format": "png",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085.png",
+   "role": "other",
+   "sha256": "2a6223f1c52813d8e7fa4cb022a52d6d33b226169ad96515de7829b7174530fc"
+  },
+  {
+   "bytes": 2272,
+   "format": "mtlx",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "3338b3b12609212889dcbb9e3344b1dd4ca2070e201005bf5c674ecd75c688ef"
+  },
+  {
+   "bytes": 3012,
+   "format": "usdc",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "fa938d9dd4a9a5e33653980546e60b72e8aecc8b704d03c9445b80a14e45106f"
+  },
+  {
+   "bytes": 742426,
+   "format": "jpg",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "0387121f72bf22dab31c0a6d33b2b2db0856ba22ff806219802af8af216dabc8"
+  },
+  {
+   "bytes": 1503657,
+   "format": "jpg",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "afbcdb635193549e777ac49ac5f9599db98afd1f4e165a389f69458913f027a5"
+  },
+  {
+   "bytes": 703243,
+   "format": "jpg",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "76366d26aabf87e508a0c9c4ed729e73dd279c217809d249c149de265ae57351"
+  },
+  {
+   "bytes": 2128495,
+   "format": "jpg",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "76ea508596fe5883e1d3de4354e5438ea9d6b0168063468cc0504f48a3bcd662"
+  },
+  {
+   "bytes": 2136466,
+   "format": "jpg",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "5136bdf5d87b755454c9bc716e7b1adf981accb4fa081f4d773790c5ace73703"
+  },
+  {
+   "bytes": 648593,
+   "format": "jpg",
+   "path": "ambientcg/Fabric085/1K-JPG/files/Fabric085_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "94f58ed52e4e7babd42b59e4c7f5a223b803f58099e40569d0020db1d4cc21b3"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.fabric085",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Fabric 085",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Fabric085 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:59Z",
+  "source_id": "Fabric085",
+  "url": "https://ambientcg.com/a/Fabric085"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "085",
+  "85",
+  "fabric",
+  "fabric085",
+  "orange",
+  "red",
+  "wool"
+ ],
+ "technical": {
+  "creation_method": "PBRMultiAngle",
+  "dimensions_mm": [
+   30,
+   30,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

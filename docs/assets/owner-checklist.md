@@ -8,7 +8,7 @@ an API key you create once or a manual download. They are all optional; here the
 | Rank | What | Effort | Quality gain | Needed? |
 | --- | --- | --- | --- | --- |
 | 1 | Freesound API key (A2 + A6 below) | about 5 minutes once | a much larger pool of recorded vehicle, impact, foley and ambience sounds than the OpenGameArt packs | only if the current recorded sounds prove too thin |
-| 2 | Mixamo animations (B1) | 15-20 minutes on a computer | real motion-captured human animation (the showcase character only has a walk cycle) | only when character animation becomes the priority |
+| 2 | Mixamo animations (B1) | 15-20 minutes on a computer | more human animation variety | **no longer needed**: CC0 humanoid libraries (Universal Animation Library 1 and 2, KayKit) were found that need no account: 89 clips with idle, jog, sprint, jump, driving, sitting, crouch, push, hit and death, which the engine importer loads |
 | 3 | Sketchfab token (A5) | about 3 minutes once | CC0/CC-BY vehicles, which Poly Haven barely has | only when we need more cars |
 | 4 | everything else (ElevenLabs, Tripo, Meshy, Higgsfield, GPU, Sonniss) | | small or paid | **skip** |
 

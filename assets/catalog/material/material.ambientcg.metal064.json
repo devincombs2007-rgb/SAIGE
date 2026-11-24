@@ -1,0 +1,136 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 375095,
+   "format": "png",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064.png",
+   "role": "other",
+   "sha256": "b8c96e404cf0a605c0188e78716b550915f51f6c1783be17f655c77142e00854"
+  },
+  {
+   "bytes": 2595,
+   "format": "mtlx",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "2b2064e6656839639abc09958ed1d32dad521d9f935f98d6082dc2ae0308d80e"
+  },
+  {
+   "bytes": 2997,
+   "format": "usdc",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "d96eb570ea5a22e797f23874942f81ac5904efaa9350baceb75390484940aefd"
+  },
+  {
+   "bytes": 1388796,
+   "format": "jpg",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "037dd5c4cd6edd3ed3499dd92306e1643b2ebff435cb64d6af4cd901f1b6be88"
+  },
+  {
+   "bytes": 833850,
+   "format": "jpg",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "a7a4a9cc2144597057e0742ecc9ef6d67be720892550e5b8ea0eca52c99f7b40"
+  },
+  {
+   "bytes": 813452,
+   "format": "jpg",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG_Metalness.jpg",
+   "role": "metalness",
+   "sha256": "b76d1f2fada5d349e4fadb5f02ec2b0e6dde90d1340f1f63bb28c574e6cd9175"
+  },
+  {
+   "bytes": 643192,
+   "format": "jpg",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "000ce13ba450fc941bbfee98ae8749a553f2ca119cf8a57c707f808ec2fa2aec"
+  },
+  {
+   "bytes": 643386,
+   "format": "jpg",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "29c0604a39fa72d023f2878fa15c057ac1411df0b315485afc0cc0f247c1b6c3"
+  },
+  {
+   "bytes": 844428,
+   "format": "jpg",
+   "path": "ambientcg/Metal064/1K-JPG/files/Metal064_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "ee5b95a55af3b9c2f01351e00a14899fc56a06cb3610ac0fb041a8cc4af0f594"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.metal064",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Metal 064",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Metal064 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:40Z",
+  "source_id": "Metal064",
+  "url": "https://ambientcg.com/a/Metal064"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "064",
+  "64",
+  "damaged",
+  "metal",
+  "metal064",
+  "rust",
+  "rusted"
+ ],
+ "technical": {
+  "creation_method": "PBRApproximated",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "base_color",
+   "displacement",
+   "metalness",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

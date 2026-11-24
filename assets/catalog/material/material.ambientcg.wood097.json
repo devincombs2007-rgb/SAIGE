@@ -1,0 +1,126 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 220469,
+   "format": "png",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097.png",
+   "role": "other",
+   "sha256": "47dddd68ded4e5b52d2ae2bdd92801421a2309be29820dd48d0f6cb1e56a9735"
+  },
+  {
+   "bytes": 2242,
+   "format": "mtlx",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "57f10a70aed8fa48191bf7e4813af101da16e464bb1332ecf826b1d4db4e4e55"
+  },
+  {
+   "bytes": 2885,
+   "format": "usdc",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "5edc11ab9081dbc1787fd05e42e45135a75515f0b64733f71afd582c6a97d283"
+  },
+  {
+   "bytes": 954658,
+   "format": "jpg",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "10cbee60a17dfc3a2a2c179db8178130b177ec0bb5e35a2d078ae4d60a1b0156"
+  },
+  {
+   "bytes": 337030,
+   "format": "jpg",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "22b0536df42ce350c0fcdd2ce272761f926dfd84a7fc7b23058681d34c48706a"
+  },
+  {
+   "bytes": 520774,
+   "format": "jpg",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "37f46c7109c3abd4678b4e14f51405a365491da1a746cf6fbef894280da3013e"
+  },
+  {
+   "bytes": 520615,
+   "format": "jpg",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "e7ca8985c2938809d290a72a5fb58f62fd62359790b937e45f5152a356b2ed36"
+  },
+  {
+   "bytes": 428072,
+   "format": "jpg",
+   "path": "ambientcg/Wood097/1K-JPG/files/Wood097_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "0547fea0fbb9395001e11f6b95c2e9411bc264b4aefa64afe2668a32530bc57f"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.wood097",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Wood 097",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Wood097 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:50Z",
+  "source_id": "Wood097",
+  "url": "https://ambientcg.com/a/Wood097"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "097",
+  "97",
+  "smooth",
+  "wood",
+  "wood097"
+ ],
+ "technical": {
+  "creation_method": "PBRApproximated",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

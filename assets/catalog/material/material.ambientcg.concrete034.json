@@ -1,0 +1,127 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 229324,
+   "format": "png",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034.png",
+   "role": "other",
+   "sha256": "1791296c8f27af6e41d6b33d11810cbe6d5d7bc0fa7375a16ce9f8a576274bf0"
+  },
+  {
+   "bytes": 2302,
+   "format": "mtlx",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "f3caf9023dfdedd850ec81ccffefd1d68c6f83ea02ef5479776c0656b55e6336"
+  },
+  {
+   "bytes": 2907,
+   "format": "usdc",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "77ca1e97b3d3a7d0ca1861d9270e4a2c8c1f862fa2161766228bdaf53d89ec52"
+  },
+  {
+   "bytes": 269501,
+   "format": "jpg",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "8ceb9186d990b31fce785e06fdc6974c160f1d27c43f6160266f164deba713aa"
+  },
+  {
+   "bytes": 189234,
+   "format": "jpg",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "136226ea667221e6a62ce23853148ecda4309222c1dea253fa6245709ded9a8a"
+  },
+  {
+   "bytes": 822978,
+   "format": "jpg",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "b74da5fbc5f2d36f51f78fcf1064d60d872e31e7bb46beed6bc3107d37eabbe4"
+  },
+  {
+   "bytes": 821681,
+   "format": "jpg",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "e509eb9dfa978e780fbebfd2acacc2ce158b5b7ced722ddc0759039dd51e18ca"
+  },
+  {
+   "bytes": 217708,
+   "format": "jpg",
+   "path": "ambientcg/Concrete034/1K-JPG/files/Concrete034_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "a4a9e39857a19afd23a778e5abf44fcdf6bd7f93918f1cf6878b41933e553511"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.concrete034",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Concrete 034",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Concrete034 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:21Z",
+  "source_id": "Concrete034",
+  "url": "https://ambientcg.com/a/Concrete034"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "34",
+  "concrete",
+  "grey",
+  "light",
+  "plaster",
+  "smooth"
+ ],
+ "technical": {
+  "creation_method": "PBRApproximated",
+  "dimensions_mm": [
+   110,
+   55,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 2796202,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   512
+  ]
+ },
+ "version": 1
+}

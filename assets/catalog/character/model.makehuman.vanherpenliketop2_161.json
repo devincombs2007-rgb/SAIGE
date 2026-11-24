@@ -1,0 +1,68 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "susuexp"
+ ],
+ "description": "A top inspired by van Herpen used in my November contest entry.\nMy workflow puts materials last, so this is a geometry asset, with no usable material out of the box.",
+ "files": [
+  {
+   "bytes": 159595,
+   "format": "mhclo",
+   "path": "makehuman/161/compall2.000.mhclo",
+   "role": "mhclo",
+   "sha256": "3cb8f4b4767388b16291a84ea28fed2c7af220fcf084970b4a3634bd48d231ea"
+  },
+  {
+   "bytes": 473,
+   "format": "mhmat",
+   "path": "makehuman/161/compall2.000.mhmat",
+   "role": "mhmat",
+   "sha256": "0aa8d0252d2ad63319b03f4516f447f586a90d78c7de62877da7a8532905902f"
+  },
+  {
+   "bytes": 183336,
+   "format": "obj",
+   "path": "makehuman/161/compall2.000.obj",
+   "role": "obj",
+   "sha256": "00384ab05de9cb8d74260708ced230459615bfee28b252e6d20b19f9146cb31f"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.vanherpenliketop2_161",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "vanHerpenliketop2",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 161",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:47:49Z",
+  "source_id": "161",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#161"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

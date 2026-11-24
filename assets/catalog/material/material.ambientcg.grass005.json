@@ -1,0 +1,135 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 506576,
+   "format": "png",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005.png",
+   "role": "other",
+   "sha256": "c4242ca2a95c725ea0d65ac3938a10eb09587c4b4cde3f14ec06a21e6e5ba486"
+  },
+  {
+   "bytes": 2257,
+   "format": "mtlx",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "02a6cf3725b35bfc718d4bb92a0d5b5988f428020b865cc412088f65fb21212a"
+  },
+  {
+   "bytes": 2995,
+   "format": "usdc",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "e3d6fd6ec5c5d749be1fa4fd382ba12e03725a12b7fb317365a50e9e748f6bee"
+  },
+  {
+   "bytes": 981258,
+   "format": "jpg",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "1e574ee1aebfeb797e115f579454a317faa770d15169baf4cfe91371074ccffd"
+  },
+  {
+   "bytes": 1875015,
+   "format": "jpg",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "5fd8edc1a04e2b9b093229dd0ec41f29668dda9fc698f6610b12cdd83b7690cb"
+  },
+  {
+   "bytes": 835456,
+   "format": "jpg",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "5561732fa24d512132bbf84eb6c517fba82eb83d55bdfeac51cda60a7a2c2aac"
+  },
+  {
+   "bytes": 2136776,
+   "format": "jpg",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "521c71a67a68d661657de9dba539337f9d10637fe71a27878ff2b9a1e72c8fe8"
+  },
+  {
+   "bytes": 2137845,
+   "format": "jpg",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "f89e3a1701511d379a9772774ec6b9d7b7ccf3e944fdcc2b98c09dee4cfd804f"
+  },
+  {
+   "bytes": 851896,
+   "format": "jpg",
+   "path": "ambientcg/Grass005/1K-JPG/files/Grass005_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "04ca3a66eee6105cac9754ac773ffd4ee63ca2222984554c4c04b0cdca80da26"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.grass005",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Grass 005",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Grass005 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:25Z",
+  "source_id": "Grass005",
+  "url": "https://ambientcg.com/a/Grass005"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "5",
+  "clean",
+  "grass",
+  "green",
+  "lawn",
+  "short"
+ ],
+ "technical": {
+  "creation_method": "PBRProcedural",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

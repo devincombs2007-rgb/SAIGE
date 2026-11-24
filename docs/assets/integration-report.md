@@ -112,6 +112,7 @@ See `architecture.md`: public catalog (metadata, hashes, licences) + scripted re
 
 ## 8. Recommended priorities
 
+0. **Animations are solved without an account:** Quaternius's Universal Animation Library 1 and 2 (CC0, on OpenGameArt) load in the engine importer (one 53- and one 65-joint skin, 46 and 43 clips: idle, jog, sprint, jump start/loop/land, driving, sitting enter/idle/exit, crouch, push, pick-up, hit, death, slides, combat), plus KayKit's character animations. Mixamo is optional now.
 1. You: the private repository, then the four API keys through the secure cards (Freesound first: it unlocks recorded sound effects), Mixamo animations downloaded once, and the decisions in `owner-checklist.md`.
 2. Freesound CC0 recorded vehicle, impact, foley and ambience sets, catalogued and prepared; re-render Showcase 03's soundtrack from real recordings through the offline miniaudio mix.
 3. Poly Haven/ambientCG sweep by taxonomy area (vehicles are scarce there: Sketchfab CC0/CC-BY with your token), validated and registered.

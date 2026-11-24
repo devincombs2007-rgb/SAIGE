@@ -1,0 +1,146 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 472461,
+   "format": "png",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111.png",
+   "role": "other",
+   "sha256": "08152b95f2346c9f05079c18241be47a76d09f64b98baf3cab61bbba52f1e265"
+  },
+  {
+   "bytes": 2272,
+   "format": "mtlx",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "32fce307016cf0db28cdf5807e5f3875e5e6dd79cc6a57ac12630f298b784649"
+  },
+  {
+   "bytes": 3175,
+   "format": "usdc",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "493069c9ec084e2571e896fc056a8fea524a1b3752130cba8e34fffee2649206"
+  },
+  {
+   "bytes": 738567,
+   "format": "jpg",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "cacdd8fb09c591c19d8bf75f1ca95f704809724a8e59f4a339dba86ce387e777"
+  },
+  {
+   "bytes": 1872901,
+   "format": "jpg",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "faef55429157457dd168266204c5901d4b4fc366c217646dd59c25dd68470447"
+  },
+  {
+   "bytes": 489663,
+   "format": "jpg",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "e0bb172aaba2b1a4d4bab1cf35d4cf2e44f4ebf76005baa9dcedef9bbd0f4e4d"
+  },
+  {
+   "bytes": 2026843,
+   "format": "jpg",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "4a840ef84204e75307d271a5c99ddf84dac4165f8368b98d556c3e3018c7855f"
+  },
+  {
+   "bytes": 2027069,
+   "format": "jpg",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "778141b731c66372aab548c3f3b0f7a525ac780340f78f166f7aff4ed3445350"
+  },
+  {
+   "bytes": 800542,
+   "format": "jpg",
+   "path": "ambientcg/Ground111/1K-JPG/files/Ground111_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "c1d95847a0eb8c761a2848e1c5089dac8569d21c8d2a886140316085c3b7f0d7"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.ground111",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Ground 111",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Ground111 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:34Z",
+  "source_id": "Ground111",
+  "url": "https://ambientcg.com/a/Ground111"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "111",
+  "brick",
+  "brown",
+  "construction",
+  "debris",
+  "dirt",
+  "fragments",
+  "gravel",
+  "gray",
+  "ground",
+  "ground111",
+  "orange",
+  "rock",
+  "rough",
+  "rubble",
+  "scattered",
+  "urban"
+ ],
+ "technical": {
+  "creation_method": "PBRPhotogrammetry",
+  "dimensions_mm": [
+   280,
+   280,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

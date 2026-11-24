@@ -1,0 +1,69 @@
+{
+ "category": "animation.skeletal",
+ "creators": [
+  "kenney"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 44036,
+   "format": "png",
+   "path": "opengameart/animated_characters_1/Preview_305.png",
+   "role": "content",
+   "sha256": "942380297f2a6e894959d014b9f9e013cf03152e7a086de189132f66550cc97a"
+  },
+  {
+   "bytes": 53712,
+   "format": "png",
+   "path": "opengameart/animated_characters_1/Sample_70.png",
+   "role": "content",
+   "sha256": "6bae582d3d788129794c8396f5fc1baca1ca74da3ed3754884395a58d9930a3f"
+  },
+  {
+   "bytes": 718021,
+   "format": "zip",
+   "path": "opengameart/animated_characters_1/kenney_animated-characters-1.zip",
+   "role": "content",
+   "sha256": "9cc53e82c941781f26aa8fb39d40887cf14b1d74cca2d10ccc6e7c140a68f820"
+  }
+ ],
+ "history": [],
+ "id": "animation.opengameart.animated_characters_1",
+ "kind": "animation",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Animated Characters 1 by kenney (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Animated Characters 1",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/animated-characters-1 --kind animation",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:56:27Z",
+  "source_id": "animated_characters_1",
+  "url": "https://opengameart.org/content/animated-characters-1"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "PNG",
+  "gpu_bytes_rgba8_mips": 2521440,
+  "has_alpha": false,
+  "mode": "P",
+  "pot": false,
+  "size": [
+   918,
+   515
+  ]
+ },
+ "version": 1
+}

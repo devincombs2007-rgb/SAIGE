@@ -685,13 +685,22 @@ void test_streamed_vehicle(const fs::path& fixture) {
     for (int i = 0; i < 260; ++i) tick();
     require(player().x >= 16.0f && player().x < 17.0f && !course.active_vehicle(),
             "a missing parked cell leaves the live world and the dormant vehicle unchanged");
+    const auto revisit = [&] {
+        keys.back = false;
+        keys.forward = true;
+        for (int i = 0; i < 180; ++i) tick();
+        keys.forward = false;
+        keys.back = true;
+        for (int i = 0; i < 225; ++i) tick();
+    };
+    write_chunk_fixture(east, R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]},
+                                              {"min":[0,0,0],"max":[8,3,1]}]})");
+    revisit();
+    require(player().x >= 16.0f && !course.active_vehicle(),
+            "overlapping parked collision rejects the candidate without discarding the record");
+
     write_chunk_fixture(east, floor);
-    keys.back = false;
-    keys.forward = true;
-    for (int i = 0; i < 180; ++i) tick();
-    keys.forward = false;
-    keys.back = true;
-    for (int i = 0; i < 225; ++i) tick();
+    revisit();
     const auto restored = course.active_vehicle();
     require(restored && restored->position == parked.position && restored->heading == parked.heading &&
                 world.snapshot().back().entity == car_entity,
@@ -706,6 +715,74 @@ void test_streamed_vehicle(const fs::path& fixture) {
     require(player() == saige::Vec3{4, 4, 0} && car() == saige::Vec3{4, 1, 0} &&
                 course.absolute_cell().first == -2147483648LL,
             "the original world checkpoint remains exact after walking and driving");
+}
+
+void test_persistent_vehicle(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    const auto manifest = write_long_course(fixture, workspace, 18);
+    const auto file = workspace.root / "drive-save.json";
+    saige::World world;
+    CourseKeys keys;
+    saige::sample::StreamedCourse course(world, keys, manifest, nullptr, {}, true, false, file);
+    const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
+    keys.right = true;
+    for (int i = 0; i < 49; ++i) tick();
+    keys.right = false;
+    keys.interact = true;
+    tick();
+    require(course.driving(), "enter the authored vehicle with persistence enabled");
+    keys.interact = false;
+    keys.forward = true;
+    for (int i = 0; i < 100; ++i) {
+        keys.right = i >= 97;
+        tick();
+    }
+    keys.forward = false;
+    keys.right = false;
+    keys.brake = true;
+    for (int i = 0; i < 50; ++i) tick();
+    keys.interact = true;
+    tick();
+    require(!course.driving() && course.active_vehicle(), "park the vehicle on supported ground");
+    const auto parked = *course.active_vehicle();
+    const auto origin = long_course_start;
+    require(parked.position.x > 8 && parked.position.x < 16 && parked.heading != 0, "park beyond the first cell");
+
+    keys.interact = false;
+    keys.brake = false;
+    keys.forward = true;
+    for (int i = 0; i < 1200; ++i) tick();
+    require(course.absolute_cell().first > origin + 6 && course.origin_epoch() > 0 && !course.active_vehicle(),
+            "walk through origin shifts without a parked-vehicle pin");
+    keys.forward = false;
+    keys.checkpoint = true;
+    tick();
+    const auto saved = saige::load_course_checkpoint(file);
+    require(saved.cell.x > origin + 6 && saved.vehicle && saved.vehicle->cell.x == origin + 1 &&
+                saved.vehicle->position.x == parked.position.x - 8 && saved.vehicle->heading == parked.heading,
+            "write both logical poses while their chunks are separated");
+
+    saige::World reopened;
+    CourseKeys fresh_keys;
+    saige::sample::StreamedCourse resumed(reopened, fresh_keys, manifest, nullptr, {}, true, false, file);
+    const auto advance = [&] { resumed.fixed_update(reopened, 16'666'667ns); };
+    require(resumed.absolute_cell().first == saved.cell.x && !resumed.active_vehicle(),
+            "reopen the player checkpoint without loading the distant car");
+    fresh_keys.back = true;
+    for (int i = 0; i < 1600 && !resumed.active_vehicle(); ++i) advance();
+    const auto restored = resumed.active_vehicle();
+    require(restored && restored->heading == parked.heading, "approaching the saved cell restores the parked heading");
+    const auto relative_cell = saige::chunk_containing(restored->position, 8);
+    require(std::abs((restored->position.x - static_cast<float>(relative_cell.x) * 8) - saved.vehicle->position.x) < 1e-4f &&
+                restored->position.y == parked.position.y, "the vehicle returns to the saved cell-local pose");
+    fresh_keys.back = false;
+    fresh_keys.reset = true;
+    advance();
+    require(resumed.absolute_cell().first == saved.cell.x, "persistent reset returns to the saved player cell");
+    for (int i = 0; i < 5; ++i) advance();
+    require(resumed.absolute_cell().first == saved.cell.x && !resumed.active_vehicle(),
+            "reset returns the player to the checkpoint without dragging the vehicle to it");
 }
 
 void test_rebased_ramp_course(const fs::path& fixture) {
@@ -804,6 +881,7 @@ int main(int argc, char** argv) {
         test_native_streamed_course(argv[1]);
         test_rebased_ramp_course(argv[1]);
         test_streamed_vehicle(argv[1]);
+        test_persistent_vehicle(argv[1]);
         test_live_origin_migration(argv[1]);
         test_persistent_checkpoint(argv[1]);
         test_collision_handoff(argv[1]);

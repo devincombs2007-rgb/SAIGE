@@ -69,7 +69,7 @@ by the owning cell and publishes their GPU models with collision. The course kee
 
 
 Use `examples/textured-scene/ramp-course-world.json` with `--course-world` for the origin-relative ramp fixture. It combines box
-and triangle collision with the same capsule and an authored checkpoint. In a version 2 walking course, add
+and triangle collision with the same capsule and an authored checkpoint. In a version 2 course, add
 `--course-checkpoint FILE.json` to enable persistent checkpoints. Use a separate file per world. Press C while grounded
 and away from a cell edge to save. R returns to the latest saved point, and relaunching with the same file starts there.
 Saving in a new cell releases the previous checkpoint's residency pin. A new file starts at the authored checkpoint.
@@ -79,4 +79,7 @@ Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E whil
 is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.
 
 
-The vehicle option also works with `--course-world`. While driving, the vehicle leads chunk selection. The checkpoint stays resident. A parked vehicle can unload with its cell and return to the same pose. Vehicles require level support, including on the ramp course. Use the capsule to climb the ramp on foot.
+The vehicle option also works with `--course-world`. While driving, the vehicle leads chunk selection. The checkpoint stays resident. A parked vehicle can unload with its cell and return to the same pose.
+With `--course-checkpoint`, C saves both the grounded player's location and the parked vehicle's independent location, even
+when its cell is unloaded. R returns the player to the checkpoint and leaves the saved-mode vehicle where it was parked.
+A relaunch restores the last saved state. Without a save file option, R resets both to the authored start. Vehicles require level support, including on the ramp course. Use the capsule to climb the ramp on foot.

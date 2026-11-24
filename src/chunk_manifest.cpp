@@ -7,6 +7,7 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -98,22 +99,49 @@ Vec3 read_box_corner(const Json& corner) {
 
 CourseCheckpoint load_course_checkpoint(const fs::path& path) {
     const auto document = read_chunk_document(path);
-    if (!has_fields(document, {"checkpoint_version", "cell", "feet"}) ||
-        !document["checkpoint_version"].is_number_integer() || document["checkpoint_version"] != 1) {
-        throw std::invalid_argument("Expected a version 1 course checkpoint");
+    const bool walking = has_fields(document, {"checkpoint_version", "cell", "feet"}) &&
+                         document["checkpoint_version"] == 1;
+    const bool with_vehicle = has_fields(document, {"checkpoint_version", "cell", "feet", "vehicle"}) &&
+                              document["checkpoint_version"] == 2;
+    if ((!walking && !with_vehicle) || !document["checkpoint_version"].is_number_integer()) {
+        throw std::invalid_argument("Expected a version 1 or 2 course checkpoint");
     }
-    const auto& cell = document["cell"];
-    if (!cell.is_array() || cell.size() != 2) throw std::invalid_argument("Expected a checkpoint coordinate pair");
-    return {{read_coord(cell[0]), read_coord(cell[1])}, read_box_corner(document["feet"])};
+    const auto cell_of = [](const Json& cell) {
+        if (!cell.is_array() || cell.size() != 2) throw std::invalid_argument("Expected a checkpoint coordinate pair");
+        return ChunkCoord{read_coord(cell[0]), read_coord(cell[1])};
+    };
+    CourseCheckpoint result{cell_of(document["cell"]), read_box_corner(document["feet"]), {}};
+    if (with_vehicle) {
+        const auto& vehicle = document["vehicle"];
+        if (!has_fields(vehicle, {"cell", "position", "heading"}) || !vehicle["heading"].is_number()) {
+            throw std::invalid_argument("Expected a parked vehicle pose");
+        }
+        const auto heading = vehicle["heading"].get<double>();
+        if (!std::isfinite(heading) || std::abs(heading) > std::numbers::pi_v<float>) {
+            throw std::invalid_argument("Parked vehicle heading is outside its supported range");
+        }
+        result.vehicle = CourseVehicleCheckpoint{cell_of(vehicle["cell"]), read_box_corner(vehicle["position"]), static_cast<float>(heading)};
+    }
+    return result;
 }
 
 void save_course_checkpoint(const CourseCheckpoint& checkpoint, const fs::path& path) {
-    const auto& feet = checkpoint.feet;
-    if (!std::isfinite(feet.x) || !std::isfinite(feet.y) || !std::isfinite(feet.z)) {
-        throw std::invalid_argument("Checkpoint requires finite local coordinates");
+    const auto coords = [](Vec3 position) {
+        if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) {
+            throw std::invalid_argument("Checkpoint requires finite local coordinates");
+        }
+        return Json::array({position.x, position.y, position.z});
+    };
+    Json document{{"checkpoint_version", 1}, {"cell", {checkpoint.cell.x, checkpoint.cell.y}},
+                  {"feet", coords(checkpoint.feet)}};
+    if (const auto& vehicle = checkpoint.vehicle) {
+        if (!std::isfinite(vehicle->heading) || std::abs(vehicle->heading) > std::numbers::pi_v<float>) {
+            throw std::invalid_argument("Parked vehicle heading is outside its supported range");
+        }
+        document["checkpoint_version"] = 2;
+        document["vehicle"] = {{"cell", {vehicle->cell.x, vehicle->cell.y}}, {"position", coords(vehicle->position)},
+                               {"heading", vehicle->heading}};
     }
-    const Json document{{"checkpoint_version", 1}, {"cell", {checkpoint.cell.x, checkpoint.cell.y}},
-                        {"feet", {feet.x, feet.y, feet.z}}};
     detail::replace_save_file(path, document.dump() + '\n');
 }
 

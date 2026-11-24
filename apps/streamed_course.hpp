@@ -37,10 +37,12 @@ public:
           background_(background) {
         auto world_manifest = read_chunk_manifest(manifest);
         chunk_local_collision_ = world_manifest.origin.has_value();
-        CourseCheckpoint checkpoint{world_manifest.origin.value_or(ChunkCoord{0, 0}), world_manifest.checkpoint};
+        CourseCheckpoint checkpoint{world_manifest.origin.value_or(ChunkCoord{0, 0}), world_manifest.checkpoint, {}};
+        const bool persist_vehicle = enable_vehicle && !checkpoint_file_.empty();
+        const auto authored = checkpoint;
         if (!checkpoint_file_.empty()) {
-            if (!chunk_local_collision_ || enable_vehicle) {
-                throw std::invalid_argument("Checkpoint files require an origin-relative walking course");
+            if (!chunk_local_collision_) {
+                throw std::invalid_argument("Checkpoint files require an origin-relative course");
             }
             if (std::filesystem::exists(checkpoint_file_)) {
                 checkpoint = load_course_checkpoint(checkpoint_file_);
@@ -61,6 +63,19 @@ public:
                 throw std::invalid_argument("Course chunks need collision files and a representable legacy cell");
             }
         }
+        if (checkpoint.vehicle && !persist_vehicle) {
+            throw std::invalid_argument("Checkpoint includes a vehicle. Enable the vehicle course to load it");
+        }
+        if (persist_vehicle) {
+            const float offset_y = authored.feet.y >= 4 ? -3.0f : 3.0f;
+            parked_vehicle_ = checkpoint.vehicle.value_or(CourseVehicleCheckpoint{
+                authored.cell, {authored.feet.x, authored.feet.y + offset_y, authored.feet.z}, 0});
+            const auto p = parked_vehicle_->position;
+            if (!(p.x >= 0 && p.x < cell_size && p.y >= 0 && p.y < cell_size && p.z > -8 && p.z <= max_ground_height) ||
+                std::ranges::find(sources_, parked_vehicle_->cell, &ChunkSource::coord) == sources_.end()) {
+                throw std::invalid_argument("Saved parked vehicle is outside the authored course");
+            }
+        }
         const auto spawn_chunk = std::ranges::find(sources_, checkpoint_cell_, &ChunkSource::coord);
         if (spawn_chunk == sources_.end()) throw std::invalid_argument("Course manifest needs a chunk at its checkpoint");
         const auto initial = std::span(&*spawn_chunk, 1);
@@ -70,7 +85,12 @@ public:
         const auto geometry = candidate_geometry(initial);
         CapsuleCharacter controller(checkpoint.feet, geometry.boxes, geometry.triangles, config);
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
-        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles, enable_vehicle);
+        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles, enable_vehicle && !persist_vehicle);
+        if (persist_vehicle) {
+            const auto pose = parked_vehicle_->cell == checkpoint_cell_
+                ? std::optional(CourseVehiclePose{parked_vehicle_->position, parked_vehicle_->heading}) : std::nullopt;
+            if (game_->start_persistent_vehicle(world, pose)) parked_vehicle_.reset();
+        }
         if (output_) {
             World candidate = world;
             const auto assets = candidate_assets(initial);
@@ -93,8 +113,8 @@ public:
         }
         checkpoint_held_ = checkpoint_key;
         if (reset && !reset_held_) {
-            game_->reset_vehicle();
-            parked_vehicle_.reset();
+            game_->prepare_streamed_reset();
+            if (checkpoint_file_.empty()) parked_vehicle_.reset();
         }
         const ChunkCoord center = reset ? checkpoint_cell_ : cell_at(game_->course_position());
         try {
@@ -121,11 +141,6 @@ public:
 
 private:
     using ChunkEntities = std::map<ChunkCoord, std::vector<Entity>>;
-    struct DormantVehicle {
-        ChunkCoord cell;
-        CourseVehiclePose pose;
-    };
-
     [[nodiscard]] ChunkCoord cell_at(Vec3 position) const {
         const auto local = chunk_containing(position, cell_size);
         constexpr auto low = static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min());
@@ -159,7 +174,8 @@ private:
         const auto feet = game_->course_position();
         const auto cell = cell_at(feet);
         const auto placement = offset(cell, origin_);
-        const CourseCheckpoint candidate{cell, {feet.x - placement.x, feet.y - placement.y, feet.z}};
+        CourseCheckpoint candidate{cell, {feet.x - placement.x, feet.y - placement.y, feet.z}, parked_vehicle_};
+        if (const auto active = game_->vehicle_pose()) candidate.vehicle = logical_vehicle(*active);
         if (!usable_checkpoint(candidate.feet)) throw std::runtime_error("Move away from the chunk edge to save");
 
         // Prove the checkpoint can be reopened without adjacent collision before replacing it.
@@ -174,6 +190,12 @@ private:
         game_->remember_grounded_checkpoint();
         checkpoint_cell_ = cell;
         requested_center_.reset(); // Recompute the pin even if the player stays in this cell.
+    }
+
+    [[nodiscard]] CourseVehicleCheckpoint logical_vehicle(CourseVehiclePose pose) const {
+        const auto cell = cell_at(pose.position);
+        const auto placement = offset(cell, origin_);
+        return {cell, {pose.position.x - placement.x, pose.position.y - placement.y, pose.position.z}, pose.heading};
     }
 
     void update_candidate(World& world, ChunkCoord center, bool reset) {
@@ -192,7 +214,8 @@ private:
             std::erase_if(requested_, [&](const auto& source) { return !fits_frame(source.coord, pending_origin_); });
             pending_coords_.clear();
             for (const auto& source : requested_) pending_coords_.push_back(source.coord);
-            if (pending_coords_ == resident_coords_ && pending_origin_ == origin_) {
+            const bool pending_vehicle = parked_vehicle_ && std::ranges::binary_search(pending_coords_, parked_vehicle_->cell);
+            if (pending_coords_ == resident_coords_ && pending_origin_ == origin_ && !pending_vehicle) {
                 stream_.cancel();
                 return;
             }
@@ -217,13 +240,11 @@ private:
         if (const auto active = game_->vehicle_pose()) {
             const auto cell = cell_at(active->position);
             if (!will_reside(cell)) {
-                const auto placement = offset(cell, origin_);
-                const auto& p = active->position;
-                dormant = DormantVehicle{cell, {{p.x - placement.x, p.y - placement.y, p.z}, active->heading}};
+                dormant = logical_vehicle(*active);
                 detach_vehicle = true;
             }
         } else if (dormant && will_reside(dormant->cell)) {
-            restore_vehicle = dormant->pose;
+            restore_vehicle = CourseVehiclePose{dormant->position, dormant->heading};
             const auto placement = offset(dormant->cell, pending_origin_);
             restore_vehicle->position.x += placement.x;
             restore_vehicle->position.y += placement.y;
@@ -370,7 +391,7 @@ private:
     ChunkStream stream_{{.max_chunks = 11, .share_immutable_projects = true}};
     std::optional<DesktopGame> game_;
     std::optional<ChunkCoord> requested_center_;
-    std::optional<DormantVehicle> parked_vehicle_;
+    std::optional<CourseVehicleCheckpoint> parked_vehicle_;
     std::vector<ChunkSource> requested_;
     std::vector<ChunkCoord> resident_coords_;
     std::vector<ChunkCoord> pending_coords_;

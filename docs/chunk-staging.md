@@ -67,7 +67,7 @@ cells (32 m) from the simulation origin, the desktop can move the origin to the 
 requested neighborhood and pinned cells fit the supported local frame. It stages collision and render placement in the
 new frame before committing at a fixed-step boundary. Durable chunk coordinates, resident entity handles and controller
 velocities survive the shift. Reset returns to the retained checkpoint and recenters when its neighborhood is ready.
-For a version 2 walking course, `--course-checkpoint FILE.json` lets C save the grounded position into a new checkpoint
+For a version 2 course, `--course-checkpoint FILE.json` lets C save the grounded position into a new checkpoint
 cell and release the previous residency pin. The save stores signed grid coordinates and cell-local feet. The host proves
 the pose can boot with collision from its home cell, then atomically replaces the sidecar before changing the live reset.
 A failed save keeps the previous checkpoint. Use one sidecar per world. Invalid saves fail before checkpoint publication.
@@ -81,7 +81,11 @@ the same cell. It uses a distant grid origin and a non-default checkpoint.
 The playable vehicle mode retains the checkpoint alongside the current walking or driving neighborhood. On foot, leaving
 the parked car's cell stores its logical cell, position and heading and removes it from rendering and simulation. Its stable
 marker returns only once a streaming candidate restores clear, level support. A failed load keeps the record and the active world.
-The authored car reset remains available at the checkpoint in courses without a save file. While seated, the capsule's inactive state
+The authored car reset remains available at the checkpoint in courses without a save file. If a save file is selected,
+a version 2 checkpoint sidecar stores the parked cell, local XYZ and heading alongside the player checkpoint. The car
+can be dormant during the save and is restored only when its cell becomes resident. R in this mode moves the player to
+the saved checkpoint and keeps the car in its current logical location. The version 1 walking sidecar still loads.
+A saved car whose collision is missing or no longer supports it blocks reattachment and leaves the active world intact. While seated, the capsule's inactive state
 is kept at the checkpoint. Exit requires a clear sweep and supported ground in the active collision set. The absolute grid address
 in diagnostics is computed with integer arithmetic relative to the active origin. An origin epoch increments after each published shift.
 

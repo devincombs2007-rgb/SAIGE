@@ -15,9 +15,16 @@ struct ChunkManifest {
     Vec3 checkpoint{4, 4, 0};
 };
 
+struct CourseVehicleCheckpoint {
+    ChunkCoord cell;
+    Vec3 position;
+    float heading{};
+};
+
 struct CourseCheckpoint {
     ChunkCoord cell;
     Vec3 feet;
+    std::optional<CourseVehicleCheckpoint> vehicle;
 };
 
 /// A separate versioned gameplay save. Feet are relative to the logical cell.

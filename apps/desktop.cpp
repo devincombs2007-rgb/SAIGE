@@ -227,8 +227,8 @@ int main(int argc, char** argv) {
             std::cerr << "--course-world requires --character-course and is exclusive with --course-collision\n";
             return 2;
         }
-        if (course_checkpoint && (!course_world || course_vehicle || course_checkpoint->empty())) {
-            std::cerr << "--course-checkpoint requires a world manifest and walking mode\n";
+        if (course_checkpoint && (!course_world || course_checkpoint->empty())) {
+            std::cerr << "--course-checkpoint requires a world manifest\n";
             return 2;
         }
         std::vector<saige::Aabb> collision;

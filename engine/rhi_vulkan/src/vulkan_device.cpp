@@ -28,6 +28,7 @@ namespace {
 #if defined(SAIGE_RHI_VULKAN_TESTING)
 std::atomic<uint32_t> g_process_validation_errors{0};  // all devices, including errors reported during destruction
 std::atomic<uint32_t> g_memory_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
+std::atomic<uint32_t> testing_denied_filter_format{0};  // test hook: Format value + 1 that no device may sample with linear filtering; 0 = off
 std::atomic<uint32_t> testing_denied_blend_format{0};  // test hook: Format value + 1 that no device may blend into; 0 = off
 
 /// True exactly once, for the registration the test asked to fail.
@@ -471,6 +472,7 @@ public:
     FrameResult end_frame() override;
     void wait_idle() override;
     uint64_t frame_number() const noexcept override { return frame_number_; }
+    bool supports_filtered_sampling(Format format) const override;
     uint32_t validation_error_count() const noexcept override { return validation_errors_.load(); }
     std::optional<GpuTimestamps> completed_timestamps() const override;
     DeviceMemoryStats memory_stats() const override;
@@ -1229,6 +1231,22 @@ BufferHandle VulkanDevice::create_buffer(const BufferDesc& desc, std::span<const
         release_staging();
     }
     return buffers_.emplace(std::move(res));
+}
+
+bool VulkanDevice::supports_filtered_sampling(Format format) const
+{
+    if (format == Format::Unknown) {
+        return false;
+    }
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+    if (testing_denied_filter_format.load() == static_cast<uint32_t>(format) + 1u) {
+        return false;
+    }
+#endif
+    VkFormatProperties props{};
+    vk_.vkGetPhysicalDeviceFormatProperties(physical_, to_vk(format), &props);
+    constexpr VkFormatFeatureFlags needed = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    return (props.optimalTilingFeatures & needed) == needed;
 }
 
 TextureHandle VulkanDevice::create_texture(const TextureDesc& desc)
@@ -2590,6 +2608,11 @@ void fail_memory_bookkeeping_after(uint32_t n) noexcept
 uint32_t process_validation_error_count() noexcept
 {
     return g_process_validation_errors.load(std::memory_order_relaxed);
+}
+
+void deny_filtered_sampling_of(Format format) noexcept
+{
+    testing_denied_filter_format.store(format == Format::Unknown ? 0u : static_cast<uint32_t>(format) + 1u, std::memory_order_relaxed);
 }
 
 void deny_blending_into(Format format) noexcept

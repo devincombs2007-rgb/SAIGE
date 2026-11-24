@@ -2,16 +2,19 @@
 
 #include "saige/render/model.hpp"
 #include "saige/render/scene_renderer.hpp"
+#include "saige/render/camera.hpp"
 #include "saige/render/transform.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <span>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -627,6 +630,33 @@ bool throws_invalid(F&& f)
 
 } // namespace
 
+namespace {
+
+/// A small valid environment: 16x8 with three levels (16x8, 8x4, 4x2), every texel the same gray.
+std::shared_ptr<const EnvironmentLighting> tiny_environment()
+{
+    auto e = std::make_shared<EnvironmentLighting>();
+    e->width = 16;
+    e->height = 8;
+    e->levels = 3;
+    e->sh[0] = {1.0f, 1.0f, 1.0f};
+    const std::size_t texels = 16 * 8 + 8 * 4 + 4 * 2;
+    e->rgba16f.assign(texels * 4, 0x3800);  // half-float 0.5
+    return e;
+}
+
+RendererSettings ibl_settings(bool environment, bool shadows)
+{
+    RendererSettings s = shadow_settings(shadows);
+    s.model_shading = ModelShading::MetallicRoughness;
+    if (environment) {
+        s.environment = tiny_environment();
+    }
+    return s;
+}
+
+} // namespace
+
 TEST_CASE("Dynamic lighting (null device): off by default, a lighting frame is refused when it is off, and on costs a ring of buffers and groups")
 {
     Offscreen o;
@@ -1077,4 +1107,571 @@ TEST_CASE("Dynamic lighting (null device): one effective lighting per device fra
     CHECK(near(read_block(o.device, models.lighting_block(slot_a))[4], evening(-0.40f, -0.55f, 0.73f).sun_direction.x / unit_len(-0.40f, -0.55f, 0.73f)));
     (void)o.device.end_frame();
     // (Several renders in one frame also write the frame's timestamps more than once; that device-level rule is the caller's, so the validation count is not checked here.)
+}
+
+TEST_CASE("IBL (null device): off acquires nothing for the environment; on adds exactly its texture, sampler and block, with or without shadows, and releases them")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    for (const bool shadows : {false, true}) {
+        uint32_t off_count = 0, on_count = 0;
+        {
+            SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(false, shadows));
+            CHECK(!off.model_renderer().ibl_enabled());
+            const GpuModel model = tiny_model(off);
+            const ModelDraw draws[] = {{&model, Mat4::identity()}};
+            SceneFrame frame;
+            frame.models = draws;
+            (void)off.render(o.device.begin_frame(), frame, o.target());
+            (void)o.device.end_frame();
+            off_count = o.device.live_resource_count() - baseline;
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        {
+            SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, shadows));
+            CHECK(on.model_renderer().ibl_enabled());
+            const GpuModel model = tiny_model(on);
+            const ModelDraw draws[] = {{&model, Mat4::identity()}};
+            SceneFrame frame;
+            frame.models = draws;
+            (void)on.render(o.device.begin_frame(), frame, o.target());
+            (void)o.device.end_frame();
+            on_count = o.device.live_resource_count() - baseline;
+            const std::vector<rhi::RecordedCommand> cmds = o.device.last_frame_commands();
+            CHECK(scene_pass_count(cmds) == (shadows ? 2u : 1u));
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        // The environment texture, its sampler and its uniform block; the model pipeline permutation is lazy and is the same count either way
+        // (one of four shader modules is created), so only the three resources and the one shader differ is not asserted exactly: at least three more.
+        CHECK(on_count >= off_count + 3);
+    }
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("IBL (null device): a failed acquisition at any step releases everything, with and without shadows, and the renderer can be used afterwards")
+{
+    for (const bool shadows : {false, true}) {
+        Offscreen o;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, shadows));
+        const uint32_t baseline = o.device.live_resource_count();
+        uint32_t failures = 0;
+        for (uint32_t n = 1; n <= 200; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                (void)renderer.model_renderer();
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) {
+                CHECK(renderer.model_renderer().ibl_enabled());
+                break;
+            }
+            ++failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == baseline);
+        }
+        CHECK(failures >= (shadows ? 25u : 10u));
+        const GpuModel model = tiny_model(renderer);
+        const ModelDraw draws[] = {{&model, Mat4::identity()}};
+        SceneFrame frame;
+        frame.models = draws;
+        (void)renderer.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("IBL (null device): a bad environment, or one with a shading mode that would ignore it, is refused before anything is acquired")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    const auto refused = [&](const RendererSettings& s) {
+        try {
+            SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, s);
+            (void)r.model_renderer();
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    RendererSettings legacy = ibl_settings(true, false);
+    legacy.model_shading = ModelShading::Legacy;
+    CHECK(refused(legacy));
+    RendererSettings extended = ibl_settings(true, false);
+    extended.model_shading = ModelShading::Extended;
+    CHECK(refused(extended));
+
+    const auto mutated = [&](auto&& mutate) {
+        auto e = std::make_shared<EnvironmentLighting>(*tiny_environment());
+        mutate(*e);
+        RendererSettings s = ibl_settings(false, false);
+        s.environment = e;
+        return refused(s);
+    };
+    CHECK(mutated([](EnvironmentLighting& e) { e.width = 0; }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.levels = 0; }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.levels = 9; }));  // more levels than the chain has
+    CHECK(mutated([](EnvironmentLighting& e) { e.rgba16f.pop_back(); }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.sh[4].x = std::numeric_limits<float>::quiet_NaN(); }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.intensity = -1.0f; }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.intensity = std::numeric_limits<float>::infinity(); }));
+    CHECK(!mutated([](EnvironmentLighting&) {}));  // the unmutated one is accepted (the harness is not refusing everything)
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+}
+
+TEST_CASE("IBL (null device): a device that cannot filter RGBA16F refuses the environment before acquiring anything, and the renderer without one is unaffected")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    o.device.deny_filtered_sampling(rhi::Format::RGBA16_FLOAT);
+    bool refused = false;
+    try {
+        SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, false));
+        (void)r.model_renderer();
+    } catch (const std::invalid_argument& e) {
+        refused = std::string(e.what()).find("linear filtering") != std::string::npos;
+    }
+    CHECK(refused);
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    {
+        SceneRenderer plain(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(false, true));  // no environment: the format is not needed
+        CHECK(!plain.model_renderer().ibl_enabled());
+    }
+    o.device.deny_filtered_sampling(rhi::Format::Unknown);
+    {
+        SceneRenderer ok(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, true));
+        CHECK(ok.model_renderer().ibl_enabled());
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+}
+
+TEST_CASE("Skinning (null device): off acquires nothing for it; on adds its shader, layout, pipelines and identity palette; everything is released")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    for (const bool shadows : {false, true}) {
+        uint32_t off_count = 0, on_count = 0;
+        {
+            RendererSettings s = ibl_settings(false, shadows);
+            SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, s);
+            CHECK(!off.model_renderer().skinning_enabled());
+            off_count = o.device.live_resource_count() - baseline;
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        {
+            RendererSettings s = ibl_settings(false, shadows);
+            s.skinning = true;
+            SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, s);
+            CHECK(on.model_renderer().skinning_enabled());
+            on_count = o.device.live_resource_count() - baseline;
+            // A palette adds one buffer per frame in flight (and its groups); dropping it returns them.
+            const uint32_t before_palette = o.device.live_resource_count();
+            {
+                SkinPalette p = on.model_renderer().create_skin_palette(8, "palette");
+                CHECK(p.valid() && p.joint_count() == 8);
+                CHECK(o.device.live_resource_count() > before_palette);
+            }
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == before_palette);
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        // The skinned vertex shader, the palette layout (not counted as a resource), four pipelines (plus the shadow pipeline and shader with shadows on)
+        // and the identity palette's buffers.
+        CHECK(on_count >= off_count + (shadows ? 8u : 5u));
+    }
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Skinning (null device): a failed acquisition at any step releases everything, and a failed palette leaves nothing behind")
+{
+    for (const bool shadows : {false, true}) {
+        Offscreen o;
+        RendererSettings s = ibl_settings(true, shadows);
+        s.skinning = true;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+        const uint32_t baseline = o.device.live_resource_count();
+        uint32_t failures = 0;
+        for (uint32_t n = 1; n <= 300; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                (void)renderer.model_renderer();
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) {
+                CHECK(renderer.model_renderer().skinning_enabled());
+                break;
+            }
+            ++failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == baseline);
+        }
+        CHECK(failures >= (shadows ? 35u : 20u));
+        ModelRenderer& models = renderer.model_renderer();
+        const uint32_t built = o.device.live_resource_count();
+        uint32_t palette_failures = 0;
+        for (uint32_t n = 1; n <= 40; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                SkinPalette p = models.create_skin_palette(4, "swept");
+                (void)p;
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) break;
+            ++palette_failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == built);
+        }
+        CHECK(palette_failures >= 2);
+        // A skinned primitive is drawn without crashing and counted; the palette-less draw uses the identity palette.
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
+// ---- Palette immutability within a frame --------------------------------------------------------------------------------------------------------
+
+namespace {
+
+/// One skinned triangle (joint 0 only) on whatever device the renderer has.
+GpuModel skinned_triangle(SceneRenderer& renderer)
+{
+    GpuModel model = tiny_model(renderer);
+    const std::vector<SkinnedModelVertex> vertices = {{{{0, 0, 0}, {0, 0, 1}, {0, 0}}}, {{{1, 0, 0}, {0, 0, 1}, {1, 0}}}, {{{0, 1, 0}, {0, 0, 1}, {0, 1}}}};
+    rhi::BufferDesc vb;
+    vb.size = vertices.size() * sizeof(SkinnedModelVertex);
+    vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
+    model.meshes[0][0].vertices = renderer.registry().create_buffer(vb, std::as_bytes(std::span(vertices)));
+    model.meshes[0][0].skinned = true;
+    model.meshes[0][0].joint_limit = 1;
+    model.skin_joint_count = 1;
+    return model;
+}
+
+Mat4 pose_with_translation(float x)
+{
+    Mat4 m = Mat4::identity();
+    m.m[12] = x;  // column-major: the translation of an affine matrix
+    return m;
+}
+
+float first_translation(rhi::NullDevice& device, rhi::BufferHandle buffer)
+{
+    const std::span<std::byte> bytes = device.map(buffer);
+    float rows[12];
+    std::memcpy(rows, bytes.data(), sizeof(rows));
+    return rows[3];  // row 0's last element: the x translation of joint 0
+}
+
+}  // namespace
+
+TEST_CASE("Skinning (null device): a palette's pose is frozen for the frame at its first use, a later update is refused before anything is recorded, and the next frame takes it")
+{
+    for (const bool shadows : {false, true}) {
+        Offscreen o;
+        RendererSettings s = shadow_settings(shadows);
+        s.skinning = true;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+        ModelRenderer& models = renderer.model_renderer();
+        const GpuModel model = skinned_triangle(renderer);
+        SkinPalette p = models.create_skin_palette(1, "frozen"), q = models.create_skin_palette(1, "other");
+        const ModelDraw both[] = {{&model, Mat4::identity(), &p}, {&model, Mat4::identity(), &q}};
+        const ModelDraw only_p[] = {{&model, Mat4::identity(), &p}};
+        const ModelDraw only_q[] = {{&model, Mat4::identity(), &q}};
+        const Mat4 pose_a[] = {pose_with_translation(1.0f)}, pose_b[] = {pose_with_translation(2.0f)}, pose_c[] = {pose_with_translation(3.0f)};
+        const uint32_t per_palette = shadows ? 2u : 1u;  // draws of one palette's triangle: the colour pass, and the shadow pass with shadows on
+        const auto render_with = [&](rhi::CommandList& cmd, std::span<const ModelDraw> draws) {
+            SceneFrame f;
+            f.models = draws;
+            return renderer.render(cmd, f, o.target());
+        };
+        const auto render_refused = [&](rhi::CommandList& cmd, std::span<const ModelDraw> draws) {
+            try {
+                (void)render_with(cmd, draws);
+            } catch (const std::logic_error&) {
+                return true;
+            }
+            return false;
+        };
+
+        // Frame 1: pose A is set before the first use; the frame draws it (the shadow and the colour pass bind the same copy).
+        p.update(pose_a);
+        q.update(pose_a);
+        rhi::CommandList& cmd1 = o.device.begin_frame();
+        const uint32_t slot1 = static_cast<uint32_t>(o.device.frame_number() % 2);
+        CHECK(render_with(cmd1, both).model_skinned_draws == 2 * per_palette);
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);
+        // The pose changes after the draws were recorded. The update itself is CPU state and allowed, but another draw of this palette in the same frame (a second view, or the
+        // shadow and colour pass split across calls) is refused before it records anything or touches the slot: the recorded draws keep pose A.
+        p.update(pose_b);
+        CHECK(render_refused(cmd1, only_p));
+        CHECK(render_refused(cmd1, both));
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);
+        (void)o.device.end_frame();
+        CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::DrawIndexed).size() == 2 * per_palette);  // nothing from the refused renders
+
+        // Frame 2 (the other slot): the palette takes its last pose before the first use, and frame 1's copy is untouched while the GPU may still be reading it.
+        rhi::CommandList& cmd2 = o.device.begin_frame();
+        const uint32_t slot2 = static_cast<uint32_t>(o.device.frame_number() % 2);
+        CHECK(slot2 != slot1);
+        p.update(pose_b);
+        p.update(pose_c);
+        CHECK(render_with(cmd2, only_p).model_skinned_draws == per_palette);
+        CHECK(first_translation(o.device, p.slot_buffer(slot2)) == 3.0f);
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);
+        p.update(pose_a);  // too late for this frame
+        CHECK(render_refused(cmd2, only_p));
+        CHECK(first_translation(o.device, p.slot_buffer(slot2)) == 3.0f);
+        (void)o.device.end_frame();
+
+        // Frame 3 reuses slot 1 and finds the newest pose there.
+        rhi::CommandList& cmd3 = o.device.begin_frame();
+        CHECK(static_cast<uint32_t>(o.device.frame_number() % 2) == slot1);
+        CHECK(render_with(cmd3, only_p).model_skinned_draws == per_palette);
+        CHECK(first_translation(o.device, p.slot_buffer(slot1)) == 1.0f);   // pose A, set in frame 2 after its draws
+        CHECK(first_translation(o.device, p.slot_buffer(slot2)) == 3.0f);   // frame 2's copy, still what that frame drew
+        (void)o.device.end_frame();
+        CHECK(o.device.validation_error_count() == 0);
+
+        // The same through the model renderer's own draw calls, in a frame that records them by hand: the shadow pass binds the palette (freezing it), a changed pose is refused by
+        // the colour pass's draw and by another shadow draw before they record anything, and an unchanged palette (and another one) can still be drawn.
+        if (shadows) {
+            rhi::CommandList& cmd = o.device.begin_frame();
+            const uint32_t slot = static_cast<uint32_t>(o.device.frame_number() % 2);
+            models.set_shadow_frame(nullptr);
+            p.update(pose_b);
+            rhi::RenderingDesc rd;
+            rhi::ColorAttachment ca;
+            ca.texture = o.color;
+            rd.colors.push_back(ca);
+            rd.area = {0, 0, 320, 180};
+            cmd.begin_rendering(rd);
+            ModelFrameStats stats;
+            models.draw_shadow(cmd, Mat4::identity(), only_p, stats);
+            CHECK(stats.skinned_draws == 1);
+            CHECK(first_translation(o.device, p.slot_buffer(slot)) == 2.0f);
+            models.draw_shadow(cmd, Mat4::identity(), only_p, stats);  // the same pose again: fine
+            models.draw_shadow(cmd, Mat4::identity(), only_q, stats);  // another palette: fine
+            p.update(pose_c);
+            const auto refuses = [&](auto&& call) {
+                try {
+                    call();
+                } catch (const std::logic_error&) {
+                    return true;
+                }
+                return false;
+            };
+            ModelFrameStats refused_stats;
+            CHECK(refuses([&] { models.draw_shadow(cmd, Mat4::identity(), only_p, refused_stats); }));
+            CHECK(refuses([&] { models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, only_p, refused_stats); }));
+            CHECK(refuses([&] { models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, both, refused_stats); }));
+            CHECK(refused_stats.skinned_draws == 0);  // nothing was recorded for any of them
+            CHECK(first_translation(o.device, p.slot_buffer(slot)) == 2.0f);
+            models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, only_q, refused_stats);  // the other palette is still drawable in the colour pass
+            CHECK(refused_stats.skinned_draws == 1);
+            cmd.end_rendering();
+            (void)o.device.end_frame();
+            CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::DrawIndexed).size() == 4);  // three shadow draws and one colour draw, none from a refused call
+            CHECK(o.device.validation_error_count() == 0);
+        }
+    }
+}
+
+// ---- Frustum culling (from #83) ------------------------------------------------------------------------------------------------------------
+
+namespace {
+
+/// One triangle whose bounding sphere is given (the local origin and radius 1 by default); radius 0 means "no bounds".
+GpuModel bounded_model(SceneRenderer& renderer, float radius, Float3 center = {0, 0, 0})
+{
+    GpuModel model;
+    model.name = "bounded";
+    model.materials.push_back(renderer.model_renderer().create_material({}, {}, {}, "bounded.material"));
+    const std::vector<ModelVertex> vertices = {{{0, 0, 0}, {0, 0, 1}, {0, 0}}, {{1, 0, 0}, {0, 0, 1}, {1, 0}}, {{0, 1, 0}, {0, 0, 1}, {0, 1}}};
+    const std::vector<uint32_t> indices = {0, 1, 2};
+    rhi::BufferDesc vb;
+    vb.size = vertices.size() * sizeof(ModelVertex);
+    vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
+    rhi::BufferDesc ib;
+    ib.size = indices.size() * sizeof(uint32_t);
+    ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
+    GpuPrimitive p;
+    p.vertices = renderer.registry().create_buffer(vb, std::as_bytes(std::span(vertices)));
+    p.indices = renderer.registry().create_buffer(ib, std::as_bytes(std::span(indices)));
+    p.index_count = 3;
+    p.material = 0;
+    p.bounds_center = center;
+    p.bounds_radius = radius;
+    model.meshes.push_back({std::move(p)});
+    model.placements.push_back({0, Mat4::identity()});
+    return model;
+}
+
+Mat4 place(Float3 position, float scale = 1.0f)
+{
+    Transform t;
+    t.position = position;
+    t.scale = {scale, scale, scale};
+    return to_matrix(t);
+}
+
+FrameStats render_models(Offscreen& o, SceneRenderer& renderer, const Camera& camera, std::span<const ModelDraw> draws)
+{
+    SceneFrame frame;
+    frame.camera = &camera;
+    frame.models = draws;
+    const FrameStats stats = renderer.render(o.device.begin_frame(), frame, o.target());
+    (void)o.device.end_frame();
+    return stats;
+}
+
+} // namespace
+
+TEST_CASE("Frustum culling: primitives outside the view are skipped, those inside or without bounds are drawn, and it can be turned off")
+{
+    const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});  // looks along +X, 60 degrees vertical, 16:9 target
+    for (const bool culling : {true, false}) {
+        Offscreen o;
+        RendererSettings settings;
+        settings.frustum_culling = culling;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        const GpuModel bounded = bounded_model(renderer, 1.0f), unbounded = bounded_model(renderer, 0.0f);
+        const ModelDraw draws[] = {
+            {&bounded, place({10, 0, 2})},      // in front: drawn
+            {&bounded, place({-10, 0, 2})},     // behind the camera: culled
+            {&bounded, place({10, 40, 2})},     // far to the left of the view: culled
+            {&bounded, place({10, 0, 60})},     // far above: culled
+            {&bounded, place({10, 4.5f, 2})},   // just inside the left edge (half width at 10 m is about 10 m * tan(30) * 16/9 = 10.3 m): drawn
+            {&unbounded, place({-10, 0, 2})},   // behind the camera, but with no bounds: never culled
+            {&bounded, place({10, 0, 2}, 0.01f)}  // tiny scale in view: drawn
+        };
+        const FrameStats stats = render_models(o, renderer, camera, draws);
+        CHECK(stats.model_instances == 7);  // instances are counted whether or not their primitives were
+        if (culling) {
+            CHECK(stats.model_primitives_culled == 3);
+            CHECK(stats.draw_calls == 1 /*ground*/ + 4);
+        } else {
+            CHECK(stats.model_primitives_culled == 0);
+            CHECK(stats.draw_calls == 1 + 7);
+        }
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("Frustum culling: a bounding sphere is scaled by the instance and offset by its center, and a sphere straddling an edge is kept")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, RendererSettings{});
+    const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});
+    const GpuModel small = bounded_model(renderer, 1.0f);
+    const GpuModel offset = bounded_model(renderer, 1.0f, {0, 30, 0});  // the sphere is 30 m to the side of the model's origin
+    // 40 m to the side: out of view at scale 1, but a sphere scaled 50x reaches the view.
+    {
+        const ModelDraw out[] = {{&small, place({10, 40, 2})}};
+        CHECK(render_models(o, renderer, camera, out).model_primitives_culled == 1);
+        const ModelDraw scaled[] = {{&small, place({10, 40, 2}, 50.0f)}};
+        CHECK(render_models(o, renderer, camera, scaled).model_primitives_culled == 0);
+    }
+    // The model's origin is in view but its sphere (30 m to the side) is not: culled. Moved so the sphere is in view: kept.
+    {
+        const ModelDraw hidden[] = {{&offset, place({10, 0, 2})}};
+        CHECK(render_models(o, renderer, camera, hidden).model_primitives_culled == 1);
+        const ModelDraw shown[] = {{&offset, place({10, -30, 2})}};
+        CHECK(render_models(o, renderer, camera, shown).model_primitives_culled == 0);
+    }
+    // Non-uniform scale and mirroring use the largest axis scale.
+    {
+        Transform stretched;
+        stretched.position = {10, 14, 2};
+        stretched.scale = {1.0f, -8.0f, 1.0f};  // mirrored, 8x along Y: the sphere reaches 8 m toward the view
+        const ModelDraw d[] = {{&small, to_matrix(stretched)}};
+        CHECK(render_models(o, renderer, camera, d).model_primitives_culled == 0);
+    }
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Frustum culling never culls a sphere that any of its points projects into the view")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, RendererSettings{});
+    const GpuModel unit = bounded_model(renderer, 1.0f);
+    uint32_t state = 12345u;
+    const auto next = [&] {
+        state = state * 1664525u + 1013904223u;
+        return static_cast<float>(state >> 8) / 16777216.0f;
+    };
+    int visible = 0, invisible = 0, culled_invisible = 0;
+    for (int i = 0; i < 400; ++i) {
+        const Camera camera = look_at_camera({next() * 10 - 5, next() * 10 - 5, next() * 4}, {next() * 20 - 10, next() * 20 - 10, next() * 4 - 1});
+        const Float3 center{next() * 60 - 30, next() * 60 - 30, next() * 20 - 5};
+        const float radius = 0.2f + next() * 6.0f;
+        const Mat4 vp = view_projection_matrix(camera, 320.0f / 180.0f);
+        // Independent oracle: sample the sphere's center and 400 points inside it; the sphere is visible if any projects inside the view.
+        bool any = false;
+        for (int s = 0; s < 400 && !any; ++s) {
+            Float3 p = center;
+            if (s > 0) {
+                Float3 d{next() * 2 - 1, next() * 2 - 1, next() * 2 - 1};
+                while (dot(d, d) > 1.0f || dot(d, d) < 1e-6f) d = {next() * 2 - 1, next() * 2 - 1, next() * 2 - 1};
+                p = center + d * radius;
+            }
+            const Float4 clip = vp * Float4{p.x, p.y, p.z, 1.0f};
+            any = clip.w > 0.0f && std::fabs(clip.x) <= clip.w && std::fabs(clip.y) <= clip.w && clip.z > 0.0f && clip.z <= clip.w;
+        }
+        const ModelDraw d[] = {{&unit, place(center, radius)}};
+        const bool culled = render_models(o, renderer, camera, d).model_primitives_culled == 1;
+        if (any) {
+            ++visible;
+            CHECK(!culled);
+        } else {
+            ++invisible;
+            culled_invisible += culled ? 1 : 0;
+        }
+    }
+    CHECK(visible >= 40);
+    CHECK(invisible >= 200);
+    CHECK(culled_invisible * 100 >= invisible * 80);  // it is conservative, but it does cull most of what cannot be seen
+}
+
+TEST_CASE("Frustum culling and skinning (null device): a skinned primitive is never culled by its bind-pose bounds, a rigid one with the same bounds is")
+{
+    const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});
+    for (const bool culling : {true, false}) {
+        Offscreen o;
+        RendererSettings settings;
+        settings.skinning = true;
+        settings.frustum_culling = culling;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        GpuModel skinned = skinned_triangle(renderer);
+        skinned.meshes[0][0].bounds_center = {0.0f, 60.0f, 0.0f};  // the bind pose is far to the side of the view
+        skinned.meshes[0][0].bounds_radius = 1.0f;
+        GpuModel rigid = bounded_model(renderer, 1.0f, {0.0f, 60.0f, 0.0f});
+        SkinPalette palette = renderer.model_renderer().create_skin_palette(1, "walker");
+        const Mat4 pose[] = {place({0.0f, -60.0f, 0.0f})};  // the pose brings the mesh back into the view
+        palette.update(pose);
+        const ModelDraw draws[] = {{&skinned, place({10, 0, 2}), &palette}, {&rigid, place({10, 0, 2})}};
+        const FrameStats stats = render_models(o, renderer, camera, draws);
+        CHECK(stats.model_skinned_draws == 1);  // always drawn
+        if (culling) {
+            CHECK(stats.model_primitives_culled == 1);      // the rigid one only
+            CHECK(stats.model_skinned_cull_bypassed == 1);
+        } else {
+            CHECK(stats.model_primitives_culled == 0);
+            CHECK(stats.model_skinned_cull_bypassed == 0);
+        }
+        CHECK(o.device.validation_error_count() == 0);
+    }
 }

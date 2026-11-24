@@ -1,0 +1,90 @@
+# GPU skinning
+
+Linear blend skinning of imported glTF meshes on the GPU, opt-in, with the CPU reference in `gfx_assets/animation.hpp` as the parity oracle.
+
+## Who owns what (agreed on #43)
+
+| Layer | Owns |
+| --- | --- |
+| `gfx_assets` (engine evaluation) | stateless sampling: `evaluate_clip`, `skin_matrices`, `skin_vertex` (the CPU reference). No clock, no playback state. |
+| Gameplay (Core) | playback time, blending, layering, events and state transitions; the pose it publishes for a frame is final for that frame. |
+| `render` | the GPU copy of the pose (`SkinPalette`), the skinned vertex format, the skinned pipelines. It never evaluates animation. |
+
+The renderer's input is the final **skin matrices** of the frame: for each joint, the joint's world transform times its inverse bind matrix, in the skinned
+mesh's own space (what `gfx::skin_matrices(skin, pose)` returns). The instance's world matrix (`ModelDraw::world`) then places the skinned mesh as for any
+rigid model. glTF says a skinned mesh node's own transform is ignored, so a skinned primitive's placement must be the identity.
+
+## Importer staging
+
+`gfx::stage_model` (gfx_scene) stages a primitive that has `JOINTS_0`/`WEIGHTS_0` and is instanced by a skinned node as `SkinnedModelVertex` with `skinned` and `joint_limit`
+set (one more than the largest joint index carrying weight), places the skinned instance at the identity, and sets `GpuModel::skin_joint_count`, the joint count to
+create the draw's `SkinPalette` with. One model has one skin: instances of any other skin are not placed (warning). With skinning off the same primitives are staged
+rigid in the bind pose (warning). A vertex bound to a joint the skin does not have, or a skin of more than 256 joints, fails the staging with a message naming the mesh or
+skin, and nothing is leaked.
+
+## Using it
+
+```cpp
+RendererSettings rs;            // or ModelRenderSettings
+rs.skinning = true;             // off by default: nothing is allocated for skinning when off
+SceneRenderer renderer(device, format, rs);
+
+SkinPalette palette = renderer.model_renderer().create_skin_palette(skin.joint_count(), "hero");   // one per animated instance
+// every frame, after gameplay has produced the pose:
+palette.update(gfx::skin_matrices(skin, pose));
+const ModelDraw draws[] = {{&model, world, &palette}};
+```
+
+* A primitive is skinned when `GpuPrimitive::skinned` is set: its vertex buffer holds `SkinnedModelVertex` (a `ModelVertex` plus four `uint16` joints and four
+  `float` weights, 72 bytes) and `joint_limit` is one more than the largest joint index it uses. Rigid primitives in the same model, and in the same frame, are
+  unaffected and use the unchanged vertex path and pipelines.
+* `ModelDraw::palette == nullptr` draws the bind pose (the renderer keeps an identity palette). Rigid primitives ignore the palette.
+* One palette serves all skinned primitives of its instance, in the color pass, the sorted blended phase and the sun shadow pass.
+* `SkinPalette::update` checks the pose (count, finite, affine) before changing anything, so a bad pose leaves the previous one. Calling it several times
+  before a frame is the same as calling it once. The palette keeps the latest matrices on the CPU and a GPU copy per frame in flight; a draw rewrites the current
+  slot if it is stale, so the GPU never reads a buffer the CPU is writing and a pose that is not updated stays current in every slot.
+* **A palette's pose is frozen for the frame at its first use.** The first draw of a device frame that binds a palette (colour, sorted or shadow pass, any view) fixes the copy
+  of the pose that every draw of that frame references. `update` after that is allowed as CPU state (it is the next frame's pose), but any further draw of that palette in the same
+  frame is refused with `std::logic_error` *before* it records or writes anything (`ModelRenderer::draw`, `draw_shadow`, and `SceneRenderer::render` check up front, so no pass is
+  left half-recorded), because the recorded draws would otherwise show the new pose. Update palettes before the frame's first draw; give each view or character its own palette
+  if their poses differ. (An update that happens to write the same matrices still counts as an update.)
+
+## What the shaders compute
+
+`model_skinned.hlsl` is `model.hlsl` compiled with `SAIGE_SKINNING = 1`, vertex stage only; the pixel stage is whichever plain, shadowed, IBL or both permutation is in
+use, because the vertex outputs are identical. With `B = sum_i w_i M_i`:
+
+* position `B p`;
+* tangent and bitangent (built from the unskinned normal and tangent as `cross(n, t) * handedness`) by the linear part of `B`;
+* normal by the **cofactor** of that linear part, so normals stay perpendicular under non-uniform scale and under blends of several joints; the instance matrix's
+  cofactor then composes (`cof(AB) = cof(A) cof(B)`).
+
+`shadow_depth_skinned.hlsl` skins the position the same way for the shadow map. The palette is three `float4` rows per joint (affine matrices; the bottom row is
+implicit), 256 joints at most (`kMaxSkinJoints`, 12 288 bytes, inside the portable 16 KiB uniform range). Joint indices are clamped to the palette in the shader and
+checked against the palette's joint count at draw time (`ModelFrameStats::skinned_skipped`), so a corrupt or mismatched primitive never reads past the buffer.
+
+The existing permutations' SPIR-V is byte-identical (only the source-hash lines of their headers changed): the skinned code is inside `#if SAIGE_SKINNING`.
+
+## Limits
+
+* Mirrored bones (a joint matrix with negative determinant) flip the triangle winding; mirror the instance (`ModelDraw::world`) instead.
+* Normal-mapped tangent frames are exact for rotations, translations and uniform scale; under strong non-uniform bone scale the skinned bitangent (the linear
+  part applied to the unskinned `cross(n, t)`) is not the cross product of the skinned normal and tangent. Positions and normals are exact in all cases.
+* **Culling and bounds**: a skinned primitive's `bounds_*` are its bind-pose bounds (staging cannot know the animation), which say nothing about the posed mesh. Frustum culling
+  (#83) therefore **never culls a skinned primitive** (`ModelFrameStats::skinned_cull_bypassed` / `FrameStats::model_skinned_cull_bypassed` count them), in every pass; the
+  sun shadow pass does not cull casters at all. A mesh whose bind pose is far outside the view but whose pose puts it inside is drawn (`test_skinning.cpp`), and a rigid primitive
+  with the same bounds is still culled. This stays so until a conservative per-pose bound is supplied together with the pose (then culling can use it); that is the remaining
+  animated-bounds work.
+* Skins with more than 256 joints are not supported by this path (the importer's limit is 512). Morph targets, root motion, IK and retargeting are not part of
+  this slice.
+* Everything is software-Vulkan correctness; no physical-GPU timing is claimed.
+
+## Verification
+
+`engine/rhi_vulkan/tests/test_skinning.cpp` (validated Vulkan, lavapipe in CI) renders a skinned tube through the skinned pipelines and the same tube rigidly from the CPU
+reference's vertices, and compares the images: across eight poses including a non-uniform scale and four influences per vertex (worst channel delta at most 1 8-bit level
+in the shadow and IBL runs); the bind pose with no palette; six consecutive frames with a new pose each (more frames than frame slots), double updates and an
+un-updated palette; two instances with different palettes in one frame with sun shadows and image-based lighting together (the skinned depth stage is exercised: the
+floor's shadows match); sorted blended skinned primitives; a normal-mapped surface (the tangent path); and the refusals (skinning off, bad counts, a palette with too few
+joints, NaN, non-affine and short poses). `engine/render/tests/test_scene_renderer.cpp` (null device): off allocates nothing, on adds its resources, a creation-failure
+sweep over every acquisition step (with shadows and IBL) leaves the device at its baseline, and a palette creation sweep leaves nothing behind.

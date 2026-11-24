@@ -1,17 +1,23 @@
 #include "saige/render/model_renderer.hpp"
 
+#include "saige/render/camera.hpp"
 #include "saige/render/env_brdf.hpp"
 #include "saige/render/shadow_cascades.hpp"
 
 #include "saige/shaders/scene_model.spv.hpp"
+#include "saige/shaders/scene_model_ibl.spv.hpp"
+#include "saige/shaders/scene_model_ibl_shadowed.spv.hpp"
 #include "saige/shaders/scene_model_shadowed.spv.hpp"
+#include "saige/shaders/scene_model_skinned.spv.hpp"
 #include "saige/shaders/scene_shadow_depth.spv.hpp"
+#include "saige/shaders/scene_shadow_depth_skinned.spv.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <stdexcept>
 
@@ -66,6 +72,17 @@ struct ShadowPush {
     float model_row[3][4];
 };
 static_assert(sizeof(ShadowPush) == 112);
+
+/// Bytes of one palette: kMaxSkinJoints affine matrices as three float4 rows (the shader's `skin_rows[768]`).
+constexpr std::size_t kPaletteBytes = static_cast<std::size_t>(kMaxSkinJoints) * 48;
+static_assert(kPaletteBytes <= rhi::max_uniform_binding_range);
+
+/// IBL block (set 1, binding 8 of the IBL permutations), matching `IblConstants` in the shader.
+struct IblBlock {
+    float sh[9][4];  ///< radiance SH coefficients (rgb, padding)
+    float params[4]; ///< levels - 1, intensity
+};
+static_assert(sizeof(IblBlock) == 160);
 
 /// Material uniform block (set 0, binding 10), matching `Material` in the shader.
 struct MaterialBlock {
@@ -188,6 +205,14 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     }
     shadows_enabled_ = settings.shadows.enabled;
     dynamic_lighting_ = settings.dynamic_lighting;
+    if (settings.environment) {
+        validate_environment_lighting(*settings.environment);
+        if (settings.shading != ModelShading::MetallicRoughness) {
+            throw std::invalid_argument("ModelRenderer: an environment needs metallic-roughness shading (the other modes would ignore it)");
+        }
+    }
+    ibl_enabled_ = settings.environment != nullptr;
+    skinning_enabled_ = settings.skinning;
     // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
     // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows. This is
     // also what makes a failed shadow acquisition (shader, pipeline, map, sampler, ring buffers, groups) leave nothing behind.
@@ -202,10 +227,28 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings)
 {
     using namespace saige::shaders;
-    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, shadows_enabled_ ? words(scene_model_shadowed_vs_main) : words(scene_model_vs_main), "VSMain",
-                                 shadows_enabled_ ? "SceneModelShadowed.VS" : "SceneModel.VS"});
-    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, shadows_enabled_ ? words(scene_model_shadowed_ps_main) : words(scene_model_ps_main), "PSMain",
-                                 shadows_enabled_ ? "SceneModelShadowed.PS" : "SceneModel.PS"});
+    // The four permutations of model.hlsl: sun shadows and image-based lighting each switch on independently.
+    std::span<const uint32_t> vs_words = words(scene_model_vs_main), ps_words = words(scene_model_ps_main);
+    const char* vs_name = "SceneModel.VS";
+    const char* ps_name = "SceneModel.PS";
+    if (shadows_enabled_ && ibl_enabled_) {
+        vs_words = words(scene_model_ibl_shadowed_vs_main);
+        ps_words = words(scene_model_ibl_shadowed_ps_main);
+        vs_name = "SceneModelIblShadowed.VS";
+        ps_name = "SceneModelIblShadowed.PS";
+    } else if (shadows_enabled_) {
+        vs_words = words(scene_model_shadowed_vs_main);
+        ps_words = words(scene_model_shadowed_ps_main);
+        vs_name = "SceneModelShadowed.VS";
+        ps_name = "SceneModelShadowed.PS";
+    } else if (ibl_enabled_) {
+        vs_words = words(scene_model_ibl_vs_main);
+        ps_words = words(scene_model_ibl_ps_main);
+        vs_name = "SceneModelIbl.VS";
+        ps_name = "SceneModelIbl.PS";
+    }
+    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, vs_words, "VSMain", vs_name});
+    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, ps_words, "PSMain", ps_name});
 
     rhi::BindGroupLayoutDesc material;
     for (uint32_t slot = 0; slot < kMaterialSlotCount; ++slot) {
@@ -221,6 +264,11 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         constants.entries.push_back({3, rhi::BindingType::SampledTexture});
         constants.entries.push_back({4, rhi::BindingType::Sampler});
         constants.entries.push_back({5, rhi::BindingType::UniformBuffer});
+    }
+    if (ibl_enabled_) {  // the IBL permutations: the prefiltered environment, its sampler and the SH block
+        constants.entries.push_back({6, rhi::BindingType::SampledTexture});
+        constants.entries.push_back({7, rhi::BindingType::Sampler});
+        constants.entries.push_back({8, rhi::BindingType::UniformBuffer});
     }
     constants.debug_name = "ModelConstantsLayout";
     constants_layout_ = device_.create_bind_group_layout(constants);
@@ -241,6 +289,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     pipeline_template_ = pd;
     blending_supported_ = rhi::is_blendable_color_format(color_format);
     alpha_blending_ = settings.alpha_blending;
+    frustum_culling_ = settings.frustum_culling;
     static const char* const names[4] = {"SceneModel.CCW.Back", "SceneModel.CCW.None", "SceneModel.CW.Back", "SceneModel.CW.None"};
     for (int mirrored = 0; mirrored < 2; ++mirrored) {
         for (int two_sided = 0; two_sided < 2; ++two_sided) {
@@ -266,6 +315,50 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         sp.push_constant_size = sizeof(ShadowPush);
         sp.debug_name = "SceneShadowDepth";
         shadow_pipeline_ = device_.create_graphics_pipeline(sp);
+    }
+
+    if (skinning_enabled_) {
+        // The skinned vertex stage (the pixel stage is the plain model one, whatever the permutation) and the joint palette at set 2.
+        skin_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_skinned_vs_main), "VSMain", "SceneModelSkinned.VS"});
+        rhi::BindGroupLayoutDesc palette;
+        palette.entries = {{0, rhi::BindingType::UniformBuffer}};
+        palette.debug_name = "ModelPaletteLayout";
+        palette_layout_ = device_.create_bind_group_layout(palette);
+        rhi::GraphicsPipelineDesc sd = pipeline_template_;
+        sd.vertex_shader = skin_vs_;
+        sd.vertex_layout.stride = sizeof(SkinnedModelVertex);
+        sd.vertex_layout.attributes.push_back({4, rhi::Format::RGBA16_UINT, offsetof(SkinnedModelVertex, joints)});
+        sd.vertex_layout.attributes.push_back({5, rhi::Format::RGBA32_FLOAT, offsetof(SkinnedModelVertex, weights)});
+        sd.bind_group_layouts = {material_layout_, constants_layout_, palette_layout_};
+        skin_pipeline_template_ = sd;
+        static const char* const skin_names[4] = {"SceneModelSkinned.CCW.Back", "SceneModelSkinned.CCW.None", "SceneModelSkinned.CW.Back",
+                                                  "SceneModelSkinned.CW.None"};
+        for (int mirrored = 0; mirrored < 2; ++mirrored) {
+            for (int two_sided = 0; two_sided < 2; ++two_sided) {
+                sd.front_face = mirrored != 0 ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise;
+                sd.cull_mode = two_sided != 0 ? rhi::CullMode::None : rhi::CullMode::Back;
+                sd.debug_name = skin_names[mirrored * 2 + two_sided];
+                skinned_pipelines_[mirrored * 2 + two_sided] = device_.create_graphics_pipeline(sd);
+            }
+        }
+        if (shadows_enabled_) {
+            skin_shadow_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_shadow_depth_skinned_vs_main), "VSMain", "SceneShadowDepthSkinned.VS"});
+            rhi::GraphicsPipelineDesc sp;
+            sp.vertex_shader = skin_shadow_vs_;
+            sp.vertex_layout.stride = sizeof(SkinnedModelVertex);
+            sp.vertex_layout.attributes = {{0, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, position)},
+                                           {4, rhi::Format::RGBA16_UINT, offsetof(SkinnedModelVertex, joints)},
+                                           {5, rhi::Format::RGBA32_FLOAT, offsetof(SkinnedModelVertex, weights)}};
+            sp.cull_mode = rhi::CullMode::None;
+            sp.depth = {true, true, rhi::CompareOp::Greater};
+            sp.depth_format = rhi::Format::D32_FLOAT;
+            sp.depth_bias = {settings.shadows.depth_bias_constant, settings.shadows.depth_bias_slope};
+            sp.push_constant_size = sizeof(ShadowPush);
+            sp.bind_group_layouts = {palette_layout_};  // the depth stage needs the palette only
+            sp.debug_name = "SceneShadowDepthSkinned";
+            skin_shadow_pipeline_ = device_.create_graphics_pipeline(sp);
+        }
+        identity_palette_ = make_palette(kMaxSkinJoints, "ModelIdentityPalette");  // the bind pose, for skinned primitives drawn without a palette
     }
 
     // Immutable scene constants. The default lighting is the same sun, ambient and fog as the 0.1 cube and ground shaders.
@@ -342,31 +435,79 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         env_brdf_sampler_ = registry_.get_sampler(s);
     }
 
-    if (!shadows_enabled_ && dynamic_lighting_) {
-        constants_groups_.reserve(light_slots);
-        for (uint32_t i = 0; i < light_slots; ++i) {
-            BindGroupBinding bindings[3];
-            bindings[0].binding = 0;
-            bindings[0].buffer = scene_blocks_[i];
-            bindings[0].size = sizeof(sc);
-            bindings[1].binding = 1;
-            bindings[1].texture = env_brdf_;
-            bindings[2].binding = 2;
-            bindings[2].sampler = env_brdf_sampler_;
-            constants_groups_.push_back(registry_.create_bind_group(constants_layout_, bindings, "ModelSceneConstants"));
+    // Image-based lighting: the prefiltered environment (a 2D RGBA16F texture with one mip per roughness level), its sampler and the SH block.
+    if (ibl_enabled_) {
+        const EnvironmentLighting& env = *settings.environment;
+        // The prefiltered chain is read with trilinear filtering: refuse a device that cannot, before creating anything for it.
+        if (!device_.supports_filtered_sampling(rhi::Format::RGBA16_FLOAT)) {
+            throw std::invalid_argument("ModelRenderer: the device cannot sample RGBA16_FLOAT with linear filtering, which the image-based lighting environment needs");
         }
-        return;
+        rhi::TextureDesc d;
+        d.format = rhi::Format::RGBA16_FLOAT;
+        d.width = env.width;
+        d.height = env.height;
+        d.mip_levels = env.levels;
+        d.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        d.debug_name = "ModelIblEnvironment";
+        ibl_texture_ = registry_.create_texture(d, std::as_bytes(std::span(env.rgba16f)));
+        rhi::SamplerDesc s;  // trilinear: lod = roughness * (levels - 1) interpolates between the prefiltered levels; longitude wraps, latitude clamps
+        s.address_u = rhi::AddressMode::Repeat;
+        s.address_v = rhi::AddressMode::ClampToEdge;
+        s.max_lod = static_cast<float>(env.levels - 1);
+        ibl_sampler_ = registry_.get_sampler(s);
+        IblBlock block{};
+        for (std::size_t k = 0; k < 9; ++k) {
+            block.sh[k][0] = env.sh[k].x;
+            block.sh[k][1] = env.sh[k].y;
+            block.sh[k][2] = env.sh[k].z;
+        }
+        block.params[0] = static_cast<float>(env.levels - 1);
+        block.params[1] = env.intensity;
+        make_uniform(device_, registry_, ibl_block_, &block, sizeof(block), "ModelIblBlock");
     }
+    const auto constant_bindings_for = [&](const BufferRef& scene_buffer, const BufferRef* shadow_block) {
+        std::vector<BindGroupBinding> bindings(3);
+        bindings[0].binding = 0;
+        bindings[0].buffer = scene_buffer;
+        bindings[0].size = sizeof(sc);
+        bindings[1].binding = 1;
+        bindings[1].texture = env_brdf_;
+        bindings[2].binding = 2;
+        bindings[2].sampler = env_brdf_sampler_;
+        if (shadow_block != nullptr) {
+            BindGroupBinding b3, b4, b5;
+            b3.binding = 3;
+            b3.texture = shadow_map_;
+            b4.binding = 4;
+            b4.sampler = shadow_sampler_;
+            b5.binding = 5;
+            b5.buffer = *shadow_block;
+            b5.size = sizeof(ShadowBlock);
+            bindings.insert(bindings.end(), {b3, b4, b5});
+        }
+        if (ibl_enabled_) {
+            BindGroupBinding b6, b7, b8;
+            b6.binding = 6;
+            b6.texture = ibl_texture_;
+            b7.binding = 7;
+            b7.sampler = ibl_sampler_;
+            b8.binding = 8;
+            b8.buffer = ibl_block_;
+            b8.size = sizeof(IblBlock);
+            bindings.insert(bindings.end(), {b6, b7, b8});
+        }
+        return bindings;
+    };
+
     if (!shadows_enabled_) {
-        BindGroupBinding constant_bindings[3];
-        constant_bindings[0].binding = 0;
-        constant_bindings[0].buffer = constants_buffer;
-        constant_bindings[0].size = sizeof(sc);
-        constant_bindings[1].binding = 1;
-        constant_bindings[1].texture = env_brdf_;
-        constant_bindings[2].binding = 2;
-        constant_bindings[2].sampler = env_brdf_sampler_;
-        constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants");
+        if (dynamic_lighting_) {  // one group per frame slot, each over that slot's scene-constants buffer
+            constants_groups_.reserve(light_slots);
+            for (uint32_t i = 0; i < light_slots; ++i) {
+                constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(scene_blocks_[i], nullptr), "ModelSceneConstants"));
+            }
+        } else {
+            constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings_for(constants_buffer, nullptr), "ModelSceneConstants");
+        }
         return;
     }
 
@@ -399,22 +540,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     for (uint32_t i = 0; i < slots; ++i) {
         BufferRef block;
         make_uniform(device_, registry_, block, &off, sizeof(off), "ModelShadowBlock");
-        BindGroupBinding constant_bindings[6];
-        constant_bindings[0].binding = 0;
-        constant_bindings[0].buffer = dynamic_lighting_ ? scene_blocks_[i] : constants_buffer;
-        constant_bindings[0].size = sizeof(sc);
-        constant_bindings[1].binding = 1;
-        constant_bindings[1].texture = env_brdf_;
-        constant_bindings[2].binding = 2;
-        constant_bindings[2].sampler = env_brdf_sampler_;
-        constant_bindings[3].binding = 3;
-        constant_bindings[3].texture = shadow_map_;
-        constant_bindings[4].binding = 4;
-        constant_bindings[4].sampler = shadow_sampler_;
-        constant_bindings[5].binding = 5;
-        constant_bindings[5].buffer = block;
-        constant_bindings[5].size = sizeof(ShadowBlock);
-        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants"));
+        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(dynamic_lighting_ ? scene_blocks_[i] : constants_buffer, &block), "ModelSceneConstants"));
         shadow_blocks_.push_back(std::move(block));
     }
 }
@@ -430,6 +556,9 @@ void ModelRenderer::release() noexcept
     shadow_blocks_.clear();
     scene_blocks_.clear();
     constants_group_.reset();
+    ibl_block_.reset();
+    ibl_sampler_.reset();
+    ibl_texture_.reset();
     shadow_sampler_.reset();
     shadow_map_.reset();
     white_srgb_.reset();
@@ -446,8 +575,27 @@ void ModelRenderer::release() noexcept
         for (const rhi::PipelineHandle p : blend_pipelines_) {
             device_.destroy(p);
         }
+        if (skinning_enabled_) {
+            for (rhi::PipelineHandle& p : skinned_blend_pipelines_) {
+                if (p.is_valid()) device_.destroy(p);
+                p = {};
+            }
+        }
         blend_pipelines_ready_ = false;
     }
+    identity_palette_ = SkinPalette{};  // before the layout it was created against
+    for (rhi::PipelineHandle& p : skinned_pipelines_) {
+        if (p.is_valid()) device_.destroy(p);
+        p = {};
+    }
+    if (skin_shadow_pipeline_.is_valid()) device_.destroy(skin_shadow_pipeline_);
+    skin_shadow_pipeline_ = {};
+    if (skin_shadow_vs_.is_valid()) device_.destroy(skin_shadow_vs_);
+    skin_shadow_vs_ = {};
+    if (skin_vs_.is_valid()) device_.destroy(skin_vs_);
+    skin_vs_ = {};
+    if (palette_layout_.is_valid()) device_.destroy(palette_layout_);
+    palette_layout_ = {};
     if (shadow_pipeline_.is_valid()) device_.destroy(shadow_pipeline_);
     shadow_pipeline_ = {};
     if (shadow_vs_.is_valid()) device_.destroy(shadow_vs_);
@@ -526,7 +674,9 @@ void ModelRenderer::ensure_blend_pipelines()
     pd.blend = {rhi::BlendState::source_over()};        // straight alpha, as glTF defines BLEND
     static const char* const names[4] = {"SceneModel.Blend.CCW.Front", "SceneModel.Blend.CCW.Back", "SceneModel.Blend.CW.Front",
                                          "SceneModel.Blend.CW.Back"};
-    rhi::PipelineHandle created[4];
+    static const char* const skin_names[4] = {"SceneModelSkinned.Blend.CCW.Front", "SceneModelSkinned.Blend.CCW.Back",
+                                              "SceneModelSkinned.Blend.CW.Front", "SceneModelSkinned.Blend.CW.Back"};
+    rhi::PipelineHandle created[8];
     int count = 0;
     try {
         for (int mirrored = 0; mirrored < 2; ++mirrored) {
@@ -538,6 +688,20 @@ void ModelRenderer::ensure_blend_pipelines()
                 ++count;
             }
         }
+        if (skinning_enabled_) {
+            rhi::GraphicsPipelineDesc sd = skin_pipeline_template_;
+            sd.depth = pd.depth;
+            sd.blend = pd.blend;
+            for (int mirrored = 0; mirrored < 2; ++mirrored) {
+                for (int pass = 0; pass < 2; ++pass) {
+                    sd.front_face = mirrored != 0 ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise;
+                    sd.cull_mode = pass == 0 ? rhi::CullMode::Back : rhi::CullMode::Front;
+                    sd.debug_name = skin_names[mirrored * 2 + pass];
+                    created[count] = device_.create_graphics_pipeline(sd);
+                    ++count;
+                }
+            }
+        }
     } catch (...) {
         for (int i = 0; i < count; ++i) {
             device_.destroy(created[i]);
@@ -546,6 +710,7 @@ void ModelRenderer::ensure_blend_pipelines()
     }
     for (int i = 0; i < 4; ++i) {
         blend_pipelines_[i] = created[i];
+        if (skinning_enabled_) skinned_blend_pipelines_[i] = created[4 + i];
     }
     blend_pipelines_ready_ = true;
 }
@@ -555,6 +720,80 @@ float ModelRenderer::blend_sort_depth(const Mat4& view_proj, Float3 c) noexcept
     // Row 3 of the column-major matrix: clip w = dot(row3, (c, 1)), the distance along the view direction for a perspective projection.
     const float w = view_proj.at(3, 0) * c.x + view_proj.at(3, 1) * c.y + view_proj.at(3, 2) * c.z + view_proj.at(3, 3);
     return std::isfinite(w) ? w : 0.0f;  // a non-finite key would break the sort's ordering: such a primitive sorts as if at the camera
+}
+
+SkinPalette ModelRenderer::make_palette(uint32_t joint_count, const char* name)
+{
+    const uint32_t slots = std::max(1u, device_.info().frames_in_flight);
+    SkinPalette palette;
+    palette.rows_.assign(static_cast<std::size_t>(kMaxSkinJoints) * 12, 0.0f);
+    for (uint32_t j = 0; j < joint_count; ++j) {  // identity: the bind pose
+        palette.rows_[static_cast<std::size_t>(j) * 12 + 0] = 1.0f;
+        palette.rows_[static_cast<std::size_t>(j) * 12 + 5] = 1.0f;
+        palette.rows_[static_cast<std::size_t>(j) * 12 + 10] = 1.0f;
+    }
+    palette.generation_ = 1;
+    palette.slot_generation_.assign(slots, 0);  // every slot is stale until its first draw uploads the pose
+    palette.slot_frame_.assign(slots, ~uint64_t{0});  // and has not been bound by any frame
+    palette.buffers_.reserve(slots);
+    palette.groups_.reserve(slots);
+    for (uint32_t i = 0; i < slots; ++i) {
+        rhi::BufferDesc ub;
+        ub.size = kPaletteBytes;
+        ub.usage = rhi::BufferUsage::Uniform;
+        ub.memory = rhi::MemoryLocation::CpuToGpu;
+        ub.debug_name = name;
+        BufferRef buffer = registry_.create_buffer(ub);
+        if (device_.map(buffer.handle()).size() < kPaletteBytes) {
+            throw std::runtime_error("ModelRenderer: the skin palette buffer is not host visible");
+        }
+        BindGroupBinding binding;
+        binding.binding = 0;
+        binding.buffer = buffer;
+        binding.size = kPaletteBytes;
+        palette.groups_.push_back(registry_.create_bind_group(palette_layout_, std::span<const BindGroupBinding>(&binding, 1), name));
+        palette.buffers_.push_back(std::move(buffer));
+    }
+    palette.joint_count_ = joint_count;
+    palette.device_ = &device_;
+    return palette;
+}
+
+SkinPalette ModelRenderer::create_skin_palette(uint32_t joint_count, const char* name)
+{
+    if (!skinning_enabled_) {
+        throw std::logic_error("ModelRenderer::create_skin_palette: skinning is not enabled (ModelRenderSettings::skinning)");
+    }
+    if (joint_count == 0 || joint_count > kMaxSkinJoints) {
+        throw std::invalid_argument("ModelRenderer::create_skin_palette: the joint count must be 1 to kMaxSkinJoints");
+    }
+    return make_palette(joint_count, name);
+}
+
+void ModelRenderer::check_palettes_unfrozen(std::span<const ModelDraw> draws) const
+{
+    const uint64_t frame = device_.frame_number();
+    for (const ModelDraw& d : draws) {
+        const SkinPalette* p = d.palette;
+        if (p == nullptr || !p->valid() || p->groups_.empty()) continue;
+        const std::size_t slot = static_cast<std::size_t>(frame % p->groups_.size());
+        if (p->slot_frame_[slot] == frame && p->slot_generation_[slot] != p->generation_) {
+            throw std::logic_error("ModelRenderer: a skin palette was updated after its first use in this frame (its pose is frozen for the frame; update palettes before the first draw)");
+        }
+    }
+}
+
+rhi::BindGroupHandle ModelRenderer::palette_group(const SkinPalette& palette)
+{
+    const std::size_t slot = static_cast<std::size_t>(device_.frame_number() % palette.groups_.size());
+    palette.slot_frame_[slot] = device_.frame_number();  // from here on the slot's pose is what this frame's draws reference
+    if (palette.slot_generation_[slot] != palette.generation_) {
+        // The slot's buffer was last read by the frame that used this slot, which the device has finished before begin_frame returned.
+        std::span<std::byte> mapped = device_.map(palette.buffers_[slot].handle());
+        std::memcpy(mapped.data(), palette.rows_.data(), kPaletteBytes);
+        palette.slot_generation_[slot] = palette.generation_;
+    }
+    return palette.groups_[slot].handle();
 }
 
 rhi::PipelineHandle ModelRenderer::pipeline_for(bool mirrored, bool double_sided) const noexcept
@@ -573,9 +812,13 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         if (shadows_enabled_ && !(shadow_frame_written_ && shadow_frame_number_ == frame_number)) set_shadow_frame(nullptr);
         active_group_ = static_cast<uint32_t>(frame_number % constants_groups_.size());
     }
+    check_palettes_unfrozen(draws);  // before anything is recorded or written
     rhi::PipelineHandle bound{};
+    rhi::BindGroupHandle bound_palette{};  // set 2 of the bound skinned pipeline
     blended_.clear();
     uint32_t sequence = 0;
+    std::optional<Frustum> frustum;
+    if (frustum_culling_) frustum = extract_frustum(view_proj);
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -602,23 +845,63 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             push.camera_sign[2] = camera_position.z;
             push.camera_sign[3] = det < 0.0f ? -1.0f : 1.0f;
             const bool mirrored = det < 0.0f;
+            // The largest axis scale of the instance: a sphere stays a sphere bounded by it under any affine map.
+            float max_scale = 0.0f;
+            if (frustum) {
+                for (int col = 0; col < 3; ++col) {
+                    const float sx = world.at(0, col), sy = world.at(1, col), sz = world.at(2, col);
+                    max_scale = std::max(max_scale, std::sqrt(sx * sx + sy * sy + sz * sz));
+                }
+            }
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
+                if (frustum && prim.skinned) {
+                    // A skinned primitive's bounds are its bind pose's: the pose the palette holds can put the mesh anywhere (a character walking out of its bind-pose
+                    // sphere), so culling it by them would drop visible geometry. It is never culled until a per-pose conservative bound is supplied (docs/rendering/skinning.md).
+                    ++stats.skinned_cull_bypassed;
+                } else if (frustum && prim.bounds_radius > 0.0f) {
+                    const Float3 local = prim.bounds_center;
+                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                    if (!intersects_sphere(*frustum, center, prim.bounds_radius * max_scale)) {
+                        ++stats.primitives_culled;
+                        continue;
+                    }
+                }
                 const GpuMaterial& material = d.model->materials[prim.material];
+                const SkinPalette* palette = nullptr;
+                if (prim.skinned) {
+                    palette = d.palette != nullptr ? d.palette : &identity_palette_;
+                    if (!skinning_enabled_ || !palette->valid() || palette->joint_count() < prim.joint_limit) {
+                        ++stats.skinned_skipped;  // never read past the palette, never feed skinned vertices to a rigid pipeline
+                        continue;
+                    }
+                }
                 if (material.blend && blend_pipelines_ready_) {
                     // Deferred: blended primitives draw after every opaque one, sorted back to front (below).
                     const Float3 local = prim.bounds_center;
                     const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
                                         world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
                                         world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
-                    blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored});
+                    blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored, palette});
                     continue;
                 }
-                const rhi::PipelineHandle pipeline = pipeline_for(mirrored, material.double_sided);
+                const rhi::PipelineHandle pipeline = palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)]
+                                                                         : pipeline_for(mirrored, material.double_sided);
                 if (pipeline != bound) {
                     cmd.bind_pipeline(pipeline);
                     cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
                     bound = pipeline;
+                    bound_palette = {};
+                }
+                if (palette != nullptr) {
+                    const rhi::BindGroupHandle group = palette_group(*palette);
+                    if (group != bound_palette) {
+                        cmd.bind_group(2, group);
+                        bound_palette = group;
+                    }
+                    ++stats.skinned_draws;
                 }
                 cmd.bind_group(0, material.group.handle());
                 cmd.bind_vertex_buffer(prim.vertices.handle());
@@ -652,11 +935,21 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         // against itself; a single-sided one draws its front faces only.
         const int first_pass = item.material->double_sided ? 1 : 0;
         for (int pass = first_pass; pass >= 0; --pass) {
-            const rhi::PipelineHandle pipeline = blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
+            const rhi::PipelineHandle pipeline = item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass]
+                                                                         : blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
             if (pipeline != bound) {
                 cmd.bind_pipeline(pipeline);
                 cmd.bind_group(1, constants_group());
                 bound = pipeline;
+                bound_palette = {};
+            }
+            if (item.palette != nullptr) {
+                const rhi::BindGroupHandle group = palette_group(*item.palette);
+                if (group != bound_palette) {
+                    cmd.bind_group(2, group);
+                    bound_palette = group;
+                }
+                ++stats.skinned_draws;
             }
             cmd.bind_group(0, item.material->group.handle());
             cmd.bind_vertex_buffer(item.primitive->vertices.handle());
@@ -780,7 +1073,9 @@ void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_pr
     if (!shadows_enabled_) {
         throw std::logic_error("ModelRenderer::draw_shadow: shadows are not enabled");
     }
-    cmd.bind_pipeline(shadow_pipeline_);
+    check_palettes_unfrozen(draws);  // before anything is recorded or written
+    rhi::PipelineHandle bound{};
+    rhi::BindGroupHandle bound_palette{};
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -805,6 +1100,28 @@ void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_pr
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
                 if (!d.model->materials[prim.material].casts_sun_shadow) {
                     continue;  // authored MASK and BLEND surfaces do not cast (first slice)
+                }
+                const SkinPalette* palette = nullptr;
+                if (prim.skinned) {
+                    palette = d.palette != nullptr ? d.palette : &identity_palette_;
+                    if (!skinning_enabled_ || !palette->valid() || palette->joint_count() < prim.joint_limit) {
+                        ++stats.skinned_skipped;
+                        continue;
+                    }
+                }
+                const rhi::PipelineHandle pipeline = palette != nullptr ? skin_shadow_pipeline_ : shadow_pipeline_;
+                if (pipeline != bound) {
+                    cmd.bind_pipeline(pipeline);
+                    bound = pipeline;
+                    bound_palette = {};
+                }
+                if (palette != nullptr) {
+                    const rhi::BindGroupHandle group = palette_group(*palette);
+                    if (group != bound_palette) {
+                        cmd.bind_group(0, group);
+                        bound_palette = group;
+                    }
+                    ++stats.skinned_draws;
                 }
                 cmd.bind_vertex_buffer(prim.vertices.handle());
                 cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);

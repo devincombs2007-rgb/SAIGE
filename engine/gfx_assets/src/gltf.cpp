@@ -1,5 +1,7 @@
 #include "saige/gfx_assets/gltf.hpp"
 
+#include "saige/gfx_assets/animation.hpp"
+
 #include "saige/gfx_assets/json.hpp"
 #include "saige/gfx_assets/resource_uri.hpp"
 #include "saige/gfx_assets/tangents.hpp"
@@ -109,6 +111,9 @@ struct Accessor {
 struct NodeInfo {
     std::string name;
     int64_t mesh = -1;
+    int64_t skin = -1;
+    bool decomposable = true;  ///< the local transform is a translation, rotation and scale (always, unless a `matrix` has shear or a negative scale)
+    render::Transform trs;     ///< glTF space (not yet converted to engine space)
     std::vector<std::size_t> children;
     Mat4 local = Mat4::identity();
 };
@@ -139,6 +144,8 @@ public:
         load_meshes();
         generate_missing_tangents();
         load_nodes();
+        load_skins();
+        load_animations();
         build_instances();
         asset_.warnings.assign(warnings_.begin(), warnings_.end());
         return std::move(asset_);
@@ -485,6 +492,26 @@ private:
         }
     }
 
+    /// JOINTS_0: VEC4 of UNSIGNED_BYTE or UNSIGNED_SHORT (never normalized), one joint index per influence.
+    void read_joints(const Accessor& acc, std::size_t expected_count, const std::string& what, std::vector<uint16_t>& out) const
+    {
+        if (acc.count != expected_count) {
+            fail(what + ": has " + std::to_string(acc.count) + " elements but POSITION has " + std::to_string(expected_count));
+        }
+        if (acc.components != 4 || acc.normalized || (acc.component_type != component_ubyte && acc.component_type != component_ushort)) {
+            fail(what + ": must be a VEC4 of UNSIGNED_BYTE or UNSIGNED_SHORT, not normalized");
+        }
+        const std::size_t csize = component_size(acc.component_type);
+        out.resize(acc.count * 4);
+        for (std::size_t i = 0; i < acc.count; ++i) {
+            const uint8_t* p = element(acc, i);
+            for (std::size_t c = 0; c < 4; ++c) {
+                const uint8_t* q = p + c * csize;
+                out[i * 4 + c] = acc.component_type == component_ubyte ? q[0] : static_cast<uint16_t>(q[0] | (q[1] << 8));
+            }
+        }
+    }
+
     // ----------------------------------------------------------------------------------------------- images etc.
     void load_samplers()
     {
@@ -703,7 +730,8 @@ private:
         }
         for (std::size_t a = 0; a < attributes.size(); ++a) {
             const std::string& name = attributes.key_at(a);
-            if (name != "POSITION" && name != "NORMAL" && name != "TANGENT" && name != "TEXCOORD_0" && name != "COLOR_0") {
+            if (name != "POSITION" && name != "NORMAL" && name != "TANGENT" && name != "TEXCOORD_0" && name != "COLOR_0" && name != "JOINTS_0" &&
+                name != "WEIGHTS_0") {
                 warn("attribute '" + name + "' is not supported and was ignored");
             }
         }
@@ -757,6 +785,37 @@ private:
                 }
             }
             have_colors = true;
+        }
+
+        std::vector<uint16_t> joints;
+        std::vector<float> weights;
+        const bool have_joints = !attributes["JOINTS_0"].is_null();
+        if (have_joints != !attributes["WEIGHTS_0"].is_null()) {
+            fail(label + ": JOINTS_0 and WEIGHTS_0 must come together");
+        }
+        if (have_joints) {
+            read_joints(accessor(attributes["JOINTS_0"].as_index(), label + " JOINTS_0"), n, label + " JOINTS_0", joints);
+            const Accessor& wacc = accessor(attributes["WEIGHTS_0"].as_index(), label + " WEIGHTS_0");
+            if (wacc.count != n) {
+                fail(label + ": WEIGHTS_0 has " + std::to_string(wacc.count) + " elements but POSITION has " + std::to_string(n));
+            }
+            read_floats(wacc, 4, true, label + " WEIGHTS_0", weights);
+            for (std::size_t v = 0; v < n; ++v) {
+                float sum = 0.0f;
+                for (std::size_t k = 0; k < 4; ++k) {
+                    float& w = weights[v * 4 + k];
+                    if (w < 0.0f) fail(label + ": WEIGHTS_0 has a negative weight");
+                    sum += w;
+                }
+                if (!(sum > 0.0f)) {  // bound to nothing: the first joint takes it, so the vertex still follows the skeleton
+                    weights[v * 4] = 1.0f;
+                    sum = 1.0f;
+                }
+                for (std::size_t k = 0; k < 4; ++k) weights[v * 4 + k] /= sum;
+            }
+        }
+        if (attributes["JOINTS_1"].is_null() == false || attributes["WEIGHTS_1"].is_null() == false) {
+            warn("more than four joint influences per vertex (JOINTS_1 / WEIGHTS_1) are not imported: the extra influences are dropped");
         }
 
         std::vector<uint32_t> indices;
@@ -817,6 +876,10 @@ private:
             if (have_uvs) flat.uv0.reserve(indices.size() * 2);
             if (have_colors) flat.colors.reserve(indices.size() * 4);
             if (have_tangents) flat.tangents.reserve(indices.size() * 4);
+            if (have_joints) {
+                flat.joints.reserve(indices.size() * 4);
+                flat.weights.reserve(indices.size() * 4);
+            }
             for (std::size_t t = 0; t < tri_count; ++t) {
                 Float3 corner[3];
                 for (std::size_t k = 0; k < 3; ++k) {
@@ -832,6 +895,10 @@ private:
                     if (have_uvs) flat.uv0.insert(flat.uv0.end(), {uvs[v * 2], uvs[v * 2 + 1]});
                     if (have_colors) flat.colors.insert(flat.colors.end(), colors.begin() + static_cast<std::ptrdiff_t>(v * 4), colors.begin() + static_cast<std::ptrdiff_t>(v * 4 + 4));
                     if (have_tangents) flat.tangents.insert(flat.tangents.end(), tangents.begin() + static_cast<std::ptrdiff_t>(v * 4), tangents.begin() + static_cast<std::ptrdiff_t>(v * 4 + 4));
+                    if (have_joints) {
+                        flat.joints.insert(flat.joints.end(), joints.begin() + static_cast<std::ptrdiff_t>(v * 4), joints.begin() + static_cast<std::ptrdiff_t>(v * 4 + 4));
+                        flat.weights.insert(flat.weights.end(), weights.begin() + static_cast<std::ptrdiff_t>(v * 4), weights.begin() + static_cast<std::ptrdiff_t>(v * 4 + 4));
+                    }
                     flat.indices.push_back(static_cast<uint32_t>(t * 3 + k));
                 }
             }
@@ -844,6 +911,8 @@ private:
             prim.tangents = std::move(tangents);
             prim.uv0 = std::move(uvs);
             prim.colors = std::move(colors);
+            prim.joints = std::move(joints);
+            prim.weights = std::move(weights);
             prim.indices = std::move(indices);
         }
         for (std::size_t v = 0; v < prim.positions.size() / 3; ++v) {
@@ -921,7 +990,12 @@ private:
                 info.children.push_back(static_cast<std::size_t>(child));
             }
             if (!n["camera"].is_null()) warn("cameras are not imported");
-            if (!n["skin"].is_null()) warn("skins are not imported (skeletal data waits on the animation contract)");
+            if (!n["skin"].is_null()) {
+                info.skin = n["skin"].as_index();
+                if (info.skin < 0 || static_cast<std::size_t>(info.skin) >= root_["skins"].size()) {
+                    fail(label + ": invalid skin index");
+                }
+            }
             if (!n["weights"].is_null()) warn("morph target weights are not imported");
             if (!n["matrix"].is_null()) {
                 double m[16];
@@ -929,6 +1003,7 @@ private:
                 for (std::size_t k = 0; k < 16; ++k) {
                     info.local.m[k] = static_cast<float>(m[k]);  // glTF matrices are column-major, like Mat4
                 }
+                info.decomposable = decompose(info.local, info.trs);
             } else {
                 render::Transform t;
                 double v[4];
@@ -945,9 +1020,256 @@ private:
                     read_numbers(n["scale"], 3, v, label + " scale");
                     t.scale = {static_cast<float>(v[0]), static_cast<float>(v[1]), static_cast<float>(v[2])};
                 }
+                info.trs = t;
                 info.local = render::to_matrix(t);
             }
             nodes_.push_back(std::move(info));
+        }
+    }
+
+    /// Splits an affine matrix into translation, rotation and scale. False (and `out` unspecified) for a shear, a projective part or a
+    /// degenerate or mirrored one, which a TRS cannot represent.
+    static bool decompose(const Mat4& m, render::Transform& out)
+    {
+        if (std::abs(m.at(3, 0)) > 1e-6f || std::abs(m.at(3, 1)) > 1e-6f || std::abs(m.at(3, 2)) > 1e-6f || std::abs(m.at(3, 3) - 1.0f) > 1e-6f) return false;
+        out.position = {m.at(0, 3), m.at(1, 3), m.at(2, 3)};
+        Float3 col[3];
+        float s[3];
+        for (int c = 0; c < 3; ++c) {
+            col[c] = {m.at(0, c), m.at(1, c), m.at(2, c)};
+            s[c] = render::length(col[c]);
+            if (!(s[c] > 1e-9f)) return false;
+            col[c] = col[c] * (1.0f / s[c]);
+        }
+        if (render::dot(render::cross(col[0], col[1]), col[2]) < 0.0f) return false;  // mirrored
+        if (std::abs(render::dot(col[0], col[1])) > 1e-4f || std::abs(render::dot(col[0], col[2])) > 1e-4f || std::abs(render::dot(col[1], col[2])) > 1e-4f) return false;  // sheared
+        out.scale = {s[0], s[1], s[2]};
+        const float r00 = col[0].x, r01 = col[1].x, r02 = col[2].x, r10 = col[0].y, r11 = col[1].y, r12 = col[2].y, r20 = col[0].z, r21 = col[1].z, r22 = col[2].z;
+        const float trace = r00 + r11 + r22;
+        render::Quat q;
+        if (trace > 0.0f) {
+            const float k = std::sqrt(trace + 1.0f) * 2.0f;
+            q = {(r21 - r12) / k, (r02 - r20) / k, (r10 - r01) / k, 0.25f * k};
+        } else if (r00 > r11 && r00 > r22) {
+            const float k = std::sqrt(1.0f + r00 - r11 - r22) * 2.0f;
+            q = {0.25f * k, (r01 + r10) / k, (r02 + r20) / k, (r21 - r12) / k};
+        } else if (r11 > r22) {
+            const float k = std::sqrt(1.0f + r11 - r00 - r22) * 2.0f;
+            q = {(r01 + r10) / k, 0.25f * k, (r12 + r21) / k, (r02 - r20) / k};
+        } else {
+            const float k = std::sqrt(1.0f + r22 - r00 - r11) * 2.0f;
+            q = {(r02 + r20) / k, (r12 + r21) / k, 0.25f * k, (r10 - r01) / k};
+        }
+        out.rotation = render::normalize(q);
+        return true;
+    }
+
+    // ----------------------------------------------------------------------------------------------- skins
+    static Mat4 conversion()
+    {
+        Mat4 c = Mat4{};
+        c.at(0, 2) = 1.0f;
+        c.at(1, 0) = 1.0f;
+        c.at(2, 1) = 1.0f;
+        c.at(3, 3) = 1.0f;
+        return c;
+    }
+
+    /// The glTF-space world matrix of every node (a node's ancestors are found through the children lists, which must form a forest).
+    std::vector<Mat4> node_worlds(std::vector<int64_t>& parent) const
+    {
+        parent.assign(nodes_.size(), -1);
+        for (std::size_t i = 0; i < nodes_.size(); ++i) {
+            for (const std::size_t c : nodes_[i].children) {
+                if (parent[c] >= 0) fail("node " + std::to_string(c) + " has more than one parent (the node graph must be a forest)");
+                parent[c] = static_cast<int64_t>(i);
+            }
+        }
+        std::vector<Mat4> world(nodes_.size(), Mat4::identity());
+        std::vector<uint8_t> state(nodes_.size(), 0);  // 0 unknown, 1 in progress, 2 done
+        std::vector<std::size_t> chain;
+        for (std::size_t start = 0; start < nodes_.size(); ++start) {
+            chain.clear();
+            for (std::size_t n = start; state[n] != 2;) {
+                if (state[n] == 1) fail("the node hierarchy has a cycle");
+                state[n] = 1;
+                chain.push_back(n);
+                if (chain.size() > limits_.max_node_depth + 1) fail("the node hierarchy is deeper than " + std::to_string(limits_.max_node_depth));
+                if (parent[n] < 0) break;
+                n = static_cast<std::size_t>(parent[n]);
+            }
+            for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+                const std::size_t n = *it;
+                world[n] = (parent[n] < 0 ? Mat4::identity() : world[static_cast<std::size_t>(parent[n])]) * nodes_[n].local;
+                state[n] = 2;
+            }
+        }
+        return world;
+    }
+
+    void load_skins()
+    {
+        const JsonValue& skins = root_["skins"];
+        if (skins.size() == 0) return;
+        if (skins.size() > limits_.max_skins) fail("the file has " + std::to_string(skins.size()) + " skins, over the limit of " + std::to_string(limits_.max_skins));
+        std::vector<int64_t> parent;
+        const std::vector<Mat4> world = node_worlds(parent);
+        const Mat4 c = conversion();
+        const Mat4 c_inverse = render::transpose(c);
+        for (std::size_t i = 0; i < skins.size(); ++i) {
+            const JsonValue& s = skins.at(i);
+            const std::string label = "skin " + std::to_string(i);
+            Skin skin;
+            skin.name = s["name"].as_string();
+            const JsonValue& joints = s["joints"];
+            if (!joints.is_array() || joints.size() == 0) fail(label + ": needs at least one joint");
+            if (joints.size() > limits_.max_joints_per_skin || joints.size() > 65536) {
+                fail(label + ": " + std::to_string(joints.size()) + " joints is over the limit of " + std::to_string(std::min<std::size_t>(limits_.max_joints_per_skin, 65536)));
+            }
+            std::vector<int64_t> joint_of_node(nodes_.size(), -1);
+            for (std::size_t j = 0; j < joints.size(); ++j) {
+                const int64_t node = joints.at(j).as_index();
+                if (node < 0 || static_cast<std::size_t>(node) >= nodes_.size()) fail(label + ": joint " + std::to_string(j) + " names an invalid node");
+                if (joint_of_node[static_cast<std::size_t>(node)] >= 0) fail(label + ": node " + std::to_string(node) + " is listed as a joint twice");
+                joint_of_node[static_cast<std::size_t>(node)] = static_cast<int64_t>(j);
+                skin.joint_nodes.push_back(static_cast<int32_t>(node));
+            }
+            std::vector<float> ibm;
+            const bool have_ibm = !s["inverseBindMatrices"].is_null();
+            if (have_ibm) {
+                const Accessor& acc = accessor(s["inverseBindMatrices"].as_index(), label + " inverseBindMatrices");
+                if (acc.count != joints.size()) fail(label + ": inverseBindMatrices has " + std::to_string(acc.count) + " matrices for " + std::to_string(joints.size()) + " joints");
+                read_floats(acc, 16, false, label + " inverseBindMatrices", ibm);
+            }
+            for (std::size_t j = 0; j < joints.size(); ++j) {
+                const std::size_t node = static_cast<std::size_t>(skin.joint_nodes[j]);
+                const NodeInfo& info = nodes_[node];
+                if (!info.decomposable) fail(label + ": joint node " + std::to_string(node) + " has a matrix with shear, mirroring or no scale, which a skeleton cannot pose");
+                // The parent joint is the node's parent when that is a joint. A non-joint node between two joints is not supported.
+                int32_t parent_joint = -1;
+                Mat4 base = Mat4::identity();
+                for (int64_t up = parent[node]; up >= 0; up = parent[static_cast<std::size_t>(up)]) {
+                    if (joint_of_node[static_cast<std::size_t>(up)] >= 0) {
+                        if (up != parent[node]) fail(label + ": joint node " + std::to_string(node) + " has a non-joint node between it and its parent joint, which is not supported");
+                        parent_joint = static_cast<int32_t>(joint_of_node[static_cast<std::size_t>(up)]);
+                        break;
+                    }
+                }
+                if (parent_joint < 0 && parent[node] >= 0) base = c * world[static_cast<std::size_t>(parent[node])] * c_inverse;
+                skin.parent.push_back(parent_joint);
+                skin.base.push_back(base);
+                render::Transform rest;
+                rest.position = gltf_to_engine(info.trs.position);
+                rest.rotation = {info.trs.rotation.z, info.trs.rotation.x, info.trs.rotation.y, info.trs.rotation.w};
+                rest.scale = gltf_to_engine(info.trs.scale);
+                skin.rest.push_back(rest);
+                Mat4 m = Mat4::identity();
+                if (have_ibm) {
+                    for (std::size_t k = 0; k < 16; ++k) m.m[k] = ibm[j * 16 + k];
+                    m = c * m * c_inverse;
+                }
+                skin.inverse_bind.push_back(m);
+            }
+            asset_.skins.push_back(std::move(skin));
+        }
+    }
+
+    // ----------------------------------------------------------------------------------------------- animations
+    void load_animations()
+    {
+        const JsonValue& animations = root_["animations"];
+        if (animations.size() == 0) return;
+        if (animations.size() > limits_.max_animations) {
+            fail("the file has " + std::to_string(animations.size()) + " animations, over the limit of " + std::to_string(limits_.max_animations));
+        }
+        for (std::size_t a = 0; a < animations.size(); ++a) {
+            const JsonValue& anim = animations.at(a);
+            const std::string label = "animation " + std::to_string(a);
+            AnimationClip clip;
+            clip.name = anim["name"].as_string();
+            const JsonValue& samplers = anim["samplers"];
+            const JsonValue& channels = anim["channels"];
+            if (!samplers.is_array() || !channels.is_array()) fail(label + ": needs 'samplers' and 'channels'");
+            struct Raw {
+                int64_t output = -1;
+                bool used = false;
+            };
+            std::vector<Raw> raw(samplers.size());
+            for (std::size_t s = 0; s < samplers.size(); ++s) {
+                const JsonValue& js = samplers.at(s);
+                const std::string slabel = label + " sampler " + std::to_string(s);
+                AnimationSampler sampler;
+                const std::string mode = js["interpolation"].is_null() ? "LINEAR" : js["interpolation"].as_string();
+                if (mode == "LINEAR") sampler.interpolation = Interpolation::Linear;
+                else if (mode == "STEP") sampler.interpolation = Interpolation::Step;
+                else if (mode == "CUBICSPLINE") sampler.interpolation = Interpolation::CubicSpline;
+                else fail(slabel + ": unknown interpolation '" + mode + "'");
+                const Accessor& input = accessor(js["input"].as_index(), slabel + " input");
+                if (input.count > limits_.max_animation_keys) fail(slabel + ": " + std::to_string(input.count) + " keys is over the limit of " + std::to_string(limits_.max_animation_keys));
+                read_floats(input, 1, false, slabel + " input", sampler.times);
+                float previous = -1.0f;
+                for (const float time : sampler.times) {
+                    if (!(time >= 0.0f) || !(time > previous)) fail(slabel + ": key times must be non-negative and strictly increasing");
+                    previous = time;
+                }
+                if (sampler.times.size() < (sampler.interpolation == Interpolation::CubicSpline ? 2u : 1u)) {
+                    fail(slabel + ": needs at least " + std::string(sampler.interpolation == Interpolation::CubicSpline ? "two keys for cubic spline interpolation" : "one key"));
+                }
+                raw[s].output = js["output"].as_index();
+                clip.samplers.push_back(std::move(sampler));
+            }
+            for (std::size_t ch = 0; ch < channels.size(); ++ch) {
+                const JsonValue& jc = channels.at(ch);
+                const std::string clabel = label + " channel " + std::to_string(ch);
+                const JsonValue& target = jc["target"];
+                const int64_t sampler_index = jc["sampler"].as_index();
+                if (sampler_index < 0 || static_cast<std::size_t>(sampler_index) >= clip.samplers.size()) fail(clabel + ": invalid sampler index");
+                if (target["node"].is_null()) continue;  // targets an extension's object, not a node: nothing to animate here
+                const int64_t node = target["node"].as_index();
+                if (node < 0 || static_cast<std::size_t>(node) >= nodes_.size()) fail(clabel + ": invalid target node");
+                const std::string path = target["path"].as_string();
+                AnimationPath p;
+                if (path == "translation") p = AnimationPath::Translation;
+                else if (path == "rotation") p = AnimationPath::Rotation;
+                else if (path == "scale") p = AnimationPath::Scale;
+                else {
+                    warn("animation channels that target '" + path + "' (morph target weights and others) are not imported");
+                    continue;
+                }
+                AnimationSampler& sampler = clip.samplers[static_cast<std::size_t>(sampler_index)];
+                const int components = p == AnimationPath::Rotation ? 4 : 3;
+                Raw& r = raw[static_cast<std::size_t>(sampler_index)];
+                if (r.used && sampler.components != components) fail(clabel + ": its sampler is shared by channels with different paths");
+                sampler.components = components;
+                if (!r.used) {
+                    r.used = true;
+                    const Accessor& out = accessor(r.output, clabel + " output");
+                    const std::size_t per_key = sampler.interpolation == Interpolation::CubicSpline ? 3u : 1u;
+                    if (out.count != sampler.times.size() * per_key) {
+                        fail(clabel + ": the output has " + std::to_string(out.count) + " values for " + std::to_string(sampler.times.size()) + " keys" +
+                             (per_key == 3 ? " (cubic spline stores an in-tangent, a value and an out-tangent per key)" : ""));
+                    }
+                    read_floats(out, components, false, clabel + " output", sampler.values);
+                    // glTF to engine space, per triple (z, x, y) and per quaternion (z, x, y, w): the same proper rotation of the axes.
+                    const std::size_t count = sampler.values.size() / static_cast<std::size_t>(components);
+                    for (std::size_t k = 0; k < count; ++k) {
+                        float* v = sampler.values.data() + k * static_cast<std::size_t>(components);
+                        const float x = v[0], y = v[1], z = v[2];
+                        v[0] = z;
+                        v[1] = x;
+                        v[2] = y;
+                        if (components == 4 && sampler.interpolation != Interpolation::CubicSpline) {
+                            const render::Quat q = render::normalize(render::Quat{v[0], v[1], v[2], v[3]});
+                            v[0] = q.x; v[1] = q.y; v[2] = q.z; v[3] = q.w;
+                        }
+                    }
+                }
+                clip.channels.push_back({static_cast<int32_t>(node), p, static_cast<int32_t>(sampler_index)});
+            }
+            for (const AnimationSampler& s : clip.samplers) {
+                if (!s.times.empty() && !s.values.empty()) clip.duration = std::max(clip.duration, s.times.back());
+            }
+            asset_.animations.push_back(std::move(clip));
         }
     }
 
@@ -1021,8 +1343,32 @@ private:
                 inst.node = static_cast<int32_t>(frame.node);
                 inst.name = node.name;
                 inst.world = c * world * c_inverse;
-                const Aabb& b = asset_.meshes[static_cast<std::size_t>(node.mesh)].bounds;
-                if (b.valid()) {
+                const Mesh& mesh = asset_.meshes[static_cast<std::size_t>(node.mesh)];
+                const Aabb& b = mesh.bounds;
+                if (node.skin >= 0) {
+                    const Skin& skin = asset_.skins[static_cast<std::size_t>(node.skin)];
+                    for (const Primitive& prim : mesh.primitives) {
+                        if (prim.joints.empty()) fail("node " + std::to_string(frame.node) + " has a skin, but its mesh has a primitive without JOINTS_0 and WEIGHTS_0");
+                        for (const uint16_t j : prim.joints) {
+                            if (j >= skin.joint_count()) fail("node " + std::to_string(frame.node) + ": a vertex names joint " + std::to_string(j) + " but the skin has " + std::to_string(skin.joint_count()));
+                        }
+                    }
+                    inst.skin = static_cast<int32_t>(node.skin);
+                    inst.world = Mat4::identity();  // the joint matrices carry the whole hierarchy (see MeshInstance::world)
+                    // Bounds at rest: the skinned positions of the rest pose.
+                    const std::vector<Mat4> rest = skin_matrices(skin, rest_pose(skin));
+                    for (const Primitive& prim : mesh.primitives) {
+                        for (std::size_t v = 0; v < prim.vertex_count(); ++v) asset_.bounds.expand(skin_position(prim, v, rest));
+                    }
+                } else {
+                    for (const Primitive& prim : mesh.primitives) {
+                        if (!prim.joints.empty()) {
+                            warn("a primitive has JOINTS_0 and WEIGHTS_0 but its node has no skin: it is drawn as a rigid mesh");
+                            break;
+                        }
+                    }
+                }
+                if (b.valid() && node.skin < 0) {
                     for (int corner = 0; corner < 8; ++corner) {
                         const Float3 p{(corner & 1) != 0 ? b.max.x : b.min.x, (corner & 2) != 0 ? b.max.y : b.min.y,
                                        (corner & 4) != 0 ? b.max.z : b.min.z};

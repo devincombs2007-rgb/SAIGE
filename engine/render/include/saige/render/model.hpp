@@ -14,6 +14,8 @@
 
 namespace saige::render {
 
+class SkinPalette;
+
 /// Interleaved vertex: position, normal, uv, tangent (48 bytes), the layout the model pipelines declare. The tangent is glTF's:
 /// xyz is the direction of increasing u, w is the bitangent's handedness (+1 or -1). w = 0 means "no tangent": normal mapping
 /// is skipped for the vertex's triangle.
@@ -25,6 +27,19 @@ struct ModelVertex {
 };
 static_assert(sizeof(ModelVertex) == 48, "ModelVertex must match the pipeline's vertex layout");
 
+/// A skinned vertex: a ModelVertex followed by the four joints that influence it and their weights (72 bytes), the layout of the skinned
+/// pipelines. Joints index the skin's joint list; weights are non-negative and sum to 1 (a vertex with fewer than four influences carries
+/// zero weights for the rest). See docs/rendering/skinning.md.
+struct SkinnedModelVertex {
+    ModelVertex base;
+    uint16_t joints[4] = {0, 0, 0, 0};
+    float weights[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+};
+static_assert(sizeof(SkinnedModelVertex) == 72, "SkinnedModelVertex must match the skinned pipelines' vertex layout");
+
+/// The most joints one skin palette holds: 256 affine matrices of 48 bytes fit one 16 KiB uniform binding, the portable minimum.
+inline constexpr uint32_t kMaxSkinJoints = 256;
+
 struct GpuPrimitive {
     BufferRef vertices;
     BufferRef indices;
@@ -35,6 +50,12 @@ struct GpuPrimitive {
     /// default (the origin, radius 0) sorts a primitive by its model's origin. The importer's staging fills it from the positions.
     Float3 bounds_center{};
     float bounds_radius = 0.0f;
+    /// True when `vertices` holds SkinnedModelVertex instead of ModelVertex. Such a primitive needs a renderer created with
+    /// `ModelRenderSettings::skinning` and is drawn through the draw's SkinPalette (the bind pose when the draw has none).
+    bool skinned = false;
+    /// For a skinned primitive: one more than the largest joint index any vertex references. A draw whose palette has fewer joints skips it
+    /// (counted in ModelFrameStats::skinned_skipped) instead of reading past the palette.
+    uint32_t joint_limit = 0;
 };
 
 struct GpuMaterial {
@@ -55,6 +76,9 @@ struct GpuModel {
     std::vector<GpuMaterial> materials;
     std::vector<std::vector<GpuPrimitive>> meshes;
     std::vector<GpuPlacement> placements;
+    /// Joints of the skin the model's skinned primitives are bound to (0: no skinned primitives). A draw of this model supplies a SkinPalette created with
+    /// at least this many joints (ModelRenderer::create_skin_palette); one model has one skin, so one palette per drawn instance.
+    uint32_t skin_joint_count = 0;
 
     [[nodiscard]] uint64_t triangle_count() const noexcept;
 };
@@ -63,6 +87,9 @@ struct GpuModel {
 struct ModelDraw {
     const GpuModel* model = nullptr;
     Mat4 world = Mat4::identity();
+    /// The pose of this instance's skinned primitives (null: the bind pose). Rigid primitives ignore it. One palette per animated instance;
+    /// several draws of the same model with different palettes are several animated instances.
+    const SkinPalette* palette = nullptr;
 };
 
 } // namespace saige::render

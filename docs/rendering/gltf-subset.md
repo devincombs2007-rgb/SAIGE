@@ -29,7 +29,8 @@ resolves outside it, so a symlink cannot escape either.
 | Node hierarchy: `children`, `matrix` **or** `translation`/`rotation`/`scale` | ✅ |
 | Mesh references on nodes, flattened to world-space instances | ✅ |
 | Node graph must be a forest (no cycles, no shared children), depth ≤ 256 | ✅ enforced |
-| Cameras, lights, skins, animations, morph targets (`weights`) | ⚠️ ignored with one warning each. Skeletal data is out of scope until the animation contract (#7) |
+| Cameras, lights, morph targets (`weights`) | ⚠️ ignored with one warning each |
+| Skins and skeletal animation | ✅ see [Skins and animation](#skins-and-animation) |
 
 ## Meshes
 | Feature | v1 |
@@ -40,7 +41,8 @@ resolves outside it, so a symlink cannot escape either.
 | `TANGENT` | `VEC4` `FLOAT`. If a primitive's material has a normal texture and the file has none, tangents are **generated** at import (Lengyel-style, deterministic; not MikkTSpace, see `tangents.hpp`) with a warning. A normal texture with no `TEXCOORD_0` is warned about and generates nothing. Primitives whose material has no normal texture get none |
 | `TEXCOORD_0` | `VEC2`: `FLOAT`, or normalized `UNSIGNED_BYTE` / `UNSIGNED_SHORT` |
 | `COLOR_0` | `VEC3`/`VEC4`: `FLOAT`, or normalized `UNSIGNED_BYTE` / `UNSIGNED_SHORT` |
-| Other attributes (`TEXCOORD_n`, `JOINTS_0`, `WEIGHTS_0`, ...) | ignored with a warning |
+| `JOINTS_0` / `WEIGHTS_0` | `VEC4` of `UNSIGNED_BYTE`/`UNSIGNED_SHORT` (not normalized) and `FLOAT` or normalized `UNSIGNED_BYTE`/`UNSIGNED_SHORT`; they come together. Weights are renormalized to sum to 1 (a vertex with none is bound to its first joint); a negative weight is an error. Four influences only: `JOINTS_1` and `WEIGHTS_1` are dropped with a warning |
+| Other attributes (`TEXCOORD_n`, ...) | ignored with a warning |
 | Indices | `UNSIGNED_BYTE` / `UNSIGNED_SHORT` / `UNSIGNED_INT`, validated against the vertex count. Absent = sequential |
 | Strided `bufferView`s (`byteStride`) and arbitrary `byteOffset`s | ✅, with overflow-checked bounds |
 | **Sparse accessors** | ❌ rejected with a clear error |
@@ -107,3 +109,26 @@ hostile file cannot make the loader allocate gigabytes. All offsets are bounds-c
 ## Not yet supported (tracked)
 MikkTSpace-exact tangents (the generator is Lengyel-style; adopting MikkTSpace means pinning a third-party dependency), image decoding, `KHR_texture_transform`, sparse accessors,
 skins/animation/morph targets, cameras and lights, `.gltf` files that reference other `.gltf` files, and Draco/meshopt.
+
+## Skins and animation
+
+CPU data only (no GPU skinning yet); posing and skinning are in `saige/gfx_assets/animation.hpp`. Everything is converted to engine space, joints and
+channels included: a translation or scale triple `(x, y, z)` becomes `(z, x, y)`, a rotation quaternion `(x, y, z, w)` becomes `(z, x, y, w)`, and an inverse bind
+matrix `M` becomes `C M C^-1` with `C` the same axis permutation.
+
+| Feature | v1 |
+|---|---|
+| `skins`: `joints`, `inverseBindMatrices` (`MAT4` `FLOAT`; identity when absent) | ✅ at most `GltfLimits::max_joints_per_skin` (512) joints and `max_skins` skins; a duplicate joint, an invalid node or a count mismatch is an error |
+| Joint hierarchy | ✅ parents need not precede children in `joints`. A joint's parent joint must be its node's direct parent; a **non-joint node between two joints is rejected**. Nodes above the top joints are folded into the skin's `base` matrix at rest |
+| Joint node transforms | ✅ TRS, or a `matrix` that decomposes into one. A matrix with shear, mirroring or zero scale on a joint is an error |
+| `node.skin` on a mesh node | ✅ the instance gets `skin` and an identity `world` (glTF: the mesh node's transform is irrelevant to a skinned mesh). Every primitive must have `JOINTS_0`/`WEIGHTS_0` and joint indices inside the skin, else an error. The asset bounds use the skinned rest pose. A primitive with joints on an unskinned node is drawn rigid, with a warning |
+| `animations`: `translation`, `rotation`, `scale` channels; `LINEAR`, `STEP`, `CUBICSPLINE` | ✅ key times must be non-negative and strictly increasing, at most `max_animation_keys` (4 Mi) per sampler, two keys for cubic spline; output counts are validated (three values per key for cubic spline); a sampler shared by channels of different paths is an error. Rotations are normalized; interpolation is shortest-path spherical |
+| `weights` (morph) channels | ⚠️ ignored with a warning |
+| Animation of non-joint nodes (rigid node animation) | ⚠️ parsed and kept in the clip; `bind_clip` skips channels whose node is not a joint of the skin |
+| Sparse accessors for animation data | ❌ rejected, as everywhere |
+
+### Ownership of animation (to be confirmed with Core on the PR)
+
+`animation.hpp` is *stateless*: `evaluate_clip(clip, binding, time, loop, pose)`, `skin_matrices(skin, pose)` and the CPU skinning reference. Playback state
+(the current time, speed, looping), blending and layering between clips, and state machines belong to the gameplay layer, which owns the time and the pose
+it hands to the renderer. GPU skinning will consume the skin matrices; the CPU reference defines what it must produce.

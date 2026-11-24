@@ -16,6 +16,7 @@ if(NOT TARGET saige::render)
 endif()
 
 add_library(saige_gfx_assets STATIC
+    src/animation.cpp
     src/gltf.cpp
     src/json.cpp
     src/resource_uri.cpp
@@ -50,6 +51,7 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
         SOURCES
             tests/alloc_fault.cpp
             tests/test_gltf.cpp
+            tests/test_gltf_skin.cpp
             tests/test_json.cpp
             tests/test_resource_uri.cpp
             tests/test_tangents.cpp

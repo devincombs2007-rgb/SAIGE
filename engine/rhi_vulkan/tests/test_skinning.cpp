@@ -619,3 +619,113 @@ TEST_CASE("Skinning: an imported (staged) skinned asset draws like the same asse
     CHECK(d.over <= 6 && d.worst <= 40);
     CHECK(scene.device->validation_error_count() == 0);
 }
+
+TEST_CASE("Skinning: a posed mesh that is inside the view while its bind pose is outside is drawn, with frustum culling on")
+{
+    // The bind-pose bounds of the tube (a sphere around (0, 0, 1.5) of radius 4, placed 60 m to the side of the camera's view) are far outside the frustum; the palette's pose
+    // translates every joint 60 m back, so the posed tube stands in view. It must be drawn exactly like the same tube with the pose baked into its vertices.
+    const Rig rig = make_rig();
+    Scene scene({});
+    ModelRenderer& models = scene.renderer->model_renderer();
+    const GpuModel skinned = skinned_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive);
+    SkinPalette palette = models.create_skin_palette(kJoints, "walker");
+    std::vector<Mat4> matrices = pose_matrices(rig, 0.8f, false);
+    const Mat4 away = translation({0.0f, -60.0f, 0.0f});
+    for (Mat4& m : matrices) m = away * m;  // the posed mesh is where it was; the instance matrix below moves the bind pose 60 m away
+    palette.update(matrices);
+    const GpuModel reference = reference_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive, matrices, false);
+    const Mat4 offset = translation({0.0f, 60.0f, 0.0f});
+    const ModelDraw a[] = {{&scene.floor, Mat4::identity()}, {&skinned, offset, &palette}};
+    const ModelDraw b[] = {{&scene.floor, Mat4::identity()}, {&reference, offset}};
+    const ModelDraw empty[] = {{&scene.floor, Mat4::identity()}};
+    FrameStats stats;
+    const Image drawn = scene.render(a, &stats);
+    CHECK(stats.model_skinned_draws == 1);
+    CHECK(stats.model_skinned_cull_bypassed == 1);
+    const Diff same = compare(drawn, scene.render(b), 3);
+    CHECK(same.over <= 6 && same.worst <= 40);
+    const Diff visible = compare(drawn, scene.render(empty), 3);
+    CHECK(visible.over >= 200);  // the tube really is in the image (not a vacuous comparison of two empty views)
+    CHECK(scene.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Living scene: an animated skinned tube under a moving sun with cascaded shadows, image-based lighting and frustum culling matches its CPU-skinned rigid twin over frames in flight")
+{
+    // Everything this stack composes at once: GPU skinning (a palette updated every frame), per-frame dynamic lighting (the sun moves and changes color each frame), two shadow
+    // cascades, image-based lighting and frustum culling. The oracle is the same tube with the pose baked into its vertices, drawn by an identically configured renderer under
+    // the same lighting. Eight frames, more than there are frames in flight.
+    const Rig rig = make_rig();
+    const auto device = make_validated_device("living_scene", /*synchronization=*/true);
+    RendererSettings s = deterministic_settings();
+    s.fog_density = 0.0f;
+    s.model_shading = ModelShading::MetallicRoughness;
+    s.environment = sky_environment();
+    s.skinning = true;
+    s.dynamic_lighting = true;
+    s.shadows.enabled = true;
+    s.shadows.map_size = 1024;
+    s.shadows.cascades = 2;
+    s.shadows.distance = 30.0f;
+    SceneRenderer animated(*device, rhi::Format::RGBA8_SRGB, s);
+    SceneRenderer twin(*device, rhi::Format::RGBA8_SRGB, s);
+    OffscreenTarget target(*device, kW, kH);
+    const auto floor_for = [&](SceneRenderer& r) {
+        MaterialParams mp;
+        mp.base_color[0] = mp.base_color[1] = mp.base_color[2] = 0.7f;
+        mp.roughness = 1.0f;
+        const CubeMesh cube = make_unit_cube();
+        std::vector<ModelVertex> v;
+        for (const CubeVertex& cv : cube.vertices) v.push_back({cv.position, cv.normal, {0, 0}});
+        std::vector<uint32_t> idx(cube.indices, cube.indices + 36);
+        GpuModel floor;
+        floor.name = "floor";
+        floor.materials.push_back(r.model_renderer().create_material(mp, {}, {}, "floor"));
+        floor.meshes.push_back({make_primitive(r.registry(), v, idx, 0)});
+        floor.placements.push_back({0, translation({0.0f, 0.0f, -0.05f}) * scale_matrix({6.0f, 6.0f, 0.1f})});
+        return floor;
+    };
+    const auto tube_material = [&](SceneRenderer& r) {
+        MaterialParams mp;
+        mp.base_color[0] = 0.3f;
+        mp.base_color[1] = 0.6f;
+        mp.base_color[2] = 0.85f;
+        mp.roughness = 0.7f;
+        return r.model_renderer().create_material(mp, {}, {}, "tube");
+    };
+    const GpuModel floor_a = floor_for(animated), floor_b = floor_for(twin);
+    const GpuModel skinned = skinned_model(animated.registry(), tube_material(animated), rig.primitive);
+    SkinPalette palette = animated.model_renderer().create_skin_palette(kJoints, "walker");
+    const Camera camera = look_at_camera({-5.5f, -4.0f, 2.6f}, {0.0f, 0.0f, 1.3f});
+
+    std::vector<Image> frames;
+    for (int frame = 0; frame < 8; ++frame) {
+        const float t = static_cast<float>(frame) / 7.0f;
+        const double elevation = 62.0 - 40.0 * static_cast<double>(t), azimuth = 20.0 + 70.0 * static_cast<double>(frame);
+        SceneLighting light;
+        light.sun_direction = {static_cast<float>(std::cos(elevation * pi_d / 180.0) * std::cos(azimuth * pi_d / 180.0)),
+                               static_cast<float>(std::cos(elevation * pi_d / 180.0) * std::sin(azimuth * pi_d / 180.0)), static_cast<float>(std::sin(elevation * pi_d / 180.0))};
+        light.sun_color = {1.2f - 0.4f * t, 1.0f - 0.3f * t, 0.9f - 0.5f * t};
+        light.ambient_ground = {0.2f, 0.18f, 0.16f};
+        const std::vector<Mat4> matrices = pose_matrices(rig, 0.2f + 0.2f * static_cast<float>(frame), frame % 3 == 2);
+        palette.update(matrices);
+        const GpuModel reference = reference_model(twin.registry(), tube_material(twin), rig.primitive, matrices, false);
+        const ModelDraw a[] = {{&floor_a, Mat4::identity()}, {&skinned, Mat4::identity(), &palette}};
+        const ModelDraw b[] = {{&floor_b, Mat4::identity()}, {&reference, Mat4::identity()}};
+        const ModelDraw floor_only[] = {{&floor_b, Mat4::identity()}};
+        FrameStats stats;
+        const Image got = target.render(animated, {}, camera, 0, a, &stats, &light);
+        const Image want = target.render(twin, {}, camera, 0, b, nullptr, &light);
+        const Image bare = target.render(twin, {}, camera, 0, floor_only, nullptr, &light);
+        const Diff d = compare(got, want, 3);
+        if (d.over > 8) std::printf("  frame %d: %u pixels differ (worst %d)\n", frame, d.over, d.worst);
+        CHECK(d.over <= 8 && d.worst <= 40);
+        CHECK(stats.model_skinned_draws >= 2);          // the color pass and at least one cascade's shadow pass
+        CHECK(stats.model_skinned_cull_bypassed >= 1);  // the culling was on and the skinned tube skipped it
+        CHECK(stats.shadow_draw_calls >= 4);            // both cascades drew the floor and the tube
+        CHECK(compare(got, bare, 3).over >= 300);       // the tube and its shadow are really in the image
+        frames.push_back(got);
+    }
+    // The sun and the pose really changed: no two consecutive frames are the same image.
+    for (std::size_t i = 1; i < frames.size(); ++i) CHECK(compare(frames[i - 1], frames[i], 3).over >= 300);
+    CHECK(device->validation_error_count() == 0);
+}

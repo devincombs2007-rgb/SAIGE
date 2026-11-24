@@ -78,6 +78,7 @@ struct ModelFrameStats {
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
     uint32_t skinned_draws = 0;      ///< draw calls of skinned primitives (opaque, sorted and shadow phases together)
     uint32_t skinned_skipped = 0;    ///< skinned primitives not drawn: skinning is off in this renderer, or the palette has fewer joints than the primitive uses
+    uint32_t skinned_cull_bypassed = 0;  ///< skinned primitives drawn without a frustum test, because their bind-pose bounds say nothing about the posed mesh (no per-pose bounds yet)
     uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
 };
 

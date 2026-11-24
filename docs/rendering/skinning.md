@@ -70,9 +70,11 @@ The existing permutations' SPIR-V is byte-identical (only the source-hash lines 
 * Mirrored bones (a joint matrix with negative determinant) flip the triangle winding; mirror the instance (`ModelDraw::world`) instead.
 * Normal-mapped tangent frames are exact for rotations, translations and uniform scale; under strong non-uniform bone scale the skinned bitangent (the linear
   part applied to the unskinned `cross(n, t)`) is not the cross product of the skinned normal and tangent. Positions and normals are exact in all cases.
-* **Culling and bounds**: a skinned primitive's `bounds_*` are its bind-pose bounds (staging cannot know the animation). The frustum culling of #83 must not cull a
-  skinned primitive by them: until a per-instance animated bound is supplied with the pose, culling skips `GpuPrimitive::skinned` primitives. That change belongs to the
-  culling branch (#83 does not contain this one) and is recorded there.
+* **Culling and bounds**: a skinned primitive's `bounds_*` are its bind-pose bounds (staging cannot know the animation), which say nothing about the posed mesh. Frustum culling
+  (#83) therefore **never culls a skinned primitive** (`ModelFrameStats::skinned_cull_bypassed` / `FrameStats::model_skinned_cull_bypassed` count them), in every pass; the
+  sun shadow pass does not cull casters at all. A mesh whose bind pose is far outside the view but whose pose puts it inside is drawn (`test_skinning.cpp`), and a rigid primitive
+  with the same bounds is still culled. This stays so until a conservative per-pose bound is supplied together with the pose (then culling can use it); that is the remaining
+  animated-bounds work.
 * Skins with more than 256 joints are not supported by this path (the importer's limit is 512). Morph targets, root motion, IK and retargeting are not part of
   this slice.
 * Everything is software-Vulkan correctness; no physical-GPU timing is claimed.

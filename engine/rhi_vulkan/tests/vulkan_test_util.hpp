@@ -83,6 +83,7 @@ public:
         return img;
     }
 
+    [[nodiscard]] rhi::TextureHandle color_texture() const noexcept { return color_; }
     [[nodiscard]] uint32_t width() const noexcept { return width_; }
     [[nodiscard]] uint32_t height() const noexcept { return height_; }
 

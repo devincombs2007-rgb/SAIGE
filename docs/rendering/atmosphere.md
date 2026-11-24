@@ -40,3 +40,7 @@ equinox and solstices (known elevations and azimuths, sunrise and sunset east an
 quantization and float against double); the sun's side is redder and brighter at sunset; exposure 0 is black; fogged distant ground equals the horizon color to 0.002; without the atmosphere the clear color
 is unchanged. `test_scene_renderer.cpp` (null device): off creates nothing for the sky, the sky's two shaders and its pipeline are created on the first frame, each of their creations failing in turn is a
 failed frame that leaks nothing and leaves a working renderer, and invalid settings are refused before anything is acquired.
+
+## One sun direction
+
+The sky pass, the horizon fog and the model lighting all take their sun from `RendererSettings::lighting.sun_direction` through the same overflow-safe normalization (`unit_sun_direction`, which divides by the largest component before squaring), so every finite non-zero direction, from 1e-37 to 3e38 in size, gives the same sky, fog and material as the corresponding unit vector (`test_sky.cpp`, within one 8-bit level). A plain float `normalize` squares the components and turned such directions into a zero vector for the sky and the fog.

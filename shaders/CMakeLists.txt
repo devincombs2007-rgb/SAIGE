@@ -10,8 +10,8 @@ set(SAIGE_SHADER_SOURCES
     scene/cube.hlsl
     scene/ground.hlsl
     scene/model.hlsl
-    scene/tonemap.hlsl
     test/blend_color.hlsl
+    scene/tonemap.hlsl
     test/textured_fullscreen.hlsl
 )
 

@@ -12,6 +12,8 @@
 #include <cstddef>
 #include <numeric>
 #include <optional>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace saige::sample {
@@ -19,8 +21,8 @@ namespace saige::sample {
 class DesktopGame final : public IGame {
 public:
     DesktopGame(World& world, IDesktopPlatform& platform, bool course,
-                std::optional<std::span<const Aabb>> course_boxes = {}, CapsuleCharacterConfig config = {}, bool enable_vehicle = false)
-        : marker_(world.create()), platform_(platform) {
+                std::optional<std::span<const Aabb>> course_boxes = {}, CapsuleCharacterConfig config = {}, bool enable_vehicle = false, bool terrain_vehicle = false)
+        : marker_(world.create()), platform_(platform), terrain_vehicle_(terrain_vehicle) {
         if (!course) return;
         constexpr std::array default_boxes{
             Aabb{{-32, -32, -1}, {32, 32, 0}},
@@ -42,9 +44,9 @@ public:
 
     DesktopGame(World& world, IDesktopPlatform& platform, CapsuleCharacter controller,
                 std::span<const Aabb> boxes, std::span<const Triangle> triangles,
-                bool enable_vehicle)
+                bool enable_vehicle, bool terrain_vehicle = false)
         : marker_(world.create(controller.state().feet)), platform_(platform), motor_(std::move(controller)),
-          camera_geometry_(boxes.begin(), boxes.end()), camera_triangles_(triangles.begin(), triangles.end()) {
+          collision_(boxes, triangles), terrain_vehicle_(terrain_vehicle) {
         if (enable_vehicle) {
             const auto checkpoint = motor_->state().feet;
             const float offset = checkpoint.y >= 4 ? -3.0f : 3.0f;
@@ -73,7 +75,7 @@ public:
         vehicle_marker_ = world.create();
         if (pose) {
             CourseVehicle candidate(pose->position);
-            if (candidate.can_occupy(pose->position, camera_geometry_, camera_triangles_)) {
+            if (can_place_vehicle({pose->position, pose->heading}, collision_)) {
                 candidate.restore_parked(*pose);
                 vehicle_ = candidate;
                 (void)world.set_position(vehicle_marker_, pose->position);
@@ -86,13 +88,12 @@ public:
 
     bool replace_course_collision(std::span<const Aabb> boxes, std::span<const Triangle> triangles,
                                   Vec3 shift, bool detach_vehicle, std::optional<CourseVehiclePose> restore_vehicle) {
-        std::vector<Aabb> camera_boxes(boxes.begin(), boxes.end());
-        std::vector<Triangle> camera_triangles(triangles.begin(), triangles.end());
+        StaticCollision candidate_collision(boxes, triangles);
         auto candidate_vehicle = vehicle_;
         auto candidate_spawn = vehicle_spawn_;
         if (candidate_spawn) {
             candidate_spawn = Vec3{candidate_spawn->x + shift.x, candidate_spawn->y + shift.y, candidate_spawn->z + shift.z};
-            if (!CourseVehicle(*candidate_spawn).can_occupy(*candidate_spawn, boxes, triangles)) return false;
+            if (!can_place_vehicle({*candidate_spawn, 0}, candidate_collision)) return false;
         }
         if (detach_vehicle) {
             if (driving_) return false;
@@ -103,14 +104,14 @@ public:
         } else if (candidate_vehicle) {
             candidate_vehicle->migrate_origin(shift);
         }
-        if (candidate_vehicle && !candidate_vehicle->can_occupy(candidate_vehicle->position(), boxes, triangles)) return false;
+        if (candidate_vehicle && !can_place_vehicle({candidate_vehicle->position(), candidate_vehicle->heading()}, candidate_collision)) return false;
         const bool applied = shift == Vec3{} ? motor_->replace_static_geometry(boxes, triangles)
                                              : motor_->migrate_origin(shift, boxes, triangles);
         if (!applied) return false;
         vehicle_ = candidate_vehicle;
         vehicle_spawn_ = candidate_spawn;
-        camera_geometry_.swap(camera_boxes);
-        camera_triangles_.swap(camera_triangles);
+        static_assert(std::is_nothrow_move_assignable_v<StaticCollision>);
+        collision_ = std::move(candidate_collision);
         return true;
     }
 
@@ -127,7 +128,8 @@ public:
                 orbit_.pitch_radians = std::clamp(orbit_.pitch_radians, -1.25f, -0.16f);
                 if (vehicle_ && interact) interact_with_vehicle(actions.jump);
                 if (driving_) {
-                    vehicle_->step(actions.movement, actions.jump, step, camera_geometry_, camera_triangles_);
+                    if (terrain_vehicle_) vehicle_->step_terrain(actions.movement, actions.jump, step, collision_, vehicle_scratch_);
+                    else vehicle_->step(actions.movement, actions.jump, step, collision_.boxes(), collision_.triangles());
                 } else {
                     step_character(actions, step);
                 }
@@ -167,14 +169,20 @@ public:
     }
 
 private:
+    bool can_place_vehicle(CourseVehiclePose pose, const StaticCollision& collision) {
+        if (terrain_vehicle_) return CourseVehicle::can_occupy_terrain(pose.position, pose.heading, collision, vehicle_scratch_);
+        return CourseVehicle(pose.position).can_occupy(pose.position, collision.boxes(), collision.triangles());
+    }
+
     void interact_with_vehicle(bool jump_held) {
         if (driving_) {
-            const auto exit = vehicle_->exit_point(motor_->config(), camera_geometry_, camera_triangles_);
+            const auto exit = terrain_vehicle_ ? vehicle_->exit_point_terrain(motor_->config(), collision_, vehicle_scratch_)
+                                               : vehicle_->exit_point(motor_->config(), collision_.boxes(), collision_.triangles());
             if (!exit || !motor_->teleport(*exit)) return;
             vehicle_->park();
             driving_ = false;
             suppress_jump_until_release_ = jump_held;
-        } else if (vehicle_->can_enter(motor_->state(), motor_->config(), camera_geometry_, camera_triangles_)) {
+        } else if (vehicle_->can_enter(motor_->state(), motor_->config(), collision_.boxes(), collision_.triangles())) {
             // The capsule is inactive while seated. Park its state at the pinned reset point until exit.
             motor_->reset();
             driving_ = true;
@@ -194,8 +202,8 @@ private:
 
     void spawn_vehicle(World& world, Vec3 spawn) {
         vehicle_.emplace(spawn);
-        if (!vehicle_->can_occupy(spawn, camera_geometry_, camera_triangles_)) {
-            throw std::invalid_argument("Vehicle spawn needs clear, level support in the reset chunk");
+        if (!can_place_vehicle({spawn, 0}, collision_)) {
+            throw std::invalid_argument("Vehicle spawn needs clear, supported collision in the reset chunk");
         }
         vehicle_spawn_ = spawn;
         vehicle_marker_ = world.create(spawn);
@@ -203,7 +211,7 @@ private:
 
     void configure_course(Vec3 spawn, std::span<const Aabb> geometry, const CapsuleCharacterConfig& config) {
         motor_.emplace(spawn, geometry, config);
-        camera_geometry_.assign(geometry.begin(), geometry.end());
+        collision_ = StaticCollision(geometry, {});
         camera_distance_ = clear_camera_distance();
     }
 
@@ -224,8 +232,8 @@ private:
         constexpr float radius = 0.12f;
         const Capsule sphere{{target.x, target.y, target.z - radius}, radius, 2.0f * radius};
         const Vec3 movement{-direction.x * orbit_distance, -direction.y * orbit_distance, -direction.z * orbit_distance};
-        const auto box = sweep_capsule_boxes(sphere, movement, camera_geometry_);
-        const auto triangle = sweep_capsule_triangles(sphere, movement, camera_triangles_);
+        const auto box = sweep_capsule_boxes(sphere, movement, collision_.boxes());
+        const auto triangle = sweep_capsule_triangles(sphere, movement, collision_.triangles());
         const float box_t = box ? box->t : 1.0f;
         const float triangle_t = triangle ? triangle->t : 1.0f;
         return box || triangle ? std::max(0.0f, std::min(box_t, triangle_t) * orbit_distance - 0.03f) : orbit_distance;
@@ -256,8 +264,9 @@ private:
     IDesktopPlatform& platform_;
     Vec3 position_{};
     std::optional<CapsuleCharacter> motor_;
-    std::vector<Aabb> camera_geometry_;
-    std::vector<Triangle> camera_triangles_;
+    StaticCollision collision_;
+    QueryScratch vehicle_scratch_;
+    bool terrain_vehicle_{};
     FreeCamera orbit_{initial_orbit_};
     float camera_distance_{orbit_distance};
     bool suppress_jump_until_release_{};

@@ -92,6 +92,10 @@ public:
             }
         }
         checkpoint_held_ = checkpoint_key;
+        if (reset && !reset_held_) {
+            game_->reset_vehicle();
+            parked_vehicle_.reset();
+        }
         const ChunkCoord center = reset ? checkpoint_cell_ : cell_at(game_->course_position());
         try {
             update_candidate(world, center, reset);
@@ -108,6 +112,7 @@ public:
     [[nodiscard]] std::size_t resident_count() const noexcept { return stream_.active_count(); }
 
     [[nodiscard]] bool driving() const noexcept { return game_->driving(); }
+    [[nodiscard]] std::optional<CourseVehiclePose> active_vehicle() const { return game_->vehicle_pose(); }
     [[nodiscard]] std::pair<std::int64_t, std::int64_t> absolute_cell() const {
         const auto cell = cell_at(game_->course_position());
         return {cell.x, cell.y};
@@ -116,6 +121,10 @@ public:
 
 private:
     using ChunkEntities = std::map<ChunkCoord, std::vector<Entity>>;
+    struct DormantVehicle {
+        ChunkCoord cell;
+        CourseVehiclePose pose;
+    };
 
     [[nodiscard]] ChunkCoord cell_at(Vec3 position) const {
         const auto local = chunk_containing(position, cell_size);
@@ -168,15 +177,11 @@ private:
     }
 
     void update_candidate(World& world, ChunkCoord center, bool reset) {
-        const auto parked = game_->vehicle_position();
-        const auto vehicle_cell = parked ? std::optional(cell_at(*parked)) : std::nullopt;
-        if (!requested_center_ || center != *requested_center_ || vehicle_cell != requested_vehicle_cell_ || (reset && !reset_held_)) {
+        if (!requested_center_ || center != *requested_center_ || (reset && !reset_held_)) {
             if (output_) output_->discard();
             requested_center_ = center;
-            requested_vehicle_cell_ = vehicle_cell;
             requested_ = select_chunks(sources_, center, 1);
             retain_source(checkpoint_cell_);
-            if (vehicle_cell) retain_source(*vehicle_cell);
             pending_origin_ = origin_;
             const auto movement = offset(center, origin_);
             if (chunk_local_collision_ && (std::abs(movement.x) >= 32 || std::abs(movement.y) >= 32 || reset) &&
@@ -205,9 +210,30 @@ private:
             entities = compose_world(*candidate_world, requested_);
         }
         const auto geometry = candidate_geometry(requested_);
-        if (!game_->replace_course_collision(geometry.boxes, geometry.triangles, offset(origin_, pending_origin_))) {
-            throw std::runtime_error("Staged course collision overlaps the player or reset point");
+        auto dormant = parked_vehicle_;
+        bool detach_vehicle = false;
+        std::optional<CourseVehiclePose> restore_vehicle;
+        const auto will_reside = [&](ChunkCoord cell) { return std::ranges::binary_search(pending_coords_, cell); };
+        if (const auto active = game_->vehicle_pose()) {
+            const auto cell = cell_at(active->position);
+            if (!will_reside(cell)) {
+                const auto placement = offset(cell, origin_);
+                const auto& p = active->position;
+                dormant = DormantVehicle{cell, {{p.x - placement.x, p.y - placement.y, p.z}, active->heading}};
+                detach_vehicle = true;
+            }
+        } else if (dormant && will_reside(dormant->cell)) {
+            restore_vehicle = dormant->pose;
+            const auto placement = offset(dormant->cell, pending_origin_);
+            restore_vehicle->position.x += placement.x;
+            restore_vehicle->position.y += placement.y;
+            dormant.reset();
         }
+        if (!game_->replace_course_collision(geometry.boxes, geometry.triangles, offset(origin_, pending_origin_),
+                                             detach_vehicle, restore_vehicle)) {
+            throw std::runtime_error("Staged collision cannot support the player, vehicle or checkpoint");
+        }
+        parked_vehicle_ = dormant;
         if (candidate_world) publish_visuals(world, std::move(*candidate_world), std::move(entities));
         stream_.commit_frame();
         resident_coords_.swap(pending_coords_);
@@ -344,7 +370,7 @@ private:
     ChunkStream stream_{{.max_chunks = 11, .share_immutable_projects = true}};
     std::optional<DesktopGame> game_;
     std::optional<ChunkCoord> requested_center_;
-    std::optional<ChunkCoord> requested_vehicle_cell_;
+    std::optional<DormantVehicle> parked_vehicle_;
     std::vector<ChunkSource> requested_;
     std::vector<ChunkCoord> resident_coords_;
     std::vector<ChunkCoord> pending_coords_;

@@ -79,5 +79,4 @@ Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E whil
 is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.
 
 
-The vehicle option also works with `--course-world`. While driving, the vehicle leads chunk selection. Its parked cell and the
-checkpoint stay resident. Vehicles require level support, including on the ramp course. Use the capsule to climb the ramp on foot.
+The vehicle option also works with `--course-world`. While driving, the vehicle leads chunk selection. The checkpoint stays resident. A parked vehicle can unload with its cell and return to the same pose. Vehicles require level support, including on the ramp course. Use the capsule to climb the ramp on foot.

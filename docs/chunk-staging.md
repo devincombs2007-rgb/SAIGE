@@ -71,16 +71,17 @@ For a version 2 walking course, `--course-checkpoint FILE.json` lets C save the 
 cell and release the previous residency pin. The save stores signed grid coordinates and cell-local feet. The host proves
 the pose can boot with collision from its home cell, then atomically replaces the sidecar before changing the live reset.
 A failed save keeps the previous checkpoint. Use one sidecar per world. Invalid saves fail before checkpoint publication.
-Vehicle courses retain the existing vehicle and checkpoint pins while vehicle persistence is pending. The current
-checkpoint still pins its cell until relocated. Saving is explicit and synchronous; it does not run during traversal.
+The current checkpoint still pins its cell until relocated. Saving is explicit and synchronous; it does not run during traversal.
 
 Collision file version 2 adds a `triangles` array alongside `boxes`. Each triangle lists three XYZ vertices. The same capsule
 handles box and triangle contact and the camera checks both. The ramp example places a render mesh and collision faces in
 the same cell. It uses a distant grid origin and a non-default checkpoint.
 
 
-The playable vehicle mode retains the checkpoint and the vehicle's cell alongside the current walking or driving neighborhood.
-A candidate must retain clear, level support at the car's live pose and its reset pose. While seated, the capsule's inactive state
+The playable vehicle mode retains the checkpoint alongside the current walking or driving neighborhood. On foot, leaving
+the parked car's cell stores its logical cell, position and heading and removes it from rendering and simulation. Its stable
+marker returns only once a streaming candidate restores clear, level support. A failed load keeps the record and the active world.
+The authored car reset remains available at the checkpoint in courses without a save file. While seated, the capsule's inactive state
 is kept at the checkpoint. Exit requires a clear sweep and supported ground in the active collision set. The absolute grid address
 in diagnostics is computed with integer arithmetic relative to the active origin. An origin epoch increments after each published shift.
 

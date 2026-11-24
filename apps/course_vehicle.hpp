@@ -12,6 +12,11 @@
 
 namespace saige::sample {
 
+struct CourseVehiclePose {
+    Vec3 position;
+    float heading;
+};
+
 class CourseVehicle {
 public:
     explicit CourseVehicle(Vec3 spawn) : spawn_(spawn), position_(spawn) {}
@@ -71,7 +76,11 @@ public:
                floor_below(body, boxes, triangles).has_value();
     }
 
-    [[nodiscard]] Vec3 reset_position() const noexcept { return spawn_; }
+    void restore_parked(CourseVehiclePose pose) noexcept {
+        position_ = pose.position;
+        heading_ = pose.heading;
+        park();
+    }
 
     void migrate_origin(Vec3 shift) noexcept {
         position_ = {position_.x + shift.x, position_.y + shift.y, position_.z + shift.z};

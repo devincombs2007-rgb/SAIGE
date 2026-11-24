@@ -622,7 +622,12 @@ void test_streamed_vehicle(const fs::path& fixture) {
     saige::sample::StreamedCourse course(world, keys, manifest, nullptr, {}, true);
     const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
     const auto player = [&] { return world.snapshot().front().position; };
-    const auto car = [&] { return world.snapshot().back().position; };
+    const auto car = [&] {
+        const auto pose = course.active_vehicle();
+        require(pose.has_value(), "expected a resident car");
+        return pose->position;
+    };
+    const auto car_entity = world.snapshot().back().entity;
     const auto enter = [&] {
         keys.right = true;
         for (int i = 0; i < 49; ++i) tick();
@@ -648,7 +653,11 @@ void test_streamed_vehicle(const fs::path& fixture) {
             "reset returns the rider and vehicle to their supported positions");
     enter();
     keys.forward = true;
-    for (int i = 0; i < 100; ++i) tick();
+    for (int i = 0; i < 100; ++i) {
+        keys.right = i >= 97;
+        tick();
+    }
+    keys.right = false;
     keys.forward = false;
     keys.brake = true;
     for (int i = 0; i < 50; ++i) tick();
@@ -659,13 +668,39 @@ void test_streamed_vehicle(const fs::path& fixture) {
     tick();
     require(!course.driving() && player().z < 0.001f && player().y > car().y + 1.0f,
             "exit in the streamed cell finds supported collision and clears held brake");
-    const auto parked = car();
+    const auto parked = *course.active_vehicle();
+    require(parked.heading != 0.0f, "parking records a non-default heading");
     keys.interact = false;
     keys.brake = false;
     keys.forward = true;
     for (int i = 0; i < 450; ++i) tick();
-    require(player().x > 24.0f && course.resident_count() == 4 && car() == parked,
-            "the parked vehicle cell remains resident beyond the pedestrian streaming radius");
+    require(player().x > 24.0f && course.resident_count() == 3 && !course.active_vehicle() &&
+                world.snapshot().size() == 1 && world.alive(car_entity),
+            "the parked vehicle cell and collision unload while its identity stays alive");
+
+    // A broken return load cannot consume or activate the parked record.
+    fs::remove(east);
+    keys.forward = false;
+    keys.back = true;
+    for (int i = 0; i < 260; ++i) tick();
+    require(player().x >= 16.0f && player().x < 17.0f && !course.active_vehicle(),
+            "a missing parked cell leaves the live world and the dormant vehicle unchanged");
+    write_chunk_fixture(east, floor);
+    keys.back = false;
+    keys.forward = true;
+    for (int i = 0; i < 180; ++i) tick();
+    keys.forward = false;
+    keys.back = true;
+    for (int i = 0; i < 225; ++i) tick();
+    const auto restored = course.active_vehicle();
+    require(restored && restored->position == parked.position && restored->heading == parked.heading &&
+                world.snapshot().back().entity == car_entity,
+            "reentry restores the same parked pose and render identity after a failed load");
+    keys.back = false;
+    keys.forward = true;
+    for (int i = 0; i < 330; ++i) tick();
+    require(!course.active_vehicle(), "leave the parked cell again before testing reset");
+
     keys.reset = true;
     tick();
     require(player() == saige::Vec3{4, 4, 0} && car() == saige::Vec3{4, 1, 0} &&

@@ -58,22 +58,40 @@ public:
     [[nodiscard]] bool grounded_on_foot() const noexcept { return !driving_ && motor_->state().grounded; }
     void remember_grounded_checkpoint() noexcept { motor_->remember_grounded_checkpoint(); }
 
-    [[nodiscard]] std::optional<Vec3> vehicle_position() const {
-        return vehicle_ ? std::optional(vehicle_->position()) : std::nullopt;
+    [[nodiscard]] std::optional<CourseVehiclePose> vehicle_pose() const {
+        if (!vehicle_) return {};
+        return CourseVehiclePose{vehicle_->position(), vehicle_->heading()};
     }
-    bool replace_course_collision(std::span<const Aabb> boxes, std::span<const Triangle> triangles, Vec3 shift = {}) {
+
+    void reset_vehicle() {
+        if (vehicle_spawn_) vehicle_.emplace(*vehicle_spawn_);
+    }
+
+    bool replace_course_collision(std::span<const Aabb> boxes, std::span<const Triangle> triangles,
+                                  Vec3 shift, bool detach_vehicle, std::optional<CourseVehiclePose> restore_vehicle) {
         std::vector<Aabb> camera_boxes(boxes.begin(), boxes.end());
         std::vector<Triangle> camera_triangles(triangles.begin(), triangles.end());
         auto candidate_vehicle = vehicle_;
-        if (candidate_vehicle) {
-            candidate_vehicle->migrate_origin(shift);
-            if (!candidate_vehicle->can_occupy(candidate_vehicle->position(), boxes, triangles) ||
-                !candidate_vehicle->can_occupy(candidate_vehicle->reset_position(), boxes, triangles)) return false;
+        auto candidate_spawn = vehicle_spawn_;
+        if (candidate_spawn) {
+            candidate_spawn = Vec3{candidate_spawn->x + shift.x, candidate_spawn->y + shift.y, candidate_spawn->z + shift.z};
+            if (!CourseVehicle(*candidate_spawn).can_occupy(*candidate_spawn, boxes, triangles)) return false;
+            if (detach_vehicle) {
+                if (driving_) return false;
+                candidate_vehicle.reset();
+            } else if (restore_vehicle) {
+                candidate_vehicle.emplace(*candidate_spawn);
+                candidate_vehicle->restore_parked(*restore_vehicle);
+            } else if (candidate_vehicle) {
+                candidate_vehicle->migrate_origin(shift);
+            }
+            if (candidate_vehicle && !candidate_vehicle->can_occupy(candidate_vehicle->position(), boxes, triangles)) return false;
         }
         const bool applied = shift == Vec3{} ? motor_->replace_static_geometry(boxes, triangles)
                                              : motor_->migrate_origin(shift, boxes, triangles);
         if (!applied) return false;
         vehicle_ = candidate_vehicle;
+        vehicle_spawn_ = candidate_spawn;
         camera_geometry_.swap(camera_boxes);
         camera_triangles_.swap(camera_triangles);
         return true;
@@ -98,7 +116,10 @@ public:
                 }
             }
             update_camera_distance(step);
-            if (vehicle_) (void)world.set_position(vehicle_marker_, vehicle_->position());
+            if (vehicle_spawn_) {
+                (void)world.set_visible(vehicle_marker_, vehicle_.has_value());
+                if (vehicle_) (void)world.set_position(vehicle_marker_, vehicle_->position());
+            }
             if (driving_) {
                 auto seated = vehicle_->position();
                 seated.z += 0.65f;
@@ -159,6 +180,7 @@ private:
         if (!vehicle_->can_occupy(spawn, camera_geometry_, camera_triangles_)) {
             throw std::invalid_argument("Vehicle spawn needs clear, level support in the reset chunk");
         }
+        vehicle_spawn_ = spawn;
         vehicle_marker_ = world.create(spawn);
     }
 
@@ -220,6 +242,7 @@ private:
     float camera_distance_{orbit_distance};
     bool suppress_jump_until_release_{};
     std::optional<CourseVehicle> vehicle_;
+    std::optional<Vec3> vehicle_spawn_;
     Entity vehicle_marker_{};
     bool driving_{};
     bool interact_held_{};

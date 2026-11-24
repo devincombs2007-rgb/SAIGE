@@ -290,6 +290,42 @@ void test_analytic_cases() {
         const Triangle plane{{-5, -5, 0}, {5, -5, 0}, {0, 5, 0}};
         require(near(saige::oriented_box_triangle_gap(saige::make_oriented_box({0, 0, 2.0f}, {0.5f, 0.5f, 0.5f}, 0.3f), plane), 1.5, 1e-9), "gap: triangle");
     }
+    // The exception to the clear stop: a box penetrating by less than the tolerance that moves into the surface is a t = 0 hit whose stop (the start) is
+    // microscopically inside; stop_clear says so, and the penetration is reported. Exactly touching has a clear stop. A separated hit has one too.
+    {
+        const OrientedBox shallow = saige::make_oriented_box({3.5f + 5e-5f, 0, 0}, {0.5f, 0.5f, 0.5f}, 0.0f);  // its face 0.05 mm into the wall at x = 4
+        const auto into = saige::sweep_oriented_box_aabb(shallow, {1.0f, 0, 0}, wall);
+        require(into.has_value() && !into->started_overlapping && into->contact_t == 0.0 && into->t == 0.0f, "sub-tolerance penetration moving in: a t = 0 hit, not an initial overlap");
+        require(!into->stop_clear && near(into->penetration, 5e-5, 1e-6) && into->stop == shallow.center, "...whose stop is the start, flagged not clear, with the shallow depth");
+        require(saige::oriented_box_aabb_gap(shallow, wall) < 0.0, "...consistent with the gap");
+        const OrientedBox exact = saige::make_oriented_box({3.5f, 0, 0}, {0.5f, 0.5f, 0.5f}, 0.0f);
+        const auto flush = saige::sweep_oriented_box_aabb(exact, {1.0f, 0, 0}, wall);
+        require(flush.has_value() && flush->stop_clear && flush->penetration == 0.0f, "exactly touching moving in: a clear stop");
+        require(!saige::sweep_oriented_box_aabb(shallow, {-1.0f, 0, 0}, wall).has_value(), "sub-tolerance penetration moving away: no hit");
+        const auto head_on = saige::sweep_oriented_box_aabb(saige::make_oriented_box({0, 0, 0}, {0.5f, 0.5f, 0.5f}, 0.0f), {5.0f, 0, 0}, wall);
+        require(head_on.has_value() && head_on->stop_clear && head_on->contact_t > 0.0, "a separated hit has a clear stop");
+        const OrientedBox deep = saige::make_oriented_box({3.75f, 0, 0}, {0.5f, 0.5f, 0.5f}, 0.0f);
+        const auto overlapped = saige::sweep_oriented_box_aabb(deep, {1.0f, 0, 0}, wall);
+        require(overlapped.has_value() && overlapped->started_overlapping && !overlapped->stop_clear, "an initial overlap's stop (the start) is not clear");
+    }
+    // Every function validates its primitives the same way as the sweep: an invalid box or triangle throws, in the pair, gap, stop and combined forms.
+    {
+        const OrientedBox box = saige::make_oriented_box({0, 0, 0}, {0.5f, 0.5f, 0.5f}, 0.0f);
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const Aabb flat{{1, 1, 1}, {1, 2, 2}}, bad_nan{{0, 0, 0}, {nan, 1, 1}};
+        const Triangle degenerate{{0, 0, 0}, {1, 0, 0}, {2, 0, 0}};
+        const std::vector<Aabb> boxes_bad{flat};
+        const std::vector<Triangle> tris_bad{degenerate};
+        require(throws_invalid([&] { (void)saige::oriented_box_aabb_overlap(box, flat); }) && throws_invalid([&] { (void)saige::oriented_box_aabb_overlap(box, bad_nan); }), "overlap refuses an invalid box");
+        require(throws_invalid([&] { (void)saige::oriented_box_aabb_gap(box, flat); }), "gap refuses an invalid box");
+        require(throws_invalid([&] { (void)saige::oriented_box_triangle_overlap(box, degenerate); }) && throws_invalid([&] { (void)saige::oriented_box_triangle_gap(box, degenerate); }), "overlap and gap refuse a degenerate triangle");
+        require(throws_invalid([&] { (void)saige::sweep_oriented_box_aabb(box, {1, 0, 0}, flat); }) && throws_invalid([&] { (void)saige::sweep_oriented_box_triangle(box, {1, 0, 0}, degenerate); }), "the pair sweeps refuse them");
+        require(throws_invalid([&] { (void)saige::oriented_box_stop(box, {1, 0, 0}, 0.5, boxes_bad, {}); }) && throws_invalid([&] { (void)saige::oriented_box_stop(box, {1, 0, 0}, 0.5, {}, tris_bad); }),
+                "oriented_box_stop refuses them");
+        require(throws_invalid([&] { (void)saige::oriented_box_stop(box, {1, 0, 0}, nan, {}, {}); }) && throws_invalid([&] { (void)saige::oriented_box_stop(box, {100.0f, 0, 0}, 0.5, {}, {}); }),
+                "oriented_box_stop refuses a non-finite fraction and a sweep outside the envelope");
+        require(saige::oriented_box_stop(box, {1, 0, 0}, 0.0, {}, {}) == box.center, "oriented_box_stop returns the start for a zero fraction");
+    }
     // Touching: a hit at t = 0 only when moving into the surface.
     {
         const OrientedBox touching = saige::make_oriented_box({3.5f, 0, 0}, {0.5f, 0.5f, 0.5f}, 0.0f);  // its face exactly on x = 4
@@ -322,6 +358,7 @@ void test_sweeps_match_an_independent_oracle() {
             require(near(got->contact_t, *want, 2e-6), "box " + std::to_string(i) + ": contact time " + std::to_string(got->contact_t) + " vs oracle " + std::to_string(*want));
             // The stop is clear and close to the contact; just past the contact the box overlaps.
             const OrientedBox at_stop = [&] { OrientedBox b = box; b.center = got->stop; return b; }();
+            require(got->stop_clear, "box " + std::to_string(i) + ": a hit after t = 0 from a clear start reports a clear stop");
             require(!saige::oriented_box_aabb_overlap(at_stop, wall).has_value() && strictly_clear_of_aabb(box, d3(got->stop), wall), "box " + std::to_string(i) + ": the stop is clear");
             // The stop backs off along the motion until it is clear, so its distance from the contact is the gap it must close divided by the cosine of
             // the approach: measured along the contact normal it is a few microns at most.

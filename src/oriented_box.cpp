@@ -164,6 +164,7 @@ std::optional<Raw> sweep_of(const Frame& f, const D3& d, const Prim& p) noexcept
         if (!(most_into < -1e-12)) return std::nullopt;
         raw.contact_t = 0.0;
         raw.normal = n;
+        raw.penetration = std::max(0.0, -best.gap);  // 0 to the tolerance: a shallow overlap is reported, but is not an 'initial overlap'
         return raw;
     }
     // Separated: the interval of times each axis's projections overlap.
@@ -207,12 +208,13 @@ double min_gap_to(const Frame& f, std::span<const Aabb> boxes, std::span<const T
 struct Stop {
     Vec3 position;
     double t;
+    bool clear;  // the position is separated from (or exactly touching) every primitive given
 };
 
 Stop stop_of(const OrientedBox& box, Vec3 displacement, double contact_t, std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
     const D3 d = to_d3(displacement);
     const D3 start = to_d3(box.center);
-    if (!(contact_t > 0.0)) return {box.center, 0.0};
+    if (!(contact_t > 0.0)) return {box.center, 0.0, min_gap_to(frame_of(box), boxes, triangles) >= 0.0};  // the start itself
     const double len = length(d);
     double t = std::min(contact_t, 1.0);
     double step = len > 0.0 ? std::ldexp(1.0, -17) / len : 0.0;  // 2^-17 m: well below the float coordinate step at the supported scale
@@ -220,12 +222,12 @@ Stop stop_of(const OrientedBox& box, Vec3 displacement, double contact_t, std::s
     for (int k = 0; k < 48; ++k) {
         const Vec3 c = to_vec3(add(start, scale(d, t)));
         f.c = to_d3(c);
-        if (min_gap_to(f, boxes, triangles) >= 0.0) return {c, t};
+        if (min_gap_to(f, boxes, triangles) >= 0.0) return {c, t, true};
         t = std::max(0.0, t - step);
         step *= 2.0;
         if (t == 0.0) break;
     }
-    return {box.center, 0.0};
+    return {box.center, 0.0, min_gap_to(frame_of(box), boxes, triangles) >= 0.0};  // gave up (never observed): the start, which may not be clear
 }
 
 OrientedBoxHit make_hit(const OrientedBox& box, Vec3 displacement, const Raw& raw, std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
@@ -237,7 +239,19 @@ OrientedBoxHit make_hit(const OrientedBox& box, Vec3 displacement, const Raw& ra
     const Stop s = stop_of(box, displacement, raw.contact_t, boxes, triangles);
     hit.stop = s.position;
     hit.t = static_cast<float>(s.t);
+    hit.stop_clear = s.clear;
     return hit;
+}
+
+bool valid_aabb(const Aabb& b) noexcept { return finite(b.min) && finite(b.max) && b.min.x < b.max.x && b.min.y < b.max.y && b.min.z < b.max.z; }
+
+void check_primitives(std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
+    for (const Aabb& b : boxes) {
+        if (!valid_aabb(b)) throw std::invalid_argument("OrientedBox query: invalid box");
+    }
+    for (const Triangle& t : triangles) {
+        if (!is_valid_triangle(t)) throw std::invalid_argument("OrientedBox query: invalid triangle");
+    }
 }
 
 } // namespace
@@ -305,24 +319,26 @@ void check_oriented_box_sweep_envelope(const OrientedBox& box, Vec3 displacement
 
 std::optional<OrientedBoxOverlap> oriented_box_aabb_overlap(const OrientedBox& box, const Aabb& aabb) {
     check_oriented_box_sweep_envelope(box, Vec3{0, 0, 0});
+    check_primitives(std::span<const Aabb>(&aabb, 1), {});
     return overlap_of(frame_of(box), prim_of(aabb));
 }
 
 std::optional<OrientedBoxOverlap> oriented_box_triangle_overlap(const OrientedBox& box, const Triangle& triangle) {
     check_oriented_box_sweep_envelope(box, Vec3{0, 0, 0});
-    if (!is_valid_triangle(triangle)) throw std::invalid_argument("OrientedBox query: invalid triangle");
+    check_primitives({}, std::span<const Triangle>(&triangle, 1));
     return overlap_of(frame_of(box), prim_of(triangle));
 }
 
 double oriented_box_aabb_gap(const OrientedBox& box, const Aabb& aabb) {
     check_oriented_box_sweep_envelope(box, Vec3{0, 0, 0});
+    check_primitives(std::span<const Aabb>(&aabb, 1), {});
     const Sat s = sat_of(frame_of(box), prim_of(aabb));
     return s.axes[s.best].gap;
 }
 
 double oriented_box_triangle_gap(const OrientedBox& box, const Triangle& triangle) {
     check_oriented_box_sweep_envelope(box, Vec3{0, 0, 0});
-    if (!is_valid_triangle(triangle)) throw std::invalid_argument("OrientedBox query: invalid triangle");
+    check_primitives({}, std::span<const Triangle>(&triangle, 1));
     const Sat s = sat_of(frame_of(box), prim_of(triangle));
     return s.axes[s.best].gap;
 }
@@ -337,12 +353,7 @@ std::optional<OrientedBoxHit> sweep_oriented_box_triangle(const OrientedBox& box
 
 std::optional<OrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 displacement, std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
     check_oriented_box_sweep_envelope(box, displacement);
-    for (const Aabb& b : boxes) {
-        if (!(finite(b.min) && finite(b.max) && b.min.x < b.max.x && b.min.y < b.max.y && b.min.z < b.max.z)) throw std::invalid_argument("OrientedBox query: invalid box");
-    }
-    for (const Triangle& t : triangles) {
-        if (!is_valid_triangle(t)) throw std::invalid_argument("OrientedBox query: invalid triangle");
-    }
+    check_primitives(boxes, triangles);
     const Frame f = frame_of(box);
     const D3 d = to_d3(displacement);
     std::optional<Raw> best;
@@ -369,6 +380,8 @@ std::optional<OrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 di
 
 Vec3 oriented_box_stop(const OrientedBox& box, Vec3 displacement, double contact_t, std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
     check_oriented_box_sweep_envelope(box, displacement);
+    check_primitives(boxes, triangles);
+    if (!std::isfinite(contact_t)) throw std::invalid_argument("oriented_box_stop: the contact fraction must be finite");
     return stop_of(box, displacement, contact_t, boxes, triangles).position;
 }
 

@@ -31,14 +31,18 @@ the quaternion overload takes any orientation. Everything is exact in double on 
   latest entry and requires entry <= earliest exit and entry in [0, 1]. It is exact for translation (not stepped, not conservative advance). A turning box is not
   swept: the caller subdivides the motion and re-orients between steps. Rotational sweeps and wheel contacts are a later slice.
 * **Ordering**: the earliest `contact_t`; at an exact tie the deeper initial overlap, then the lower primitive id, boxes before triangles (a box wins an exact tie
-  against a triangle), the rule of the capsule sweeps.
-* **`stop`** is the latest float center on the way to the contact at which the box is clear (separation >= 0) of *every* primitive near the path: do not recompute
-  `center + displacement * t` in float. `t` is its fraction; the contact normal points from the primitive toward the box.
+  against a triangle), the capsule sweeps' rule extended by the depth. The same rule holds in the pair, combined and `StaticCollision` forms.
+* **`stop`** is a conservative clear float center on the way to the contact: the signed gap (`oriented_box_*_gap`) to **every** primitive near the path is not negative. It is found by backing off from the
+  contact in doubling steps starting at 2^-17 m, so it is a few coordinate steps short of the contact for a head-on approach and farther (the gap to close over the cosine of the approach angle) for a grazing one; it is **not**
+  promised to be the latest representable clear position. Do not recompute `center + displacement * t` in float. `t` is its fraction. `stop_clear` reports whether the guarantee holds (see the exception below).
 * **Initial overlap**: if the box already penetrates a primitive by more than the tolerance, the hit has `started_overlapping`, `t = 0`, `stop` = the start, `normal` = the
   minimum-translation direction and `penetration` its depth, whatever the displacement. If it merely touches (gap within the tolerance) it is a hit at `t = 0`
-  only when the displacement moves into the surface; moving along it or away is no hit, so a box resting on a floor slides over it and drives away from a wall it touches.
+  only when the displacement moves into the surface; moving along it or away is no hit, so a box resting on a floor slides over it and drives away from a wall it touches. **Exception to the clear stop:** a t = 0 hit returns the
+  start as `stop`; if the box starts penetrating by a sub-tolerance depth (touching, moving in: `penetration` > 0, not `started_overlapping`) or by more, that start is microscopically or really inside, `stop_clear` is false and the caller pushes
+  out along `normal` by `penetration`. With several overlapped primitives the deepest is reported.
 * **Envelope**: as the capsule's. The box's bounding box at the start and the end must lie within +-256 m on every axis and the displacement is at most 64 m, else
-  `std::invalid_argument` (also for empty geometry and for a non-finite value, a non-positive half extent or a skewed frame). Primitives may extend anywhere.
+  `std::invalid_argument` (also for empty geometry and for a non-finite value, a non-positive half extent or a skewed frame). An invalid box or triangle throws in **every** function (overlap, gap, pair and combined sweeps, `oriented_box_stop`).
+  Primitives may extend anywhere.
 * **Snapshot scope**: shape ids are indices into the boxes and triangles the `StaticCollision` was built from, boxes first. They are valid for that immutable snapshot; a
   durable reference is the integer chunk identity plus the local shape id (Core's convention), never the index alone. Queries take a caller-owned `QueryScratch` and
   are const, so several threads may query one snapshot.

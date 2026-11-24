@@ -16,16 +16,24 @@
 //    follow).
 //
 // What a hit reports.
-//  * `contact_t`: the exact contact fraction in double. Hits from different queries or primitives are ordered by it; an exact tie goes to the
-//    lower primitive id (StaticCollision), boxes before triangles, the rule of capsule_sweep.hpp.
+//  * `contact_t`: the exact contact fraction in double. Hits from different queries or primitives are ordered by it; an exact tie goes to the deeper
+//    initial penetration, then to the lower primitive id (StaticCollision), boxes before triangles (a box wins an exact tie against a triangle), the rule of
+//    capsule_sweep.hpp extended by the depth.
 //  * `normal`: unit, from the primitive toward the box (the direction to push the box to separate it).
-//  * `stop`: the center to adopt, rounded to float: the latest float position on the way to the contact at which the box is clear (not
-//    overlapping) of every primitive in the query. Do not recompute `center + displacement * t` in float. `t` is the fraction of `stop`.
+//  * `stop`: the center to adopt, rounded to float, on the way to the contact at which the box is **clear** of every primitive in the query (the signed
+//    gap of oriented_box_*_gap is not negative against each). It is found by backing off from the contact in doubling steps starting at 2^-17 m, so it is a
+//    conservative stop within a few coordinate steps of the contact for a head-on approach and farther (by the gap to close divided by the cosine of the
+//    approach angle) for a grazing one: it is **not** promised to be the latest representable clear position. Do not recompute `center + displacement * t`
+//    in float. `t` is the fraction of `stop`. `stop_clear` says whether the guarantee holds: see the exception below.
 //  * Initial overlap. If the box already penetrates the primitive by more than the tolerance at t = 0, the hit has `started_overlapping`,
 //    t = 0, contact_t = 0, `stop` = the start, `normal` = the minimum-translation direction and `penetration` = its depth; the displacement does
-//    not matter. If the box merely touches (the gap is within the tolerance), it is a hit at t = 0 only when the displacement moves into the
-//    primitive (negative component along the contact normal beyond rounding); moving along or away from the surface is no hit, so a box
-//    resting on a floor slides over it and drives away from a wall it touches.
+//    not matter. With several overlapped primitives the deepest is reported (the tie-break below). If the box merely touches (the gap is within the
+//    tolerance), it is a hit at t = 0 only when the displacement moves into the primitive (negative component along the contact normal beyond rounding);
+//    moving along or away from the surface is no hit, so a box resting on a floor slides over it and drives away from a wall it touches.
+//    **Exception to the clear stop**: a t = 0 hit returns the start as `stop`. If the box starts penetrating by a sub-tolerance depth (a "touching" box
+//    moving into the surface, `penetration` > 0 but not started_overlapping) or by more (started_overlapping), that start is microscopically or really
+//    inside: `OrientedBoxHit::stop_clear` is false and the caller recovers by pushing out along `normal` by `penetration`. A touching box whose gap is
+//    exactly 0 or more has `stop_clear` true.
 //
 // Envelope (the same decision as capsule_sweep.hpp). Positions are chunk-local: the box's bounding box at the start and at the end of the
 // displacement must lie within +-max_local_extent on every axis and the displacement is at most max_sweep_length long; half extents are at
@@ -74,8 +82,11 @@ struct OrientedBoxHit {
     Vec3 stop;                      // box center to adopt (see above)
     double contact_t{};             // exact contact fraction in double
     Vec3 normal;                    // unit, primitive toward box
-    float penetration{};            // > box_contact_tolerance exactly when started_overlapping
+    float penetration{};            // the depth of the box's initial penetration: more than box_contact_tolerance exactly when started_overlapping; 0 to the tolerance for a touching hit
     bool started_overlapping{};
+    /// Whether `stop` is clear (gap >= 0) of every primitive in the query. True for every hit with a contact after t = 0 whose start is clear; false for a t = 0
+    /// hit whose start penetrates (see "Exception to the clear stop" above).
+    bool stop_clear{};
     std::size_t index{};            // which primitive within its own span (boxes or triangles) a multi-primitive function was given
     bool on_triangle{};             // the primitive is a triangle (else a box)
 };
@@ -93,13 +104,15 @@ struct OrientedBoxHit {
 [[nodiscard]] std::optional<OrientedBoxHit> sweep_oriented_box_aabb(const OrientedBox& box, Vec3 displacement, const Aabb& aabb);
 [[nodiscard]] std::optional<OrientedBoxHit> sweep_oriented_box_triangle(const OrientedBox& box, Vec3 displacement, const Triangle& triangle);
 
-// The first contact against several primitives (boxes and triangles): the earliest by contact_t, an exact tie to the lower index, a box winning
-// an exact tie against a triangle; `index` is within its own span. `stop` is clear of every primitive given.
+// The first contact against several primitives (boxes and triangles): the earliest by contact_t; at an exact tie the deeper initial penetration, then the
+// lower index, a box winning an exact tie against a triangle (boxes are examined first and a triangle must be strictly better); `index` is within its
+// own span. `stop` is clear of every primitive given (see `stop_clear`). An invalid primitive throws, as in every function here.
 [[nodiscard]] std::optional<OrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 displacement, std::span<const Aabb> boxes,
                                                                std::span<const Triangle> triangles);
 
-// The latest float center on the way to `contact_t` (0..1) at which the box overlaps none of the primitives by more than zero. Exposed for
-// callers that combine sweeps from several sources.
+// A conservative clear float center on the way to `contact_t` (0..1): the same back-off as `stop`, against all the primitives given. It throws for an invalid
+// primitive, a non-finite fraction or a sweep outside the envelope, like the sweep. Exposed for callers that combine sweeps from several sources. It returns the
+// start when contact_t <= 0, clear or not.
 [[nodiscard]] Vec3 oriented_box_stop(const OrientedBox& box, Vec3 displacement, double contact_t, std::span<const Aabb> boxes,
                                      std::span<const Triangle> triangles);
 

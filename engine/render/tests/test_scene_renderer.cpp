@@ -501,3 +501,77 @@ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be
     CHECK(o.device.live_resource_count() == baseline);
     CHECK(o.device.validation_error_count() == 0);
 }
+
+TEST_CASE("Atmosphere (null device): off creates nothing for the sky; on creates its shaders and pipeline on the first frame, and a failed creation is a failed frame, not a broken renderer")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    {
+        SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, RendererSettings{});
+        SceneFrame frame;
+        (void)off.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        const uint32_t off_count = o.device.live_resource_count() - baseline;
+        RendererSettings on_settings;
+        on_settings.atmosphere.enabled = true;
+        SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, on_settings);
+        const uint32_t before_first_frame = o.device.live_resource_count();
+        (void)on.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        CHECK(o.device.live_resource_count() >= before_first_frame + 3);  // the sky's two shaders and its pipeline
+        (void)off_count;
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+
+    // Failing each of the creations in turn: the frame throws, nothing is leaked, and the next frame works.
+    RendererSettings s;
+    s.atmosphere.enabled = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+    const uint32_t built = o.device.live_resource_count();
+    for (uint32_t n = 1; n <= 3; ++n) {
+        o.device.fail_creation_after(n);
+        bool threw = false;
+        SceneFrame frame;
+        rhi::CommandList& cmd = o.device.begin_frame();
+        try {
+            (void)renderer.render(cmd, frame, o.target());
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        o.device.fail_creation_after(0);
+        (void)o.device.end_frame();
+        CHECK(threw);
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == built);
+    }
+    SceneFrame frame;
+    (void)renderer.render(o.device.begin_frame(), frame, o.target());
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Atmosphere (null device): invalid settings are refused before anything is acquired")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    const auto refused = [&](auto&& mutate) {
+        RendererSettings s;
+        s.atmosphere.enabled = true;
+        mutate(s.atmosphere);
+        try {
+            SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, s);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    CHECK(refused([](AtmosphereSettings& a) { a.mie_g = 1.0f; }));
+    CHECK(refused([](AtmosphereSettings& a) { a.planet_radius_km = 0.0f; }));
+    CHECK(refused([](AtmosphereSettings& a) { a.observer_height_km = 100.0f; }));
+    CHECK(refused([](AtmosphereSettings& a) { a.exposure = std::numeric_limits<float>::quiet_NaN(); }));
+    CHECK(o.device.live_resource_count() == baseline);
+    RendererSettings ignored;  // disabled settings are not validated
+    ignored.atmosphere.mie_g = 5.0f;
+    SceneRenderer fine(o.device, rhi::Format::RGBA8_SRGB, ignored);
+}

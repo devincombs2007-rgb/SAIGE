@@ -10,6 +10,8 @@ set(SAIGE_SHADER_SOURCES
     scene/bloom_down.hlsl
     scene/bloom_prefilter.hlsl
     scene/bloom_up.hlsl
+    scene/ao_apply.hlsl
+    scene/ao_generate.hlsl
     scene/cube.hlsl
     scene/fxaa.hlsl
     scene/ground.hlsl

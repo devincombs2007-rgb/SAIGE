@@ -34,7 +34,7 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build --parallel
       - name: Test (Xvfb)

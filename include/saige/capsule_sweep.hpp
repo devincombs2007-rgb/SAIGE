@@ -57,6 +57,7 @@ struct CapsuleHit {
     double contact_t{};              // the exact contact fraction in double, before rounding and before the stop's back-off: order hits from different queries by this
     Vec3 normal;                     // unit length, pointing from the box toward the capsule
     Vec3 point;                      // closest point on the box to the capsule's axis at contact
+    bool converged{true};            // false only for a triangle sweep that hit its iteration cap: `stop` is clear but may be short of the contact
     bool started_overlapping{};      // the capsule already penetrated the box at t = 0; normal is the push-out direction
     std::size_t index{};             // sweep_capsule_boxes: which box
 };

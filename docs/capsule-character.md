@@ -51,6 +51,21 @@ of the poses.
   edge throws `std::invalid_argument` and, like every step, has the strong guarantee (state and jump memory unchanged). The host rebases
   larger world coordinates and streams chunks; the controller never answers from a lower-precision sweep.
 
+## Non-box geometry (triangles)
+
+`CapsuleCharacter` also takes static triangles (`capsule_triangle.hpp`, #73) beside the boxes: ramps, crests and slopes. They are two-sided,
+and the slope, step and ground rules act on contact normals, so they apply unchanged. There is still one controller.
+
+- **Constructors.** `(spawn, boxes, config = {})` is the existing form. The mixed form is `(spawn, boxes, triangles, config)` and the
+  configuration is *required*: a defaulted one made `CapsuleCharacter({}, {}, {})` ambiguous. `static_assert`s and a compile test pin both.
+- **Replacement.** `replace_static_geometry(boxes)` is a complete-set replacement: it clears the triangles. `(boxes, triangles)` replaces
+  both. Both refuse (return false, change nothing) a set that overlaps the character or the reset position, and restore the old set and
+  state if the ground probe throws.
+- **Stops.** A hit's `stop` is clear of its own kind of surface (#69, #73). When a world has both, the controller also judges it against the
+  other kind (a ramp meeting a wall) and backs off if needed; that matters at the rounding scale, below the 1e-5 contact tolerance.
+- **Recovery** is transactional: a recovery that would cross a thin triangle, or cannot clear the capsule, leaves the feet where they were
+  (and `teleport` restores the whole state), so a failed attempt never publishes a half-resolved pose.
+
 ## Verification
 
 `tests/capsule_character_test.cpp`: rest without drift or jitter (ten seconds, state compared exactly), free fall time, wall stop and

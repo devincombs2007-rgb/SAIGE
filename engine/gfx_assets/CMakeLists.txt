@@ -22,6 +22,7 @@ add_library(saige_gfx_assets STATIC
     src/hdr_image.cpp
     src/json.cpp
     src/resource_uri.cpp
+    src/sky_environment.cpp
     src/tangents.cpp
 )
 
@@ -58,6 +59,7 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
             tests/test_gltf_skin.cpp
             tests/test_json.cpp
             tests/test_resource_uri.cpp
+            tests/test_sky_environment.cpp
             tests/test_tangents.cpp
         LINK saige::gfx_assets)
     if(SAIGE_GFX_IMAGE_DECODE)

@@ -103,6 +103,7 @@ struct NullDevice::Impl {
     }
 
     uint32_t creation_failure_countdown = 0;  // fail_creation_after
+    Format denied_filtered_format = Format::Unknown;  // deny_filtered_sampling
 
     void maybe_fail_creation(const char* what)
     {
@@ -850,6 +851,16 @@ void NullDevice::wait_idle()
         impl_->error("wait_idle() inside a frame");
     }
     impl_->pending.drain_all([](std::function<void()>&& fn) { fn(); });
+}
+
+void NullDevice::deny_filtered_sampling(Format format) noexcept
+{
+    impl_->denied_filtered_format = format;
+}
+
+bool NullDevice::supports_filtered_sampling(Format format) const
+{
+    return format != Format::Unknown && format != impl_->denied_filtered_format;
 }
 
 uint64_t NullDevice::frame_number() const noexcept

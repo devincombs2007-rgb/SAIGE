@@ -3,6 +3,8 @@
 #include "saige/render/env_brdf.hpp"
 
 #include "saige/shaders/scene_model.spv.hpp"
+#include "saige/shaders/scene_model_ibl.spv.hpp"
+#include "saige/shaders/scene_model_ibl_shadowed.spv.hpp"
 #include "saige/shaders/scene_model_shadowed.spv.hpp"
 #include "saige/shaders/scene_shadow_depth.spv.hpp"
 
@@ -51,6 +53,13 @@ struct ShadowPush {
     float model_row[3][4];
 };
 static_assert(sizeof(ShadowPush) == 112);
+
+/// IBL block (set 1, binding 8 of the IBL permutations), matching `IblConstants` in the shader.
+struct IblBlock {
+    float sh[9][4];  ///< radiance SH coefficients (rgb, padding)
+    float params[4]; ///< levels - 1, intensity
+};
+static_assert(sizeof(IblBlock) == 160);
 
 /// Material uniform block (set 0, binding 10), matching `Material` in the shader.
 struct MaterialBlock {
@@ -164,6 +173,13 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
         }
     }
     shadows_enabled_ = settings.shadows.enabled;
+    if (settings.environment) {
+        validate_environment_lighting(*settings.environment);
+        if (settings.shading != ModelShading::MetallicRoughness) {
+            throw std::invalid_argument("ModelRenderer: an environment needs metallic-roughness shading (the other modes would ignore it)");
+        }
+    }
+    ibl_enabled_ = settings.environment != nullptr;
     // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
     // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows. This is
     // also what makes a failed shadow acquisition (shader, pipeline, map, sampler, ring buffers, groups) leave nothing behind.
@@ -178,10 +194,28 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings)
 {
     using namespace saige::shaders;
-    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, shadows_enabled_ ? words(scene_model_shadowed_vs_main) : words(scene_model_vs_main), "VSMain",
-                                 shadows_enabled_ ? "SceneModelShadowed.VS" : "SceneModel.VS"});
-    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, shadows_enabled_ ? words(scene_model_shadowed_ps_main) : words(scene_model_ps_main), "PSMain",
-                                 shadows_enabled_ ? "SceneModelShadowed.PS" : "SceneModel.PS"});
+    // The four permutations of model.hlsl: sun shadows and image-based lighting each switch on independently.
+    std::span<const uint32_t> vs_words = words(scene_model_vs_main), ps_words = words(scene_model_ps_main);
+    const char* vs_name = "SceneModel.VS";
+    const char* ps_name = "SceneModel.PS";
+    if (shadows_enabled_ && ibl_enabled_) {
+        vs_words = words(scene_model_ibl_shadowed_vs_main);
+        ps_words = words(scene_model_ibl_shadowed_ps_main);
+        vs_name = "SceneModelIblShadowed.VS";
+        ps_name = "SceneModelIblShadowed.PS";
+    } else if (shadows_enabled_) {
+        vs_words = words(scene_model_shadowed_vs_main);
+        ps_words = words(scene_model_shadowed_ps_main);
+        vs_name = "SceneModelShadowed.VS";
+        ps_name = "SceneModelShadowed.PS";
+    } else if (ibl_enabled_) {
+        vs_words = words(scene_model_ibl_vs_main);
+        ps_words = words(scene_model_ibl_ps_main);
+        vs_name = "SceneModelIbl.VS";
+        ps_name = "SceneModelIbl.PS";
+    }
+    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, vs_words, "VSMain", vs_name});
+    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, ps_words, "PSMain", ps_name});
 
     rhi::BindGroupLayoutDesc material;
     for (uint32_t slot = 0; slot < kMaterialSlotCount; ++slot) {
@@ -197,6 +231,11 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         constants.entries.push_back({3, rhi::BindingType::SampledTexture});
         constants.entries.push_back({4, rhi::BindingType::Sampler});
         constants.entries.push_back({5, rhi::BindingType::UniformBuffer});
+    }
+    if (ibl_enabled_) {  // the IBL permutations: the prefiltered environment, its sampler and the SH block
+        constants.entries.push_back({6, rhi::BindingType::SampledTexture});
+        constants.entries.push_back({7, rhi::BindingType::Sampler});
+        constants.entries.push_back({8, rhi::BindingType::UniformBuffer});
     }
     constants.debug_name = "ModelConstantsLayout";
     constants_layout_ = device_.create_bind_group_layout(constants);
@@ -305,16 +344,72 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         env_brdf_sampler_ = registry_.get_sampler(s);
     }
 
+    // Image-based lighting: the prefiltered environment (a 2D RGBA16F texture with one mip per roughness level), its sampler and the SH block.
+    if (ibl_enabled_) {
+        const EnvironmentLighting& env = *settings.environment;
+        // The prefiltered chain is read with trilinear filtering: refuse a device that cannot, before creating anything for it.
+        if (!device_.supports_filtered_sampling(rhi::Format::RGBA16_FLOAT)) {
+            throw std::invalid_argument("ModelRenderer: the device cannot sample RGBA16_FLOAT with linear filtering, which the image-based lighting environment needs");
+        }
+        rhi::TextureDesc d;
+        d.format = rhi::Format::RGBA16_FLOAT;
+        d.width = env.width;
+        d.height = env.height;
+        d.mip_levels = env.levels;
+        d.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+        d.debug_name = "ModelIblEnvironment";
+        ibl_texture_ = registry_.create_texture(d, std::as_bytes(std::span(env.rgba16f)));
+        rhi::SamplerDesc s;  // trilinear: lod = roughness * (levels - 1) interpolates between the prefiltered levels; longitude wraps, latitude clamps
+        s.address_u = rhi::AddressMode::Repeat;
+        s.address_v = rhi::AddressMode::ClampToEdge;
+        s.max_lod = static_cast<float>(env.levels - 1);
+        ibl_sampler_ = registry_.get_sampler(s);
+        IblBlock block{};
+        for (std::size_t k = 0; k < 9; ++k) {
+            block.sh[k][0] = env.sh[k].x;
+            block.sh[k][1] = env.sh[k].y;
+            block.sh[k][2] = env.sh[k].z;
+        }
+        block.params[0] = static_cast<float>(env.levels - 1);
+        block.params[1] = env.intensity;
+        make_uniform(device_, registry_, ibl_block_, &block, sizeof(block), "ModelIblBlock");
+    }
+    const auto constant_bindings_for = [&](const BufferRef* shadow_block) {
+        std::vector<BindGroupBinding> bindings(3);
+        bindings[0].binding = 0;
+        bindings[0].buffer = constants_buffer;
+        bindings[0].size = sizeof(sc);
+        bindings[1].binding = 1;
+        bindings[1].texture = env_brdf_;
+        bindings[2].binding = 2;
+        bindings[2].sampler = env_brdf_sampler_;
+        if (shadow_block != nullptr) {
+            BindGroupBinding b3, b4, b5;
+            b3.binding = 3;
+            b3.texture = shadow_map_;
+            b4.binding = 4;
+            b4.sampler = shadow_sampler_;
+            b5.binding = 5;
+            b5.buffer = *shadow_block;
+            b5.size = sizeof(ShadowBlock);
+            bindings.insert(bindings.end(), {b3, b4, b5});
+        }
+        if (ibl_enabled_) {
+            BindGroupBinding b6, b7, b8;
+            b6.binding = 6;
+            b6.texture = ibl_texture_;
+            b7.binding = 7;
+            b7.sampler = ibl_sampler_;
+            b8.binding = 8;
+            b8.buffer = ibl_block_;
+            b8.size = sizeof(IblBlock);
+            bindings.insert(bindings.end(), {b6, b7, b8});
+        }
+        return bindings;
+    };
+
     if (!shadows_enabled_) {
-        BindGroupBinding constant_bindings[3];
-        constant_bindings[0].binding = 0;
-        constant_bindings[0].buffer = constants_buffer;
-        constant_bindings[0].size = sizeof(sc);
-        constant_bindings[1].binding = 1;
-        constant_bindings[1].texture = env_brdf_;
-        constant_bindings[2].binding = 2;
-        constant_bindings[2].sampler = env_brdf_sampler_;
-        constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants");
+        constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings_for(nullptr), "ModelSceneConstants");
         return;
     }
 
@@ -346,22 +441,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     for (uint32_t i = 0; i < slots; ++i) {
         BufferRef block;
         make_uniform(device_, registry_, block, &off, sizeof(off), "ModelShadowBlock");
-        BindGroupBinding constant_bindings[6];
-        constant_bindings[0].binding = 0;
-        constant_bindings[0].buffer = constants_buffer;
-        constant_bindings[0].size = sizeof(sc);
-        constant_bindings[1].binding = 1;
-        constant_bindings[1].texture = env_brdf_;
-        constant_bindings[2].binding = 2;
-        constant_bindings[2].sampler = env_brdf_sampler_;
-        constant_bindings[3].binding = 3;
-        constant_bindings[3].texture = shadow_map_;
-        constant_bindings[4].binding = 4;
-        constant_bindings[4].sampler = shadow_sampler_;
-        constant_bindings[5].binding = 5;
-        constant_bindings[5].buffer = block;
-        constant_bindings[5].size = sizeof(ShadowBlock);
-        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants"));
+        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(&block), "ModelSceneConstants"));
         shadow_blocks_.push_back(std::move(block));
     }
 }
@@ -376,6 +456,9 @@ void ModelRenderer::release() noexcept
     constants_groups_.clear();
     shadow_blocks_.clear();
     constants_group_.reset();
+    ibl_block_.reset();
+    ibl_sampler_.reset();
+    ibl_texture_.reset();
     shadow_sampler_.reset();
     shadow_map_.reset();
     white_srgb_.reset();

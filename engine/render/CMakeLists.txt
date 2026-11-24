@@ -30,6 +30,7 @@ endif()
 
 add_library(saige_render STATIC
     src/camera.cpp
+    src/environment_lighting.cpp
     src/env_brdf.cpp
     src/env_brdf_asset.cpp
     src/gpu_resources.cpp

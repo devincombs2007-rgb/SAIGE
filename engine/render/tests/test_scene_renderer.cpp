@@ -1,11 +1,16 @@
 #include "saige/gfx_test/saige_test.hpp"
 
+#include "saige/render/model.hpp"
 #include "saige/render/scene_renderer.hpp"
+#include "saige/render/transform.hpp"
 #include "saige/rhi_null/null_device.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <span>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -20,7 +25,8 @@ struct Offscreen {
     rhi::TextureHandle color;
     rhi::BufferHandle readback;
 
-    explicit Offscreen(uint32_t w = 320, uint32_t h = 180)
+    explicit Offscreen(uint32_t w = 320, uint32_t h = 180) : Offscreen(rhi::DeviceDesc{}, w, h) {}
+    Offscreen(const rhi::DeviceDesc& desc, uint32_t w, uint32_t h) : device(desc)
     {
         rhi::TextureDesc d;
         d.format = rhi::Format::RGBA8_SRGB;
@@ -280,6 +286,166 @@ TEST_CASE("SceneRenderer: invalid lighting is rejected before any GPU object is 
     }
 }
 
+namespace {
+
+/// One triangle with one material, built on whatever device the renderer has.
+GpuModel tiny_model(SceneRenderer& renderer, MaterialData data = {})
+{
+    GpuModel model;
+    model.name = "tiny";
+    model.materials.push_back(renderer.model_renderer().create_material(data, {}, {}, "tiny.material"));
+    const std::vector<ModelVertex> vertices = {{{0, 0, 0}, {0, 0, 1}, {0, 0}}, {{1, 0, 0}, {0, 0, 1}, {1, 0}}, {{0, 1, 0}, {0, 0, 1}, {0, 1}}};
+    const std::vector<uint32_t> indices = {0, 1, 2};
+    rhi::BufferDesc vb;
+    vb.size = vertices.size() * sizeof(ModelVertex);
+    vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
+    rhi::BufferDesc ib;
+    ib.size = indices.size() * sizeof(uint32_t);
+    ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
+    GpuPrimitive p;
+    p.vertices = renderer.registry().create_buffer(vb, std::as_bytes(std::span(vertices)));
+    p.indices = renderer.registry().create_buffer(ib, std::as_bytes(std::span(indices)));
+    p.index_count = 3;
+    p.material = 0;
+    model.meshes.push_back({std::move(p)});
+    model.placements.push_back({0, Mat4::identity()});
+    return model;
+}
+
+RendererSettings shadow_settings(bool enabled)
+{
+    RendererSettings s;
+    s.shadows.enabled = enabled;
+    s.shadows.map_size = 64;
+    return s;
+}
+
+uint32_t scene_pass_count(const std::vector<rhi::RecordedCommand>& cmds)
+{
+    return static_cast<uint32_t>(of_type(cmds, rhi::CommandType::BeginRendering).size());
+}
+
+} // namespace
+
+TEST_CASE("Sun shadows (null device): off acquires nothing for shadows and schedules no pass; on adds exactly the shadow resources")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    uint32_t off_count = 0, on_count = 0;
+    uint32_t off_passes = 0, on_first_passes = 0, on_second_passes = 0;
+    {
+        SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(false));
+        CHECK(!off.model_renderer().shadows_enabled());
+        CHECK(!off.model_renderer().shadow_map().is_valid());
+        const GpuModel model = tiny_model(off);
+        const ModelDraw draws[] = {{&model, Mat4::identity()}};
+        SceneFrame frame;
+        frame.models = draws;
+        const FrameStats stats = off.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        CHECK(stats.shadow_draw_calls == 0);
+        off_passes = scene_pass_count(o.device.last_frame_commands());
+        off_count = o.device.live_resource_count() - baseline;
+        // Setting the shadow frame, or recording shadow draws, on a renderer without shadows is a misuse, not a silent no-op.
+        bool threw_frame = false, threw_draw = false;
+        try {
+            off.model_renderer().set_shadow_frame(nullptr);
+        } catch (const std::logic_error&) {
+            threw_frame = true;
+        }
+        try {
+            ModelFrameStats ms;
+            off.model_renderer().draw_shadow(o.device.begin_frame(), Mat4::identity(), draws, ms);
+        } catch (const std::logic_error&) {
+            threw_draw = true;
+        }
+        (void)o.device.end_frame();
+        CHECK(threw_frame && threw_draw);
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    {
+        SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(true));
+        CHECK(on.model_renderer().shadows_enabled());
+        CHECK(on.model_renderer().shadow_map().is_valid());
+        const GpuModel model = tiny_model(on);
+        const ModelDraw draws[] = {{&model, Mat4::identity()}};
+        SceneFrame frame;
+        frame.models = draws;
+        FrameStats stats = on.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        on_first_passes = scene_pass_count(o.device.last_frame_commands());
+        on_count = o.device.live_resource_count() - baseline;
+        stats = on.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        on_second_passes = scene_pass_count(o.device.last_frame_commands());
+        CHECK(stats.shadow_draw_calls == 1);  // the one opaque triangle casts
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    CHECK(on_count > off_count);  // the map, comparison sampler, per-frame blocks and groups, the shadow pipeline and shader
+    CHECK(off_passes == 1);       // the scene pass only: no SunShadow pass is scheduled
+    CHECK(on_first_passes == 2);  // SunShadow, then Scene
+    CHECK(on_second_passes == 2);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Sun shadows (null device): a failed acquisition at any step releases everything and the renderer can be used afterwards")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(true));  // the model renderer (and every shadow resource) is lazy
+    const uint32_t baseline = o.device.live_resource_count();
+    uint32_t failures = 0;
+    for (uint32_t n = 1; n <= 120; ++n) {
+        bool threw = false;
+        o.device.fail_creation_after(n);
+        try {
+            (void)renderer.model_renderer();  // shader, layouts, pipelines, shadow shader and pipeline, map, sampler, ring buffers, groups
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        o.device.fail_creation_after(0);
+        if (!threw) {
+            CHECK(renderer.model_renderer().shadows_enabled());  // n is beyond the number of creations: every step has been failed in turn
+            break;
+        }
+        ++failures;
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);  // the failed constructor released every partial acquisition (raw handles included)
+    }
+    CHECK(failures >= 20);  // 23 creations on the enabled path today
+    // The renderer is still usable after every failed attempt: the model renderer exists now and draws with shadows.
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    SceneFrame frame;
+    frame.models = draws;
+    CHECK(renderer.render(o.device.begin_frame(), frame, o.target()).shadow_draw_calls == 1);
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Sun shadows (null device): the shadow block is written once per renderer per frame, checked before anything changes")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, shadow_settings(true));
+    ModelRenderer& models = renderer.model_renderer();
+    ModelShadowFrame sf;
+    (void)o.device.begin_frame();
+    models.set_shadow_frame(&sf);
+    bool threw = false;
+    try {
+        models.set_shadow_frame(nullptr);  // a second view in the same frame would overwrite the first one's block
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    (void)o.device.end_frame();
+    (void)o.device.begin_frame();  // the next frame: allowed again
+    models.set_shadow_frame(nullptr);
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}
+
 TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be retried")
 {
     Offscreen o;
@@ -410,4 +576,505 @@ TEST_CASE("Atmosphere (null device): invalid settings are refused before anythin
     RendererSettings ignored;  // disabled settings are not validated
     ignored.atmosphere.mie_g = 5.0f;
     SceneRenderer fine(o.device, rhi::Format::RGBA8_SRGB, ignored);
+}
+
+// ---- Per-frame lighting (RendererSettings::dynamic_lighting) ------------------------------------------------------------------------------------
+
+namespace {
+
+using Block = std::array<float, 20>;
+
+Block read_block(rhi::NullDevice& device, rhi::BufferHandle handle)
+{
+    REQUIRE(handle.is_valid());
+    const std::span<std::byte> bytes = device.map(handle);
+    REQUIRE(bytes.size() >= sizeof(Block));
+    Block b{};
+    std::memcpy(b.data(), bytes.data(), sizeof(Block));
+    return b;
+}
+
+RendererSettings dynamic_settings()
+{
+    RendererSettings s;
+    s.dynamic_lighting = true;
+    return s;
+}
+
+SceneLighting evening(float x, float y, float z)
+{
+    SceneLighting l;
+    l.sun_direction = {x, y, z};
+    l.sun_color = {2.0f, 1.0f, 0.5f};
+    l.ambient_ground = {0.05f, 0.04f, 0.03f};
+    return l;
+}
+
+float unit_len(float x, float y, float z) { return std::sqrt(x * x + y * y + z * z); }
+
+bool near(float a, float b, float tolerance = 1e-5f) { return std::fabs(a - b) <= tolerance * (1.0f + std::fabs(b)); }
+
+template <class F>
+bool throws_invalid(F&& f)
+{
+    try {
+        f();
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("Dynamic lighting (null device): off by default, a lighting frame is refused when it is off, and on costs a ring of buffers and groups")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    {
+        SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, RendererSettings{});
+        ModelRenderer& m = off.model_renderer();
+        CHECK(!m.lighting_block(0).is_valid());
+        const uint32_t off_count = o.device.live_resource_count() - baseline;
+        const SceneLighting l = evening(0.0f, 0.0f, 1.0f);
+        SceneFrame frame;
+        frame.lighting = &l;
+        bool threw = false;
+        try {
+            (void)off.render(o.device.begin_frame(), frame, o.target());
+        } catch (const std::logic_error&) {
+            threw = true;
+        }
+        (void)o.device.end_frame();
+        CHECK(threw);
+        CHECK(o.device.last_frame_commands().empty());  // refused before anything was recorded
+        ModelLightingFrame lf;
+        threw = false;
+        (void)o.device.begin_frame();
+        try {
+            m.set_lighting_frame(&lf);
+        } catch (const std::logic_error&) {
+            threw = true;
+        }
+        (void)o.device.end_frame();
+        CHECK(threw);
+
+        const uint32_t before_on = o.device.live_resource_count();
+        SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, dynamic_settings());
+        (void)on.model_renderer();
+        CHECK(o.device.live_resource_count() - before_on > off_count);  // the ring: two scene-constants buffers and their bind groups
+        CHECK(on.model_renderer().lighting_block(0).is_valid());
+        CHECK(on.model_renderer().lighting_block(1).is_valid());
+        CHECK(!on.model_renderer().lighting_block(2).is_valid());  // two frames in flight by default
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);  // everything goes back, ring included
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Dynamic lighting (null device): each frame writes its own slot, a reclaimed slot is rewritten, and an unpublished frame uses the construction-time lighting")
+{
+    Offscreen o;
+    RendererSettings settings = dynamic_settings();
+    settings.lighting = evening(0.3f, 0.2f, 0.9f);
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    ModelRenderer& models = renderer.model_renderer();
+
+    const auto frame_with = [&](const SceneLighting* lighting) {
+        SceneFrame f;
+        f.models = draws;
+        f.lighting = lighting;
+        (void)renderer.render(o.device.begin_frame(), f, o.target());
+        const uint64_t n = o.device.frame_number();
+        (void)o.device.end_frame();
+        return static_cast<uint32_t>(n % 2);
+    };
+    const SceneLighting a = evening(1.0f, 0.0f, 1.0f);
+    const SceneLighting b = evening(0.0f, -2.0f, 3.0f);
+    const uint32_t slot_a = frame_with(&a);
+    const Block block_a = read_block(o.device, models.lighting_block(slot_a));
+    const float la = unit_len(1.0f, 0.0f, 1.0f);
+    CHECK(near(block_a[4], 1.0f / la, 1e-5f));
+    CHECK(near(block_a[5], 0.0f, 1e-5f));
+    CHECK(near(block_a[6], 1.0f / la, 1e-5f));  // normalized: one direction everywhere
+    CHECK(block_a[8] == 2.0f);
+    CHECK(block_a[9] == 1.0f);
+    CHECK(block_a[10] == 0.5f);
+    CHECK(block_a[12] == 0.05f);
+    CHECK(near(block_a[3], settings.fog_density, 1e-5f));  // the density stays the renderer's
+
+    const uint32_t slot_b = frame_with(&b);
+    CHECK(slot_b != slot_a);
+    const Block block_b = read_block(o.device, models.lighting_block(slot_b));
+    CHECK(near(block_b[5], -2.0f / unit_len(0.0f, -2.0f, 3.0f), 1e-5f));
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == block_a);  // the other frame in flight still reads what it was drawn with
+
+    // A third frame reclaims slot a's buffer; with nothing published it carries the construction-time lighting (and the construction sun, normalized).
+    const uint32_t slot_c = frame_with(nullptr);
+    CHECK(slot_c == slot_a);
+    const Block block_c = read_block(o.device, models.lighting_block(slot_c));
+    const float lc = unit_len(0.3f, 0.2f, 0.9f);
+    CHECK(near(block_c[4], 0.3f / lc, 1e-5f));
+    CHECK(block_c[7] == block_a[7]);
+    CHECK(block_c[8] == 2.0f);
+    CHECK(block_c != block_a);
+    CHECK(read_block(o.device, models.lighting_block(slot_b)) == block_b);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Dynamic lighting (null device): one publication per renderer per frame, none after the first draw, and a refusal changes nothing")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, dynamic_settings());
+    ModelRenderer& models = renderer.model_renderer();
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    const auto expect_logic_error = [&](const ModelLightingFrame* f) {
+        bool threw = false;
+        try {
+            models.set_lighting_frame(f);
+        } catch (const std::logic_error&) {
+            threw = true;
+        }
+        return threw;
+    };
+    ModelLightingFrame first;
+    first.lighting = evening(0.0f, 0.0f, 1.0f);
+    ModelLightingFrame second;
+    second.lighting = evening(1.0f, 0.0f, 0.0f);
+
+    (void)o.device.begin_frame();
+    const uint32_t slot = static_cast<uint32_t>(o.device.frame_number() % 2);
+    models.set_lighting_frame(&first);
+    const Block written = read_block(o.device, models.lighting_block(slot));
+    CHECK(expect_logic_error(&second));  // a second view would change what the first view's draws read
+    CHECK(expect_logic_error(nullptr));
+    CHECK(read_block(o.device, models.lighting_block(slot)) == written);
+    CHECK(near(models.frame_sun_direction().z, 1.0f, 1e-5f));
+    (void)o.device.end_frame();
+
+    // After a draw: the draw has bound the slot, so publishing would race the recorded commands. (SceneRenderer publishes for its own frame; here the frame is
+    // drawn through it and a host's late publication is refused.)
+    rhi::CommandList& cmd = o.device.begin_frame();
+    const uint32_t slot2 = static_cast<uint32_t>(o.device.frame_number() % 2);
+    CHECK(!near(models.frame_sun_direction().z, 1.0f));  // the previous frame published z = 1; this frame has published nothing yet
+    CHECK(near(models.frame_sun_direction().z, models.sun_direction().z));
+    SceneFrame scene;
+    scene.models = draws;
+    (void)renderer.render(cmd, scene, o.target());
+    const Block drawn = read_block(o.device, models.lighting_block(slot2));
+    CHECK(expect_logic_error(&second));
+    CHECK(read_block(o.device, models.lighting_block(slot2)) == drawn);
+    CHECK(near(models.frame_sun_direction().z, models.sun_direction().z));  // the frame was completed with the construction-time sun
+    (void)o.device.end_frame();
+
+    (void)o.device.begin_frame();  // the next frame accepts one again, and until it publishes the frame's sun is the construction-time one, not the last frame's
+    CHECK(near(models.frame_sun_direction().z, models.sun_direction().z));
+    CHECK(!near(models.frame_sun_direction().z, 1.0f));
+    models.set_lighting_frame(&second);
+    CHECK(near(models.frame_sun_direction().x, 1.0f, 1e-5f));
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Dynamic lighting (null device): an invalid payload is rejected before anything is written, and the frame can still publish a valid one")
+{
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, dynamic_settings());
+    ModelRenderer& models = renderer.model_renderer();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    std::vector<ModelLightingFrame> bad;
+    ModelLightingFrame f;
+    f.lighting = evening(0.0f, 0.0f, 1.0f);
+    for (const Float3 dir : {Float3{0.0f, 0.0f, 0.0f}, Float3{nan, 0.0f, 1.0f}, Float3{0.0f, inf, 1.0f}}) {
+        ModelLightingFrame g = f;
+        g.lighting.sun_direction = dir;
+        bad.push_back(g);
+    }
+    {
+        ModelLightingFrame g = f;
+        g.lighting.sun_color = {-1.0f, 1.0f, 1.0f};
+        bad.push_back(g);
+    }
+    {
+        ModelLightingFrame g = f;
+        g.lighting.ambient_ground = {0.1f, nan, 0.1f};
+        bad.push_back(g);
+    }
+    for (const Float3 sky : {Float3{-0.01f, 0.5f, 0.5f}, Float3{nan, 0.5f, 0.5f}, Float3{0.5f, 0.5f, inf}}) {
+        ModelLightingFrame g = f;
+        g.sky_color = sky;
+        bad.push_back(g);
+    }
+    (void)o.device.begin_frame();
+    const uint32_t slot = static_cast<uint32_t>(o.device.frame_number() % 2);
+    const Block before = read_block(o.device, models.lighting_block(slot));
+    for (const ModelLightingFrame& g : bad) {
+        bool threw = false;
+        try {
+            models.set_lighting_frame(&g);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        CHECK(threw);
+        CHECK(read_block(o.device, models.lighting_block(slot)) == before);
+    }
+    models.set_lighting_frame(&f);  // a refusal did not use up the frame's one publication
+    CHECK(read_block(o.device, models.lighting_block(slot)) != before);
+    (void)o.device.end_frame();
+
+    // The same through SceneFrame::lighting: refused before anything is created, recorded or written.
+    o.device.wait_idle();
+    const uint32_t count = o.device.live_resource_count();
+    SceneLighting broken = evening(0.0f, 0.0f, 1.0f);
+    broken.sun_color.y = nan;
+    SceneFrame frame;
+    frame.lighting = &broken;
+    bool threw = false;
+    try {
+        (void)renderer.render(o.device.begin_frame(), frame, o.target());
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    (void)o.device.end_frame();
+    CHECK(threw);
+    CHECK(o.device.last_frame_commands().empty());
+    CHECK(o.device.live_resource_count() == count);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Dynamic lighting (null device): the sky, fog, models and shadow fit read one sun; a sun below the horizon fits no cascades; a second render in the same frame is refused before it records")
+{
+    Offscreen o;
+    RendererSettings settings = shadow_settings(true);
+    settings.dynamic_lighting = true;
+    settings.atmosphere.enabled = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    ModelRenderer& models = renderer.model_renderer();
+    const SceneLighting afternoon = evening(1.0f, 0.0f, 1.0f);
+    SceneFrame frame;
+    frame.models = draws;
+    frame.lighting = &afternoon;
+
+    rhi::CommandList& cmd = o.device.begin_frame();
+    const uint32_t slot = static_cast<uint32_t>(o.device.frame_number() % 2);
+    CHECK(renderer.render(cmd, frame, o.target()).shadow_draw_calls == 1);
+    const Block block = read_block(o.device, models.lighting_block(slot));
+    const float s = 1.0f / std::sqrt(2.0f);
+    CHECK(near(models.frame_sun_direction().x, s, 1e-5f));
+    CHECK(near(block[4], s, 1e-5f));
+    CHECK(near(block[6], s, 1e-5f));
+    // The models' fog and ambient sky color are the horizon of the sky drawn for this same sun (display-referred in an LDR scene).
+    const Float3 horizon = sky_horizon_color(settings.atmosphere, {s, 0.0f, s});
+    CHECK(near(block[0], 1.0f - std::exp(-horizon.x), 1e-5f));
+    CHECK(near(block[1], 1.0f - std::exp(-horizon.y), 1e-5f));
+    CHECK(near(block[2], 1.0f - std::exp(-horizon.z), 1e-5f));
+    bool threw = false;
+    try {
+        (void)renderer.render(cmd, frame, o.target());  // a second view with this renderer would overwrite the first view's lighting block
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK(read_block(o.device, models.lighting_block(slot)) == block);
+    (void)o.device.end_frame();
+    CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size() == 2);  // the shadow pass and the scene pass of the first render only
+
+    const SceneLighting night = evening(0.5f, 0.0f, -0.5f);  // below the horizon
+    frame.lighting = &night;
+    CHECK(renderer.render(o.device.begin_frame(), frame, o.target()).shadow_draw_calls == 0);
+    (void)o.device.end_frame();
+    CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size() == 1);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("time_of_day_lighting: the sun reddens and dims as it sets, the ambient fades toward the night floor, and it is deterministic")
+{
+    AtmosphereSettings atmosphere;
+    atmosphere.enabled = true;
+    const SceneLighting day;
+    const auto at_elevation = [&](float degrees) {
+        const float r = degrees * pi / 180.0f;
+        return time_of_day_lighting(atmosphere, {std::cos(r), 0.0f, std::sin(r)}, day);
+    };
+    const SceneLighting noon = at_elevation(89.0f);
+    const SceneLighting low = at_elevation(3.0f);
+    const SceneLighting set = at_elevation(-20.0f);
+    CHECK(near(unit_len(noon.sun_direction.x, noon.sun_direction.y, noon.sun_direction.z), 1.0f, 1e-5f));
+    CHECK(noon.sun_color.x > 0.7f * day.sun_color.x);
+    CHECK(noon.sun_color.x <= day.sun_color.x);
+    CHECK(near(noon.ambient_ground.x, day.ambient_ground.x, 1e-5f));
+    // Near the horizon the blue is scattered out first: the ratios change and the sun is dimmer.
+    CHECK(low.sun_color.z / low.sun_color.x < noon.sun_color.z / noon.sun_color.x);
+    CHECK(low.sun_color.x < noon.sun_color.x);
+    CHECK(low.ambient_ground.x < noon.ambient_ground.x);
+    CHECK(low.ambient_ground.x > set.ambient_ground.x);
+    // Below the horizon there is no sun, and the ambient is the night floor.
+    CHECK(set.sun_color.x == 0.0f);
+    CHECK(set.sun_color.y == 0.0f);
+    CHECK(set.sun_color.z == 0.0f);
+    CHECK(near(set.ambient_ground.x, 0.08f * day.ambient_ground.x, 1e-5f));
+    CHECK(time_of_day_lighting(atmosphere, {0.0f, 0.0f, 1.0f}, day, 0.5f).ambient_ground.x < day.ambient_ground.x * 1.0001f);
+    const SceneLighting first = at_elevation(30.0f);
+    const SceneLighting again = at_elevation(30.0f);
+    CHECK(std::memcmp(&first, &again, sizeof(SceneLighting)) == 0);
+    // The ambient never rises as the sun sets.
+    float previous = 1e9f;
+    for (int d = 90; d >= -30; d -= 5) {
+        const float a = at_elevation(static_cast<float>(d)).ambient_ground.x;
+        CHECK(a <= previous + 1e-7f);
+        previous = a;
+    }
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    CHECK(throws_invalid([&] { (void)time_of_day_lighting(atmosphere, {0.0f, 0.0f, 0.0f}, day); }));
+    CHECK(throws_invalid([&] { (void)time_of_day_lighting(atmosphere, {nan, 0.0f, 1.0f}, day); }));
+    CHECK(throws_invalid([&] { (void)time_of_day_lighting(atmosphere, {0.0f, 0.0f, 1.0f}, day, -0.1f); }));
+    CHECK(throws_invalid([&] { (void)time_of_day_lighting(atmosphere, {0.0f, 0.0f, 1.0f}, day, 1.5f); }));
+    CHECK(throws_invalid([&] { (void)time_of_day_lighting(atmosphere, {0.0f, 0.0f, 1.0f}, day, nan); }));
+}
+
+TEST_CASE("Dynamic lighting (null device): publishing nullptr writes the construction-time lighting, and a draw completes a frame that published nothing, shadows included")
+{
+    Offscreen o;
+    RendererSettings settings = shadow_settings(true);
+    settings.dynamic_lighting = true;
+    settings.lighting = evening(0.3f, 0.2f, 0.9f);
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    ModelRenderer& models = renderer.model_renderer();
+    ModelLightingFrame other;
+    other.lighting = evening(1.0f, 0.0f, 1.0f);
+    // Frames 0 and 1 publish something else into both slots; frame 2 (slot 0 again) publishes nullptr and must overwrite it with the construction-time block.
+    Block construction{};
+    for (int i = 0; i < 2; ++i) {
+        (void)o.device.begin_frame();
+        models.set_lighting_frame(&other);
+        models.set_shadow_frame(nullptr);
+        (void)o.device.end_frame();
+    }
+    (void)o.device.begin_frame();
+    const uint32_t slot = static_cast<uint32_t>(o.device.frame_number() % 2);
+    const Block stale = read_block(o.device, models.lighting_block(slot));
+    CHECK(near(stale[4], 1.0f / std::sqrt(2.0f)));
+    models.set_lighting_frame(nullptr);
+    construction = read_block(o.device, models.lighting_block(slot));
+    const float lc = unit_len(0.3f, 0.2f, 0.9f);
+    CHECK(near(construction[4], 0.3f / lc));
+    CHECK(near(construction[6], 0.9f / lc));
+    CHECK(construction[8] == 2.0f);
+    CHECK(near(models.frame_sun_direction().x, 0.3f / lc));
+    bool threw = false;
+    try {
+        models.set_lighting_frame(&other);  // nullptr was this frame's publication
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK(read_block(o.device, models.lighting_block(slot)) == construction);
+    (void)o.device.end_frame();
+
+    // A frame that publishes nothing and draws: the draw writes the slot, and the shadow frame it never set, so neither can be set afterwards.
+    rhi::CommandList& cmd = o.device.begin_frame();
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    rhi::RenderingDesc rd;
+    rhi::ColorAttachment ca;
+    ca.texture = o.color;
+    rd.colors.push_back(ca);
+    rd.area = {0, 0, 320, 180};
+    cmd.begin_rendering(rd);
+    ModelFrameStats stats;
+    models.draw(cmd, Mat4::identity(), {0.0f, 0.0f, 0.0f}, draws, stats);
+    cmd.end_rendering();
+    const uint32_t slot2 = static_cast<uint32_t>(o.device.frame_number() % 2);
+    CHECK(read_block(o.device, models.lighting_block(slot2))[4] != stale[4]);
+    CHECK(near(read_block(o.device, models.lighting_block(slot2))[4], 0.3f / lc));
+    threw = false;
+    try {
+        models.set_shadow_frame(nullptr);
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    threw = false;
+    try {
+        models.set_lighting_frame(nullptr);
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Dynamic lighting (null device): one effective lighting per device frame at the scene level, also across a sky-only view and a model view, and the next frame starts fresh")
+{
+    Offscreen o;
+    RendererSettings settings = dynamic_settings();
+    settings.atmosphere.enabled = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    const GpuModel model = tiny_model(renderer);
+    const ModelDraw draws[] = {{&model, Mat4::identity()}};
+    ModelRenderer& models = renderer.model_renderer();
+    const SceneLighting l1 = evening(1.0f, 0.0f, 1.0f), l2 = evening(0.0f, 1.0f, 1.0f), l1_scaled = evening(5.0f, 0.0f, 5.0f);
+    SceneLighting l3 = l1;
+    l3.sun_color = {1.0f, 1.0f, 1.0f};  // the same sun, another color
+    SceneLighting l4 = l1;
+    l4.ambient_ground = {0.5f, 0.5f, 0.5f};  // the same sun and color, another ambient
+    const auto render = [&](rhi::CommandList& cmd, std::span<const ModelDraw> d, const SceneLighting* l) {
+        SceneFrame f;
+        f.models = d;
+        f.lighting = l;
+        return renderer.render(cmd, f, o.target());
+    };
+    const auto refused = [&](rhi::CommandList& cmd, std::span<const ModelDraw> d, const SceneLighting* l) {
+        try {
+            (void)render(cmd, d, l);
+        } catch (const std::logic_error&) {
+            return true;
+        }
+        return false;
+    };
+
+    // Frame A: a sky-only view fixes the frame's lighting without publishing anything to the model renderer.
+    rhi::CommandList& cmd = o.device.begin_frame();
+    const uint32_t slot_a = static_cast<uint32_t>(o.device.frame_number() % 2);
+    (void)render(cmd, {}, &l1);
+    CHECK(!models.lighting_written_this_frame());
+    // A model view with different lighting (any of the sun, its color or the ambient) is refused before anything is written, and the slot stays unwritten.
+    CHECK(refused(cmd, draws, &l2));
+    CHECK(refused(cmd, draws, &l3));
+    CHECK(refused(cmd, draws, &l4));
+    CHECK(refused(cmd, draws, nullptr));  // the construction-time lighting is another lighting too
+    CHECK(!models.lighting_written_this_frame());
+    // The same lighting (a scaled direction is the same sun) is accepted and publishes it; a third view with it too (the publication is not repeated).
+    (void)render(cmd, draws, &l1_scaled);
+    CHECK(models.lighting_written_this_frame());
+    const Block published = read_block(o.device, models.lighting_block(slot_a));
+    CHECK(near(published[4], 1.0f / std::sqrt(2.0f)));
+    CHECK(near(published[6], 1.0f / std::sqrt(2.0f)));
+    (void)render(cmd, draws, &l1);
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == published);
+    CHECK(refused(cmd, draws, &l2));  // and a conflicting one is still refused after the models have drawn
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == published);
+    (void)o.device.end_frame();
+
+    // Frame B starts fresh (its own slot): a different lighting is fine, and frame A's slot keeps what A drew with.
+    rhi::CommandList& cmd_b = o.device.begin_frame();
+    const uint32_t slot_b = static_cast<uint32_t>(o.device.frame_number() % 2);
+    CHECK(slot_b != slot_a);
+    CHECK(!refused(cmd_b, draws, &l2));
+    CHECK(near(read_block(o.device, models.lighting_block(slot_b))[5], 1.0f / std::sqrt(2.0f)));
+    CHECK(read_block(o.device, models.lighting_block(slot_a)) == published);
+    (void)o.device.end_frame();
+    // Frame C (slot A again), an unchanged recovery: nothing sticks from the refusals.
+    rhi::CommandList& cmd_c = o.device.begin_frame();
+    CHECK(!refused(cmd_c, draws, nullptr));
+    CHECK(near(read_block(o.device, models.lighting_block(slot_a))[4], evening(-0.40f, -0.55f, 0.73f).sun_direction.x / unit_len(-0.40f, -0.55f, 0.73f)));
+    (void)o.device.end_frame();
+    // (Several renders in one frame also write the frame's timestamps more than once; that device-level rule is the caller's, so the validation count is not checked here.)
 }

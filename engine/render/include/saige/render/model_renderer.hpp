@@ -18,6 +18,7 @@
 #include "saige/render/model.hpp"
 #include "saige/rhi/device.hpp"
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -44,6 +45,11 @@ struct MaterialData {
     /// `ModelRenderSettings::alpha_blending` (off by default: the 0.2 behavior, BLEND drawn opaque) and a blendable scene format
     /// (see rhi/blend.hpp); otherwise the material is drawn opaque.
     bool alpha_blend = false;
+    /// Whether this surface casts a sun shadow. It follows the *authored* alpha mode, not the pipeline the surface happens to be drawn
+    /// with: only an opaque material casts. glTF MASK and BLEND materials do not (first slice: a MASK needs an alpha-tested caster that
+    /// samples the visible pass's texture, factor and cutoff; a BLEND would need partial shadows), including a BLEND that the renderer
+    /// draws opaque because blending is off. Staging sets it from the glTF alpha mode; a hand-built material defaults to casting.
+    bool casts_sun_shadow = true;
 };
 /// The 0.2 name, kept so existing callers compile.
 using MaterialParams = MaterialData;
@@ -92,9 +98,53 @@ void validate_lighting(const SceneLighting& lighting);
 /// normalization the lighting, the sky, the fog and the shadow fit all use. Returns false, leaving `out` alone, for a zero or non-finite direction.
 [[nodiscard]] bool unit_sun_direction(Float3 v, Float3& out) noexcept;
 
+/// Sun shadows for imported models (SceneRenderer drives them from RendererSettings::shadows). Off by default, and when off the renderer
+/// uses the shadow-free shader and layout and acquires nothing for shadows: no shadow map, comparison sampler, pass or per-frame
+/// buffers, and the device needs no sampled depth or comparison-sampler support.
+struct ModelShadowSettings {
+    bool enabled = false;
+    uint32_t map_size = 2048;           ///< texels per side of each cascade's tile, 16 to 8192
+    /// Cascades, 1 to kMaxShadowCascades. One (the default) is the single map of the first slice. More are tiles of one atlas texture: 2 cascades
+    /// are two tiles side by side, 3 and 4 a 2x2 grid, so the texture is `shadow_atlas_size()` and `map_size` is the size of one tile.
+    uint32_t cascades = 1;
+    float depth_bias_constant = -1024.0f;  ///< rasterizer bias of the shadow pass (rhi::DepthBias); negative moves casters away from the sun
+    float depth_bias_slope = -1.5f;
+};
+
+/// Per-frame input of the sun shadow lookup: the light's orthographic view-projection (reverse-Z, x and y in [-1, 1], depth in [0, 1])
+/// and how to filter.
+struct ModelShadowFrame {
+    Mat4 light_view_proj = Mat4::identity();  ///< cascade 0
+    float texel_world_size = 0.0f;     ///< meters per shadow-map texel (cascade 0)
+    float normal_offset_texels = 1.5f; ///< receivers are moved along their geometric normal by this many texels before the lookup
+    uint32_t filter_radius = 1;        ///< PCF radius in texels: (2r+1)^2 comparison taps
+    // More than one cascade (`cascade_count` > 1, at most the renderer's `ModelShadowSettings::cascades`): cascades 1 to 3 and the view the receiver's
+    // cascade is chosen by. A receiver uses the first cascade whose `split_far` (view-space depth along `camera_forward` from `camera_position`) is at
+    // least its depth, and none beyond the last; over the last `blend` fraction of a cascade's depth range its shadow blends into the next one's.
+    uint32_t cascade_count = 1;
+    std::array<Mat4, 3> more_view_proj{Mat4::identity(), Mat4::identity(), Mat4::identity()};
+    std::array<float, 3> more_texel_world_size{0.0f, 0.0f, 0.0f};
+    std::array<float, 4> split_far{0.0f, 0.0f, 0.0f, 0.0f};
+    Float3 camera_position{};
+    Float3 camera_forward{1.0f, 0.0f, 0.0f};
+    float blend = 0.1f;
+};
+
+/// One frame's lighting for the models (`ModelRenderer::set_lighting_frame`): the sun, the ground ambient and the sky color, which is the fog color and the sky half
+/// of the ambient. The fog density stays the renderer's. Validated before anything is written.
+struct ModelLightingFrame {
+    SceneLighting lighting;
+    Float3 sky_color{0.30f, 0.50f, 0.82f};  ///< linear, finite and not negative
+};
+
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
     SceneLighting lighting;
+    /// Per-frame lighting (time of day). **Off by default**: the sun, ambient and fog are immutable constants, as always. On: the scene constants live in a ring of
+    /// `DeviceInfo::frames_in_flight` buffers (with their bind groups), one per frame slot, and `set_lighting_frame` publishes a frame's lighting. A frame that
+    /// publishes nothing draws with the construction-time lighting. Costs one small uniform buffer and one bind group per slot.
+    bool dynamic_lighting = false;
+    ModelShadowSettings shadows;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
     bool alpha_blending = false;
@@ -138,7 +188,47 @@ public:
 
     /// GPU textures the renderer itself keeps alive: three neutral slot textures and the environment BRDF table (visible in the
     /// registry's texture counters).
-    static constexpr uint32_t kOwnedTextureCount = 4;
+    static constexpr uint32_t kOwnedTextureCount = 4;  ///< +1 (the shadow map) when shadows are enabled
+
+    /// The unit vector toward the sun: the one value the lighting constants are built from and the shadow fit reads, so the two cannot
+    /// disagree (SceneLighting::sun_direction normalized).
+    [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }  ///< the construction-time sun
+    [[nodiscard]] bool dynamic_lighting() const noexcept { return dynamic_lighting_; }
+    /// Publishes this frame's lighting: validated first (std::invalid_argument for a non-finite or zero sun direction, a negative or non-finite color, a non-finite
+    /// or negative sky), then written once into the frame slot's constants. `nullptr` publishes the construction-time lighting explicitly. One publication per
+    /// renderer per device frame, and it must come before the frame's first `draw` (which reads the slot): a second publication, or one after a draw, throws
+    /// std::logic_error before anything is written, because it would change data the recorded draws reference. A frame that publishes nothing is drawn with
+    /// the construction-time lighting. Throws std::logic_error if dynamic lighting is off.
+    void set_lighting_frame(const ModelLightingFrame* frame);
+    /// The normalized sun direction of the current frame: the published one, or the construction-time one. What the sky, the shadow fit and the lighting all read.
+    [[nodiscard]] Float3 frame_sun_direction() const noexcept;
+    /// Whether this device frame's slot has been written (by `set_lighting_frame`, or by a draw completing it).
+    [[nodiscard]] bool lighting_written_this_frame() const noexcept;
+    /// The scene-constants buffer of frame slot `slot` (80 bytes: fog color and density, sun direction, sun color, ground ambient, flags), for tests and diagnostics;
+    /// an invalid handle when dynamic lighting is off or `slot` is out of range. Read it only when the device has finished the slot's frames.
+    [[nodiscard]] rhi::BufferHandle lighting_block(uint32_t slot) const noexcept { return slot < scene_blocks_.size() ? scene_blocks_[slot].handle() : rhi::BufferHandle{}; }
+    [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
+    /// The sun shadow map: a D32_FLOAT texture, valid only when shadows are enabled. The caller (SceneRenderer's render graph) owns its
+    /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
+    [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }
+    /// Size of one cascade's tile in texels (ModelShadowSettings::map_size).
+    [[nodiscard]] uint32_t shadow_map_size() const noexcept { return shadow_map_size_; }
+    [[nodiscard]] uint32_t shadow_cascade_count() const noexcept { return shadow_cascades_; }
+    /// Tiles across and down the atlas (1x1, 2x1, 2x2) and its extent in texels.
+    [[nodiscard]] uint32_t shadow_atlas_columns() const noexcept { return shadow_cascades_ <= 1 ? 1u : 2u; }
+    [[nodiscard]] uint32_t shadow_atlas_rows() const noexcept { return shadow_cascades_ <= 2 ? 1u : 2u; }
+    [[nodiscard]] uint32_t shadow_atlas_width() const noexcept { return shadow_map_size_ * shadow_atlas_columns(); }
+    [[nodiscard]] uint32_t shadow_atlas_height() const noexcept { return shadow_map_size_ * shadow_atlas_rows(); }
+    /// Selects this frame's shadow block for draw(): call once per frame, between begin_frame and end_frame. `nullptr` means no shadows
+    /// this frame (the sun is never occluded). The block lives in a ring of `DeviceInfo::frames_in_flight` buffers indexed by the device's
+    /// frame number, so rewriting it never races the GPU's reads of an earlier frame. Frame-slot contract: one renderer, one write per
+    /// frame. A second call in the same frame throws std::logic_error *before* anything is modified, because it would overwrite the block
+    /// the first view's draws read. (Several views per frame need independent ModelRenderers.) Throws std::logic_error if shadows are off.
+    void set_shadow_frame(const ModelShadowFrame* frame);
+    /// Records the shadow pass's draws into an active depth-only rendering pass (the shadow map as its depth attachment, viewport and
+    /// scissor set by the caller): the primitives of materials that cast (`MaterialData::casts_sun_shadow`), depth only, without
+    /// materials. Throws std::logic_error if shadows are off.
+    void draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_proj, std::span<const ModelDraw> draws, ModelFrameStats& stats);
 
     [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }
@@ -146,6 +236,9 @@ public:
 private:
     [[nodiscard]] rhi::PipelineHandle pipeline_for(bool mirrored, bool double_sided) const noexcept;
     void ensure_blend_pipelines();
+    void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
+    void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
+    [[nodiscard]] rhi::BindGroupHandle constants_group() const noexcept;
 
     /// One primitive waiting for the sorted phase. Kept in a member vector that is cleared, not freed, each frame.
     struct BlendedDraw {
@@ -169,7 +262,29 @@ private:
     bool blending_supported_ = false;
     bool alpha_blending_ = false;
     std::vector<BlendedDraw> blended_;
-    BindGroupRef constants_group_;
+    BindGroupRef constants_group_;  ///< set 1 with shadows off
+    // Shadows on (the permutation with set 1 bindings 3..5); all empty or invalid when off.
+    rhi::ShaderHandle shadow_vs_;
+    rhi::PipelineHandle shadow_pipeline_;
+    std::vector<BindGroupRef> constants_groups_;  ///< set 1 per frame slot: identical but for the shadow block
+    std::vector<BufferRef> shadow_blocks_;
+    uint32_t active_group_ = 0;
+    TextureRef shadow_map_;
+    SamplerRef shadow_sampler_;
+    uint32_t shadow_map_size_ = 0;
+    uint32_t shadow_cascades_ = 1;
+    bool shadows_enabled_ = false;
+    bool shadow_frame_written_ = false;
+    uint64_t shadow_frame_number_ = 0;
+    Float3 sun_direction_{};
+    // Per-frame lighting (empty when off).
+    bool dynamic_lighting_ = false;
+    std::vector<BufferRef> scene_blocks_;     ///< the scene constants per frame slot
+    std::array<float, 20> scene_default_{};   ///< the construction-time scene constants, what an unpublished frame uses
+    uint64_t lighting_frame_number_ = 0;      ///< the device frame the slot was last written for
+    bool lighting_written_ = false;
+    Float3 frame_sun_{};
+    void write_scene_block(const float* constants, Float3 sun);
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading
     SamplerRef default_sampler_, env_brdf_sampler_;

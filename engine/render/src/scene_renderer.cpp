@@ -79,6 +79,22 @@ CubeMesh make_unit_cube()
 
 namespace {
 
+/// Shadow settings are validated before the renderer acquires anything from the device (a settings error is an exception, not a leak).
+void validate_shadows(const RendererSettings& settings)
+{
+    const SunShadowSettings& sh = settings.shadows;
+    if (!sh.enabled) {
+        return;
+    }
+    const auto finite = [](float v) { return std::isfinite(v); };
+    if (sh.map_size < 16 || sh.map_size > 8192 || !finite(sh.distance) || !(sh.distance > settings.near_plane) || !finite(sh.caster_margin) ||
+        sh.caster_margin < 0.0f || !finite(sh.depth_bias_constant) || !finite(sh.depth_bias_slope) || !finite(sh.normal_offset_texels) ||
+        sh.normal_offset_texels < 0.0f || sh.filter_radius > 8 || sh.cascades < 1 || sh.cascades > kMaxShadowCascades || !finite(sh.split_lambda) ||
+        sh.split_lambda < 0.0f || sh.split_lambda > 1.0f || !finite(sh.cascade_blend) || sh.cascade_blend < 0.0f || sh.cascade_blend > 0.5f) {
+        throw std::invalid_argument("SceneRenderer: invalid sun shadow settings (map size 16..8192, 1 to 4 cascades, split lambda 0..1, blend 0..0.5, distance beyond the near plane, finite non-negative margin and offset, filter radius at most 8)");
+    }
+}
+
 /// The atmosphere is validated before the renderer acquires anything from the device (a settings error is an exception, not a leak).
 void validate_atmosphere_settings(const RendererSettings& settings)
 {
@@ -105,7 +121,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_((validate_lighting(settings.lighting), validate_atmosphere_settings(settings), settings)),
+      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_atmosphere_settings(settings), settings)),
       registry_(device)
 {
     using namespace saige::shaders;
@@ -155,10 +171,29 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     cube_indices_ = device_.create_buffer(ib, std::as_bytes(std::span(mesh.indices)));
 }
 
-Float3 SceneRenderer::atmosphere_fog() const
+SceneLighting time_of_day_lighting(const AtmosphereSettings& atmosphere, Float3 to_sun, const SceneLighting& day, float night_ambient)
 {
+    if (!std::isfinite(night_ambient) || night_ambient < 0.0f || night_ambient > 1.0f) {
+        throw std::invalid_argument("time_of_day_lighting: the night ambient fraction must be in 0 to 1");
+    }
+    SceneLighting out = day;
+    out.sun_direction = to_sun;
+    validate_lighting(out);  // finite, non-zero direction (and the base colors) before anything is derived
     Float3 sun{};
-    (void)unit_sun_direction(settings_.lighting.sun_direction, sun);  // validated non-zero at construction; the same overflow-safe normalization the model lighting uses
+    (void)unit_sun_direction(to_sun, sun);
+    out.sun_direction = sun;
+    const Float3 t = sun_transmittance(atmosphere, sun);
+    out.sun_color = {day.sun_color.x * t.x, day.sun_color.y * t.y, day.sun_color.z * t.z};
+    float s = (sun.z + 0.1f) / 0.45f;
+    s = s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+    s = s * s * (3.0f - 2.0f * s);
+    const float k = night_ambient + (1.0f - night_ambient) * s;
+    out.ambient_ground = {day.ambient_ground.x * k, day.ambient_ground.y * k, day.ambient_ground.z * k};
+    return out;
+}
+
+Float3 SceneRenderer::atmosphere_fog(Float3 sun) const
+{
     Float3 h = sky_horizon_color(settings_.atmosphere, sun);
     if (!settings_.hdr) {  // nothing downstream tone maps an LDR scene: the same curve the sky pass applies
         h = {1.0f - std::exp(-h.x), 1.0f - std::exp(-h.y), 1.0f - std::exp(-h.z)};
@@ -310,13 +345,21 @@ ModelRenderer& SceneRenderer::model_renderer()
         ModelRenderSettings ms;
         ms.sky = settings_.sky;
         if (settings_.atmosphere.enabled) {
-            const Float3 fog = atmosphere_fog();
+            Float3 sun{};
+            (void)unit_sun_direction(settings_.lighting.sun_direction, sun);
+            const Float3 fog = atmosphere_fog(sun);
             ms.sky = {fog.x, fog.y, fog.z, 1.0f};  // the models' fog and ambient sky color follow the horizon
         }
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
+        ms.dynamic_lighting = settings_.dynamic_lighting;
         ms.alpha_blending = settings_.alpha_blending;
+        ms.shadows.enabled = settings_.shadows.enabled;
+        ms.shadows.map_size = settings_.shadows.map_size;
+        ms.shadows.cascades = settings_.shadows.cascades;
+        ms.shadows.depth_bias_constant = settings_.shadows.depth_bias_constant;
+        ms.shadows.depth_bias_slope = settings_.shadows.depth_bias_slope;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
@@ -332,10 +375,36 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
     }
+    // This frame's sun. Checked before anything is created, recorded or written, so a bad value or a renderer without dynamic lighting changes nothing.
+    SceneLighting frame_lighting = settings_.lighting;
+    if (frame.lighting != nullptr) {
+        if (!settings_.dynamic_lighting) {
+            throw std::logic_error("SceneRenderer::render: SceneFrame::lighting needs RendererSettings::dynamic_lighting");
+        }
+        validate_lighting(*frame.lighting);
+        frame_lighting = *frame.lighting;
+    }
+    Float3 frame_sun{};
+    (void)unit_sun_direction(frame_lighting.sun_direction, frame_sun);  // validated non-zero: the one direction the sky, fog, lighting and shadow fit all read
+    const LightingSnapshot snapshot{frame_sun, frame_lighting.sun_color, frame_lighting.ambient_ground};
+    const uint64_t device_frame = device_.frame_number();
+    if (settings_.dynamic_lighting && lighting_snapshot_frame_ == device_frame) {
+        // A second render of this device frame (a second view, or a sky-only view and a model view): one effective lighting per frame, enforced here as well as in the
+        // model renderer, because a view without models publishes nothing to it.
+        const auto same = [](Float3 a, Float3 b) { return a.x == b.x && a.y == b.y && a.z == b.z; };
+        if (!same(snapshot.sun, lighting_snapshot_.sun) || !same(snapshot.sun_color, lighting_snapshot_.sun_color) ||
+            !same(snapshot.ambient_ground, lighting_snapshot_.ambient_ground)) {
+            throw std::logic_error("SceneRenderer::render: this device frame already has a different lighting (one effective lighting per frame: a second view must supply the same one)");
+        }
+    }
     if (settings_.atmosphere.enabled) {
         ensure_sky();  // first, with nothing else created yet: a device failure is a failed frame that leaves nothing behind
     }
     ensure_targets(target.width, target.height);
+    if (settings_.dynamic_lighting) {
+        lighting_snapshot_ = snapshot;  // after the last throw that leaves nothing behind: this frame's lighting is now fixed
+        lighting_snapshot_frame_ = device_frame;
+    }
 
     const float aspect = static_cast<float>(target.width) / static_cast<float>(target.height);
     DrawConstants constants{};
@@ -344,10 +413,71 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     fill4(constants.camera_fog, eye.x, eye.y, eye.z, settings_.fog_density);
     rhi::ClearColor clear = settings_.sky;
     if (settings_.atmosphere.enabled) {
-        const Float3 fog = atmosphere_fog();
+        const Float3 fog = atmosphere_fog(frame_sun);
         clear = {fog.x, fog.y, fog.z, 1.0f};
     }
     fill4(constants.fog_color, clear.r, clear.g, clear.b, 1.0f);
+
+    // Sun shadows (imported models only, and only when asked for). The model renderer is created up front when there are models, because
+    // the shadow map's synchronization is part of the graph built below. With shadows off none of this runs: no fit, no pass, no import.
+    ModelRenderer* shadow_models = (settings_.shadows.enabled && !frame.models.empty()) ? &model_renderer() : nullptr;
+    if (settings_.dynamic_lighting && !frame.models.empty() && lighting_published_frame_ != device_frame) {
+        // One immutable payload per renderer per frame, published before the first draw of the frame reads the slot (once: a second view of the frame has the same lighting).
+        ModelRenderer& mr = model_renderer();
+        ModelLightingFrame lf;
+        lf.lighting = frame_lighting;
+        lf.lighting.sun_direction = frame_sun;
+        lf.sky_color = {clear.r, clear.g, clear.b};
+        mr.set_lighting_frame(&lf);
+        lighting_published_frame_ = device_frame;
+    }
+    std::optional<ShadowCascades> sun_cascades;
+    if (shadow_models != nullptr) {
+        CascadeCamera cam;
+        cam.position = eye;
+        if (frame.camera != nullptr) {
+            cam.forward = camera_forward(*frame.camera);
+            cam.fov_y_radians = frame.camera->fov_y_radians;
+        } else {
+            cam.forward = normalize(camera_target(frame) - eye);
+            cam.fov_y_radians = settings_.fov_y_radians;
+        }
+        cam.aspect = aspect;
+        CascadeSettings cs;
+        cs.count = settings_.shadows.cascades;
+        cs.split_lambda = settings_.shadows.split_lambda;
+        cs.near_plane = frame.camera != nullptr ? frame.camera->near_plane : settings_.near_plane;
+        cs.shadow_distance = settings_.shadows.distance;
+        cs.resolution = settings_.shadows.map_size;
+        cs.caster_margin = settings_.shadows.caster_margin;
+        // The same normalized direction the lighting constants were built from (SceneLighting::sun_direction), not a copy of it.
+        const bool sun_up = !settings_.dynamic_lighting || frame_sun.z > 0.0f;  // a sun below the horizon casts no shadow (and a fit toward it is meaningless)
+        if (sun_up) {
+            const ShadowCascades fitted = fit_shadow_cascades(cam, frame_sun, cs);
+            if (fitted.count == settings_.shadows.cascades) {
+                sun_cascades = fitted;
+            }
+        }
+        if (sun_cascades) {
+            ModelShadowFrame sf;
+            sf.light_view_proj = sun_cascades->cascades[0].view_proj;
+            sf.texel_world_size = sun_cascades->cascades[0].texel_world_size;
+            sf.normal_offset_texels = settings_.shadows.normal_offset_texels;
+            sf.filter_radius = settings_.shadows.filter_radius;
+            sf.cascade_count = sun_cascades->count;
+            for (uint32_t i = 1; i < sun_cascades->count; ++i) {
+                sf.more_view_proj[i - 1] = sun_cascades->cascades[i].view_proj;
+                sf.more_texel_world_size[i - 1] = sun_cascades->cascades[i].texel_world_size;
+            }
+            for (uint32_t i = 0; i < sun_cascades->count; ++i) sf.split_far[i] = sun_cascades->cascades[i].split_far;
+            sf.camera_position = cam.position;
+            sf.camera_forward = cam.forward;
+            sf.blend = settings_.shadows.cascade_blend;
+            shadow_models->set_shadow_frame(&sf);
+        } else {
+            shadow_models->set_shadow_frame(nullptr);  // an invalid fit this frame: the sun is not occluded
+        }
+    }
 
     graph_.reset();
     const RGTexture color = graph_.import_texture("SceneColor", *color_desc, target.texture, target.initial_state,
@@ -371,10 +501,62 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     depth_desc.usage = rhi::TextureUsage::DepthStencilAttachment;
     const RGTexture depth = graph_.import_texture("SceneDepth", depth_desc, depth_, depth_state_);
 
+    // When shadows are on, the map is always bound to the model shader, so it must be in the sampled state when the scene pass draws
+    // models. It is written by the shadow pass when there is a fit; the first frame with models also runs a pass that only clears it, which
+    // takes it from undefined to a valid depth image (a map that was never written must still be a legal descriptor).
+    RGTexture shadow_map_rg{};
+    const bool shadow_pass = shadow_models != nullptr && (sun_cascades.has_value() || !shadow_ready_);
+    if (shadow_models != nullptr) {
+        const std::optional<rhi::TextureDesc> shadow_desc = device_.texture_desc(shadow_models->shadow_map());
+        if (!shadow_desc) {
+            throw std::logic_error("SceneRenderer: the shadow map texture is invalid");
+        }
+        shadow_map_rg = graph_.import_texture("SunShadowMap", *shadow_desc, shadow_models->shadow_map(), shadow_state_, rhi::sampled_texture_state);
+    }
+    if (shadow_pass) {
+        graph_.add_pass(
+            "SunShadow", rhi::QueueType::Graphics, [&](PassBuilder& b) { b.write_depth(shadow_map_rg, LoadOp::Clear); },
+            [&](PassContext& ctx) {
+                rhi::CommandList& c = *ctx.command_list();
+                const uint32_t tile = shadow_models->shadow_map_size();
+                const uint32_t columns = shadow_models->shadow_atlas_columns();
+                const uint32_t atlas_w = shadow_models->shadow_atlas_width(), atlas_h = shadow_models->shadow_atlas_height();
+                rhi::RenderingDesc rd;
+                rhi::DepthAttachment da;
+                da.texture = shadow_models->shadow_map();
+                da.load = rhi::AttachmentLoadOp::Clear;
+                da.store = rhi::AttachmentStoreOp::Store;
+                da.clear_depth = 0.0f;  // reverse-Z far plane: nothing occludes
+                rd.depth = da;
+                rd.area = {0, 0, atlas_w, atlas_h};
+                c.begin_debug_label("SunShadow");
+                c.begin_rendering(rd);
+                if (sun_cascades) {
+                    for (uint32_t i = 0; i < sun_cascades->count; ++i) {  // one tile of the atlas per cascade
+                        const int32_t x = static_cast<int32_t>((i % columns) * tile), y = static_cast<int32_t>((i / columns) * tile);
+                        c.set_viewport({static_cast<float>(x), static_cast<float>(y), static_cast<float>(tile), static_cast<float>(tile), 0.0f, 1.0f});
+                        c.set_scissor({x, y, tile, tile});
+                        ModelFrameStats shadow_stats;
+                        shadow_models->draw_shadow(c, sun_cascades->cascades[i].view_proj, frame.models, shadow_stats);
+                        stats.draw_calls += shadow_stats.draw_calls;
+                        stats.shadow_draw_calls += shadow_stats.draw_calls;
+                    }
+                } else {
+                    c.set_viewport({0.0f, 0.0f, static_cast<float>(atlas_w), static_cast<float>(atlas_h), 0.0f, 1.0f});
+                    c.set_scissor({0, 0, atlas_w, atlas_h});
+                }
+                c.end_rendering();
+                c.end_debug_label();
+            });
+    }
+
     const Float3 ground_center = camera_target(frame);
     graph_.add_pass(
         "Scene", rhi::QueueType::Graphics,
         [&](PassBuilder& b) {
+            if (shadow_models != nullptr) {
+                b.sample(shadow_map_rg, rhi::PipelineStage::PixelShader);
+            }
             b.write_color(scene_color, LoadOp::Clear);
             b.write_depth(depth, LoadOp::Clear);
         },
@@ -403,8 +585,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 const Camera cam = sky_camera(frame);
                 const float tan_half = std::tan(cam.fov_y_radians * 0.5f);
                 const Float3 right = camera_right(cam) * (tan_half * aspect), up = camera_up(cam) * tan_half, fwd = camera_forward(cam);
-                Float3 sun{};
-                (void)unit_sun_direction(settings_.lighting.sun_direction, sun);
+                const Float3 sun = frame_sun;
                 SkyConstants sk{};
                 fill4(sk.right, right.x, right.y, right.z, 0.0f);
                 fill4(sk.up, up.x, up.y, up.z, at.exposure);
@@ -507,10 +688,48 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     };
     graph_.execute(ec);
     depth_state_ = depth_attachment_state;
+    if (shadow_models != nullptr) {
+        shadow_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
+        shadow_ready_ = true;
+    }
     if (settings_.hdr) {
         hdr_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
     }
     return stats;
+}
+
+} // namespace saige::render
+
+namespace saige::render {
+
+SunShadowSettings shadow_quality_preset(ShadowQuality quality, float distance)
+{
+    SunShadowSettings s;
+    s.enabled = true;
+    s.distance = distance;
+    switch (quality) {
+    case ShadowQuality::Low:
+        s.cascades = 1;
+        s.map_size = 1024;
+        s.filter_radius = 0;
+        break;
+    case ShadowQuality::Medium:
+        s.cascades = 2;
+        s.map_size = 1024;
+        s.filter_radius = 1;
+        break;
+    case ShadowQuality::High:
+        s.cascades = 3;
+        s.map_size = 2048;
+        s.filter_radius = 1;
+        break;
+    case ShadowQuality::Ultra:
+        s.cascades = 4;
+        s.map_size = 2048;
+        s.filter_radius = 2;
+        break;
+    }
+    return s;
 }
 
 } // namespace saige::render

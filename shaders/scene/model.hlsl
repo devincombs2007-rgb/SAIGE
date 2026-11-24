@@ -16,11 +16,20 @@
 // Renderer modes: 0 preserves SAIGE 0.2, 1 adds emissive/occlusion textures to the same lighting,
 // and 2 uses metallic-roughness shading (pbr.hlsli).
 //
+// Sun shadows are a compile-time permutation. This file, as is (SAIGE_SUN_SHADOWS = 0), is the 0.2/0.3 shader with no shadow bindings, so a
+// renderer that does not ask for shadows needs nothing new from the device. model_shadowed.hlsl defines SAIGE_SUN_SHADOWS = 1 and includes
+// this file: set 1 gains 3 the sun shadow map (a depth texture), 4 its comparison sampler, 5 the shadow block for the frame (the light's
+// view-projection and filter parameters), and the sun term is multiplied by `sun_visibility`.
+//
 // @shader   SceneModel
 // @entry    VSMain vs
 // @entry    PSMain ps
 
 #include "pbr.hlsli"
+
+#ifndef SAIGE_SUN_SHADOWS
+#define SAIGE_SUN_SHADOWS 0
+#endif
 
 struct ModelPush {
     column_major float4x4 view_proj;
@@ -59,6 +68,80 @@ struct ModelPush {
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
+#if SAIGE_SUN_SHADOWS
+[[vk::binding(3, 1)]] Texture2D<float> g_shadow_map;            // sun depth, reverse-Z (1 nearest the light)
+[[vk::binding(4, 1)]] SamplerComparisonState g_shadow_sampler;  // nearest filtering, GreaterEqual
+[[vk::binding(5, 1)]] cbuffer ShadowConstants
+{
+    column_major float4x4 sh_light_view_proj[4];  // world to each cascade's clip space
+    float4 sh_texel;       // meters per shadow-map texel of cascade 0..3
+    float4 sh_splits;      // view-space depth where cascade 0..3 ends
+    float4 sh_params;      // x: normal offset in texels, y: filter radius in texels (0 = one tap), z: cascade count, w: 1 when shadows are on
+    float4 sh_map;         // x: 1 / tile size in texels, y: blend fraction, z, w: the size of one atlas tile in uv
+    float4 sh_camera_pos;  // xyz: the view the cascade is selected by
+    float4 sh_camera_fwd;  // xyz: its forward direction, w: atlas columns
+};
+
+/// The fraction of the sun that reaches `world_pos` according to one cascade (1 = fully lit, 0 = shadowed): a percentage-closer filter over
+/// (2r+1)^2 comparison taps inside the cascade's atlas tile (a tap that would leave the tile reads the tile's edge texel, never a neighbor's).
+/// The position is first moved along the geometric normal by a fixed number of this cascade's texels, which removes the self-shadowing that
+/// a depth bias alone cannot (grazing surfaces). Outside the cascade's map, or beyond its depth range, the sun is not occluded. Explicit-LOD
+/// comparison reads are legal in non-uniform control flow, which the early returns create.
+float cascade_visibility(uint cascade, float3 world_pos, float3 geometric_normal)
+{
+    const float3 offset_pos = world_pos + geometric_normal * (sh_params.x * sh_texel[cascade]);
+    const float4 clip = mul(sh_light_view_proj[cascade], float4(offset_pos, 1.0));
+    const float3 ndc = clip.xyz / clip.w;
+    const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);  // texture v = 0 is the top row; NDC +Y is up
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
+        return 1.0;
+    }
+    const uint columns = (uint)sh_camera_fwd.w;
+    const float2 origin = float2((float)(cascade % columns), (float)(cascade / columns)) * sh_map.zw;
+    const int radius = (int)sh_params.y;
+    float sum = 0.0;
+    for (int y = -radius; y <= radius; ++y) {
+        for (int x = -radius; x <= radius; ++x) {
+            // Clamped to the centers of this tile's outermost texels: a tile-local coordinate of exactly 1 would be the first texel of the next tile in the atlas.
+            const float2 tap = clamp(uv + float2(x, y) * sh_map.x, float2(0.5 * sh_map.x, 0.5 * sh_map.x), float2(1.0 - 0.5 * sh_map.x, 1.0 - 0.5 * sh_map.x));
+            sum += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, origin + tap * sh_map.zw, ndc.z);
+        }
+    }
+    const float taps = (float)(2 * radius + 1);
+    return sum / (taps * taps);
+}
+
+/// The fraction of the sun that reaches `world_pos` (1 = fully lit, 0 = shadowed). With one cascade this is that cascade's lookup. With
+/// several, the receiver's cascade is the first whose far split reaches its view-space depth (beyond the last there is no shadow), and over
+/// the last `blend` fraction of that cascade's depth range the result blends into the next cascade's, so there is no seam at a split.
+float sun_visibility(float3 world_pos, float3 geometric_normal)
+{
+    if (sh_params.w < 0.5) {
+        return 1.0;
+    }
+    const uint count = (uint)sh_params.z;
+    if (count <= 1u) {
+        return cascade_visibility(0u, world_pos, geometric_normal);
+    }
+    const float depth = dot(world_pos - sh_camera_pos.xyz, sh_camera_fwd.xyz);
+    uint c = 0u;
+    while (c < count && depth > sh_splits[c]) {
+        ++c;
+    }
+    if (c >= count) {
+        return 1.0;
+    }
+    float visibility = cascade_visibility(c, world_pos, geometric_normal);
+    if (c + 1u < count) {
+        const float previous = c == 0u ? 0.0 : sh_splits[c - 1u];
+        const float band = sh_map.y * (sh_splits[c] - previous);
+        if (band > 0.0 && depth > sh_splits[c] - band) {
+            visibility = lerp(visibility, cascade_visibility(c + 1u, world_pos, geometric_normal), (depth - (sh_splits[c] - band)) / band);
+        }
+    }
+    return visibility;
+}
+#endif
 
 float3 ambient_radiance(float3 direction)
 {
@@ -167,7 +250,14 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
     }
     const float3 to_camera = pc.camera_sign.xyz - input.world_pos;
     const float distance_m = length(to_camera);
+#if SAIGE_SUN_SHADOWS
+    const float sun_vis = sun_visibility(input.world_pos, n);
+    const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz)) * sun_vis;  // the sun term of the two non-PBR modes, shadowed
+#define SUN_RADIANCE (sc_sun_color.rgb * sun_vis)
+#else
     const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
+#define SUN_RADIANCE sc_sun_color.rgb
+#endif
     float3 lit;
     if (sc_flags.x < 0.5) {
         // Legacy, the 0.2 look exactly: base color texture and factor, the emissive *factor*, hemispherical ambient plus sun.
@@ -181,7 +271,7 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
             const float3 r = reflect(-v, mapped);
             const float2 table_uv = float2(saturate(dot(mapped, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
             const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
-            lit = shade_directional(surface, v, sc_sun_direction.xyz, sc_sun_color.rgb) +
+            lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
                   shade_ambient(surface, env_brdf, ambient_radiance(mapped), ambient_radiance(r)) + surface.emissive;
         } else {
             lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;

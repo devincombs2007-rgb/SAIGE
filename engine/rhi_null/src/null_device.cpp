@@ -4,6 +4,7 @@
 #include "saige/rhi/handle_pool.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <iostream>
@@ -461,6 +462,7 @@ NullDevice::NullDevice(const DeviceDesc& desc) : impl_(std::make_unique<Impl>())
     if (impl_->desc.frames_in_flight == 0) {
         impl_->desc.frames_in_flight = 1;
     }
+    impl_->info.frames_in_flight = impl_->desc.frames_in_flight;
     impl_->info.backend = Backend::Null;
     impl_->info.device_name = "SAIGE null device";
     impl_->info.driver_name = "saige-null";
@@ -639,8 +641,15 @@ PipelineHandle NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& 
     if (vs == nullptr || vs->desc.stage != ShaderStage::Vertex) {
         throw std::invalid_argument("create_graphics_pipeline: invalid vertex shader");
     }
-    if (ps == nullptr || ps->desc.stage != ShaderStage::Pixel) {
+    const bool depth_only = !desc.pixel_shader.is_valid();
+    if (!depth_only && (ps == nullptr || ps->desc.stage != ShaderStage::Pixel)) {
         throw std::invalid_argument("create_graphics_pipeline: invalid pixel shader");
+    }
+    if (depth_only && (!desc.color_formats.empty() || !has_depth(desc.depth_format))) {
+        throw std::invalid_argument("create_graphics_pipeline: a pipeline without a pixel shader must be depth-only (no color formats, a depth format)");
+    }
+    if (!std::isfinite(desc.depth_bias.constant_factor) || !std::isfinite(desc.depth_bias.slope_factor)) {
+        throw std::invalid_argument("create_graphics_pipeline: depth bias factors must be finite");
     }
     if (desc.color_formats.empty() && desc.depth_format == Format::Unknown) {
         throw std::invalid_argument("create_graphics_pipeline: no attachment formats");

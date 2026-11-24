@@ -60,14 +60,28 @@ struct DepthState {
     CompareOp compare = CompareOp::Greater;  ///< Reverse-Z: greater is closer.
 };
 
+/// Rasterizer depth bias, applied to every fragment's depth before the depth test and write (static pipeline state). It is how a shadow
+/// pass keeps a surface from shadowing itself. The bias is `constant_factor * r + slope_factor * m`, where r is the smallest value that
+/// makes a difference in the depth format and m is the polygon's maximum depth slope (Vulkan's definition; D3D12 differs in the unit of the
+/// constant). The sign follows the depth convention in use: with reverse-Z (depth 1 at the near plane) a negative bias moves a surface away
+/// from the viewer. There is deliberately no clamp, since `depthBiasClamp` is an optional device feature. Both must be finite.
+struct DepthBias {
+    float constant_factor = 0.0f;
+    float slope_factor = 0.0f;
+    [[nodiscard]] constexpr bool enabled() const noexcept { return constant_factor != 0.0f || slope_factor != 0.0f; }
+};
+
 struct GraphicsPipelineDesc {
     ShaderHandle vertex_shader;
+    /// May be left invalid for a depth-only pipeline (a shadow pass): then there must be no color formats and a depth format, and the
+    /// pipeline writes depth only.
     ShaderHandle pixel_shader;
     VertexLayout vertex_layout;
     PrimitiveTopology topology = PrimitiveTopology::TriangleList;
     CullMode cull_mode = CullMode::Back;
     FrontFace front_face = FrontFace::CounterClockwise;
     DepthState depth;
+    DepthBias depth_bias;
     std::vector<Format> color_formats;
     /// Blend state, see blend.hpp. Empty (the default) disables blending; otherwise one entry per color attachment, all equal.
     std::vector<BlendState> blend;
@@ -237,6 +251,10 @@ struct DeviceInfo {
     bool software_device = false;  ///< CPU implementation (e.g. lavapipe).
     bool gpu_timestamps = false;   ///< write_timestamp / completed_timestamps measure GPU work; false = unavailable
     double timestamp_period_ns = 0.0;
+    /// Frames the device keeps in flight (DeviceDesc::frames_in_flight, at least 1). `begin_frame` returns once the work of frame
+    /// `n - frames_in_flight` is complete, so a per-frame resource can be rewritten safely if it is indexed by
+    /// `frame_number() % frames_in_flight` (the renderer's per-frame uniforms are).
+    uint32_t frames_in_flight = 1;
 };
 
 /// GPU timestamps written by CommandList::write_timestamp, resolved for one completed frame.

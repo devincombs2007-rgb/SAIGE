@@ -115,13 +115,25 @@ struct SkyConstants {
 };
 static_assert(sizeof(SkyConstants) == 112);
 
+/// The environment is validated, and refused for a shading mode that would ignore it, before the renderer acquires anything from the device.
+void validate_environment(const RendererSettings& settings)
+{
+    if (!settings.environment) {
+        return;
+    }
+    validate_environment_lighting(*settings.environment);
+    if (settings.model_shading != ModelShading::MetallicRoughness) {
+        throw std::invalid_argument("SceneRenderer: an environment needs model_shading = MetallicRoughness (the other modes would ignore it)");
+    }
+}
+
 } // namespace
 
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_atmosphere_settings(settings), settings)),
+      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_atmosphere_settings(settings), validate_environment(settings), settings)),
       registry_(device)
 {
     using namespace saige::shaders;
@@ -360,6 +372,8 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.shadows.cascades = settings_.shadows.cascades;
         ms.shadows.depth_bias_constant = settings_.shadows.depth_bias_constant;
         ms.shadows.depth_bias_slope = settings_.shadows.depth_bias_slope;
+        ms.environment = settings_.environment;
+        ms.skinning = settings_.skinning;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
@@ -396,6 +410,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
             !same(snapshot.ambient_ground, lighting_snapshot_.ambient_ground)) {
             throw std::logic_error("SceneRenderer::render: this device frame already has a different lighting (one effective lighting per frame: a second view must supply the same one)");
         }
+    }
+    if (models_ && !frame.models.empty()) {
+        models_->check_palettes_unfrozen(frame.models);  // a palette changed after its first use this frame: refused before anything is created or recorded
     }
     if (settings_.atmosphere.enabled) {
         ensure_sky();  // first, with nothing else created yet: a device failure is a failed frame that leaves nothing behind
@@ -540,6 +557,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                         shadow_models->draw_shadow(c, sun_cascades->cascades[i].view_proj, frame.models, shadow_stats);
                         stats.draw_calls += shadow_stats.draw_calls;
                         stats.shadow_draw_calls += shadow_stats.draw_calls;
+                        stats.model_skinned_draws += shadow_stats.skinned_draws;
+                        stats.model_skinned_skipped += shadow_stats.skinned_skipped;
                     }
                 } else {
                     c.set_viewport({0.0f, 0.0f, static_cast<float>(atlas_w), static_cast<float>(atlas_h), 0.0f, 1.0f});
@@ -626,6 +645,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instances += model_stats.instances_drawn;
                 stats.model_instances_skipped += model_stats.instances_skipped;
                 stats.model_blended_primitives += model_stats.blended_primitives;
+                stats.model_skinned_draws += model_stats.skinned_draws;
+                stats.model_skinned_skipped += model_stats.skinned_skipped;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

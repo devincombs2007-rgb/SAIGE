@@ -30,6 +30,12 @@
 #ifndef SAIGE_SUN_SHADOWS
 #define SAIGE_SUN_SHADOWS 0
 #endif
+#ifndef SAIGE_IBL
+#define SAIGE_IBL 0
+#endif
+#ifndef SAIGE_SKINNING
+#define SAIGE_SKINNING 0
+#endif
 
 struct ModelPush {
     column_major float4x4 view_proj;
@@ -68,6 +74,36 @@ struct ModelPush {
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
+#if SAIGE_IBL
+// Image-based lighting (metallic-roughness shading only; model_ibl.hlsl): the prefiltered environment as one equirect texture whose mip i is the
+// environment at perceptual roughness i / (levels - 1), and nine SH coefficients for the diffuse term. docs/rendering/ibl-environment.md.
+[[vk::binding(6, 1)]] Texture2D<float4> g_ibl_env;
+[[vk::binding(7, 1)]] SamplerState g_ibl_sampler;  // linear, linear mips, wrap in u, clamp in v
+[[vk::binding(8, 1)]] cbuffer IblConstants
+{
+    float4 ibl_sh[9];   // radiance coefficients, order 00, 1-1, 10, 11, 2-2, 2-1, 20, 21, 22
+    float4 ibl_params;  // x: levels - 1, y: intensity
+};
+
+/// The diffuse radiance factor (irradiance / pi) for unit normal n: the SH coefficients scaled by the clamped cosine's band weights 1, 2/3, 1/4.
+float3 ibl_diffuse(float3 n)
+{
+    const float x = n.x, y = n.y, z = n.z;
+    float3 sum = ibl_sh[0].rgb * 0.282094791773878;
+    sum += (ibl_sh[1].rgb * (0.488602511902920 * y) + ibl_sh[2].rgb * (0.488602511902920 * z) + ibl_sh[3].rgb * (0.488602511902920 * x)) * (2.0 / 3.0);
+    sum += (ibl_sh[4].rgb * (1.092548430592079 * x * y) + ibl_sh[5].rgb * (1.092548430592079 * y * z) + ibl_sh[6].rgb * (0.315391565252520 * (3.0 * z * z - 1.0)) +
+            ibl_sh[7].rgb * (1.092548430592079 * x * z) + ibl_sh[8].rgb * (0.546274215296040 * (x * x - y * y))) * 0.25;
+    return max(sum, float3(0.0, 0.0, 0.0)) * ibl_params.y;
+}
+
+/// The prefiltered environment toward direction r at perceptual roughness (explicit LOD, so it is safe in any control flow). u = atan2(y, x) / 2 pi + 0.5 and
+/// v = acos(z) / pi: +X is the middle of the image and +Z the top row.
+float3 ibl_specular(float3 r, float roughness)
+{
+    const float2 uv = float2(atan2(r.y, r.x) * 0.15915494309189535 + 0.5, acos(clamp(r.z, -1.0, 1.0)) * 0.3183098861837907);
+    return g_ibl_env.SampleLevel(g_ibl_sampler, uv, saturate(roughness) * ibl_params.x).rgb * ibl_params.y;
+}
+#endif
 #if SAIGE_SUN_SHADOWS
 [[vk::binding(3, 1)]] Texture2D<float> g_shadow_map;            // sun depth, reverse-Z (1 nearest the light)
 [[vk::binding(4, 1)]] SamplerComparisonState g_shadow_sampler;  // nearest filtering, GreaterEqual
@@ -183,6 +219,10 @@ struct VSInput {
     [[vk::location(1)]] float3 normal : NORMAL;
     [[vk::location(2)]] float2 uv : TEXCOORD0;
     [[vk::location(3)]] float4 tangent : TANGENT; // xyz: direction of increasing u, w: handedness (0 = none)
+#if SAIGE_SKINNING
+    [[vk::location(4)]] uint4 joints : BLENDINDICES;  // four joints of the skin (RGBA16_UINT)
+    [[vk::location(5)]] float4 weights : BLENDWEIGHT; // non-negative, sum to 1
+#endif
 };
 
 struct VSOutput {
@@ -194,6 +234,67 @@ struct VSOutput {
     [[vk::location(4)]] float3 bitangent : TEXCOORD4; // world space, the transformed object-space bitangent
 };
 
+#if SAIGE_SKINNING
+// Linear blend skinning (docs/rendering/skinning.md). The palette is set 2 binding 0: 256 joints as three float4 rows of an affine matrix each (the skin
+// matrix, joint world transform times inverse bind, in the skinned mesh's own space). The blended matrix B = sum w_i M_i deforms the vertex: positions by B,
+// surface directions (tangent, bitangent) by its linear part, normals by the cofactor of that linear part (correct under non-uniform scale and for the
+// blend of several joints). The instance's world matrix then applies exactly as for a rigid mesh, so the cofactors compose.
+[[vk::binding(0, 2)]] cbuffer SkinPalette
+{
+    float4 skin_rows[768];
+};
+
+struct SkinnedVertex {
+    float3 position;
+    float3 normal;
+    float3 tangent;
+    float3 bitangent;
+};
+
+SkinnedVertex skin_vertex(VSInput input)
+{
+    float4 r0 = float4(0.0, 0.0, 0.0, 0.0), r1 = r0, r2 = r0;
+    [unroll] for (int i = 0; i < 4; ++i) {
+        const uint j = min(input.joints[i], 255u);  // the renderer checks the range at import; this keeps a corrupt index inside the palette
+        const float w = input.weights[i];
+        r0 += w * skin_rows[3u * j];
+        r1 += w * skin_rows[3u * j + 1u];
+        r2 += w * skin_rows[3u * j + 2u];
+    }
+    const float4 p = float4(input.position, 1.0);
+    const float3 c0 = float3(r0.x, r1.x, r2.x);
+    const float3 c1 = float3(r0.y, r1.y, r2.y);
+    const float3 c2 = float3(r0.z, r1.z, r2.z);
+    const float3 t_obj = input.tangent.xyz;
+    const float3 b_obj = cross(input.normal, t_obj) * input.tangent.w;
+    SkinnedVertex v;
+    v.position = float3(dot(r0, p), dot(r1, p), dot(r2, p));
+    v.normal = input.normal.x * cross(c1, c2) + input.normal.y * cross(c2, c0) + input.normal.z * cross(c0, c1);
+    v.tangent = float3(dot(r0.xyz, t_obj), dot(r1.xyz, t_obj), dot(r2.xyz, t_obj));
+    v.bitangent = float3(dot(r0.xyz, b_obj), dot(r1.xyz, b_obj), dot(r2.xyz, b_obj));
+    return v;
+}
+
+VSOutput VSMain(VSInput input)
+{
+    const SkinnedVertex s = skin_vertex(input);
+    const float4 p = float4(s.position, 1.0);
+    const float3 world = float3(dot(pc.model_row0, p), dot(pc.model_row1, p), dot(pc.model_row2, p));
+    const float3 c0 = float3(pc.model_row0.x, pc.model_row1.x, pc.model_row2.x);
+    const float3 c1 = float3(pc.model_row0.y, pc.model_row1.y, pc.model_row2.y);
+    const float3 c2 = float3(pc.model_row0.z, pc.model_row1.z, pc.model_row2.z);
+    const float3 n = s.normal.x * cross(c1, c2) + s.normal.y * cross(c2, c0) + s.normal.z * cross(c0, c1);
+
+    VSOutput output;
+    output.position = mul(pc.view_proj, float4(world, 1.0));
+    output.world_pos = world;
+    output.normal = n * pc.camera_sign.w;
+    output.uv = input.uv;
+    output.tangent = float3(dot(pc.model_row0.xyz, s.tangent), dot(pc.model_row1.xyz, s.tangent), dot(pc.model_row2.xyz, s.tangent));
+    output.bitangent = float3(dot(pc.model_row0.xyz, s.bitangent), dot(pc.model_row1.xyz, s.bitangent), dot(pc.model_row2.xyz, s.bitangent));
+    return output;
+}
+#else
 VSOutput VSMain(VSInput input)
 {
     const float4 p = float4(input.position, 1.0);
@@ -216,6 +317,7 @@ VSOutput VSMain(VSInput input)
     output.bitangent = float3(dot(pc.model_row0.xyz, b_obj), dot(pc.model_row1.xyz, b_obj), dot(pc.model_row2.xyz, b_obj));
     return output;
 }
+#endif
 
 float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
 {
@@ -271,8 +373,13 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
             const float3 r = reflect(-v, mapped);
             const float2 table_uv = float2(saturate(dot(mapped, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
             const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
+#if SAIGE_IBL
+            lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
+                  shade_ambient(surface, env_brdf, ibl_diffuse(mapped), ibl_specular(r, clamp(surface.roughness, MIN_ROUGHNESS, 1.0))) + surface.emissive;
+#else
             lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
                   shade_ambient(surface, env_brdf, ambient_radiance(mapped), ambient_radiance(r)) + surface.emissive;
+#endif
         } else {
             lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;
         }

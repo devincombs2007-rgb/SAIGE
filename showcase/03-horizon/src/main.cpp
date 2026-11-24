@@ -140,7 +140,6 @@ double smooth(double t)
     t = std::clamp(t, 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
 }
-double clamp01(double t) { return std::clamp(t, 0.0, 1.0); }
 V3 flat_dir(double yaw) { return {std::cos(yaw), std::sin(yaw), 0}; }
 V3 left_of(V3 dir) { return {-dir.y, dir.x, 0}; }
 double wrap_angle(double a)
@@ -314,12 +313,12 @@ TrackPoint capture_point(const Sim& sim)
     const D2 o = sim.origin();
     if (const Vehicle* v = sim.vehicle()) {
         const VehicleState& s = v->state();
-        p.car = {s.position.x + o.x, s.position.y + o.y, static_cast<double>(s.position.z)};
+        p.car = {static_cast<double>(s.position.x) + o.x, static_cast<double>(s.position.y) + o.y, static_cast<double>(s.position.z)};
         p.car_yaw = s.yaw;
         p.car_speed = s.forward_speed;
     }
     const Vec3 f = sim.character_feet();
-    p.chr = {f.x + o.x, f.y + o.y, static_cast<double>(f.z)};
+    p.chr = {static_cast<double>(f.x) + o.x, static_cast<double>(f.y) + o.y, static_cast<double>(f.z)};
     p.chr_yaw = sim.character_yaw();
     p.chr_speed = sim.character_speed();
     p.driving = sim.driving();
@@ -713,9 +712,9 @@ public:
                         double r = 0;
                         double top = 0;
                         switch (p.type) {
-                            case PropType::TreePine: r = 3.3 * p.scale; top = 9.5 * p.scale; break;
-                            case PropType::TreeRound: r = 3.6 * p.scale; top = 6.5 * p.scale; break;
-                            case PropType::RockLarge: r = 3.0 * p.scale * 0.3 + 0.8; top = 3.0; break;
+                            case PropType::TreePine: r = 3.3 * static_cast<double>(p.scale); top = 9.5 * static_cast<double>(p.scale); break;
+                            case PropType::TreeRound: r = 3.6 * static_cast<double>(p.scale); top = 6.5 * static_cast<double>(p.scale); break;
+                            case PropType::RockLarge: r = 3.0 * static_cast<double>(p.scale) * 0.3 + 0.8; top = 3.0; break;
                             case PropType::RockSmall: r = 1.2; top = 2.0; break;
                             case PropType::Lamp: r = 0.7; top = 6.0; break;
                             default: continue;

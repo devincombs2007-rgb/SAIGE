@@ -76,6 +76,9 @@ struct GpuModel {
     std::vector<GpuMaterial> materials;
     std::vector<std::vector<GpuPrimitive>> meshes;
     std::vector<GpuPlacement> placements;
+    /// Joints of the skin the model's skinned primitives are bound to (0: no skinned primitives). A draw of this model supplies a SkinPalette created with
+    /// at least this many joints (ModelRenderer::create_skin_palette); one model has one skin, so one palette per drawn instance.
+    uint32_t skin_joint_count = 0;
 
     [[nodiscard]] uint64_t triangle_count() const noexcept;
 };

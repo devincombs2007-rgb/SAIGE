@@ -14,7 +14,13 @@ The renderer's input is the final **skin matrices** of the frame: for each joint
 mesh's own space (what `gfx::skin_matrices(skin, pose)` returns). The instance's world matrix (`ModelDraw::world`) then places the skinned mesh as for any
 rigid model. glTF says a skinned mesh node's own transform is ignored, so a skinned primitive's placement must be the identity.
 
-**Not in this slice: importer staging.** `gfx_scene`'s `stage_model` does not yet build `SkinnedModelVertex` buffers from `gfx::Primitive::joints/weights`, set `skinned`/`joint_limit`, or place skinned instances at identity; models are hand-built in the tests. That is the next slice (it needs no renderer change).
+## Importer staging
+
+`gfx::stage_model` (gfx_scene) stages a primitive that has `JOINTS_0`/`WEIGHTS_0` and is instanced by a skinned node as `SkinnedModelVertex` with `skinned` and `joint_limit`
+set (one more than the largest joint index carrying weight), places the skinned instance at the identity, and sets `GpuModel::skin_joint_count`, the joint count to
+create the draw's `SkinPalette` with. One model has one skin: instances of any other skin are not placed (warning). With skinning off the same primitives are staged
+rigid in the bind pose (warning). A vertex bound to a joint the skin does not have, or a skin of more than 256 joints, fails the staging with a message naming the mesh or
+skin, and nothing is leaked.
 
 ## Using it
 
@@ -59,9 +65,9 @@ The existing permutations' SPIR-V is byte-identical (only the source-hash lines 
 * Mirrored bones (a joint matrix with negative determinant) flip the triangle winding; mirror the instance (`ModelDraw::world`) instead.
 * Normal-mapped tangent frames are exact for rotations, translations and uniform scale; under strong non-uniform bone scale the skinned bitangent (the linear
   part applied to the unskinned `cross(n, t)`) is not the cross product of the skinned normal and tangent. Positions and normals are exact in all cases.
-* **Culling and bounds**: a skinned primitive's `bounds_*` are its bind-pose bounds. The frustum culling of #83 must use conservative animated bounds for
-  skinned primitives (the union over the clip, or a per-instance bound supplied with the pose); skinned primitives must not be culled by bind-pose bounds. That
-  belongs to the culling branch and is recorded there.
+* **Culling and bounds**: a skinned primitive's `bounds_*` are its bind-pose bounds (staging cannot know the animation). The frustum culling of #83 must not cull a
+  skinned primitive by them: until a per-instance animated bound is supplied with the pose, culling skips `GpuPrimitive::skinned` primitives. That change belongs to the
+  culling branch (#83 does not contain this one) and is recorded there.
 * Skins with more than 256 joints are not supported by this path (the importer's limit is 512). Morph targets, root motion, IK and retargeting are not part of
   this slice.
 * Everything is software-Vulkan correctness; no physical-GPU timing is claimed.

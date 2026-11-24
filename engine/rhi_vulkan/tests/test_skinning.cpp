@@ -9,6 +9,7 @@
 
 #include "model_test_util.hpp"
 #include "saige/gfx_assets/animation.hpp"
+#include "saige/gfx_scene/stage_model.hpp"
 #include "saige/render/camera.hpp"
 #include "saige/render/skin_palette.hpp"
 #include "vulkan_test_util.hpp"
@@ -555,5 +556,66 @@ TEST_CASE("Skinning: a normal-mapped skinned surface keeps its tangent frame (ro
     const GpuModel reference_untangented = reference_model(scene.renderer->registry(), models.create_material(mp, textures, "mapped_ref2"), rig.primitive, matrices, false);
     const ModelDraw c[] = {{&scene.floor, Mat4::identity()}, {&reference_untangented, Mat4::identity()}};
     CHECK(compare(gpu, scene.render(c), 12).over > 200);
+    CHECK(scene.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Skinning: an imported (staged) skinned asset draws like the same asset with the pose baked into its vertices")
+{
+    const Rig rig = make_rig();
+    Scene scene({});
+    ModelRenderer& models = scene.renderer->model_renderer();
+    const std::vector<Mat4> matrices = pose_matrices(rig, 0.8f, true);
+
+    // The skinned asset: the tube, its skin, one skinned instance (a non-identity node transform that must be ignored).
+    gfx::GltfAsset skinned;
+    gfx::Mesh mesh;
+    mesh.primitives.push_back(rig.primitive);
+    skinned.meshes.push_back(mesh);
+    skinned.skins.push_back(rig.skin);
+    gfx::MeshInstance inst;
+    inst.mesh = 0;
+    inst.skin = 0;
+    inst.world = translation({3.0f, 0.0f, 0.0f});
+    skinned.instances.push_back(inst);
+    // The reference asset: the same tube with the CPU reference's positions and normals baked in, no skin, placed at the identity.
+    gfx::GltfAsset baked;
+    gfx::Mesh baked_mesh;
+    gfx::Primitive bp = rig.primitive;
+    bp.joints.clear();
+    bp.weights.clear();
+    bp.tangents.clear();
+    for (std::size_t v = 0; v < bp.vertex_count(); ++v) {
+        const gfx::SkinnedVertex s = gfx::skin_vertex(rig.primitive, v, matrices);
+        const Float3 n = normalize(s.normal);
+        bp.positions[v * 3] = s.position.x;
+        bp.positions[v * 3 + 1] = s.position.y;
+        bp.positions[v * 3 + 2] = s.position.z;
+        bp.normals[v * 3] = n.x;
+        bp.normals[v * 3 + 1] = n.y;
+        bp.normals[v * 3 + 2] = n.z;
+    }
+    baked_mesh.primitives.push_back(bp);
+    baked.meshes.push_back(baked_mesh);
+    gfx::MeshInstance binst;
+    binst.mesh = 0;
+    binst.world = Mat4::identity();
+    baked.instances.push_back(binst);
+
+    gfx::StageReport report;
+    const GpuModel staged = gfx::stage_model(*scene.renderer, skinned, "staged-skinned", {}, &report);
+    const GpuModel reference = gfx::stage_model(*scene.renderer, baked, "staged-baked");
+    CHECK(report.skinned_primitives == 1);
+    CHECK(staged.skin_joint_count == kJoints);
+    SkinPalette palette = models.create_skin_palette(staged.skin_joint_count, "staged");
+    palette.update(matrices);
+    const ModelDraw a[] = {{&scene.floor, Mat4::identity()}, {&staged, Mat4::identity(), &palette}};
+    const ModelDraw b[] = {{&scene.floor, Mat4::identity()}, {&reference, Mat4::identity()}};
+    FrameStats stats;
+    const Image gpu = scene.render(a, &stats);
+    const Image cpu = scene.render(b);
+    CHECK(stats.model_skinned_draws >= 1 && stats.model_skinned_skipped == 0);
+    const Diff d = compare(gpu, cpu, 3);
+    std::printf("  staged skinned asset: worst channel delta %d, %u pixels over 3\n", d.worst, d.over);
+    CHECK(d.over <= 6 && d.worst <= 40);
     CHECK(scene.device->validation_error_count() == 0);
 }

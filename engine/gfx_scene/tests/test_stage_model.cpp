@@ -17,11 +17,12 @@ using namespace saige::gfx;
 
 namespace {
 
-render::RendererSettings rig_settings(render::ModelShading shading, bool alpha_blending)
+render::RendererSettings rig_settings(render::ModelShading shading, bool alpha_blending, bool skinning)
 {
     render::RendererSettings s;
     s.model_shading = shading;
     s.alpha_blending = alpha_blending;
+    s.skinning = skinning;
     return s;
 }
 
@@ -30,8 +31,8 @@ struct Rig {
     render::SceneRenderer renderer;
     /// Legacy shading and no alpha blending are the defaults everywhere (the 0.2 behavior); tests of the extra material slots opt in to
     /// Extended or MetallicRoughness, and tests of sorted blending opt in to alpha blending.
-    explicit Rig(render::ModelShading shading = render::ModelShading::Legacy, bool alpha_blending = false)
-        : renderer(device, rhi::Format::RGBA8_SRGB, rig_settings(shading, alpha_blending))
+    explicit Rig(render::ModelShading shading = render::ModelShading::Legacy, bool alpha_blending = false, bool skinning = false)
+        : renderer(device, rhi::Format::RGBA8_SRGB, rig_settings(shading, alpha_blending, skinning))
     {
     }
 };
@@ -489,4 +490,137 @@ TEST_CASE("Stage: glTF samplers map to RHI sampler descriptions")
     s.wrap_s = 12345;  // unknown: repeat
     CHECK(to_sampler_desc(s, 1.0f).address_u == rhi::AddressMode::Repeat);
     CHECK(rhi::validate(to_sampler_desc(s, 16.0f)).error == nullptr);
+}
+
+namespace {
+
+/// The checker box as a skinned asset: every vertex bound to joint (vertex index mod 3) with the rest of the weight on joint 0, a skin of `joints` joints,
+/// and its one instance skinned (world left as a non-identity to show it is replaced).
+GltfAsset skinned_fixture(uint16_t joints)
+{
+    GltfAsset asset = load_fixture();
+    Primitive& p = asset.meshes[0].primitives[0];
+    const uint32_t n = p.vertex_count();
+    for (uint32_t v = 0; v < n; ++v) {
+        p.joints.insert(p.joints.end(), {static_cast<uint16_t>(v % 3), 0, 0, 0});
+        p.weights.insert(p.weights.end(), {0.75f, 0.25f, 0.0f, 0.0f});
+    }
+    Skin skin;
+    skin.name = "rig";
+    for (uint16_t j = 0; j < joints; ++j) {
+        skin.joint_nodes.push_back(j);
+        skin.parent.push_back(j == 0 ? -1 : 0);
+        skin.rest.push_back({});
+        skin.base.push_back(render::Mat4::identity());
+        skin.inverse_bind.push_back(render::Mat4::identity());
+    }
+    asset.skins.push_back(std::move(skin));
+    asset.instances[0].skin = 0;
+    asset.instances[0].world.at(0, 3) = 5.0f;  // a skinned node's own transform is irrelevant
+    return asset;
+}
+
+} // namespace
+
+TEST_CASE("Stage (skinning): skinned primitives get skinned vertices, the skin's joint count and an identity placement")
+{
+    Rig rig(render::ModelShading::Legacy, false, /*skinning=*/true);
+    const GltfAsset asset = skinned_fixture(8);
+    StageReport report;
+    const render::GpuModel model = stage_model(rig.renderer, asset, "skinned-box", {}, &report);
+    REQUIRE(model.meshes.size() == 1 && model.meshes[0].size() == 1);
+    const render::GpuPrimitive& prim = model.meshes[0][0];
+    CHECK(prim.skinned);
+    CHECK(prim.joint_limit == 3);  // joints 0..2 carry weight
+    CHECK(prim.vertices.bytes() == 24 * sizeof(render::SkinnedModelVertex));
+    CHECK(model.skin_joint_count == 8);
+    CHECK(report.skinned_primitives == 1);
+    REQUIRE(model.placements.size() == 1);
+    {
+        const render::Mat4 id = render::Mat4::identity();
+        bool identity = true;
+        for (int i = 0; i < 16; ++i) identity = identity && model.placements[0].local.m[i] == id.m[i];
+        CHECK(identity);  // not the node's translation
+    }
+    CHECK(!has_warning(report, "skinning is off"));
+    // The staged vertices carry what the importer read.
+    CHECK(prim.bounds_radius > 0.0f);
+}
+
+TEST_CASE("Stage (skinning): a zero-weight influence does not count toward the joint limit, and a joint beyond the skin fails the staging cleanly")
+{
+    Rig rig(render::ModelShading::Legacy, false, true);
+    {
+        GltfAsset asset = skinned_fixture(8);
+        Primitive& p = asset.meshes[0].primitives[0];
+        p.joints[3] = 200;  // slot 3 of vertex 0 has weight 0
+        const render::GpuModel model = stage_model(rig.renderer, asset, "zero-weight");
+        CHECK(model.meshes[0][0].joint_limit == 3);
+    }
+    rig.device.wait_idle();  // retire the first block's model before taking the baseline
+    const uint32_t baseline = rig.device.live_resource_count();
+    {
+        GltfAsset asset = skinned_fixture(2);  // joints 0..2 are used but the skin has two
+        bool threw = false;
+        std::string what;
+        try {
+            (void)stage_model(rig.renderer, asset, "short-skin");
+        } catch (const std::runtime_error& e) {
+            threw = true;
+            what = e.what();
+        }
+        CHECK(threw);
+        CHECK(what.find("bound to joint 2") != std::string::npos && what.find("skin has 2 joints") != std::string::npos);
+    }
+    rig.device.wait_idle();
+    CHECK(rig.device.live_resource_count() == baseline);  // nothing leaked by the failed staging
+    {
+        GltfAsset asset = skinned_fixture(300);  // more than kMaxSkinJoints
+        bool threw = false;
+        try {
+            (void)stage_model(rig.renderer, asset, "big-skin");
+        } catch (const std::runtime_error& e) {
+            threw = std::string(e.what()).find("at most 256") != std::string::npos;
+        }
+        CHECK(threw);
+    }
+}
+
+TEST_CASE("Stage (skinning): with skinning off a skinned mesh is staged rigid in the bind pose, with a warning; a second skin is not placed")
+{
+    {
+        Rig rig;  // skinning off
+        const GltfAsset asset = skinned_fixture(8);
+        StageReport report;
+        const render::GpuModel model = stage_model(rig.renderer, asset, "off", {}, &report);
+        CHECK(!model.meshes[0][0].skinned);
+        CHECK(model.meshes[0][0].vertices.bytes() == 24 * sizeof(render::ModelVertex));
+        CHECK(model.skin_joint_count == 0 && report.skinned_primitives == 0);
+        CHECK(has_warning(report, "skinning is off"));
+        REQUIRE(model.placements.size() == 1);
+        CHECK(model.placements[0].local.at(0, 3) == 5.0f);  // rigid: the node's transform applies
+    }
+    {
+        Rig rig(render::ModelShading::Legacy, false, true);
+        GltfAsset asset = skinned_fixture(8);
+        Skin other = asset.skins[0];
+        other.name = "other";
+        asset.skins.push_back(other);
+        MeshInstance second = asset.instances[0];
+        second.skin = 1;
+        asset.instances.push_back(second);
+        StageReport report;
+        const render::GpuModel model = stage_model(rig.renderer, asset, "two-skins", {}, &report);
+        CHECK(model.placements.size() == 1);  // the second skin's instance is not placed
+        CHECK(has_warning(report, "second skin"));
+        GltfAsset bad = skinned_fixture(8);
+        bad.instances[0].skin = 7;  // refers to no skin
+        bool threw = false;
+        try {
+            (void)stage_model(rig.renderer, bad, "bad-skin");
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        CHECK(threw);
+    }
 }

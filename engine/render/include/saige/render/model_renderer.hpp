@@ -67,6 +67,7 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
     uint32_t blended_primitives = 0; ///< primitives drawn in the sorted blended phase
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
+    uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
 };
 
 /// Renderer-local lighting selection. These values also identify the shader modes.
@@ -83,6 +84,11 @@ struct ModelRenderSettings {
     bool alpha_blending = false;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
+    /// Skip primitives whose bounding sphere (`GpuPrimitive::bounds_center`/`bounds_radius`, placed by the instance's world matrix, scaled by its
+    /// largest axis scale) lies outside the frustum extracted from the `view_proj` given to `draw`. That matrix **must** be a reverse-Z infinite
+    /// perspective projection times a view (what SceneRenderer builds), which is why this is off here and on in RendererSettings. The test is
+    /// conservative (it never culls a visible sphere); a primitive without bounds (radius 0, a hand-built one) is never culled.
+    bool frustum_culling = false;
 };
 
 class ModelRenderer {
@@ -151,6 +157,7 @@ private:
     bool blend_pipelines_ready_ = false;
     bool blending_supported_ = false;
     bool alpha_blending_ = false;
+    bool frustum_culling_ = false;
     std::vector<BlendedDraw> blended_;
     BindGroupRef constants_group_;
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal

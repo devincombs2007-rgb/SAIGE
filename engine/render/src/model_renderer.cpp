@@ -5,6 +5,7 @@
 #include "saige/shaders/scene_model.spv.hpp"
 #include "saige/shaders/scene_model_shadowed.spv.hpp"
 #include "saige/shaders/scene_shadow_depth.spv.hpp"
+#include "saige/shaders/scene_shadow_depth_mask.spv.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -241,6 +242,19 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         sp.push_constant_size = sizeof(ShadowPush);
         sp.debug_name = "SceneShadowDepth";
         shadow_pipeline_ = device_.create_graphics_pipeline(sp);
+
+        // The alpha-tested variant for materials with a cutoff: position and uv, a pixel stage that discards below the cutoff, and the
+        // material's own set 0 group (the visible pass's texture, sampler and block).
+        shadow_mask_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_shadow_depth_mask_vs_main), "VSMain", "SceneShadowDepthMask.VS"});
+        shadow_mask_ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_shadow_depth_mask_ps_main), "PSMain", "SceneShadowDepthMask.PS"});
+        rhi::GraphicsPipelineDesc mp = sp;
+        mp.vertex_shader = shadow_mask_vs_;
+        mp.pixel_shader = shadow_mask_ps_;
+        mp.vertex_layout.attributes = {{0, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, position)},
+                                       {2, rhi::Format::RG32_FLOAT, offsetof(ModelVertex, uv)}};
+        mp.bind_group_layouts = {material_layout_};
+        mp.debug_name = "SceneShadowDepthMask";
+        shadow_mask_pipeline_ = device_.create_graphics_pipeline(mp);
     }
 
     // Immutable scene constants. The default lighting is the same sun, ambient and fog as the 0.1 cube and ground shaders.
@@ -394,6 +408,12 @@ void ModelRenderer::release() noexcept
         }
         blend_pipelines_ready_ = false;
     }
+    if (shadow_mask_pipeline_.is_valid()) device_.destroy(shadow_mask_pipeline_);
+    shadow_mask_pipeline_ = {};
+    if (shadow_mask_ps_.is_valid()) device_.destroy(shadow_mask_ps_);
+    shadow_mask_ps_ = {};
+    if (shadow_mask_vs_.is_valid()) device_.destroy(shadow_mask_vs_);
+    shadow_mask_vs_ = {};
     if (shadow_pipeline_.is_valid()) device_.destroy(shadow_pipeline_);
     shadow_pipeline_ = {};
     if (shadow_vs_.is_valid()) device_.destroy(shadow_vs_);
@@ -459,6 +479,7 @@ GpuMaterial ModelRenderer::create_material(const MaterialData& data, const Mater
     material.double_sided = data.double_sided;
     material.blend = blend;
     material.casts_sun_shadow = data.casts_sun_shadow;
+    material.shadow_alpha_test = data.casts_sun_shadow && data.alpha_cutoff > 0.0f;
     return material;
 }
 
@@ -641,7 +662,13 @@ void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_pr
     if (!shadows_enabled_) {
         throw std::logic_error("ModelRenderer::draw_shadow: shadows are not enabled");
     }
-    cmd.bind_pipeline(shadow_pipeline_);
+    rhi::PipelineHandle bound{};
+    const auto use = [&](rhi::PipelineHandle pipeline) {
+        if (pipeline != bound) {
+            cmd.bind_pipeline(pipeline);
+            bound = pipeline;
+        }
+    };
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -664,8 +691,15 @@ void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_pr
                 }
             }
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
-                if (!d.model->materials[prim.material].casts_sun_shadow) {
-                    continue;  // authored MASK and BLEND surfaces do not cast (first slice)
+                const GpuMaterial& material = d.model->materials[prim.material];
+                if (!material.casts_sun_shadow) {
+                    continue;  // authored BLEND surfaces do not cast
+                }
+                if (material.shadow_alpha_test) {
+                    use(shadow_mask_pipeline_);
+                    cmd.bind_group(0, material.group.handle());  // the visible pass's texture, sampler, factor and cutoff
+                } else {
+                    use(shadow_pipeline_);
                 }
                 cmd.bind_vertex_buffer(prim.vertices.handle());
                 cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);

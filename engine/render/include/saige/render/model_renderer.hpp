@@ -45,9 +45,11 @@ struct MaterialData {
     /// (see rhi/blend.hpp); otherwise the material is drawn opaque.
     bool alpha_blend = false;
     /// Whether this surface casts a sun shadow. It follows the *authored* alpha mode, not the pipeline the surface happens to be drawn
-    /// with: only an opaque material casts. glTF MASK and BLEND materials do not (first slice: a MASK needs an alpha-tested caster that
-    /// samples the visible pass's texture, factor and cutoff; a BLEND would need partial shadows), including a BLEND that the renderer
-    /// draws opaque because blending is off. Staging sets it from the glTF alpha mode; a hand-built material defaults to casting.
+    /// with: opaque and MASK materials cast, BLEND materials do not (partial shadows are a later slice), including a BLEND that the
+    /// renderer draws opaque because blending is off. A material with `alpha_cutoff > 0` casts through an alpha-tested shadow variant that
+    /// reads the same bind group as the visible pass, so its texture, factor and cutoff are the visible pass's; with a cutoff of 0 (an opaque
+    /// material, or a MASK that passes everything) it casts solid. Staging sets it from the glTF alpha mode; a hand-built material
+    /// defaults to casting.
     bool casts_sun_shadow = true;
 };
 /// The 0.2 name, kept so existing callers compile.
@@ -176,8 +178,8 @@ public:
     /// the first view's draws read. (Several views per frame need independent ModelRenderers.) Throws std::logic_error if shadows are off.
     void set_shadow_frame(const ModelShadowFrame* frame);
     /// Records the shadow pass's draws into an active depth-only rendering pass (the shadow map as its depth attachment, viewport and
-    /// scissor set by the caller): the primitives of materials that cast (`MaterialData::casts_sun_shadow`), depth only, without
-    /// materials. Throws std::logic_error if shadows are off.
+    /// scissor set by the caller): the primitives of materials that cast (`MaterialData::casts_sun_shadow`), depth only; those with an alpha
+    /// cutoff go through the alpha-tested variant with their material group bound. Throws std::logic_error if shadows are off.
     void draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_proj, std::span<const ModelDraw> draws, ModelFrameStats& stats);
 
     [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
@@ -214,7 +216,8 @@ private:
     std::vector<BlendedDraw> blended_;
     BindGroupRef constants_group_;  ///< set 1 with shadows off
     // Shadows on (the permutation with set 1 bindings 3..5); all empty or invalid when off.
-    rhi::ShaderHandle shadow_vs_;
+    rhi::ShaderHandle shadow_vs_, shadow_mask_vs_, shadow_mask_ps_;
+    rhi::PipelineHandle shadow_mask_pipeline_;  ///< alpha-tested variant, binds the material group at set 0
     rhi::PipelineHandle shadow_pipeline_;
     std::vector<BindGroupRef> constants_groups_;  ///< set 1 per frame slot: identical but for the shadow block
     std::vector<BufferRef> shadow_blocks_;

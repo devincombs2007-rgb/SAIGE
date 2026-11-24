@@ -157,8 +157,8 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
 
 Float3 SceneRenderer::atmosphere_fog() const
 {
-    Float3 sun = settings_.lighting.sun_direction;
-    sun = normalize(sun);
+    Float3 sun{};
+    (void)unit_sun_direction(settings_.lighting.sun_direction, sun);  // validated non-zero at construction; the same overflow-safe normalization the model lighting uses
     Float3 h = sky_horizon_color(settings_.atmosphere, sun);
     if (!settings_.hdr) {  // nothing downstream tone maps an LDR scene: the same curve the sky pass applies
         h = {1.0f - std::exp(-h.x), 1.0f - std::exp(-h.y), 1.0f - std::exp(-h.z)};
@@ -403,7 +403,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 const Camera cam = sky_camera(frame);
                 const float tan_half = std::tan(cam.fov_y_radians * 0.5f);
                 const Float3 right = camera_right(cam) * (tan_half * aspect), up = camera_up(cam) * tan_half, fwd = camera_forward(cam);
-                const Float3 sun = normalize(settings_.lighting.sun_direction);
+                Float3 sun{};
+                (void)unit_sun_direction(settings_.lighting.sun_direction, sun);
                 SkyConstants sk{};
                 fill4(sk.right, right.x, right.y, right.z, 0.0f);
                 fill4(sk.up, up.x, up.y, up.z, at.exposure);

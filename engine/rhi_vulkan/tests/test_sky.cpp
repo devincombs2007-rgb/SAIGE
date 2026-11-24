@@ -160,3 +160,34 @@ TEST_CASE("Sky: distant ground fades into the horizon color, and a scene without
     CHECK(near3(sky_color, {flat.sky.r, flat.sky.g, flat.sky.b}, 0.01f));
     CHECK(device2->validation_error_count() == 0);
 }
+
+TEST_CASE("Sky: a sun direction of any finite magnitude gives the sky, the fog and the material of the unit direction")
+{
+    // validate_lighting accepts every finite non-zero direction; a plain float normalize squares the components, so a huge or tiny direction used to become a zero vector for the
+    // sky and the fog while the model lighting (which normalizes safely) still pointed the right way.
+    const Float3 unit = dir_from(35.0, 70.0);
+    const auto render = [&](Float3 sun_direction, const char* name) {
+        RendererSettings s = sky_settings(sun_direction, 1.5f);
+        s.fog_density = 0.04f;
+        s.ground_half_size = 200.0f;
+        const auto device = make_validated_device(name);
+        SceneRenderer renderer(*device, rhi::Format::RGBA8_SRGB, s);
+        OffscreenTarget target(*device, kW, kH);
+        MaterialParams grey;
+        grey.base_color[0] = grey.base_color[1] = grey.base_color[2] = 0.7f;
+        const GpuModel cube = make_cube(renderer.registry(), renderer.model_renderer().create_material(grey, {}, {}, "cube"));
+        const ModelDraw draws[] = {{&cube, translation({6.0f, 0.0f, 0.5f})}};
+        const Camera camera = look_at_camera({0.0f, 0.0f, 1.5f}, {10.0f, 0.0f, 3.0f});
+        const Image img = target.render(renderer, {}, camera, 0, draws);
+        CHECK(device->validation_error_count() == 0);
+        return img;
+    };
+    const Image reference = render(unit, "sky_scale_unit");
+    for (const float scale : {3.0e38f, 1.0e30f, 1.0e19f, 1.0e-19f, 1.0e-30f, 1.0e-37f}) {
+        const Image scaled = render(unit * scale, "sky_scale");
+        int worst = 0;
+        for (std::size_t i = 0; i < reference.rgba.size(); ++i) worst = std::max(worst, std::abs(int{reference.rgba[i]} - int{scaled.rgba[i]}));
+        std::printf("  scale %g: worst 8-bit channel delta %d\n", static_cast<double>(scale), worst);
+        CHECK(worst <= 1);  // sky, horizon fog on the ground and the lit cube all follow the same direction
+    }
+}

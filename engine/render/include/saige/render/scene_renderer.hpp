@@ -4,6 +4,7 @@
 // sink adapter (engine/render_sink) feeds it from Core's FrameView.
 #pragma once
 
+#include "saige/render/ambient_occlusion.hpp"
 #include "saige/render/camera.hpp"
 #include "saige/render/gpu_resources.hpp"
 #include "saige/render/model.hpp"
@@ -73,6 +74,9 @@ struct RendererSettings {
     /// (docs/rendering/material-architecture.md section 4). Off by default: the 0.2 path draws straight into the output target.
     bool hdr = false;
     ToneMapSettings tone_map;                       ///< used when `hdr` is set
+    /// Screen-space ambient occlusion (render/ambient_occlusion.hpp): two extra full-screen passes that darken creases in the HDR scene color before the tone map. **Off by default**:
+    /// with it off nothing is created and every image is what it was before. Needs `hdr` (std::invalid_argument otherwise), and samples the scene depth.
+    AmbientOcclusionSettings ambient_occlusion;
 };
 
 struct SceneInstance {
@@ -113,6 +117,7 @@ struct FrameStats {
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
+    uint32_t ao_draw_calls = 0;            ///< 2 when the ambient occlusion passes ran (also counted in draw_calls)
 };
 
 class SceneRenderer {
@@ -158,6 +163,13 @@ private:
     rhi::TextureHandle hdr_;                   ///< HDR only: the scene's linear float target, sized like the output
     rhi::BindGroupHandle hdr_input_;           ///< the tone mapper's view of hdr_
     rhi::ResourceState hdr_state_;
+    std::unique_ptr<AmbientOcclusionPass> ao_;  ///< ambient occlusion only
+    rhi::TextureHandle ao_value_;               ///< AO only: the occlusion, one half float per pixel
+    rhi::TextureHandle hdr_ao_;                 ///< AO only: the scene color after the occlusion was applied (what the tone map reads)
+    rhi::BindGroupHandle ao_generate_input_;    ///< the generate pass's view of the depth
+    rhi::BindGroupHandle ao_apply_input_;       ///< the apply pass's view of hdr_, ao_value_ and the depth
+    rhi::ResourceState ao_value_state_;
+    rhi::ResourceState hdr_ao_state_;
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
     std::unique_ptr<ModelRenderer> models_;

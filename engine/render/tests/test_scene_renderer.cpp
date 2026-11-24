@@ -284,3 +284,106 @@ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be
     CHECK(o.device.live_resource_count() == baseline);
     CHECK(o.device.validation_error_count() == 0);
 }
+
+// ---- Ambient occlusion (RendererSettings::ambient_occlusion) -------------------------------------------------------------------------------
+
+TEST_CASE("Ambient occlusion (null device): invalid settings and the LDR path are refused before anything is created, and disabled settings are not validated")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    const auto refused = [&](const RendererSettings& s) {
+        try {
+            SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, s);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    RendererSettings bad;
+    bad.hdr = true;
+    bad.ambient_occlusion.enabled = true;
+    bad.ambient_occlusion.radius = 0.0f;
+    CHECK(refused(bad));
+    RendererSettings ldr;
+    ldr.ambient_occlusion.enabled = true;  // needs hdr
+    CHECK(refused(ldr));
+    CHECK(o.device.live_resource_count() == baseline);
+    RendererSettings ignored;
+    ignored.ambient_occlusion.radius = 0.0f;  // disabled: never used, and fine without hdr
+    SceneRenderer fine(o.device, rhi::Format::RGBA8_SRGB, ignored);
+}
+
+TEST_CASE("Ambient occlusion (null device): off adds no pass and no resource; on adds two draws and the occlusion targets, and everything is released")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    {
+        RendererSettings off_settings;
+        off_settings.hdr = true;
+        SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, off_settings);
+        const FrameStats off_stats = off.render(o.device.begin_frame(), SceneFrame{}, o.target());
+        (void)o.device.end_frame();
+        const uint32_t off_passes = static_cast<uint32_t>(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size());
+        CHECK(off_stats.ao_draw_calls == 0);
+        CHECK(off_passes == 2u);
+
+        RendererSettings on_settings = off_settings;
+        on_settings.ambient_occlusion.enabled = true;
+        SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, on_settings);
+        const FrameStats stats = on.render(o.device.begin_frame(), SceneFrame{}, o.target());
+        (void)o.device.end_frame();
+        CHECK(stats.ao_draw_calls == 2);
+        CHECK(stats.draw_calls == off_stats.draw_calls + 2);
+        CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size() == off_passes + 2);
+        // A second frame, with the depth now in the sampled state, goes through the same transitions without a validation error.
+        (void)on.render(o.device.begin_frame(), SceneFrame{}, o.target());
+        (void)o.device.end_frame();
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Ambient occlusion (null device): a resize rebuilds the occlusion targets without leaking, and a failed creation is a failed frame, not a broken renderer")
+{
+    Offscreen o(64, 48);
+    rhi::TextureDesc small = *o.device.texture_desc(o.color);
+    small.width = 8;
+    small.height = 6;
+    RenderTarget small_target = o.target(8, 6);
+    small_target.texture = o.device.create_texture(small);
+    RendererSettings s;
+    s.hdr = true;
+    s.ambient_occlusion.enabled = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, s);
+    (void)renderer.render(o.device.begin_frame(), SceneFrame{}, o.target(64, 48));
+    (void)o.device.end_frame();
+    o.device.wait_idle();
+    const uint32_t steady = o.device.live_resource_count();
+    (void)renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+    (void)o.device.end_frame();
+    (void)renderer.render(o.device.begin_frame(), SceneFrame{}, o.target(64, 48));
+    (void)o.device.end_frame();
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == steady);
+    uint32_t failures = 0;
+    for (uint32_t n = 1; n < 30; ++n) {
+        o.device.fail_creation_after(n);
+        bool threw = false;
+        try {
+            (void)renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        o.device.fail_creation_after(0);
+        (void)o.device.end_frame();
+        o.device.wait_idle();
+        if (!threw) break;
+        ++failures;
+        CHECK(o.device.live_resource_count() == steady);
+    }
+    CHECK(failures >= 7);  // depth, hdr, occlusion value, occluded color, two bind groups and the tone map's group
+    CHECK(renderer.render(o.device.begin_frame(), SceneFrame{}, small_target).ao_draw_calls == 2);
+    (void)o.device.end_frame();
+    CHECK(o.device.validation_error_count() == 0);
+}

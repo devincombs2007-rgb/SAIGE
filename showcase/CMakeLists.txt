@@ -41,6 +41,7 @@ if(TARGET saige::core)
         target_link_libraries(horizon_sim_test PRIVATE saige_horizon_sim)
         add_executable(horizon_time_of_day_test 03-horizon/tests/time_of_day_test.cpp)
         target_include_directories(horizon_time_of_day_test PRIVATE 03-horizon/src)
+        target_compile_features(horizon_time_of_day_test PRIVATE cxx_std_20)  # it links nothing that sets the standard, and MSVC defaults to C++14
         add_test(NAME horizon_time_of_day COMMAND horizon_time_of_day_test)
         add_test(NAME horizon_sim COMMAND horizon_sim_test)
         set_tests_properties(horizon_sim PROPERTIES TIMEOUT 600)

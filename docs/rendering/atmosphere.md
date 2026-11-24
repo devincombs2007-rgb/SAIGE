@@ -44,3 +44,31 @@ failed frame that leaks nothing and leaves a working renderer, and invalid setti
 ## One sun direction
 
 The sky pass, the horizon fog and the model lighting all take their sun from `RendererSettings::lighting.sun_direction` through the same overflow-safe normalization (`unit_sun_direction`, which divides by the largest component before squaring), so every finite non-zero direction, from 1e-37 to 3e38 in size, gives the same sky, fog and material as the corresponding unit vector (`test_sky.cpp`, within one 8-bit level). A plain float `normalize` squares the components and turned such directions into a zero vector for the sky and the fog.
+
+## Sun disc, moon and stars
+
+Three opt-in celestial bodies on top of the single-scattering sky, each **off at intensity 0** (the default), so the sky is exactly what it was until a host sets one. They are added to the sky's radiance before the exposure, in the sky pass
+(the CPU references are `sun_disc_radiance`, `moon_radiance`, `star_radiance` and their sum `sky_with_bodies`; the shader mirrors them step for step with the same constants).
+
+```cpp
+rs.atmosphere.sun_disc_intensity = 3000.0f;  // radiance at the center of the sun's disc; times the air's transmittance, so it reddens and dims as it sets
+rs.atmosphere.moon_intensity = 20.0f;        // the moon's disc, opposite the sun
+rs.atmosphere.star_intensity = 4.0f;         // the peak radiance of a star
+```
+
+* **Discs.** Angular radius 0.00465 rad for the sun and 0.0045 rad for the moon (about half a degree, the real ones). Seen along `d` toward a center `c`, the profile uses `sin(theta) = |d x c|` rather than `acos(d . c)`, which has no precision left at
+  half a degree in float. Inside the disc the radiance is the intensity times limb darkening `1 - 0.6 (1 - mu)` with `mu = sqrt(1 - x^2)`, `x = sin(theta) / sin(radius)`, and a soft edge over the outer 15% of the radius; 0 outside. The
+  intensity is multiplied by the air's transmittance toward the body (`sun_transmittance`, 64 steps), which is 0 below the planet's horizon: a body below it is hidden by the planet and a body near it is red and dim.
+* **The moon is a full moon opposite the sun**: it rises as the sun sets. There is no phase, no independent orbit and no surface; a moon with its own position is future work (it needs its own direction in the per-frame lighting).
+* **Stars.** A fixed, deterministic field: the view direction scaled by 64 is cut into unit cells, a hash of the cell (lowbias32, identical on the CPU and in HLSL) decides whether it holds a star (half of them), where in the cell, and its brightness and warm-to-cool
+  tint. A star is a smooth falloff `(1 - r / 0.12)^2` around its point in cell units. The field is dimmed toward the horizon (full 11.5 degrees up, 0 at and below it) and fades in as the sun's elevation falls from -1 to -11 degrees; by day there are none.
+  About 0.4% of the sky above 15 degrees is lit by a star. The field does not rotate with time and ignores atmospheric extinction beyond the horizon fade: it is a plausible, stable foundation, not an astronomical catalogue.
+* **Aliasing.** The discs are physically sized, so at low resolutions or wide fields of view they are a few pixels or less across and can shimmer; the soft edge is a fixed fraction of the radius, not a pixel footprint. Stars are sub-pixel: a pixel
+  center that misses one shows nothing. A host that wants them steadier turns on bloom (a bright disc then bleeds into its surroundings) and temporal accumulation, neither of which exists in this slice.
+
+### Verification
+
+`test_atmosphere.cpp` (CPU): off by default and bit-exact with the plain sky, the intensity validation, the disc's center value, its monotone falloff and symmetry, limb darkening, reddening toward the horizon, absence below it; the moon opposite the sun with its own
+transmittance; stars deterministic, sparse (0.4%), bounded, absent by day, at and below the horizon, fading in with darkness. `test_sky.cpp` (validated Vulkan): the sun's disc, the moon and the stars against `sky_with_bodies` pixel by pixel (worst difference
+0.005 in the display value), including a view straddling the horizon with a bright star field. Twenty mutants of the new code (every constant of the profile, the radii, the transmittance, the moon direction, the night and horizon fades, the density, the falloff, the tint, the hash, the
+push-constant packing, the validation and the sum) each fail a test or do not build. Software Vulkan only.

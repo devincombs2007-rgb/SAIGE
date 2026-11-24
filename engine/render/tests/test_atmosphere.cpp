@@ -2,7 +2,9 @@
 
 #include "saige/render/atmosphere.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 
@@ -198,4 +200,152 @@ TEST_CASE("Solar position: known configurations")
     const double nan = std::numeric_limits<double>::quiet_NaN();
     CHECK(refused(0, 12.0, 0.0, 0.0) && refused(367, 12.0, 0.0, 0.0) && refused(100, -0.1, 0.0, 0.0) && refused(100, 24.5, 0.0, 0.0) && refused(100, 12.0, 91.0, 0.0) &&
           refused(100, nan, 0.0, 0.0) && refused(100, 12.0, nan, 0.0) && refused(100, 12.0, 0.0, nan));
+}
+
+// ---- Celestial bodies: sun disc, moon and stars -------------------------------------------------------------------------------------------------
+
+namespace {
+
+bool near_rel(float a, float b, float tolerance) { return std::fabs(a - b) <= tolerance * std::max(std::fabs(a), std::fabs(b)) + 1e-12f; }
+
+AtmosphereSettings with_bodies()
+{
+    AtmosphereSettings a;
+    a.sun_disc_intensity = 3000.0f;
+    a.moon_intensity = 20.0f;
+    a.star_intensity = 4.0f;
+    return a;
+}
+
+}  // namespace
+
+TEST_CASE("Celestial bodies: off by default, and the intensities are validated")
+{
+    const AtmosphereSettings off;
+    const Float3 sun = dir_from(30.0, 0.0);
+    CHECK(sun_disc_radiance(off, sun, sun).x == 0.0f);
+    CHECK(moon_radiance(off, dir_from(-30.0, 180.0), sun).x == 0.0f);
+    CHECK(star_radiance(off, dir_from(60.0, 10.0), dir_from(-40.0, 0.0)).x == 0.0f);
+    const Float3 a = sky_with_bodies(off, dir_from(20.0, 50.0), sun), b = sky_radiance(off, dir_from(20.0, 50.0), sun);
+    CHECK(a.x == b.x && a.y == b.y && a.z == b.z);  // bit for bit
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (float AtmosphereSettings::*field : {&AtmosphereSettings::sun_disc_intensity, &AtmosphereSettings::moon_intensity, &AtmosphereSettings::star_intensity}) {
+        for (const float bad : {-1.0f, nan, 2.0e6f}) {
+            AtmosphereSettings s;
+            s.*field = bad;
+            CHECK(throws_invalid(s));
+        }
+    }
+    AtmosphereSettings edge;
+    edge.sun_disc_intensity = 1.0e6f;
+    validate_atmosphere(edge);
+}
+
+TEST_CASE("Sun disc: the disc is where the sun is, half a degree wide, limb-darkened with a soft edge, reddened by the air, and absent below the horizon")
+{
+    const AtmosphereSettings a = with_bodies();
+    const Float3 high = dir_from(60.0, 20.0);
+    const Float3 center = sun_disc_radiance(a, high, high);
+    const Float3 transmittance = sun_transmittance(a, high);
+    CHECK(near_rel(center.x, 3000.0f * transmittance.x, 1e-5f));  // the center: the full intensity times the air's transmittance (no limb darkening at the center)
+    CHECK(center.z <= center.x);
+    // Across the disc: monotone non-increasing from the center, 0 outside the radius, and symmetric.
+    float previous = center.x;
+    int inside = 0;
+    for (int i = 0; i <= 40; ++i) {
+        const double offset_deg = static_cast<double>(i) * 0.012;  // out to 0.48 degrees
+        const float v = sun_disc_radiance(a, dir_from(60.0 + offset_deg, 20.0), high).x;
+        CHECK(v <= previous + 1e-3f);
+        previous = v;
+        inside += v > 0.0f ? 1 : 0;
+    }
+    CHECK(inside >= 21 && inside <= 24);  // the disc's radius is 0.2664 degrees: 22 steps of 0.012 degrees, plus the center
+    CHECK(sun_disc_radiance(a, dir_from(60.5, 20.0), high).x == 0.0f);   // 0.5 degrees away: outside the 0.27 degree radius
+    CHECK(sun_disc_radiance(a, dir_from(59.8, 20.0), high).x > 0.0f);    // 0.2 degrees below the center: inside
+    CHECK(near_rel(sun_disc_radiance(a, dir_from(59.8, 20.0), high).x, sun_disc_radiance(a, dir_from(60.2, 20.0), high).x, 2e-3f));  // symmetric about the center
+    CHECK(sun_disc_radiance(a, dir_from(-60.0, 200.0), high).x == 0.0f);  // the opposite side of the sky
+    const float limb = sun_disc_radiance(a, dir_from(60.0 + 0.2, 20.0), high).x;
+    CHECK(limb > 0.3f * center.x);  // limb darkening, not a cutoff: the disc is still bright at 3/4 of its radius
+    CHECK(limb < center.x);
+    // Reddening: near the horizon the disc loses blue far faster than red.
+    const Float3 low = dir_from(2.0, 20.0);
+    const Float3 low_center = sun_disc_radiance(a, low, low);
+    CHECK(low_center.x > 0.0f);
+    CHECK(low_center.z / low_center.x < center.z / center.x);
+    CHECK(low_center.x < center.x);
+    // Below the horizon there is no disc (the sun is behind the planet), however bright.
+    const Float3 set = dir_from(-3.0, 20.0);
+    CHECK(sun_disc_radiance(a, set, set).x == 0.0f);
+    CHECK(sun_disc_radiance(a, set, set).y == 0.0f);
+}
+
+TEST_CASE("Moon: opposite the sun, dimmer, with its own transmittance; and stars: deterministic, only at night, only above the horizon, a plausible sparse field")
+{
+    const AtmosphereSettings a = with_bodies();
+    const Float3 sun = dir_from(-25.0, 40.0);
+    const Float3 moon = dir_from(25.0, 220.0);  // exactly opposite
+    CHECK(moon_radiance(a, moon, sun).x > 0.0f);
+    CHECK(near_rel(moon_radiance(a, moon, sun).x, 20.0f * sun_transmittance(a, moon).x, 1e-5f));
+    CHECK(moon_radiance(a, sun, sun).x == 0.0f);  // not where the sun is
+    CHECK(moon_radiance(a, dir_from(25.0 + 0.3, 220.0), sun).x == 0.0f);
+    // The moon follows the sun: when the sun is up, the moon is below the horizon, so nothing is drawn.
+    const Float3 day_sun = dir_from(30.0, 40.0);
+    CHECK(moon_radiance(a, dir_from(-30.0, 220.0), day_sun).x == 0.0f);
+
+    // Stars: at night, above the horizon, deterministic.
+    const Float3 night_sun = dir_from(-40.0, 0.0);
+    int stars = 0, total = 0;
+    float brightest = 0.0f;
+    for (int i = 0; i < 40000; ++i) {
+        // A low-discrepancy sweep of the upper hemisphere above 15 degrees (full horizon fade is past).
+        const double u = (i + 0.5) / 40000.0, v = std::fmod(i * 0.6180339887498949, 1.0);
+        const double z = 0.26 + 0.74 * u, phi = 6.283185307179586 * v, r = std::sqrt(1.0 - z * z);
+        const Float3 d{static_cast<float>(r * std::cos(phi)), static_cast<float>(r * std::sin(phi)), static_cast<float>(z)};
+        const Float3 s = star_radiance(a, d, night_sun);
+        const Float3 again = star_radiance(a, d, night_sun);
+        CHECK(s.x == again.x && s.y == again.y && s.z == again.z);
+        CHECK(s.x >= 0.0f && s.y >= 0.0f && s.z >= 0.0f);
+        CHECK(s.x <= 4.0f * 1.0001f);
+        ++total;
+        if (s.x > 0.0f || s.y > 0.0f || s.z > 0.0f) {
+            ++stars;
+            brightest = std::max(brightest, s.y);
+        }
+    }
+    const float fraction = static_cast<float>(stars) / static_cast<float>(total);
+    std::printf("  star pixels: %d of %d (%.3f%%), brightest %.2f\n", stars, total, static_cast<double>(fraction) * 100.0, static_cast<double>(brightest));
+    CHECK(fraction > 0.0005f);  // a sparse field, not empty
+    CHECK(fraction < 0.05f);    // and not a wall of dots
+    CHECK(brightest > 1.0f);    // some stars are bright
+    // No stars by day, or at the horizon, or below it; and they fade in as the sun sets.
+    const Float3 up = dir_from(70.0, 10.0);
+    const auto count_stars = [&](Float3 sun_dir, double elevation_deg) {
+        int n = 0;
+        for (int i = 0; i < 4000; ++i) {
+            const Float3 d = dir_from(elevation_deg, i * 0.09);
+            const Float3 s = star_radiance(a, d, sun_dir);
+            n += (s.x > 0.0f || s.y > 0.0f || s.z > 0.0f) ? 1 : 0;
+        }
+        return n;
+    };
+    CHECK(star_radiance(a, up, dir_from(30.0, 0.0)).x == 0.0f);
+    CHECK(star_radiance(a, up, dir_from(0.0, 0.0)).x == 0.0f);
+    CHECK(count_stars(dir_from(30.0, 0.0), 60.0) == 0);
+    CHECK(count_stars(night_sun, 60.0) > 0);
+    CHECK(count_stars(night_sun, -10.0) == 0);   // below the horizon
+    CHECK(count_stars(night_sun, 0.0) == 0);     // at it
+    // The glow of a given star scales with how dark the sky is.
+    float dusk_sum = 0.0f, dark_sum = 0.0f;
+    for (int i = 0; i < 20000; ++i) {
+        const Float3 d = dir_from(55.0, i * 0.018);
+        dusk_sum += star_radiance(a, d, dir_from(-6.0, 0.0)).y;
+        dark_sum += star_radiance(a, d, dir_from(-30.0, 0.0)).y;
+    }
+    CHECK(dark_sum > dusk_sum);
+    CHECK(dusk_sum > 0.0f);
+    // sky_with_bodies is the sum of its parts.
+    const Float3 d = dir_from(25.0, 220.0);
+    const Float3 total_radiance = sky_with_bodies(a, d, sun), parts_sky = sky_radiance(a, d, sun), parts_moon = moon_radiance(a, d, sun), parts_sun = sun_disc_radiance(a, d, sun),
+                 parts_stars = star_radiance(a, d, sun);
+    CHECK(near_rel(total_radiance.x, parts_sky.x + parts_moon.x + parts_sun.x + parts_stars.x, 1e-6f));
 }

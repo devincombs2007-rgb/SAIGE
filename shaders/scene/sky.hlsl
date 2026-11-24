@@ -12,13 +12,13 @@
 // @entry    PSMain ps
 
 struct SkyConstants {
-    float4 right;     // xyz: camera right * tan(fov / 2) * aspect, w: unused
+    float4 right;     // xyz: camera right * tan(fov / 2) * aspect, w: sun disc intensity (0 = no disc)
     float4 up;        // xyz: camera up * tan(fov / 2), w: exposure
     float4 forward;   // xyz: camera forward, w: sun intensity
     float4 to_sun;    // xyz: unit vector toward the sun, w: Mie anisotropy g
     float4 geometry;  // x: planet radius, y: radius of the top of the atmosphere, z: Rayleigh scale height, w: Mie scale height (all km)
     float4 beta_r;    // xyz: Rayleigh coefficients per km, w: Mie coefficient per km
-    float4 misc;      // x: 1 to apply 1 - exp(-x); y: the observer's height above the ground (km)
+    float4 misc;      // x: 1 to apply 1 - exp(-x); y: the observer's height above the ground (km); z: moon intensity (0 = no moon); w: star intensity (0 = no stars)
 };
 [[vk::push_constant]] ConstantBuffer<SkyConstants> pc;
 
@@ -112,10 +112,116 @@ float3 sky_radiance(float3 d, float3 sun)
     return pc.forward.w * (sum_r * beta_r * phase_r + sum_m * beta_m * phase_m);
 }
 
+// ---- celestial bodies (reference: sun_disc_radiance, moon_radiance, star_radiance in atmosphere.cpp, with the same constants) ----------------------------------------------------
+
+static const float SUN_ANGULAR_RADIUS = 0.00465;
+static const float MOON_ANGULAR_RADIUS = 0.0045;
+
+/// The air's transmittance from the observer toward the unit direction `dir`: 0 below the planet's horizon, else exp(-optical depth) over 64 steps (the reference's).
+float3 body_transmittance(float3 dir)
+{
+    const float radius = pc.geometry.x, top = pc.geometry.y, hr = pc.geometry.z, hm = pc.geometry.w;
+    const float3 origin = float3(0.0, 0.0, radius + pc.misc.y);
+    float s0, s1;
+    if (sphere_hits(origin, dir, radius, s0, s1) && s0 > 0.0) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    float t0, t1;
+    if (!sphere_hits(origin, dir, top, t0, t1)) {
+        return float3(1.0, 1.0, 1.0);
+    }
+    const float segment = t1 / 64.0;
+    float od_r = 0.0, od_m = 0.0;
+    for (uint i = 0; i < 64; ++i) {
+        const float h = length(origin + dir * (((float)i + 0.5) * segment)) - radius;
+        od_r += exp(-h / hr) * segment;
+        od_m += exp(-h / hm) * segment;
+    }
+    return exp(-(pc.beta_r.xyz * od_r + 1.1 * pc.beta_r.w * od_m));
+}
+
+/// The disc of angular radius `radius` around `center`, seen along `d`: limb darkening and a soft edge, from sin(theta) (acos has no precision left at half a degree).
+float disc_profile(float3 d, float3 center, float radius)
+{
+    if (dot(d, center) <= 0.0) {
+        return 0.0;
+    }
+    const float x = length(cross(d, center)) / sin(radius);
+    if (!(x < 1.0)) {
+        return 0.0;
+    }
+    const float mu = sqrt(max(0.0, 1.0 - x * x));
+    const float limb = 1.0 - 0.6 * (1.0 - mu);
+    const float t = saturate((x - 0.85) / 0.15);
+    return limb * (1.0 - t * t * (3.0 - 2.0 * t));
+}
+
+uint hash_u(uint x)
+{
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float u01(uint h)
+{
+    return (float)(h >> 8) * (1.0 / 16777216.0);
+}
+
+float3 star_field(float3 d, float3 sun)
+{
+    const float night_t = saturate((sun.z + 0.0175) / -0.1745);
+    const float night = night_t * night_t * (3.0 - 2.0 * night_t);
+    const float up_t = saturate(d.z / 0.2);
+    const float horizon = up_t * up_t * (3.0 - 2.0 * up_t);
+    if (!(night > 0.0) || !(horizon > 0.0)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 p = d * 64.0;
+    const int3 cell = (int3)floor(p);
+    const uint h = hash_u(asuint(cell.x) ^ hash_u((asuint(cell.y) + 0x9e3779b9u) ^ hash_u(asuint(cell.z) + 0x85ebca6bu)));
+    if (!(u01(h) < 0.5)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float3 center = (float3)cell + 0.2 + 0.6 * float3(u01(hash_u(h + 1u)), u01(hash_u(h + 2u)), u01(hash_u(h + 3u)));
+    const float falloff = max(0.0, 1.0 - length(p - center) / 0.12);
+    if (!(falloff > 0.0)) {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float b = u01(hash_u(h + 4u)), tint = u01(hash_u(h + 5u));
+    const float level = pc.misc.w * night * horizon * (0.3 + 0.7 * b * b) * falloff * falloff;
+    return level * float3(1.0 + (0.7 - 1.0) * tint, 0.85 + (0.8 - 0.85) * tint, 0.7 + (1.0 - 0.7) * tint);
+}
+
+float3 celestial_bodies(float3 d, float3 sun)
+{
+    float3 sum = float3(0.0, 0.0, 0.0);
+    if (pc.right.w > 0.0) {
+        const float profile = disc_profile(d, sun, SUN_ANGULAR_RADIUS);
+        if (profile > 0.0) {
+            sum += body_transmittance(sun) * (pc.right.w * profile);
+        }
+    }
+    if (pc.misc.z > 0.0) {
+        const float profile = disc_profile(d, -sun, MOON_ANGULAR_RADIUS);
+        if (profile > 0.0) {
+            sum += body_transmittance(-sun) * (pc.misc.z * profile);
+        }
+    }
+    if (pc.misc.w > 0.0) {
+        sum += star_field(d, sun);
+    }
+    return sum;
+}
+
 float4 PSMain(VSOutput input) : SV_Target0
 {
     const float3 d = normalize(pc.forward.xyz + pc.right.xyz * input.ndc.x + pc.up.xyz * input.ndc.y);
-    float3 radiance = sky_radiance(d, normalize(pc.to_sun.xyz)) * pc.up.w;
+    const float3 sun_direction = normalize(pc.to_sun.xyz);
+    float3 radiance = (sky_radiance(d, sun_direction) + celestial_bodies(d, sun_direction)) * pc.up.w;
     if (pc.misc.x > 0.5) {
         radiance = 1.0 - exp(-radiance);
     }

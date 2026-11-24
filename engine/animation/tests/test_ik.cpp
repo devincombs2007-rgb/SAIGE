@@ -172,3 +172,84 @@ TEST_CASE("Foot IK: the pelvis offset is smoothed and bounded") {
     CHECK(std::fabs(state.pelvis_offset + cfg.max_pelvis_drop) < 0.01f);
     CHECK(step_max < 0.12f);  // it arrives over many ticks, not in one
 }
+
+namespace {
+
+// Moves a character at `speed` while a single cycle plays at its authored rate (so its feet move at the cycle's own speed, not the character's), optionally locking the planted feet, and returns the
+// mean horizontal world speed of the planted contact points (planted by the animation's own intent, three ticks running).
+double planted_world_speed(const fixtures::Biped& b, const gfx::AnimationClip& gait, float speed, bool lock, bool ground_flat_y = true) {
+    (void)ground_flat_y;
+    LocomotionSet set(b.skin, b.map);
+    REQUIRE(set.add_cycle(gait));
+    LocomotionConfig cfg;
+    cfg.stride_matching = false;  // authored rate, whatever the speed
+    LocomotionController c(set, cfg);
+    FootLockState state;
+    const float dt = 1.0f / 60.0f;
+    const Float3 fwd = b.rig.forward;
+    float x = 0.0f;
+    Float3 prev[2];
+    // Per tick and foot: the animation's own contact height and the world speed of the (locked) contact point. A tick counts as planted when the animation had the foot on the floor from two ticks before
+    // to six ticks after it, which leaves out the landing and the toe-off, where the foot is still arriving or already leaving.
+    std::vector<float> raw_height[2];
+    std::vector<double> speed_of[2];
+    bool have = false;
+    for (int i = 0; i < 60 * 8; ++i) {
+        c.update(dt, {speed, true, 0.0f});
+        x += speed * dt;
+        gfx::Pose pose = c.pose();
+        const render::Transform root{fwd * x, {0, 0, 0, 1}, {1, 1, 1}};
+        const std::vector<JointWorld> raw = joint_world(b.skin, pose);
+        if (lock) lock_planted_feet(b.skin, b.map, b.rig, pose, root, {}, state, dt);
+        const std::vector<JointWorld> w = joint_world(b.skin, pose);
+        Float3 now[2];
+        float raw_z[2];
+        for (int f = 0; f < 2; ++f) {
+            const std::size_t j = static_cast<std::size_t>(b.map[f == 0 ? Bone::LeftToes : Bone::RightToes]);
+            now[f] = root.position + w[j].position;
+            raw_z[f] = raw[j].position.z;
+        }
+        for (int f = 0; f < 2; ++f) {
+            raw_height[f].push_back(raw_z[f]);
+            speed_of[f].push_back(have ? std::hypot(static_cast<double>(now[f].x - prev[f].x), static_cast<double>(now[f].y - prev[f].y)) / static_cast<double>(dt) : 0.0);
+            prev[f] = now[f];
+        }
+        have = true;
+    }
+    double sum = 0.0;
+    int count = 0;
+    for (std::size_t i = 100; i + 6 < raw_height[0].size(); ++i) {
+        for (int f = 0; f < 2; ++f) {
+            bool planted = true;
+            for (std::size_t k = i - 2; k <= i + 6 && planted; ++k) planted = raw_height[f][k] < 0.003f;
+            if (planted) {
+                sum += speed_of[f][i];
+                ++count;
+            }
+        }
+    }
+    return count > 0 ? sum / count : 0.0;
+}
+
+} // namespace
+
+TEST_CASE("Foot locking: a planted foot stays where it landed when the stride does not match the speed") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::AnimationClip gait = fixtures::make_gait(b, 1.2f, 1.10f, 0.60f, 0.08f);
+    // The character is 10% faster than the cycle's own speed: the feet skate at 0.12 m/s without a lock.
+    const double free_10 = planted_world_speed(b, gait, 1.32f, false), locked_10 = planted_world_speed(b, gait, 1.32f, true);
+    CHECK(free_10 > 0.09);
+    CHECK(locked_10 < 0.03);
+    // 50% faster: the drift outgrows the lock's reach (0.15 m), so it gives way and the foot is free for the rest of the stance: it is then no worse than without a lock.
+    const double free_50 = planted_world_speed(b, gait, 1.8f, false), locked_50 = planted_world_speed(b, gait, 1.8f, true);
+    CHECK(free_50 > 0.4);
+    CHECK(locked_50 <= free_50 * 1.05);
+    // At the cycle's own speed there is nothing to correct and the lock changes nothing noticeable.
+    CHECK(planted_world_speed(b, gait, 1.2f, true) < 0.03);
+    // Bad dt throws.
+    gfx::Pose pose = gfx::rest_pose(b.skin);
+    FootLockState state;
+    bool threw = false;
+    try { lock_planted_feet(b.skin, b.map, b.rig, pose, {{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}}, {}, state, 0.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}

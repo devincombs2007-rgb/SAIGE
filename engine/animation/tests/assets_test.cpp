@@ -155,17 +155,21 @@ int main(int argc, char** argv) {
     if (set.usable()) {
         LocomotionConfig cfg;
         // Slide inside the stance of each cycle, at the cycle's own speed (a pure cycle): the planted feet move at a few percent of the speed. Between cycles the blends are not pure and are reported only.
-        double worst_rel = 0.0;
+        double worst_rel = 0.0, worst_locked = 0.0;
         for (std::size_t i = 0; i < set.cycles().size(); ++i) {
             const float v = set.cycles()[i].info.ground_speed;
             const double rel = metrics::window_slide(set, cfg, i, v);
             std::printf("  cycle %zu at %.2f m/s: planted feet move at %.1f%% of the speed\n", i, static_cast<double>(v), rel * 100.0);
             worst_rel = std::max(worst_rel, rel);
+            const double locked = metrics::window_slide(set, cfg, i, v, 8.0f, 2.0f, true);
+            std::printf("    with foot locking: %.1f%%\n", locked * 100.0);
+            worst_locked = std::max(worst_locked, locked);
             if (i + 1 == set.cycles().size()) check(rel < 0.08, "the UAL's own sprint (authored in place, feet planted): planted feet move at under 8% of the speed", rel);
         }
         // The retargeted capture cycles keep the capture's own toe motion through the roll of the foot, plus the retargeting's proportion error, so they are looser: this is the residual that foot locking
         // (planting a foot's world position for the length of its stance) would remove; it is in the backlog.
         check(worst_rel < 0.35, "real cycles: planted feet move at under 35% of the speed at the cycles' own speeds", worst_rel);
+        check(worst_locked < 0.6 * worst_rel, "foot locking cuts the worst planted-foot motion by at least 40%", worst_locked);
         LocomotionConfig naive;
         naive.stride_matching = false;
         const std::size_t top_i = set.cycles().size() - 1;

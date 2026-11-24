@@ -202,3 +202,52 @@ int keep_feet_outside_obstacles(const gfx::Skin& skin, const HumanoidMap& map, g
 }
 
 } // namespace saige::anim
+
+namespace saige::anim {
+
+void lock_planted_feet(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const FootLockConfig& cfg, FootLockState& state, float dt) {
+    if (!(dt > 0.0f) || !std::isfinite(dt)) throw std::invalid_argument("lock_planted_feet: bad dt");
+    const auto to_world = [&](Float3 p) { return root.position + render::rotate(root.rotation, p); };
+    const auto to_model_dir = [&](Float3 d) { return render::rotate(render::conjugate(root.rotation), d); };
+    struct Foot {
+        Bone upper, lower, foot, toes;
+    };
+    const Foot feet[2] = {{Bone::LeftUpperLeg, Bone::LeftLowerLeg, Bone::LeftFoot, Bone::LeftToes}, {Bone::RightUpperLeg, Bone::RightLowerLeg, Bone::RightFoot, Bone::RightToes}};
+    for (int f = 0; f < 2; ++f) {
+        const std::vector<JointWorld> w = joint_world(skin, pose);
+        const std::size_t ankle = static_cast<std::size_t>(map[feet[f].foot]);
+        const std::size_t contact = static_cast<std::size_t>(map.has(feet[f].toes) ? map[feet[f].toes] : map[feet[f].foot]);
+        const Float3 p = to_world(w[contact].position);
+        const float intent = p.z - rig.contact_offset - root.position.z;
+        const bool planted = intent < (state.locked[f] ? cfg.release_height : cfg.plant_height);
+        if (planted && !state.locked[f]) {  // landing: pin where it is
+            state.locked[f] = true;
+            state.anchor[f] = p;
+            state.weight[f] = 0.0f;
+        }
+        if (!planted) state.locked[f] = false;
+        // The pull needed to put the contact point back on the anchor, horizontally.
+        Float3 pull{state.anchor[f].x - p.x, state.anchor[f].y - p.y, 0.0f};
+        float len = std::sqrt(pull.x * pull.x + pull.y * pull.y);
+        if (state.locked[f] && len > cfg.max_pull) {  // the animation has drifted too far from the spot: drag the anchor so the pull stays at its limit (no pop; the foot skates at the excess speed)
+            const float k = (len - cfg.max_pull) / len;
+            state.anchor[f].x -= pull.x * k;
+            state.anchor[f].y -= pull.y * k;
+            pull = pull * (cfg.max_pull / len);
+            len = cfg.max_pull;
+        }
+        const float target = state.locked[f] ? 1.0f : 0.0f;
+        const float rate = target > state.weight[f] ? dt / std::max(cfg.blend_in, 1e-3f) : dt / std::max(cfg.release_time, 1e-3f);
+        state.weight[f] += std::clamp(target - state.weight[f], -rate, rate);
+        if (state.weight[f] <= 1e-4f || len < 1e-5f) continue;
+        const Float3 wanted = to_model_dir(pull * state.weight[f]);
+        const Float3 ankle_before = w[ankle].position;
+        const Quat foot_rotation = w[ankle].rotation;
+        const Float3 pole = to_model_dir(Float3{1, 0, 0});
+        solve_two_bone(skin, pose, static_cast<std::size_t>(map[feet[f].upper]), static_cast<std::size_t>(map[feet[f].lower]), ankle, ankle_before + wanted, pole);
+        const std::vector<JointWorld> after = joint_world(skin, pose);
+        set_world_rotation(skin, pose, after, ankle, foot_rotation);
+    }
+}
+
+} // namespace saige::anim

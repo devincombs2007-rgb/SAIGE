@@ -47,6 +47,25 @@ struct FootIkState {
 void adapt_feet_to_ground(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery& ground, const FootIkConfig& config,
                           FootIkState& state, float dt);
 
+struct FootLockConfig {
+    float plant_height = 0.03f;    // a foot whose contact point is within this above the character's floor is planted (the animation's intent)
+    float release_height = 0.06f;  // a locked foot stays locked until it rises above this (a hysteresis, so the toe-off roll does not flicker the lock)
+    float max_pull = 0.15f;        // meters: the farthest the pinned spot may be from where the animation puts the foot; beyond it the anchor is dragged along (the foot then skates at the excess speed, without a pop)
+    float blend_in = 0.04f;        // seconds the lock takes to reach full strength
+    float release_time = 0.10f;    // seconds the correction takes to fade once the foot lifts
+};
+
+struct FootLockState {
+    bool locked[2] = {false, false};
+    render::Float3 anchor[2]{};   // the world position (horizontal) a locked foot is pinned to
+    float weight[2] = {0.0f, 0.0f};
+};
+
+// Foot locking: pins a planted foot to the spot of the ground where it landed for as long as it is planted, so that a stride that does not quite match the speed (retargeted motion capture, a
+// speed between two cycles) does not skate. `root` is the character's transform in the world. The correction is applied with the two-bone IK to the ankle horizontally; the foot keeps its animated
+// orientation. Run it after `adapt_feet_to_ground` and call it every tick (the state carries the anchors).
+void lock_planted_feet(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const FootLockConfig& config, FootLockState& state, float dt);
+
 // Whether the segment from `from` to `to` (world space) is blocked by solid geometry, and where (the first hit along it). Returns false when the way is clear.
 using ObstacleQuery = std::function<bool(render::Float3 from, render::Float3 to, render::Float3& hit)>;
 

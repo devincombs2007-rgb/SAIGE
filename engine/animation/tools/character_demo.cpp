@@ -85,6 +85,7 @@ int main(int argc, char** argv) {
     CapsuleCharacter character({0.0f, 0.0f, 0.0f}, boxes, tris, {});
     LocomotionController anim(set, {});
     FootIkState ik;
+    FootLockState lock;
     const GroundQuery ground = ground_query(world);
     const ObstacleQuery obstacle = obstacle_query(world);
     const std::chrono::nanoseconds dt{16666667};
@@ -98,7 +99,10 @@ int main(int argc, char** argv) {
         anim.update(1.0f / 60.0f, locomotion_input(s));
         gfx::Pose pose = anim.pose();
         const render::Transform rt{{s.feet.x, s.feet.y, s.feet.z}, {0, 0, 0, 1}, {1, 1, 1}};
-        if (s.grounded && anim.state() == LocomotionState::Ground) adapt_feet_to_ground(skin, *map, rig, pose, rt, ground, {}, ik, 1.0f / 60.0f);
+        if (s.grounded && anim.state() == LocomotionState::Ground) {
+            adapt_feet_to_ground(skin, *map, rig, pose, rt, ground, {}, ik, 1.0f / 60.0f);
+            lock_planted_feet(skin, *map, rig, pose, rt, {}, lock, 1.0f / 60.0f);
+        }
         const int moved = keep_feet_outside_obstacles(skin, *map, pose, rt, obstacle, {});
         if (i % 30 == 0) {
             std::printf("t=%5.1f s  x=%6.2f z=%5.2f  speed=%5.2f  %-7s idle=%.2f rate=%.2f c/s  pelvis %+.2f%s\n", static_cast<double>(t), static_cast<double>(s.feet.x), static_cast<double>(s.feet.z),

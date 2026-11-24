@@ -72,7 +72,8 @@ Slide measure_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig
 // Slide inside the stance of one cycle, for real clips whose toes are never exactly flat on a nominal floor. The character moves at `speed` (a pure cycle plays when the speed is that cycle's own or
 // beyond the fastest), and each foot counts while the shared phase is inside the interior of that foot's refined stance window (the middle 70% of it). Returns the mean horizontal world speed of the
 // planted contact points divided by `speed`.
-inline double window_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig& cfg, std::size_t cycle_index, float speed, float seconds = 8.0f, float warmup = 2.0f) {
+inline double window_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig& cfg, std::size_t cycle_index, float speed, float seconds = 8.0f, float warmup = 2.0f, bool lock = false) {
+    anim::FootLockState lock_state;
     anim::LocomotionController c(set, cfg);
     const anim::LocomotionCycle& cy = set.cycles()[cycle_index];
     const float dt = 1.0f / 60.0f;
@@ -93,7 +94,9 @@ inline double window_slide(const anim::LocomotionSet& set, const anim::Locomotio
     for (int i = 0; i < static_cast<int>(seconds / dt); ++i) {
         c.update(dt, {speed, true, 0.0f});
         x += speed * dt;
-        const render::Float3 now[2] = {contact(set, c.pose(), true) + fwd * x, contact(set, c.pose(), false) + fwd * x};
+        gfx::Pose pose = c.pose();
+        if (lock) anim::lock_planted_feet(set.skin(), set.map(), set.rig(), pose, {fwd * x, {0, 0, 0, 1}, {1, 1, 1}}, {}, lock_state, dt);
+        const render::Float3 now[2] = {contact(set, pose, true) + fwd * x, contact(set, pose, false) + fwd * x};
         const float u = fract(c.phase() - set.reference_phase() + cy.info.left.contact_start);
         if (have && static_cast<float>(i) * dt > warmup) {
             if (inside(u, cy.info.left)) {

@@ -228,6 +228,77 @@ void test_impacts() {
     require(loud > quiet + 0.2 && loud > 0.8, "a 12 m/s crash is loud and a 2 m/s bump much quieter");
 }
 
+template <class F>
+bool throws_invalid(F&& f) {
+    try {
+        f();
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
+void test_footsteps() {
+    const FootstepSound walk = footstep_sound(Surface::Concrete, 1.4f, 80.0f, 0.0f, 0.0f, 1), run = footstep_sound(Surface::Concrete, 6.0f, 80.0f, 0.0f, 0.0f, 1);
+    const FootstepSound heavy = footstep_sound(Surface::Concrete, 6.0f, 120.0f, 0.0f, 0.0f, 1), light = footstep_sound(Surface::Concrete, 6.0f, 40.0f, 0.0f, 0.0f, 1);
+    const FootstepSound jump = footstep_sound(Surface::Concrete, 1.4f, 80.0f, 6.0f, 0.0f, 1);
+    std::printf("footsteps: walk %.2f run %.2f heavy %.2f light %.2f landing %.2f\n", static_cast<double>(walk.gain), static_cast<double>(run.gain), static_cast<double>(heavy.gain), static_cast<double>(light.gain), static_cast<double>(jump.gain));
+    require(walk.gain > 0.2f && run.gain > walk.gain + 0.25f, "a run is clearly louder than a walk");
+    require(heavy.gain > light.gain, "a heavier body is louder");
+    require(jump.gain > walk.gain + 0.3f, "a landing is louder than a walk step");
+    require(footstep_sound(Surface::Concrete, 0.0f, 80.0f, 0.0f, 0.0f, 1).gain == 0.0f, "standing still makes no step");
+    require(footstep_sound(Surface::Grass, 3.0f, 80.0f, 0.0f, 0.0f, 1).category == ImpactCategory::Soft && footstep_sound(Surface::Gravel, 3.0f, 80.0f, 0.0f, 0.0f, 1).category == ImpactCategory::Granular &&
+                footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 0.0f, 1).category == ImpactCategory::Hard,
+            "the ground chooses the sound");
+    require(footstep_sound(Surface::AsphaltWet, 3.0f, 80.0f, 0.0f, 0.0f, 1).gain > footstep_sound(Surface::Asphalt, 3.0f, 80.0f, 0.0f, 0.0f, 1).gain, "wet asphalt is louder");
+    require(footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 4.0f, 1).scuff > 0.99f && footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 0.2f, 1).scuff == 0.0f, "a slide scuffs");
+    require(footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 0.0f, 1).pitch != footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 0.0f, 2).pitch, "the seed varies the pitch");
+    require(footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 0.0f, 9).pitch == footstep_sound(Surface::Concrete, 3.0f, 80.0f, 0.0f, 0.0f, 9).pitch, "and deterministically");
+    require(throws_invalid([] { (void)footstep_sound(Surface::Concrete, -1.0f, 80.0f, 0.0f, 0.0f, 1); }) && throws_invalid([] { (void)footstep_sound(Surface::Concrete, 1.0f, 0.0f, 0.0f, 0.0f, 1); }) &&
+                throws_invalid([] { (void)footstep_sound(Surface::Concrete, NAN, 80.0f, 0.0f, 0.0f, 1); }),
+            "invalid footstep input throws");
+}
+
+void test_tires() {
+    const TireSound parked = tire_sound(Surface::Asphalt, 0.0f, 0.0f), cruise = tire_sound(Surface::Asphalt, 25.0f, 0.0f), fast = tire_sound(Surface::Asphalt, 40.0f, 0.0f);
+    require(parked.roll_gain == 0.0f && parked.skid_gain == 0.0f, "a parked tire is silent");
+    require(cruise.roll_gain > 0.3f && fast.roll_gain >= cruise.roll_gain && fast.roll_pitch > cruise.roll_pitch, "rolling noise rises with speed and pitch");
+    require(tire_sound(Surface::Gravel, 20.0f, 0.0f).roll_gain > tire_sound(Surface::Asphalt, 20.0f, 0.0f).roll_gain, "gravel is noisier than asphalt");
+    const TireSound grip = tire_sound(Surface::Asphalt, 20.0f, 1.0f), slide = tire_sound(Surface::Asphalt, 20.0f, 5.0f), burnout = tire_sound(Surface::Asphalt, 20.0f, 12.0f);
+    require(grip.skid_gain == 0.0f && slide.skid_gain > 0.2f && burnout.skid_gain > slide.skid_gain && burnout.skid_gain <= 1.0f, "skid starts above 1.5 m/s of slip and grows");
+    require(tire_sound(Surface::AsphaltWet, 20.0f, 12.0f).skid_gain > burnout.skid_gain, "wet asphalt squeals louder");
+    require(tire_sound(Surface::Dirt, 20.0f, 12.0f).skid_pitch < burnout.skid_pitch, "loose ground crunches lower than asphalt squeals");
+    require(throws_invalid([] { (void)tire_sound(Surface::Asphalt, -1.0f, 0.0f); }) && throws_invalid([] { (void)tire_sound(Surface::Asphalt, 1.0f, INFINITY); }), "invalid tire input throws");
+}
+
+void test_water_and_ambience() {
+    const WaterSound none = water_sound(0.0f, 80.0f, 0.0f, 0.0f), dive = water_sound(5.0f, 80.0f, 0.0f, 0.0f), belly = water_sound(8.0f, 80.0f, 0.0f, 0.0f), boat = water_sound(3.0f, 3000.0f, 0.0f, 0.0f);
+    require(none.splash_gain == 0.0f && none.flow_gain == 0.0f, "dry and still is silent");
+    require(dive.splash_gain > 0.2f && belly.splash_gain > dive.splash_gain && belly.splash_pitch < dive.splash_pitch, "a harder entry is louder and lower");
+    require(boat.splash_gain > dive.splash_gain, "a heavier body splashes louder at a lower speed");
+    const WaterSound swim = water_sound(0.0f, 80.0f, 2.0f, 1.0f), wade = water_sound(0.0f, 80.0f, 2.0f, 0.3f), fast = water_sound(0.0f, 80.0f, 10.0f, 1.0f);
+    require(swim.flow_gain > wade.flow_gain && fast.flow_gain > swim.flow_gain && fast.flow_pitch > swim.flow_pitch, "flow follows speed and immersion");
+    require(water_sound(0.0f, 80.0f, 10.0f, 0.0f).flow_gain == 0.0f, "nothing in the water, no flow");
+    require(throws_invalid([] { (void)water_sound(1.0f, 0.0f, 0.0f, 0.5f); }) && throws_invalid([] { (void)water_sound(1.0f, 80.0f, 0.0f, 1.5f); }), "invalid water input throws");
+
+    const AmbienceMix noon = ambience_mix(12.0f, 2.0f, 0.0f, 0.0f, 0.0f), night = ambience_mix(1.0f, 2.0f, 0.0f, 0.0f, 0.0f), storm = ambience_mix(12.0f, 14.0f, 1.0f, 0.0f, 0.0f);
+    require(noon.birds > 0.8f && night.birds == 0.0f, "birds sing by day, not at night");
+    require(night.insects > 0.6f && noon.insects < 0.1f, "insects at night");
+    require(storm.rain == 1.0f && storm.birds == 0.0f && storm.insects == 0.0f && storm.wind > 0.9f, "a storm: rain and wind, no birds");
+    const AmbienceMix city = ambience_mix(12.0f, 2.0f, 0.0f, 1.0f, 0.0f), city_night = ambience_mix(2.0f, 2.0f, 0.0f, 1.0f, 0.0f);
+    require(city.traffic > 0.9f && city_night.traffic < city.traffic && city.birds < noon.birds, "a city has traffic (less at night) and fewer birds");
+    const AmbienceMix inside = ambience_mix(12.0f, 14.0f, 0.5f, 1.0f, 1.0f);
+    require(inside.wind == 0.0f && inside.birds == 0.0f && inside.interior == 1.0f && inside.rain < 0.5f && inside.traffic < 0.3f, "enclosure takes the outdoor bed down");
+    require(ambience_mix(6.0f, 2.0f, 0.0f, 0.0f, 0.0f).birds > 0.0f && ambience_mix(6.0f, 2.0f, 0.0f, 0.0f, 0.0f).birds < noon.birds, "dawn is on its way up");
+    require(throws_invalid([] { (void)ambience_mix(25.0f, 0.0f, 0.0f, 0.0f, 0.0f); }) && throws_invalid([] { (void)ambience_mix(12.0f, 0.0f, 2.0f, 0.0f, 0.0f); }), "invalid ambience input throws");
+
+    const ReverbSettings open = reverb_for_space(0.0f, 1e6f, 1.0f), closet = reverb_for_space(1.0f, 4.0f, 0.2f), hall = reverb_for_space(1.0f, 30000.0f, 0.9f), tile = reverb_for_space(1.0f, 30.0f, 1.0f), carpet = reverb_for_space(1.0f, 30.0f, 0.0f);
+    require(open.wet == 0.0f, "open air has no reverb");
+    require(hall.room_size > closet.room_size + 0.3f, "a hall rings longer than a closet");
+    require(tile.wet > carpet.wet && tile.damping < carpet.damping, "hard surfaces return more and damp less");
+    require(throws_invalid([] { (void)reverb_for_space(0.5f, 0.0f, 0.5f); }) && throws_invalid([] { (void)reverb_for_space(1.5f, 10.0f, 0.5f); }), "invalid space throws");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -235,7 +306,7 @@ int main(int argc, char** argv) {
         const char* name;
         void (*fn)();
     };
-    const Named tests[] = {{"crossfade", test_crossfade_and_pitch}, {"smoothing", test_smoothing}, {"vehicle", test_with_the_vehicle}, {"impacts", test_impacts}};
+    const Named tests[] = {{"crossfade", test_crossfade_and_pitch}, {"smoothing", test_smoothing}, {"vehicle", test_with_the_vehicle}, {"impacts", test_impacts}, {"footsteps", test_footsteps}, {"tires", test_tires}, {"water_ambience", test_water_and_ambience}};
     int failures = 0;
     for (const Named& t : tests) {
         if (argc > 1 && std::string(argv[1]) != t.name) continue;

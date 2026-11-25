@@ -13,6 +13,7 @@
 // scrape and a crash differ by orders of magnitude), and the pitch drops as the energy rises (a heavier blow sounds lower), with a small deterministic variation from a seed so repeated impacts do
 // not sound identical.
 
+#include "saige/audio.hpp"
 #include "saige/physics_material.hpp"
 
 #include <array>
@@ -56,5 +57,58 @@ struct ImpactSound {
 // The sound of a collision between a car body (or any object whose material is `object`) and a surface, for `energy` joules removed from the object. `object_is_metal` makes the body's own character
 // metal; the surface decides the rest. Below `quiet_energy` the gain is 0 (nothing to play), at `loud_energy` and above it is 1. Throws for non-finite or negative energy.
 [[nodiscard]] ImpactSound impact_sound(Surface surface, bool object_is_metal, float energy, std::uint32_t seed, float quiet_energy = 50.0f, float loud_energy = 100000.0f);
+
+// ---- Footsteps, tires, water and ambience: the same kind of pure decision, from published simulation state ----
+
+struct FootstepSound {
+    ImpactCategory category = ImpactCategory::Hard;
+    float gain = 0.0f;   // 0..1
+    float pitch = 1.0f;
+    float scuff = 0.0f;  // 0..1 how much of a slide there is in the step (a skid on a turn, a drag on a slope)
+};
+
+// A footfall at `speed` m/s horizontal travel by a body of `mass_kg`; `landing_speed` > 0 is the vertical speed of a landing (a jump or a drop adds a thud). Gain rises with speed and weight on a
+// logarithmic scale from a quiet walk (about 1.4 m/s) to a hard run (about 6 m/s) and a heavy landing; the ground picks the character (grass and snow are soft, gravel and sand granular, concrete hard) and a wet hard
+// surface is a little louder and higher. Throws for non-finite or negative inputs and a non-positive mass.
+[[nodiscard]] FootstepSound footstep_sound(Surface surface, float speed, float mass_kg, float landing_speed, float slide_speed, std::uint32_t seed);
+
+struct TireSound {
+    ImpactCategory category = ImpactCategory::Hard;  // what the road is made of: the rolling noise and the skid take their texture from it
+    float roll_gain = 0.0f;    // 0..1 rolling noise loop
+    float roll_pitch = 1.0f;
+    float skid_gain = 0.0f;    // 0..1 squeal on a hard surface, crunch/spray on a loose one
+    float skid_pitch = 1.0f;
+};
+
+// The sound of one wheel at `speed` m/s of ground speed with `slip` m/s of sliding between the tire and the ground (the magnitude of the slip velocity, longitudinal and lateral together). Rolling noise rises with speed and
+// with how coarse the surface is; skid begins above 1.5 m/s of slip and is full at 8 m/s, squeals higher on asphalt than on loose ground and louder on wet asphalt. Throws for non-finite or negative inputs.
+[[nodiscard]] TireSound tire_sound(Surface surface, float speed, float slip);
+
+struct WaterSound {
+    float splash_gain = 0.0f;  // 0..1 one-shot at the entry
+    float splash_pitch = 1.0f;
+    float flow_gain = 0.0f;    // 0..1 lapping/wake loop while moving through water
+    float flow_pitch = 1.0f;
+};
+
+// A body of `mass_kg` meeting the water at `entry_speed` m/s (0 when not entering) and moving at `speed` m/s relative to the water while `submerged_fraction` (0..1) of it is under the surface. A bigger or faster
+// entry is louder and lower; flow is louder with speed and with more of the body in the water. Throws for non-finite or negative inputs, a non-positive mass or a fraction outside 0..1.
+[[nodiscard]] WaterSound water_sound(float entry_speed, float mass_kg, float speed, float submerged_fraction);
+
+struct AmbienceMix {
+    float wind = 0.0f;      // 0..1
+    float birds = 0.0f;     // daytime
+    float insects = 0.0f;   // night (crickets) and dusk
+    float rain = 0.0f;
+    float traffic = 0.0f;   // distant traffic bed near roads
+    float interior = 0.0f;  // 0 outside .. 1 fully enclosed: the host lowers everything and shortens the reverb
+};
+
+// The environmental bed from the time of day (hours, 0..24), wind speed (m/s), rain (0..1), how built-up the surroundings are (0..1) and how enclosed the listener is (0..1). Birds peak after dawn and before dusk, insects
+// at night, rain silences the birds and insects, traffic follows built-up land and fades at night, and enclosure takes the whole bed down. Throws for non-finite input or ranges outside the documented ones.
+[[nodiscard]] AmbienceMix ambience_mix(float hour, float wind_speed, float rain, float built_up, float enclosure);
+
+// The reverb for a space: `enclosure` 0 (open air) to 1 (closed room), `volume_m3` the room's size, `hardness` 0..1 (carpet to tile). Open air has no reverb; larger and harder rooms ring longer.
+[[nodiscard]] ReverbSettings reverb_for_space(float enclosure, float volume_m3, float hardness);
 
 } // namespace saige

@@ -483,3 +483,73 @@ TEST_CASE("Ledge query: finds the face distance, the height and the headroom of 
     std::vector<Triangle> ramp{{{2, -50, 0}, {2, 50, 0}, {3, 50, 1.0f}}, {{2, -50, 0}, {3, 50, 1.0f}, {3, -50, 1.0f}}};
     CHECK(!find_ledge(StaticCollision(floor, ramp), feet, 0.0f).found);
 }
+
+TEST_CASE("Foot placement: the single call is the ground IK, the foot lock and the wall check in order, tick for tick, and leaving the ground starts the next landing clean") {
+    Rig w;
+    const Level level = make_level(10.0f);
+    const GroundQuery ground = ground_query(level.world);
+    const ObstacleQuery obstacle = obstacle_query(level.world);
+    CapsuleCharacter character({4.0f, 0.0f, 0.0f}, level.boxes, level.triangles, CapsuleCharacterConfig{});
+    LocomotionController anim(w.set, {});
+    FootPlacement placement;
+    FootIkState ik;
+    FootLockState lock;
+    bool identical = true;
+    int moved_by_wall = 0;
+    for (int i = 0; i < 1200; ++i) {
+        // Walk up the ramp onto the plateau and on into the wall at x = 40, jumping once on the plateau.
+        CapsuleInput in{1.0f, 0.0f, i == 500, true};  // sprinting
+        character.step(in, tick);
+        const CapsuleCharacterState& s = character.state();
+        anim.update(1.0f / 60.0f, locomotion_input(s));
+        const render::Transform root{{s.feet.x, s.feet.y, s.feet.z}, {0, 0, 0, 1}, {1, 1, 1}};
+        gfx::Pose manual = anim.pose(), bundled = anim.pose();
+        if (s.grounded) {
+            adapt_feet_to_ground(w.biped.skin, w.biped.map, w.biped.rig, manual, root, ground, {}, ik, 1.0f / 60.0f);
+            lock_planted_feet(w.biped.skin, w.biped.map, w.biped.rig, manual, root, {}, lock, 1.0f / 60.0f);
+        } else {
+            ik = {};
+            lock = {};
+        }
+        const int m = keep_feet_outside_obstacles(w.biped.skin, w.biped.map, manual, root, obstacle, {});
+        const int b = placement.apply(w.biped.skin, w.biped.map, w.biped.rig, bundled, root, &ground, &obstacle, s.grounded, 1.0f / 60.0f);
+        identical = identical && m == b && pose_distance(manual, bundled) == 0.0f;
+        moved_by_wall += b;
+    }
+    CHECK(identical);
+    CHECK(moved_by_wall > 0);   // the run into the wall did exercise the wall check
+    // The wall check also runs in the air (a jump into a wall): the same call, not grounded, against a sprinting pose at the wall's face.
+    {
+        LocomotionController sprint(w.set, {});
+        for (int i = 0; i < 120; ++i) sprint.update(1.0f / 60.0f, {6.0f, true, 0.0f});
+        const render::Transform at_wall{{39.7f, 0, 1.0f}, {0, 0, 0, 1}, {1, 1, 1}};
+        gfx::Pose manual = sprint.pose(), bundled = sprint.pose();
+        const int m = keep_feet_outside_obstacles(w.biped.skin, w.biped.map, manual, at_wall, obstacle, {});
+        FootPlacement airborne;
+        const int b = airborne.apply(w.biped.skin, w.biped.map, w.biped.rig, bundled, at_wall, &ground, &obstacle, false, 1.0f / 60.0f);
+        CHECK(m > 0);
+        CHECK(b == m);
+        CHECK(pose_distance(manual, bundled) == 0.0f);
+    }
+    // On the ground the state is used (a locked foot, a pelvis offset on a slope); in the air it is reset, and with no queries and no lock the pose is untouched.
+    FootPlacement fp;
+    const render::Transform on_ramp{{13, 0, 0.35f}, {0, 0, 0, 1}, {1, 1, 1}};
+    gfx::Pose pose = anim.pose();
+    for (int i = 0; i < 30; ++i) {
+        pose = anim.pose();
+        (void)fp.apply(w.biped.skin, w.biped.map, w.biped.rig, pose, on_ramp, &ground, nullptr, true, 1.0f / 60.0f);
+    }
+    CHECK(fp.ik_state().pelvis_offset != 0.0f);
+    (void)fp.apply(w.biped.skin, w.biped.map, w.biped.rig, pose, on_ramp, &ground, nullptr, false, 1.0f / 60.0f);
+    CHECK(fp.ik_state().pelvis_offset == 0.0f);
+    CHECK(!fp.lock_state().locked[0] && !fp.lock_state().locked[1] && fp.lock_state().weight[0] == 0.0f && fp.lock_state().weight[1] == 0.0f);
+    FootPlacementConfig no_lock;
+    no_lock.use_lock = false;
+    FootPlacement plain(no_lock);
+    gfx::Pose untouched = anim.pose();
+    CHECK(plain.apply(w.biped.skin, w.biped.map, w.biped.rig, untouched, on_ramp, nullptr, nullptr, true, 1.0f / 60.0f) == 0);
+    CHECK(pose_distance(untouched, anim.pose()) == 0.0f);
+    bool threw = false;
+    try { (void)fp.apply(w.biped.skin, w.biped.map, w.biped.rig, pose, on_ramp, nullptr, nullptr, true, 0.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}

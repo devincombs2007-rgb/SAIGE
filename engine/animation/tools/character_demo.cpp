@@ -86,8 +86,7 @@ int main(int argc, char** argv) {
     const StaticCollision world(boxes, tris);
     CapsuleCharacter character({0.0f, 0.0f, 0.0f}, boxes, tris, {});
     LocomotionController anim(set, {});
-    FootIkState ik;
-    FootLockState lock;
+    FootPlacement feet;  // ground adaptation, foot locking and the wall check in one call
     const GroundQuery ground = ground_query(world);
     const ObstacleQuery obstacle = obstacle_query(world);
     const std::chrono::nanoseconds dt{16666667};
@@ -117,15 +116,13 @@ int main(int argc, char** argv) {
         gfx::Pose pose = anim.pose();
         const render::Transform rt{{s.feet.x, s.feet.y, s.feet.z}, {0, 0, 0, 1}, {1, 1, 1}};
         if (action.active()) blend_into(pose, action.pose(), action.weight());
-        if (s.grounded && anim.state() == LocomotionState::Ground && !action.active()) {
-            adapt_feet_to_ground(skin, *map, rig, pose, rt, ground, {}, ik, 1.0f / 60.0f);
-            lock_planted_feet(skin, *map, rig, pose, rt, {}, lock, 1.0f / 60.0f);
-        }
-        const int moved = keep_feet_outside_obstacles(skin, *map, pose, rt, obstacle, {});
+        // The foot chain runs only while locomotion owns the pose: not while an action plays, and (inside apply) not in the air.
+        const bool locomoting = anim.state() == LocomotionState::Ground && !action.active();
+        const int moved = feet.apply(skin, *map, rig, pose, rt, locomoting ? &ground : nullptr, &obstacle, s.grounded && locomoting, 1.0f / 60.0f);
         if (i % 30 == 0 || (rolling && !action.active())) {
             std::printf("t=%5.1f s  x=%6.2f z=%5.2f  speed=%5.2f  %-7s idle=%.2f rate=%.2f c/s  pelvis %+.2f%s%s\n", static_cast<double>(t), static_cast<double>(s.feet.x), static_cast<double>(s.feet.z),
                         static_cast<double>(std::hypot(s.velocity.x, s.velocity.y)), state_name(anim.state()), static_cast<double>(anim.idle_weight()), static_cast<double>(anim.cycle_rate()),
-                        static_cast<double>(ik.pelvis_offset), moved > 0 ? "  (foot kept out of the wall)" : "", action.active() ? "  [roll]" : "");
+                        static_cast<double>(feet.ik_state().pelvis_offset), moved > 0 ? "  (foot kept out of the wall)" : "", action.active() ? "  [roll]" : "");
         }
     }
     return 0;

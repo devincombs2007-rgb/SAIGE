@@ -90,4 +90,33 @@ struct ObstacleIkConfig {
 // of the hit by `margin`. The character itself is untouched. Returns how many feet were moved.
 int keep_feet_outside_obstacles(const gfx::Skin& skin, const HumanoidMap& map, gfx::Pose& pose, const render::Transform& root, const ObstacleQuery& obstacle, const ObstacleIkConfig& config);
 
+// The whole foot-placement chain behind one call, in the order that works: while the character is on the ground, ground adaptation (pelvis, per-leg IK, foot tilt), then foot locking, then (always)
+// the wall check. A host calls `apply` once per tick after it has blended the pose, instead of wiring the three functions and their states itself. Leaving the ground resets the locks and the pelvis
+// offset, so a landing starts clean (a lock from before a jump would pin a foot to where it was). The ground and obstacle queries are optional: without one that step is skipped.
+struct FootPlacementConfig {
+    FootIkConfig ground;
+    FootLockConfig lock;
+    ObstacleIkConfig obstacle;
+    bool use_lock = true;
+};
+
+class FootPlacement {
+public:
+    explicit FootPlacement(FootPlacementConfig config = {}) : cfg_(config) {}
+    // Returns how many feet the wall check moved. `grounded` is the capsule's flag. Throws std::invalid_argument for a non-finite or non-positive dt.
+    int apply(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery* ground, const ObstacleQuery* obstacle, bool grounded,
+              float dt);
+    void reset() noexcept {
+        ik_ = {};
+        lock_ = {};
+    }
+    [[nodiscard]] const FootIkState& ik_state() const noexcept { return ik_; }
+    [[nodiscard]] const FootLockState& lock_state() const noexcept { return lock_; }
+
+private:
+    FootPlacementConfig cfg_;
+    FootIkState ik_;
+    FootLockState lock_;
+};
+
 } // namespace saige::anim

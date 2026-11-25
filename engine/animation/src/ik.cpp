@@ -284,3 +284,19 @@ HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const Rig
 }
 
 } // namespace saige::anim
+
+namespace saige::anim {
+
+int FootPlacement::apply(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery* ground, const ObstacleQuery* obstacle,
+                         bool grounded, float dt) {
+    if (!(dt > 0.0f) || !std::isfinite(dt)) throw std::invalid_argument("FootPlacement::apply: dt must be finite and positive");
+    if (grounded) {
+        if (ground != nullptr) adapt_feet_to_ground(skin, map, rig, pose, root, *ground, cfg_.ground, ik_, dt);
+        if (cfg_.use_lock) lock_planted_feet(skin, map, rig, pose, root, cfg_.lock, lock_, dt);
+    } else {
+        reset();
+    }
+    return obstacle != nullptr ? keep_feet_outside_obstacles(skin, map, pose, root, *obstacle, cfg_.obstacle) : 0;
+}
+
+} // namespace saige::anim

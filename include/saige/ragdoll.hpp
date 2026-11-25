@@ -42,6 +42,9 @@ struct HumanoidSpec {
 // Anatomical proportions (Winter, de Leva) for a person `height` tall standing with their feet centered at `feet`, facing `forward` (horizontal), arms hanging.
 [[nodiscard]] HumanoidSpec standard_humanoid(double height, double mass, DVec feet, DVec forward = {1, 0, 0});
 
+// The thirteen bodies' world transforms for a body of these measurements (what the ragdoll's rest pose is, and what an animation pose maps onto: a pose is turned into a spec with the joints where the pose has them).
+[[nodiscard]] RagdollPose humanoid_body_pose(const HumanoidSpec& spec);
+
 struct RagdollLimits {
     double spine_swing = 0.35, spine_twist = 0.3;
     double neck_swing = 0.6, neck_twist = 0.7;

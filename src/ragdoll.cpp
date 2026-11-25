@@ -178,6 +178,19 @@ Geometry geometry_of(const HumanoidSpec& s, Bone b) {
 
 } // namespace
 
+RagdollPose humanoid_body_pose(const HumanoidSpec& spec) {
+    HumanoidSpec s = spec;
+    const V f = norm(spec.forward);
+    s.forward = f;
+    s.up = norm(spec.up);
+    RagdollPose out;
+    for (std::size_t i = 0; i < kBoneCount; ++i) {
+        const Geometry g = geometry_of(s, static_cast<Bone>(i));
+        out[i] = {g.center, g.rotation};
+    }
+    return out;
+}
+
 Ragdoll::Ragdoll(DynamicsWorld& world, const HumanoidSpec& spec, std::uint32_t group, const RagdollLimits& lim) : world_(&world), spec_(spec) {
     if (group == 0) throw std::invalid_argument("Ragdoll: the self-collision group must be nonzero");
     if (!(spec.mass > 5.0) || !finite(spec.forward) || !finite(spec.up) || !(spec.height > 0.5)) throw std::invalid_argument("Ragdoll: a bad spec");

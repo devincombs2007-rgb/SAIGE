@@ -66,6 +66,15 @@ if(SAIGE_ANIMATION_BUILD_TESTS)
             SOURCES tests/test_character.cpp
             LINK saige::animation saige::core)
         target_include_directories(saige_animation_character_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+        # The skeleton to and from the humanoid ragdoll: needs a dynamics backend at run time (exit 77, skipped, without one).
+        if(TARGET saige_dynamics)
+            add_executable(saige_animation_ragdoll_test tests/ragdoll_glue_test.cpp)
+            target_include_directories(saige_animation_ragdoll_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+            target_link_libraries(saige_animation_ragdoll_test PRIVATE saige::animation saige_dynamics)
+            saige_gfx_configure_target(saige_animation_ragdoll_test)
+            add_test(NAME saige_animation_ragdoll COMMAND saige_animation_ragdoll_test)
+            set_tests_properties(saige_animation_ragdoll PROPERTIES SKIP_RETURN_CODE 77)
+        endif()
     endif()
 endif()
 

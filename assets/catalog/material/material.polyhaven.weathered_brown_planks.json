@@ -1,0 +1,92 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Dimitrios Savva",
+  "Rico Cilliers"
+ ],
+ "description": "Free 16K material of weathered brown wooden planks with chipped aged finish, deep grain, dirt and stain marks, worn edges and discolored, aged surfaces.",
+ "files": [
+  {
+   "bytes": 226049,
+   "format": "jpg",
+   "path": "polyhaven/weathered_brown_planks/1k/weathered_brown_planks_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "94833feda44e025a9139f7b5723ea84e4f0258d3b54939a79e1013c133085e29"
+  },
+  {
+   "bytes": 204214,
+   "format": "jpg",
+   "path": "polyhaven/weathered_brown_planks/1k/weathered_brown_planks_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "a428a3a6f89f7bb5c945c9668f2ac6ec268736fda7a4a421fd3ec80d3946929c"
+  },
+  {
+   "bytes": 223250,
+   "format": "jpg",
+   "path": "polyhaven/weathered_brown_planks/1k/weathered_brown_planks_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "8d38f02f121c0e58eaedc19cd668faea21381ae3ff4d5332cd90de75e6683393"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.weathered_brown_planks",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Dimitrios Savva; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Weathered Brown Planks",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven weathered_brown_planks --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:56:02Z",
+  "source_id": "weathered_brown_planks",
+  "url": "https://polyhaven.com/a/weathered_brown_planks"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wood",
+  "planks",
+  "old",
+  "worn",
+  "brown",
+  "maroon",
+  "painted",
+  "chipped",
+  "damaged",
+  "dirty",
+  "aged",
+  "stained",
+  "discolored",
+  "man made",
+  "wood",
+  "dirty",
+  "wall",
+  "outdoor",
+  "floor"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1799.9999523162842,
+   1799.9999523162842
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   16384,
+   16384
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

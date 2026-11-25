@@ -1,0 +1,102 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Fran Calvente"
+ ],
+ "description": "Free 4K model of a yellow plastic A-frame wet floor sign with molded handle, bold \"CAUTION / WET FLOOR\" icon and worn scuffs and grime for realistic detail.",
+ "files": [
+  {
+   "bytes": 2688,
+   "format": "gltf",
+   "path": "polyhaven/WetFloorSign_01/1k/WetFloorSign_01_1k.gltf",
+   "role": "model",
+   "sha256": "ba5b10d2de7bb60b77dc3e44a96446181a078e35597947a490a4b6de906059e4"
+  },
+  {
+   "bytes": 126370,
+   "format": "jpg",
+   "path": "polyhaven/WetFloorSign_01/1k/textures/WetFloorSign_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "6cd1d7c6648c36d2d66a7ddfc620ea78374ac770a5726f879b6914366e133e1a"
+  },
+  {
+   "bytes": 88138,
+   "format": "jpg",
+   "path": "polyhaven/WetFloorSign_01/1k/textures/WetFloorSign_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "62269358f3b30569783c1872613d1d70d5eda36babe5b5f04fcfd5e92de1af62"
+  },
+  {
+   "bytes": 39755,
+   "format": "jpg",
+   "path": "polyhaven/WetFloorSign_01/1k/textures/WetFloorSign_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "01e18486a858defc0f44a73ec5037c4bee770bae88e7fed5beb6877df120fa90"
+  },
+  {
+   "bytes": 9496,
+   "format": "bin",
+   "path": "polyhaven/WetFloorSign_01/1k/WetFloorSign_01.bin",
+   "role": "dependency",
+   "sha256": "d23cdec8975ac452d64ae97b08f1eecd22e38f052bd5d588d352dbc0f0373af0"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.wetfloorsign_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Fran Calvente",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wet Floor Sign 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven WetFloorSign_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:24Z",
+  "source_id": "WetFloorSign_01",
+  "url": "https://polyhaven.com/a/WetFloorSign_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "prop",
+  "plastic",
+  "sign",
+  "safety",
+  "caution",
+  "warning",
+  "yellow",
+  "hazard",
+  "slippery",
+  "slippery when wet",
+  "utility",
+  "props",
+  "industrial",
+  "office"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   300.0548481941223,
+   358.5093021392822,
+   629.5440040994436
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "polycount_source": 228,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

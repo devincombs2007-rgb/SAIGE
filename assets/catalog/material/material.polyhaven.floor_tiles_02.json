@@ -1,0 +1,87 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture: warm beige marble floor tiles with smooth yet slightly uneven square blocks, subtle veining, dirt speckles and worn grout lines.",
+ "files": [
+  {
+   "bytes": 354550,
+   "format": "jpg",
+   "path": "polyhaven/floor_tiles_02/1k/floor_tiles_02_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "05988d474ecb1f9cd48e65d978db88212252ef8b5af8ed3833395c1f86b2b469"
+  },
+  {
+   "bytes": 159606,
+   "format": "jpg",
+   "path": "polyhaven/floor_tiles_02/1k/floor_tiles_02_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "e03673c57b47c2ce436d8cd3851ff1030e1304162d16c47e82c54721e5c17479"
+  },
+  {
+   "bytes": 156697,
+   "format": "jpg",
+   "path": "polyhaven/floor_tiles_02/1k/floor_tiles_02_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "5ce11f7e5f12a1d61588f226a79e27eb8b57b95d2f95d1d6cbde613110696669"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.floor_tiles_02",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Floor Tiles 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven floor_tiles_02 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:46Z",
+  "source_id": "floor_tiles_02",
+  "url": "https://polyhaven.com/a/floor_tiles_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "marble",
+  "floor",
+  "square tiles",
+  "smooth surface",
+  "stone",
+  "wall",
+  "dirty",
+  "uneven",
+  "marble blocks",
+  "floor",
+  "wall",
+  "outdoor",
+  "indoor",
+  "clean",
+  "man made"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   4000,
+   4000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

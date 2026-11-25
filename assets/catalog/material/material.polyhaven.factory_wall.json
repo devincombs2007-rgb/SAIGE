@@ -1,0 +1,82 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture: green corrugated metal wall with painted finish, subtle weathering, fine scratches and rivets, soft specular sheen and moderate roughness.",
+ "files": [
+  {
+   "bytes": 308894,
+   "format": "jpg",
+   "path": "polyhaven/factory_wall/1k/factory_wall_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "6a8d2d4decc7754e56b5c4a3371d98ac5c521ebc732f255ddaa3b1bdd2f1a564"
+  },
+  {
+   "bytes": 162417,
+   "format": "jpg",
+   "path": "polyhaven/factory_wall/1k/factory_wall_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "889d90f362b266f7bc61a96cfeae5cd3fb0b065419bdf0fbea69b41c0cb3e4c8"
+  },
+  {
+   "bytes": 239999,
+   "format": "jpg",
+   "path": "polyhaven/factory_wall/1k/factory_wall_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "0500e643299efb2e716673ded425d27d8a71c04047e3143a0aee84aa067cabe3"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.factory_wall",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Factory Wall",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven factory_wall --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:44Z",
+  "source_id": "factory_wall",
+  "url": "https://polyhaven.com/a/factory_wall"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wall",
+  "fence",
+  "industrial",
+  "corrugated",
+  "metal",
+  "outdoor",
+  "wall",
+  "clean",
+  "roofing",
+  "man made"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   3000,
+   3000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

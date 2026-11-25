@@ -1,0 +1,84 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Jan Martens"
+ ],
+ "description": "Free 8K texture of rough, dirty, scuffed asphalt with a coarse, handmade hard-surface look, muted brown-gray tones and subtle wear and grit.",
+ "files": [
+  {
+   "bytes": 789488,
+   "format": "jpg",
+   "path": "polyhaven/asphalt_06/1k/asphalt_06_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "eb513e6d769aa1b43850826b6eb75a4f361b80ce7694153beacc0ea1a0399c26"
+  },
+  {
+   "bytes": 449853,
+   "format": "jpg",
+   "path": "polyhaven/asphalt_06/1k/asphalt_06_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "045458a1865738b0b492ca891fd1c86ccb7b1a6f2fcaae62226c9c6538a72ca4"
+  },
+  {
+   "bytes": 829479,
+   "format": "jpg",
+   "path": "polyhaven/asphalt_06/1k/asphalt_06_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "89fe919f479481becb32d011b5636892c030571d7f0964cc65ef5d21f563b800"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.asphalt_06",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jan Martens",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Asphalt 06",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven asphalt_06 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:56:00Z",
+  "source_id": "asphalt_06",
+  "url": "https://polyhaven.com/a/asphalt_06"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "dirty",
+  "scuffed",
+  "driveway texture",
+  "sidewalk",
+  "hard surface",
+  "handmade",
+  "raw",
+  "asphalt",
+  "outdoor",
+  "floor",
+  "road"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   3000,
+   3000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

@@ -1,0 +1,87 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Charlotte Baglioni"
+ ],
+ "description": "Free 8K texture of painted concrete cladding with horizontal grooves. Grainy, rough plaster surface, matte sheen, even beige tone and crisp lines.",
+ "files": [
+  {
+   "bytes": 454374,
+   "format": "jpg",
+   "path": "polyhaven/exterior_wall_cladding_03/1k/exterior_wall_cladding_03_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "b284af8fb0d4997c85f172902fcf0a0fa337249f63af1dd9c8f71cb5838df89e"
+  },
+  {
+   "bytes": 454352,
+   "format": "jpg",
+   "path": "polyhaven/exterior_wall_cladding_03/1k/exterior_wall_cladding_03_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "3451115ccaf3283f472ac98d661cec5026bab1f1c5a34ba6cec9a09270fdaad6"
+  },
+  {
+   "bytes": 835495,
+   "format": "jpg",
+   "path": "polyhaven/exterior_wall_cladding_03/1k/exterior_wall_cladding_03_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "bdab42092ee8c68c07ed526a047e577e4697d80b3927fdb034db287bbe1d5723"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.exterior_wall_cladding_03",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Charlotte Baglioni",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Exterior Wall Cladding 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven exterior_wall_cladding_03 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:34Z",
+  "source_id": "exterior_wall_cladding_03",
+  "url": "https://polyhaven.com/a/exterior_wall_cladding_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "grooved",
+  "concrete",
+  "plaster",
+  "plastered",
+  "painted",
+  "painted concrete",
+  "facade",
+  "cladding",
+  "grainy",
+  "plastering",
+  "outdoor",
+  "man made",
+  "wall",
+  "plaster-concrete"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1960.0000381469727,
+   1960.0000381469727
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

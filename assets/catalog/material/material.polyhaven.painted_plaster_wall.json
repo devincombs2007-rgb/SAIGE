@@ -1,0 +1,88 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Amal Kumar"
+ ],
+ "description": "Free 16K painted plaster texture showing  slightly discolored exterior plaster with worn patches, subtle stains, dirt and surface damage.",
+ "files": [
+  {
+   "bytes": 686726,
+   "format": "jpg",
+   "path": "polyhaven/painted_plaster_wall/1k/painted_plaster_wall_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "440310f05af089f2c93353167573403cbc3f805948203237b5d26431eeb9e19c"
+  },
+  {
+   "bytes": 511105,
+   "format": "jpg",
+   "path": "polyhaven/painted_plaster_wall/1k/painted_plaster_wall_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "2f13ed444e3e8f13087bca0890969d30795ed074bcfb11737d1ad6f5f0b53992"
+  },
+  {
+   "bytes": 900461,
+   "format": "jpg",
+   "path": "polyhaven/painted_plaster_wall/1k/painted_plaster_wall_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "8eb01647d126eb5341e2c325821ad48c8ca11349dbef53447c95422c5d91cc9d"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.painted_plaster_wall",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Amal Kumar",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Painted Plaster Wall",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven painted_plaster_wall --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:25Z",
+  "source_id": "painted_plaster_wall",
+  "url": "https://polyhaven.com/a/painted_plaster_wall"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "weathered",
+  "worn",
+  "wall",
+  "discolored",
+  "plaster",
+  "plastered",
+  "damaged",
+  "old",
+  "stained",
+  "dirty",
+  "exterior",
+  "timeworn",
+  "wall",
+  "plaster-concrete",
+  "outdoor"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2000,
+   2000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   16384,
+   16384
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

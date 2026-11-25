@@ -1,0 +1,101 @@
+{
+ "category": "infrastructure.road",
+ "creators": [
+  "Josh Dean"
+ ],
+ "description": "Free 8K wall-mounted Victorian street lamp with ornate wrought-iron bracket, textured dark metal, frosted glass panes and exposed bulb detail.",
+ "files": [
+  {
+   "bytes": 6429,
+   "format": "gltf",
+   "path": "polyhaven/street_lamp_02/1k/street_lamp_02_1k.gltf",
+   "role": "model",
+   "sha256": "3a8a42486c5dc4538a8b44aeeef502c64a1c9d0d42fa5610e37886c355337ff8"
+  },
+  {
+   "bytes": 303714,
+   "format": "jpg",
+   "path": "polyhaven/street_lamp_02/1k/textures/street_lamp_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "19882567313dd43fef60f9fa41a4c55f81a957f9fee539e931fc36a32e386b6c"
+  },
+  {
+   "bytes": 657710,
+   "format": "jpg",
+   "path": "polyhaven/street_lamp_02/1k/textures/street_lamp_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "a1e2d654e7d5d48a1fdfbf720840192d171df54e5ea5f055145d0472d617eede"
+  },
+  {
+   "bytes": 530092,
+   "format": "bin",
+   "path": "polyhaven/street_lamp_02/1k/street_lamp_02.bin",
+   "role": "dependency",
+   "sha256": "e544c04855dcf728ff2724f691f6784690b8ba3ac323a9a332e56b271ffe1d7c"
+  },
+  {
+   "bytes": 372301,
+   "format": "jpg",
+   "path": "polyhaven/street_lamp_02/1k/textures/street_lamp_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "fdd9fb26ca853020ed156fdd84e90ce3f9a68bf94edf71c0ffe72add67e316c6"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.street_lamp_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Josh Dean",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Street Lamp 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven street_lamp_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:51:55Z",
+  "source_id": "street_lamp_02",
+  "url": "https://polyhaven.com/a/street_lamp_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "street",
+  "road",
+  "light",
+  "lamppost",
+  "outdoor",
+  "pole",
+  "sidewalk",
+  "night",
+  "urban",
+  "city",
+  "lighting",
+  "industrial",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   386.49316132068634,
+   806.7893021069672,
+   1675.0419437885284
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 20338,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

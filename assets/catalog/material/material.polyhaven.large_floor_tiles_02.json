@@ -1,0 +1,81 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture of large square concrete floor tiles, matte and weathered with recessed grout, subtle surface roughness, dirt, and worn edges.",
+ "files": [
+  {
+   "bytes": 557814,
+   "format": "jpg",
+   "path": "polyhaven/large_floor_tiles_02/1k/large_floor_tiles_02_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "3865ed2510bad61c7c62fe9f854d5af57f1bc37e4b6d8931f03b12d033f9e17c"
+  },
+  {
+   "bytes": 193823,
+   "format": "jpg",
+   "path": "polyhaven/large_floor_tiles_02/1k/large_floor_tiles_02_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "14951d93859094b979257990b396fe0cb52415461218d6a8749b7bf43de92496"
+  },
+  {
+   "bytes": 228980,
+   "format": "jpg",
+   "path": "polyhaven/large_floor_tiles_02/1k/large_floor_tiles_02_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "80eed7cdd3eedaf0e348f0388eb47bed183b025165433ba0eef2bf2bd2546e47"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.large_floor_tiles_02",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Large Floor Tiles 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven large_floor_tiles_02 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:58Z",
+  "source_id": "large_floor_tiles_02",
+  "url": "https://polyhaven.com/a/large_floor_tiles_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "tiles",
+  "flat",
+  "large",
+  "square",
+  "even",
+  "floor",
+  "man made",
+  "outdoor",
+  "dirty"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   3000,
+   3000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

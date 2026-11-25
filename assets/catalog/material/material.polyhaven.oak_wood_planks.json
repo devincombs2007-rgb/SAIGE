@@ -1,0 +1,83 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Dimitrios Savva"
+ ],
+ "description": "Free 8K texture of varnished oak wood planks with warm grain, subtle gloss and seamless joins - ideal for realistic wooden flooring, furniture, and interior scenes.",
+ "files": [
+  {
+   "bytes": 696814,
+   "format": "jpg",
+   "path": "polyhaven/oak_wood_planks/1k/oak_wood_planks_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "f715ed3e4346e94f971ef8dd61221ff6cc774886c20f65381e01e1dc0bb0a634"
+  },
+  {
+   "bytes": 959397,
+   "format": "jpg",
+   "path": "polyhaven/oak_wood_planks/1k/oak_wood_planks_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "7786fe98ea2824ca90072fca069996429c56469acd96a80166d3780a13be70ce"
+  },
+  {
+   "bytes": 392213,
+   "format": "jpg",
+   "path": "polyhaven/oak_wood_planks/1k/oak_wood_planks_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "b4272cb2818f8f33f2620a2dc093c962f34920e9d485a4e132eb6d69de1ba950"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.oak_wood_planks",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Dimitrios Savva",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Oak Wood Planks",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven oak_wood_planks --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:51Z",
+  "source_id": "oak_wood_planks",
+  "url": "https://polyhaven.com/a/oak_wood_planks"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wood",
+  "planks",
+  "oak",
+  "wooden floor",
+  "wooden flooring ",
+  "wooden planks",
+  "varnished",
+  "timber",
+  "plank",
+  "coated",
+  "wood"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1200.0000476837158,
+   1200.0000476837158
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

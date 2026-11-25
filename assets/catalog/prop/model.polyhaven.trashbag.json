@@ -1,0 +1,103 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Benny Weimer"
+ ],
+ "description": "Free 8K model of a shiny black trash bag, crumpled and heavy with visible packaging under stretched plastic, rich folds, sharp creases, and grimy wear.",
+ "files": [
+  {
+   "bytes": 2738,
+   "format": "gltf",
+   "path": "polyhaven/trashbag/1k/trashbag_1k.gltf",
+   "role": "model",
+   "sha256": "22202e1ec48d924577584dce6751d5ab198fd7c0aee44602e9a7317b5b60a4a7"
+  },
+  {
+   "bytes": 573449,
+   "format": "jpg",
+   "path": "polyhaven/trashbag/1k/textures/trashbag_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "33ddb9711bb3ab2ff1ed19fa361a4251909643fada7e5579a28f6346a58b4daf"
+  },
+  {
+   "bytes": 332301,
+   "format": "jpg",
+   "path": "polyhaven/trashbag/1k/textures/trashbag_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "676e01cbeef39b51c9ecd67315c952a605c8db9c11544fbe11e14dcbd00be27f"
+  },
+  {
+   "bytes": 684660,
+   "format": "jpg",
+   "path": "polyhaven/trashbag/1k/textures/trashbag_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "95e69ba47bc7b84f342cdbe4385cfab670295827740fb09407b967ea2114c0aa"
+  },
+  {
+   "bytes": 106316,
+   "format": "bin",
+   "path": "polyhaven/trashbag/1k/trashbag.bin",
+   "role": "dependency",
+   "sha256": "7bfac5b9c39a058af347944b437f712718ec129ec883c16339179862cc155fe2"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.trashbag",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Benny Weimer",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Trashbag",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven trashbag --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:41Z",
+  "source_id": "trashbag",
+  "url": "https://polyhaven.com/a/trashbag"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "garbage bag",
+  "refuse",
+  "street waste",
+  "trash",
+  "street",
+  "scrapyard",
+  "junkyard",
+  "garbage",
+  "bin",
+  "dumpster",
+  "disposal",
+  "litter",
+  "rubbish",
+  "collection: project_lighthouse",
+  "props"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   528.0700623989105,
+   462.893009185791,
+   574.9993845820427
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 4482,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

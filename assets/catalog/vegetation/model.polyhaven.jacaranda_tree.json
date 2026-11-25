@@ -1,0 +1,153 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rob Tuytel",
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K Jacaranda tree model - lush, wide canopy of dense leaves, detailed bark and branching, natural multi-trunk silhouette.",
+ "files": [
+  {
+   "bytes": 9526,
+   "format": "gltf",
+   "path": "polyhaven/jacaranda_tree/1k/jacaranda_tree_1k.gltf",
+   "role": "model",
+   "sha256": "ba4aa8ab4c3e3741ce3699604d6ec1607cd6b126ae2d32abbcc0d98e8edb3be4"
+  },
+  {
+   "bytes": 819101,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_branches_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "2d67393ba76a0f49cf965fa0c99d8c16268e71e87b1203d35539bfdb971a514e"
+  },
+  {
+   "bytes": 531544,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_branches_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "5a4fe735f0c346cec83b6b444a0169fc14d2b31bbb7b26e26b1b6c726b6e06f6"
+  },
+  {
+   "bytes": 484806,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_branches_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "9e3f82263247ce4f619692cea4c4f6fe9936ff465a86623481849062642c7d05"
+  },
+  {
+   "bytes": 1096100,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_trunk_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "b2ad4e5daf8ec3fb87ba6c5f38e6a6924c9a6adebec20389f503e42da5d04587"
+  },
+  {
+   "bytes": 896938,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_trunk_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "e5582fba664a9255252d1ee8088f75ad557f07360aa7f4513f2b2f1577e90be9"
+  },
+  {
+   "bytes": 895975,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_trunk_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "4a12e238cf3b8ba860626e99bf128e56ab41642fa4c2502a77df41a338689b78"
+  },
+  {
+   "bytes": 700843,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_leaves_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "61520be2529ffe8e3d93d4361892134833bb4657117e121749089769067914c1"
+  },
+  {
+   "bytes": 533896,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_leaves_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "6fe80c1f514ef690cccefb90b7e559fbd1aa9c8935fdc02523cc8ab83c22f7c2"
+  },
+  {
+   "bytes": 332762,
+   "format": "jpg",
+   "path": "polyhaven/jacaranda_tree/1k/textures/jacaranda_tree_leaves_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "577eab0a07279fb4afd24522e85e0f188058c88db4b35eb0b330005b0d745b7a"
+  },
+  {
+   "bytes": 208307808,
+   "format": "bin",
+   "path": "polyhaven/jacaranda_tree/1k/jacaranda_tree.bin",
+   "role": "dependency",
+   "sha256": "4310d1e25db8ac63d6d345afc8154a1df7e85b301dfad228be66d85d6c52bbfc"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.jacaranda_tree",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Jacaranda Tree",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven jacaranda_tree --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:53:25Z",
+  "source_id": "jacaranda_tree",
+  "url": "https://polyhaven.com/a/jacaranda_tree"
+ },
+ "status": "rejected",
+ "suitability": {
+  "notes": [
+   "fetched to measure; far too heavy (tens to hundreds of MB, millions of triangles) for dozens of instances on a software rasterizer; procedural street trees are used instead"
+  ],
+  "runtime_ready": null
+ },
+ "tags": [
+  "tree",
+  "natural",
+  "nature",
+  "green",
+  "plant",
+  "outdoor",
+  "leaf",
+  "botany",
+  "leaves",
+  "forest",
+  "jungle",
+  "foliage",
+  "geometry nodes",
+  "bark",
+  "trunk",
+  "jacaranda",
+  "nature",
+  "plants",
+  "trees",
+  "collection: verdant_trail"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   24169.849395751953,
+   18028.766632080078,
+   19829.095542430878
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 312356,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

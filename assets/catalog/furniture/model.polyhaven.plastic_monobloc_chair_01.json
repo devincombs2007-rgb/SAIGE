@@ -1,0 +1,98 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Kuutti Siitonen"
+ ],
+ "description": "Free 4K model: weathered white plastic monobloc chair with scuffs, dirt and faded finish, classic cheap outdoor stacking design showing age and wear.",
+ "files": [
+  {
+   "bytes": 2892,
+   "format": "gltf",
+   "path": "polyhaven/plastic_monobloc_chair_01/1k/plastic_monobloc_chair_01_1k.gltf",
+   "role": "model",
+   "sha256": "899bf148139ab8d1718c25ec06112a652631f9476b5aaeeacb9eb1da9b7f1d3a"
+  },
+  {
+   "bytes": 124808,
+   "format": "bin",
+   "path": "polyhaven/plastic_monobloc_chair_01/1k/plastic_monobloc_chair_01.bin",
+   "role": "dependency",
+   "sha256": "db5c778488d01d7e7d3409e2cda53ee8f6dd523a327c080000d549dd0f83b375"
+  },
+  {
+   "bytes": 634320,
+   "format": "jpg",
+   "path": "polyhaven/plastic_monobloc_chair_01/1k/textures/plastic_monobloc_chair_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "78a67659a19a9df9efc0ef71789de0c949a727db62ade4c4c8887cd2c803c1a2"
+  },
+  {
+   "bytes": 560823,
+   "format": "jpg",
+   "path": "polyhaven/plastic_monobloc_chair_01/1k/textures/plastic_monobloc_chair_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "fdd1255a02bf684cfcff2eae75c0e3eea0db1fb5ecbfbd8c4f9beab8fd83ff6c"
+  },
+  {
+   "bytes": 630024,
+   "format": "jpg",
+   "path": "polyhaven/plastic_monobloc_chair_01/1k/textures/plastic_monobloc_chair_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "9ffa876b37d72ae1c0aed84d4dc1f62c956c844b3efec1f786f9080c10f63c9e"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.plastic_monobloc_chair_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Kuutti Siitonen",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Plastic Monobloc Chair 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven plastic_monobloc_chair_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:17Z",
+  "source_id": "plastic_monobloc_chair_01",
+  "url": "https://polyhaven.com/a/plastic_monobloc_chair_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "plastic",
+  "dirty",
+  "old",
+  "monobloc",
+  "outdoor",
+  "cheap",
+  "shed",
+  "furniture",
+  "seating",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   641.8611407279968,
+   627.5919079780579,
+   879.8411972820759
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "polycount_source": 3356,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

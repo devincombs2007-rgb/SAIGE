@@ -1,0 +1,85 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Charlotte Baglioni"
+ ],
+ "description": "Free 8K texture of a rough patterned brick wall with dark square bricks and tan interlocking diamond motifs, high-detail surface with subtle mortar and wear.",
+ "files": [
+  {
+   "bytes": 573536,
+   "format": "jpg",
+   "path": "polyhaven/patterned_brick_wall_03/1k/patterned_brick_wall_03_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "32411ede77aee27130d68c151bee3872ded585907c9bc72b9911a063357f2394"
+  },
+  {
+   "bytes": 558277,
+   "format": "jpg",
+   "path": "polyhaven/patterned_brick_wall_03/1k/patterned_brick_wall_03_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "11d6261b23aaefef71f3db9591e8ed8a45f78bf9268229935f986e6204c5e8c0"
+  },
+  {
+   "bytes": 805319,
+   "format": "jpg",
+   "path": "polyhaven/patterned_brick_wall_03/1k/patterned_brick_wall_03_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "b900a1cb812a714b6a3a7a8d06ed88de78c140759d6aa2526408560786100bda"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.patterned_brick_wall_03",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Charlotte Baglioni",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Patterned Brick Wall 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven patterned_brick_wall_03 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:37Z",
+  "source_id": "patterned_brick_wall_03",
+  "url": "https://polyhaven.com/a/patterned_brick_wall_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "brick",
+  "bricks",
+  "patterned",
+  "interlocking bricks",
+  "building facade",
+  "urban",
+  "outdoor",
+  "pattern",
+  "brick design",
+  "decorative bricks",
+  "wall",
+  "brick"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1800.0000715255737,
+   1800.0000715255737
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

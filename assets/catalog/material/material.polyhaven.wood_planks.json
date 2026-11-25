@@ -1,0 +1,92 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Amal Kumar"
+ ],
+ "description": "Free 8K wood texture of weathered, aged planks with warm brown tones, visible grain, scratches, gaps and a worn, slightly discolored timber surface.",
+ "files": [
+  {
+   "bytes": 609525,
+   "format": "jpg",
+   "path": "polyhaven/wood_planks/1k/wood_planks_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "3b0669f683e4bf10f5a55a381cfa9669a7b8dfd921901829daa3b35acc2bbdec"
+  },
+  {
+   "bytes": 383696,
+   "format": "jpg",
+   "path": "polyhaven/wood_planks/1k/wood_planks_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "42ffe7f755e1a74c051342e8e5d48e573b6640f4313549f04ea127f19248babd"
+  },
+  {
+   "bytes": 652441,
+   "format": "jpg",
+   "path": "polyhaven/wood_planks/1k/wood_planks_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "d02abf113e17a8abe97e1be3e9d6d88add242e8c2291e2200d37aa8c68909f25"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.wood_planks",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Amal Kumar",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wood Planks",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven wood_planks --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:48Z",
+  "source_id": "wood_planks",
+  "url": "https://polyhaven.com/a/wood_planks"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "weathered",
+  "old",
+  "discolored",
+  "wood",
+  "floor",
+  "wooden planks",
+  "wooden flooring ",
+  "planks",
+  "plank",
+  "grain",
+  "aged",
+  "worn",
+  "scratched",
+  "wooden",
+  "timber",
+  "floor",
+  "wood",
+  "raw wood",
+  "man made"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1499.999761581421,
+   1499.999761581421
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

@@ -1,0 +1,122 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Gonçalo Felício"
+ ],
+ "description": "Free 8K model: red street fire hydrant with clean and worn variants. Chipped paint, rusted metal caps and chain, realistic urban wear and detailed base.",
+ "files": [
+  {
+   "bytes": 20926,
+   "format": "gltf",
+   "path": "polyhaven/fire_hydrant/1k/fire_hydrant_1k.gltf",
+   "role": "model",
+   "sha256": "aaca81b2904e6e5f1fb10a854c7b9a921232624387d1f8757b5c6bdaedcd9eb0"
+  },
+  {
+   "bytes": 1928772,
+   "format": "bin",
+   "path": "polyhaven/fire_hydrant/1k/fire_hydrant.bin",
+   "role": "dependency",
+   "sha256": "a3c7ed023bc4aff190902764326e7f83ae1a108f6bac2a1b637c38a8e03eb516"
+  },
+  {
+   "bytes": 490552,
+   "format": "jpg",
+   "path": "polyhaven/fire_hydrant/1k/textures/fire_hydrant_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "f6786775276c7b48f0582fdd7c43984b63b15b7a8e0ea0e2f2af8cdab98c06d7"
+  },
+  {
+   "bytes": 629331,
+   "format": "jpg",
+   "path": "polyhaven/fire_hydrant/1k/textures/fire_hydrant_aged_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "3198cabcaf5107e59109bd07dfe8e4c87b3f0533173d10fafdaf86f8024a291e"
+  },
+  {
+   "bytes": 665642,
+   "format": "jpg",
+   "path": "polyhaven/fire_hydrant/1k/textures/fire_hydrant_aged_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "9c46b014735a4e8df5a80e4c030ddb321c9aeaa715ad4ea3eb60e6f0909c9d0a"
+  },
+  {
+   "bytes": 543768,
+   "format": "jpg",
+   "path": "polyhaven/fire_hydrant/1k/textures/fire_hydrant_aged_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "6fadc78fd5d696bf594ff021aaf93a0c6aced761830f9aa6971c51b17c869c35"
+  },
+  {
+   "bytes": 570746,
+   "format": "jpg",
+   "path": "polyhaven/fire_hydrant/1k/textures/fire_hydrant_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "a3d0b8b6fcd8a39c8d5067f8ef95e3290053131887398f89baf57c1f8d24ab45"
+  },
+  {
+   "bytes": 671743,
+   "format": "jpg",
+   "path": "polyhaven/fire_hydrant/1k/textures/fire_hydrant_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "d15bf8fc6389ae48a1060a38057c2093469e62f585c8033d300b80af81d40f9d"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.fire_hydrant",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Gonçalo Felício",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Fire Hydrant",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven fire_hydrant --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:51:52Z",
+  "source_id": "fire_hydrant",
+  "url": "https://polyhaven.com/a/fire_hydrant"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "city",
+  "urban",
+  "street",
+  "road",
+  "emergency",
+  "valve",
+  "extinguisher",
+  "utility",
+  "municipal",
+  "infrastructure",
+  "industrial",
+  "structures",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   874.623566865921,
+   317.74356961250305,
+   799.4560238003032
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 86316,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

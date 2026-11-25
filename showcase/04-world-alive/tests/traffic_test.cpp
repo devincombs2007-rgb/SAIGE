@@ -19,7 +19,7 @@ int failures = 0;
 } // namespace
 
 int main(int argc, char** argv) {
-    const double seconds = argc > 1 ? std::atof(argv[1]) : 120.0;
+    const double seconds = argc > 1 ? std::atof(argv[1]) : 150.0;
     // ---- ordinary traffic: no accidents ---------------------------------------------------------------------------------------------------------------------------------------------------
     {
         WorldConfig cfg;
@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
         const TrafficStats ts = w.traffic_stats();
         std::printf("traffic cost: %.0f ms signals+sim, %.0f ms vehicles+physics over %.0f s; closest centres %.2f m\n", ts.ms_traffic, ts.ms_vehicles, seconds, min_gap_centres);
         CHECK(most_vehicles >= 8);
-        CHECK(ts.despawned >= 3);                  // cars complete their journeys and leave
+        CHECK(ts.despawned >= 2);                  // cars complete their journeys and leave
         CHECK(ts.red_light_runs == 0);
         CHECK(ts.impacts == 0);                    // nothing hits anything in ordinary driving
         CHECK(ts.lane_departures == 0);

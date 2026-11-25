@@ -1,0 +1,86 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture of worn diamond-plate steel with chipped green paint, rust, pitting and dark oily highlights. Rough, dirty industrial metal surface.",
+ "files": [
+  {
+   "bytes": 692234,
+   "format": "jpg",
+   "path": "polyhaven/metal_plate/1k/metal_plate_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "c6b6739eac2c75ccc898e753d7833df24eafbdb9aa92fb6eabfb92abd1a680a5"
+  },
+  {
+   "bytes": 1004043,
+   "format": "jpg",
+   "path": "polyhaven/metal_plate/1k/metal_plate_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "fc4708b6700a2cc387654b693091dd0ac0cd1797ae803d75c894e62554fbef07"
+  },
+  {
+   "bytes": 770307,
+   "format": "jpg",
+   "path": "polyhaven/metal_plate/1k/metal_plate_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "994f851a84d52b51e97906021a1b7070ee6eac9a789fef041132268de47d8e6b"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.metal_plate",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Metal Plate",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven metal_plate --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:56:04Z",
+  "source_id": "metal_plate",
+  "url": "https://polyhaven.com/a/metal_plate"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "bare",
+  "painted",
+  "rusty",
+  "pattern",
+  "iron",
+  "factory",
+  "industrial",
+  "steel",
+  "metal",
+  "floor",
+  "man made",
+  "indoor",
+  "outdoor",
+  "dirty"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   500,
+   500
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

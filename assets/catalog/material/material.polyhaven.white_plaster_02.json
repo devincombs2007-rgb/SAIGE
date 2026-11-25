@@ -1,0 +1,82 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K plaster texture: smooth, flat white plaster with a soft matte finish, fine micro-roughness and subtle dirt speckling across the surface.",
+ "files": [
+  {
+   "bytes": 527219,
+   "format": "jpg",
+   "path": "polyhaven/white_plaster_02/1k/white_plaster_02_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "a1ebbe091bd1ae93d2abd5de8d69f9003a8d0ee6532bcf9a87c2492c97051f23"
+  },
+  {
+   "bytes": 191017,
+   "format": "jpg",
+   "path": "polyhaven/white_plaster_02/1k/white_plaster_02_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "2bb1115821715dfd8bbd1c5a294a5bb43b97d5c46b1aa8aa8f744bcaf5eeeb10"
+  },
+  {
+   "bytes": 652310,
+   "format": "jpg",
+   "path": "polyhaven/white_plaster_02/1k/white_plaster_02_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "eb572ca3630d5bfde72e2601b1f02412da23ca005cd19384dced8690be4cb783"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.white_plaster_02",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "White Plaster 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven white_plaster_02 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:27Z",
+  "source_id": "white_plaster_02",
+  "url": "https://polyhaven.com/a/white_plaster_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "smooth",
+  "flat",
+  "even",
+  "plaster-concrete",
+  "wall",
+  "man made",
+  "outdoor",
+  "indoor",
+  "clean",
+  "floor"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1000,
+   1000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

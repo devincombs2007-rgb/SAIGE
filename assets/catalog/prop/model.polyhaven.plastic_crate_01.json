@@ -1,0 +1,99 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "PierreB3D"
+ ],
+ "description": "Free 4K model of a deep red plastic crate with lattice sides, cutout handles, and a worn GALLER STORAGE print. Realistic scuffs, grime, and sturdy ribs.",
+ "files": [
+  {
+   "bytes": 2793,
+   "format": "gltf",
+   "path": "polyhaven/plastic_crate_01/1k/plastic_crate_01_1k.gltf",
+   "role": "model",
+   "sha256": "42556fc8e39e5834ebf474dff79d4c0524fd3074be6c86c0c6704a10be8b3756"
+  },
+  {
+   "bytes": 884228,
+   "format": "jpg",
+   "path": "polyhaven/plastic_crate_01/1k/textures/plastic_crate_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "6f0c44778216d50672d6a23660b22dec8b96bb6e71518d699c24630c34cf9217"
+  },
+  {
+   "bytes": 518288,
+   "format": "jpg",
+   "path": "polyhaven/plastic_crate_01/1k/textures/plastic_crate_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "d9109a42e397e39bbd7f42976d93122dbd5ccdef8ff64bce353571e1c1b994f6"
+  },
+  {
+   "bytes": 993636,
+   "format": "jpg",
+   "path": "polyhaven/plastic_crate_01/1k/textures/plastic_crate_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "9a4af28d6fe8d5459a3c1a8706c0f8877221873ac9b83de580e6cfa63c3ecaa0"
+  },
+  {
+   "bytes": 789920,
+   "format": "bin",
+   "path": "polyhaven/plastic_crate_01/1k/plastic_crate_01.bin",
+   "role": "dependency",
+   "sha256": "59b307238a27f304739aeef0b1c9622d1e4efb31a96d805d2cfc0c461f9bb06d"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.plastic_crate_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "PierreB3D",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Plastic Crate 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven plastic_crate_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:35Z",
+  "source_id": "plastic_crate_01",
+  "url": "https://polyhaven.com/a/plastic_crate_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "beverage crate",
+  "milk crate",
+  "storage",
+  "crate",
+  "box",
+  "garage",
+  "workshop",
+  "retail",
+  "collection: project_lighthouse",
+  "props",
+  "containers"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   298.00063371658325,
+   408.00413489341736,
+   264.1694247722626
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "polycount_source": 18320,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

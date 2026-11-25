@@ -1,0 +1,85 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Dimitrios Savva",
+  "Rico Cilliers"
+ ],
+ "description": "Free 16K texture of smooth beige painted plaster with subtle grain and a matte finish, showing soft color variation and surface blemishes.",
+ "files": [
+  {
+   "bytes": 33074,
+   "format": "jpg",
+   "path": "polyhaven/beige_wall_001/1k/beige_wall_001_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "72104704d0b9bd3713c5f6238971252b63eccf6e61263059c674caa8f3d0fa6d"
+  },
+  {
+   "bytes": 87358,
+   "format": "jpg",
+   "path": "polyhaven/beige_wall_001/1k/beige_wall_001_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "2382c7cccde8baedb61830a3c61264c5567aca4fbf825425fcc0544d40323f3d"
+  },
+  {
+   "bytes": 153434,
+   "format": "jpg",
+   "path": "polyhaven/beige_wall_001/1k/beige_wall_001_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "cec747be50f91da0693986080b6f59ef868d53cb2ab7d577982165ece63ed75e"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.beige_wall_001",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Dimitrios Savva; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Beige Wall 001",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven beige_wall_001 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:23Z",
+  "source_id": "beige_wall_001",
+  "url": "https://polyhaven.com/a/beige_wall_001"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "beige",
+  "painted",
+  "smooth",
+  "suburb",
+  "house",
+  "home",
+  "man made",
+  "wall",
+  "plaster",
+  "outdoor",
+  "indoor",
+  "plaster-concrete"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   3000,
+   3000.000238418579
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   16384,
+   16384
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

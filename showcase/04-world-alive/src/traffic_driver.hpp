@@ -20,6 +20,9 @@ namespace saige::alive {
 
 enum class VehicleKind : std::uint8_t { Sedan, Hatchback, Van, Taxi, Ambulance, FireEngine };
 
+// The physics configuration of a kind of vehicle (the renderer reads the wheel mounts, the radius and the box from it so that what is drawn sits where the physics puts it).
+[[nodiscard]] VehicleConfig vehicle_config_for(VehicleKind kind);
+
 struct VehicleView {
     std::uint32_t id = 0;
     VehicleKind kind = VehicleKind::Sedan;

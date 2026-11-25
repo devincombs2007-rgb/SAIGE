@@ -1,0 +1,121 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K model. Realistic terracotta pot with weathered rim, textured soil, and variegated green, heart-shaped leaves with pronounced veins.",
+ "files": [
+  {
+   "bytes": 6653,
+   "format": "gltf",
+   "path": "polyhaven/potted_plant_02/1k/potted_plant_02_1k.gltf",
+   "role": "model",
+   "sha256": "c533dcce0d1aa4379eb7db04601a04983f8df2422b28578de922655a416e64a9"
+  },
+  {
+   "bytes": 167700,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_02/1k/textures/potted_plant_02_leaves_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "3643dce6e6c0a9f40129bd837ec1a11802e8f43ea43cb29e58219d82e0ac632b"
+  },
+  {
+   "bytes": 1852244,
+   "format": "bin",
+   "path": "polyhaven/potted_plant_02/1k/potted_plant_02.bin",
+   "role": "dependency",
+   "sha256": "9c9812482c78a59789ed32fa842b4cbd9365e09c900c31ebb998e5efe627fe97"
+  },
+  {
+   "bytes": 114886,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_02/1k/textures/potted_plant_02_pot_rough_1k.jpg",
+   "role": "dependency",
+   "sha256": "4e92ad8ee0f098050785d9a025e2c5a7d55bc7a7f7e1916cc7627fc7824a938f"
+  },
+  {
+   "bytes": 102396,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_02/1k/textures/potted_plant_02_leaves_rough_1k.jpg",
+   "role": "dependency",
+   "sha256": "ac8959f70c0e91e77f3cd6fd3f73578b8aed64ac6c33fc34ac027a4e88276960"
+  },
+  {
+   "bytes": 155244,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_02/1k/textures/potted_plant_02_pot_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "684949bf24821d7e951d46915366b5a388d2e4ccaaa9d5284e718c83604705e9"
+  },
+  {
+   "bytes": 127232,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_02/1k/textures/potted_plant_02_leaves_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "e0fe090ff7a511729c9bbe59df7288b400430fdab178529443dec75e0f06007d"
+  },
+  {
+   "bytes": 108343,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_02/1k/textures/potted_plant_02_pot_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "981a68721c8b7b9ac26b96d0210334599d5e8f529362f505082c071a0a58e86c"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.potted_plant_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Potted Plant 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven potted_plant_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:28Z",
+  "source_id": "potted_plant_02",
+  "url": "https://polyhaven.com/a/potted_plant_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "potplant",
+  "plant",
+  "pot",
+  "vase",
+  "medium",
+  "leaf",
+  "green",
+  "terracotta",
+  "decorative",
+  "plants",
+  "potted plants",
+  "nature"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   701.1570334434509,
+   657.3865860700607,
+   841.1787391305552
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 69806,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

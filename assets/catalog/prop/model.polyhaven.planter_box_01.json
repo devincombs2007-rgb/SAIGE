@@ -1,0 +1,106 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "James Ray Cock"
+ ],
+ "description": "Free 8K model of an old farmhouse wooden planter box - weathered planks, interior liner, rustic shed/garden charm for landscaping, greenhouses, and decor.",
+ "files": [
+  {
+   "bytes": 2787,
+   "format": "gltf",
+   "path": "polyhaven/planter_box_01/1k/planter_box_01_1k.gltf",
+   "role": "model",
+   "sha256": "15c7ff7396d872e5cad6743c796ff0f42e1f3f831fd334a26aa1fdbd11834a1f"
+  },
+  {
+   "bytes": 707323,
+   "format": "jpg",
+   "path": "polyhaven/planter_box_01/1k/textures/planter_box_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "7d2ad01fdfc8ea9e39af0ddc1db710380afad859dc3848302ff72d21a6e21a27"
+  },
+  {
+   "bytes": 745610,
+   "format": "jpg",
+   "path": "polyhaven/planter_box_01/1k/textures/planter_box_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "b80b08f88166360af32a076082daaed820f0d364a5bef0acea651485017ccbd6"
+  },
+  {
+   "bytes": 250580,
+   "format": "bin",
+   "path": "polyhaven/planter_box_01/1k/planter_box_01.bin",
+   "role": "dependency",
+   "sha256": "cc97bc9ee05a90c78e27ca575a83eba86955e863dea8a12826f6ff02c2c11db3"
+  },
+  {
+   "bytes": 633117,
+   "format": "jpg",
+   "path": "polyhaven/planter_box_01/1k/textures/planter_box_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "5ad77068bf07ca371e18322c04641754a7758f4479e2835b93f671b4a5143bee"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.planter_box_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Planter Box 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven planter_box_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:51:59Z",
+  "source_id": "planter_box_01",
+  "url": "https://polyhaven.com/a/planter_box_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "old",
+  "wooden",
+  "wood",
+  "farmhouse",
+  "shed",
+  "outdoor",
+  "gardening",
+  "greenhouse",
+  "landscaping",
+  "garden",
+  "farm",
+  "planter",
+  "flower box",
+  "planters",
+  "decorative",
+  "containers",
+  "potted plants",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   912.6113951206207,
+   413.6679768562317,
+   424.96823612600565
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 8094,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

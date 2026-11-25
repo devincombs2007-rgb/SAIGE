@@ -1,0 +1,98 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Patrik Pangerl"
+ ],
+ "description": "Free 8K model of a modern wooden cabinet with dark frame, vertical light-wood slatted curved doors on slim metal legs, minimalist contemporary design.",
+ "files": [
+  {
+   "bytes": 10960,
+   "format": "gltf",
+   "path": "polyhaven/modern_wooden_cabinet/1k/modern_wooden_cabinet_1k.gltf",
+   "role": "model",
+   "sha256": "9c0765063297018e854d11bc27da3cbab3c33904a3be2f5c15f46635df7e857f"
+  },
+  {
+   "bytes": 1170136,
+   "format": "bin",
+   "path": "polyhaven/modern_wooden_cabinet/1k/modern_wooden_cabinet.bin",
+   "role": "dependency",
+   "sha256": "04e664a95f52c48d0caa8c3148ab7e4ad4a0554b37a2a5c0e39dc6ed6c46cafe"
+  },
+  {
+   "bytes": 430053,
+   "format": "jpg",
+   "path": "polyhaven/modern_wooden_cabinet/1k/textures/modern_wooden_cabinet_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "f08b3d0619a60e2eac19c9d9c0d7dc0e3eb75af2692d84b32ddfd12d857c15ab"
+  },
+  {
+   "bytes": 574020,
+   "format": "jpg",
+   "path": "polyhaven/modern_wooden_cabinet/1k/textures/modern_wooden_cabinet_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "fad6df227ec6d431387b10bd244a0d087e89e6dce0b1c732df5c87f0a1def3f5"
+  },
+  {
+   "bytes": 670353,
+   "format": "jpg",
+   "path": "polyhaven/modern_wooden_cabinet/1k/textures/modern_wooden_cabinet_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "e494b67439da73775413d6aaea369ae05a8ebd7705be8df08dbcd2ee4fd545e4"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.modern_wooden_cabinet",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Patrik Pangerl",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Modern Wooden Cabinet",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven modern_wooden_cabinet --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:38Z",
+  "source_id": "modern_wooden_cabinet",
+  "url": "https://polyhaven.com/a/modern_wooden_cabinet"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "cabinet",
+  "wood",
+  "modern",
+  "minimalist",
+  "interrior",
+  "living room",
+  "contemporary",
+  "design",
+  "furniture",
+  "table"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2440.0004148483276,
+   520.0000107288361,
+   680.1425069570541
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 24976,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

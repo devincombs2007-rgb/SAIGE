@@ -18,48 +18,76 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kStep = 1.0 / 60.0;
 constexpr double kRideHeight = 0.80;   // the chassis centre above the road when it is dropped onto its suspension
 
-[[nodiscard]] VehicleConfig config_for(VehicleKind k) {
+[[nodiscard]] VehicleConfig car_model_config() {
+    // The geometry of the CarConcept model (Showcase 03 measured it): wheel mounts, radius and suspension are the model's, so the drawn wheels sit where the physics puts them.
     VehicleConfig c;
+    c.mass = 1450.0f;
+    c.half_extents = {2.17f, 1.0f, 0.53f};
+    c.center_of_mass = {-0.14f, 0.0f, -0.30f};
+    c.wheel_radius = 0.384f;
+    c.suspension_travel = 0.40f;
+    c.spring = 36000.0f;
+    c.damper = 4300.0f;
+    c.wheels = {{
+        {{1.256f, 0.98f, 0.065f}, true, false},
+        {{1.256f, -0.98f, 0.065f}, true, false},
+        {{-1.544f, 0.98f, 0.065f}, false, true},
+        {{-1.544f, -0.98f, 0.065f}, false, true},
+    }};
+    return c;
+}
+
+} // namespace
+
+VehicleConfig vehicle_config_for(VehicleKind k) {
+    VehicleConfig c = car_model_config();
     c.damage.enabled = true;
     c.slip_angle_lateral = true;
     switch (k) {
     case VehicleKind::Hatchback:
-        c.mass = 1180.0f;
-        c.half_extents = {1.95f, 0.88f, 0.48f};
-        c.engine_force = 6800.0f;
+        c.mass = 1250.0f;
+        c.engine_force = 7200.0f;
         break;
     case VehicleKind::Van:
         c.mass = 2350.0f;
-        c.half_extents = {2.45f, 0.98f, 0.62f};
+        c.half_extents = {2.45f, 1.0f, 0.55f};
+        c.center_of_mass = {-0.1f, 0.0f, -0.4f};
+        c.wheel_radius = 0.40f;
+        c.wheels = {{{{1.45f, 1.0f, 0.0f}, true, false}, {{1.45f, -1.0f, 0.0f}, true, false}, {{-1.5f, 1.0f, 0.0f}, false, true}, {{-1.5f, -1.0f, 0.0f}, false, true}}};
         c.engine_force = 8600.0f;
         c.engine_power = 130000.0f;
         c.brake_force = 20000.0f;
         break;
     case VehicleKind::Ambulance:
         c.mass = 3100.0f;
-        c.half_extents = {2.8f, 1.0f, 0.78f};
+        c.half_extents = {2.8f, 1.0f, 0.6f};
+        c.center_of_mass = {-0.1f, 0.0f, -0.5f};
+        c.wheel_radius = 0.42f;
+        c.wheels = {{{{1.7f, 1.0f, 0.0f}, true, false}, {{1.7f, -1.0f, 0.0f}, true, false}, {{-1.7f, 1.0f, 0.0f}, false, true}, {{-1.7f, -1.0f, 0.0f}, false, true}}};
         c.engine_force = 11000.0f;
         c.engine_power = 190000.0f;
         c.brake_force = 26000.0f;
         break;
     case VehicleKind::FireEngine:
         c.mass = 8200.0f;
-        c.half_extents = {4.0f, 1.1f, 0.95f};
+        c.half_extents = {4.0f, 1.1f, 0.65f};
+        c.center_of_mass = {-0.2f, 0.0f, -0.6f};
+        c.wheel_radius = 0.5f;
+        c.suspension_travel = 0.5f;
+        c.spring = 70000.0f;
+        c.damper = 9000.0f;
+        c.wheels = {{{{2.7f, 1.1f, 0.0f}, true, false}, {{2.7f, -1.1f, 0.0f}, true, false}, {{-2.4f, 1.1f, 0.0f}, false, true}, {{-2.4f, -1.1f, 0.0f}, false, true}}};
         c.engine_force = 22000.0f;
         c.engine_power = 280000.0f;
         c.brake_force = 54000.0f;
-        c.spring = 70000.0f;
-        c.damper = 9000.0f;
-        for (auto& w : c.wheels) {
-            w.mount.x *= 1.9f;
-            w.mount.y *= 1.1f;
-        }
         break;
     case VehicleKind::Taxi:
     case VehicleKind::Sedan: break;
     }
     return c;
 }
+
+namespace {
 
 struct Car {
     std::uint32_t id = 0;
@@ -72,6 +100,7 @@ struct Car {
     bool disabled = false;
     double disabled_at = 0.0;
     bool emergency = false;
+    bool responder = false;   // dispatched by the response: never wrecked by the incident logic, whatever its siren state
     double on_scene_since = -1.0;
     bool braking = false;
     int palette = 0;
@@ -198,9 +227,10 @@ struct TrafficDriver::Impl {
         c.kind = kind;
         c.route = route;
         c.emergency = emergency;
+        c.responder = emergency;
         c.palette = rng.pick(7);
         c.spawned_at = time;
-        c.body = std::make_unique<Vehicle>(config_for(kind), Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(kRideHeight + 0.1)}, static_cast<float>(std::atan2(t[1], t[0])));
+        c.body = std::make_unique<Vehicle>(vehicle_config_for(kind), Vec3{static_cast<float>(x), static_cast<float>(y), static_cast<float>(kRideHeight + 0.1)}, static_cast<float>(std::atan2(t[1], t[0])));
         traffic::TrafficVehicle tv;
         tv.id = c.id;
         tv.role = emergency ? traffic::VehicleRole::Emergency : (kind == VehicleKind::Van ? traffic::VehicleRole::Commercial : traffic::VehicleRole::Civilian);
@@ -304,7 +334,22 @@ struct TrafficDriver::Impl {
                 }
             }
             d.traffic.sync_external_vehicle_state(c.id, lane->id, std::clamp(s, 0.0, lane->length_m()), std::max(0.0, static_cast<double>(vs.forward_speed)));
-            if (c.cursor + 1 >= c.route.size() && s >= lane->length_m() - 2.5 && !c.emergency) c.remove = true;
+            if (c.cursor + 1 >= c.route.size() && s >= lane->length_m() - 2.5) {
+                if (!c.emergency) {
+                    c.remove = true;
+                } else if (!lane->successor_lanes.empty()) {
+                    // A responder that has reached the end of its way to the scene without stopping (nothing ahead of it held it): it leaves by the nearest exit instead of running on.
+                    const traffic::LaneId exit = exits[static_cast<std::size_t>(rng.pick(static_cast<int>(exits.size())))];
+                    auto route = d.traffic.find_lane_route(lane->id, exit);
+                    if (!route.empty()) {
+                        c.route = route;
+                        c.cursor = 0;
+                        c.emergency = false;
+                    }
+                } else {
+                    c.remove = true;   // the end of a road at the edge of the district
+                }
+            }
             if (!c.disabled && c.distract_until < time && !lane->successor_lanes.empty() && lane->end_intersection != traffic::kInvalidIntersectionId) {
                 const double e = std::fabs(lane_lateral(*lane, vs.position.x, vs.position.y));
                 st.max_lane_error_m = std::max(st.max_lane_error_m, e);
@@ -362,7 +407,7 @@ struct TrafficDriver::Impl {
                 ev.surface_kind = classify(im.point.x, im.point.y, im.point.z);
                 events.push_back(ev);
                 ++st.impacts;
-                if (!c.disabled && im.energy > 9000.0f && !c.emergency) wreck(c, ev);
+                if (!c.disabled && im.energy > 9000.0f && !c.emergency && !c.responder) wreck(c, ev);
             }
         }
         std::erase_if(cars, [&](Car& c) {
@@ -440,7 +485,7 @@ struct TrafficDriver::Impl {
             s = 0.0;
         }
         const double alpha = wrap(std::atan2(ty - vs.position.y, tx - vs.position.x) - vs.yaw);
-        const double wheelbase = 2.6;
+        const double wheelbase = 2.8;
         const double delta = std::atan2(2.0 * wheelbase * std::sin(alpha), ld);
         return std::clamp(delta / static_cast<double>(c.body->config().max_steer), -1.0, 1.0);
     }

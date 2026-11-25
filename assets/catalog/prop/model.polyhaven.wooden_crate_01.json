@@ -1,0 +1,105 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "James Ray Cock"
+ ],
+ "description": "Free 8K model of a vintage wooden crate - weathered colonial chest with rope handles, metal rivets and latch; ideal as maritime, farmhouse or prop container.",
+ "files": [
+  {
+   "bytes": 5612,
+   "format": "gltf",
+   "path": "polyhaven/wooden_crate_01/1k/wooden_crate_01_1k.gltf",
+   "role": "model",
+   "sha256": "fd9c6073acfc671e12b64666053f2805ae33aff5d3dbbcfe5c97c08c06644927"
+  },
+  {
+   "bytes": 711292,
+   "format": "jpg",
+   "path": "polyhaven/wooden_crate_01/1k/textures/wooden_crate_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "16653f4abaf4c1d9bca94bde3bd8c54d0ea9a5298d1648abcf57de1f7ecc34cc"
+  },
+  {
+   "bytes": 594076,
+   "format": "jpg",
+   "path": "polyhaven/wooden_crate_01/1k/textures/wooden_crate_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "f4ea44c7dc1686123d337039cb713d74e8a2dbc6d1bd2beeac276d06f5df3fab"
+  },
+  {
+   "bytes": 189408,
+   "format": "bin",
+   "path": "polyhaven/wooden_crate_01/1k/wooden_crate_01.bin",
+   "role": "dependency",
+   "sha256": "85f381f8035f7a6f2f3b848640894c6d3333b261946dd8a338c0fe19e0bea21e"
+  },
+  {
+   "bytes": 776699,
+   "format": "jpg",
+   "path": "polyhaven/wooden_crate_01/1k/textures/wooden_crate_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "cd0b031c3924905e16ffd78ead062c2cc274148c4104d09635310097738b4679"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.wooden_crate_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wooden Crate 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven wooden_crate_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:32Z",
+  "source_id": "wooden_crate_01",
+  "url": "https://polyhaven.com/a/wooden_crate_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "wood",
+  "old",
+  "wooden",
+  "fancy",
+  "colonial",
+  "chest",
+  "box",
+  "prop",
+  "antique",
+  "farmhouse",
+  "crate",
+  "maritime",
+  "commercial",
+  "container",
+  "containers",
+  "collection: smugglers_cove"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   825.2729177474976,
+   408.9537411928177,
+   349.6182831004262
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": 6576,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

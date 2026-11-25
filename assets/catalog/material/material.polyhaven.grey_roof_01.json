@@ -1,0 +1,86 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture. Clean dark-gray interlocking roof tiles with subtle satin sheen, fine surface grain, and crisp, slightly weathered tile edges.",
+ "files": [
+  {
+   "bytes": 419760,
+   "format": "jpg",
+   "path": "polyhaven/grey_roof_01/1k/grey_roof_01_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "d988fc8e8dcf3d817d15d84e1cb1d9131095184c74c5f7b18b6491103489c2bd"
+  },
+  {
+   "bytes": 243234,
+   "format": "jpg",
+   "path": "polyhaven/grey_roof_01/1k/grey_roof_01_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "e4b06f32c6913d57a11c25109c6ad25e197a9436daf4623c826401b681f62461"
+  },
+  {
+   "bytes": 623013,
+   "format": "jpg",
+   "path": "polyhaven/grey_roof_01/1k/grey_roof_01_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "2d37930361e93495706b43b9406744c43c9c86eb1b813562e787f9ead2c429cd"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.grey_roof_01",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Grey Roof 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven grey_roof_01 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:42Z",
+  "source_id": "grey_roof_01",
+  "url": "https://polyhaven.com/a/grey_roof_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "modern",
+  "tiles",
+  "roofing material",
+  "gray",
+  "gray roof",
+  "tiled roofing",
+  "interlocking tiles",
+  "slate roofing",
+  "roof tiles",
+  "traditional roof tiles",
+  "roofing",
+  "outdoor",
+  "man made",
+  "clean"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   8000,
+   8000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

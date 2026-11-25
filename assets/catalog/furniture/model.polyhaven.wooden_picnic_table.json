@@ -1,0 +1,121 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Ulan Cabanilla"
+ ],
+ "description": "Free 4K model of a weathered wooden picnic table with attached benches, vintage worn planks, visible nail heads and rustic countryside patina.",
+ "files": [
+  {
+   "bytes": 5099,
+   "format": "gltf",
+   "path": "polyhaven/wooden_picnic_table/1k/wooden_picnic_table_1k.gltf",
+   "role": "model",
+   "sha256": "6b0dd9916fd87dba2e5baad06e20c0badf68bc68a5761a13854fa9a215c6bd50"
+  },
+  {
+   "bytes": 747432,
+   "format": "jpg",
+   "path": "polyhaven/wooden_picnic_table/1k/textures/wooden_picnic_table_top_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "50d2b7a0b15c56bf82bc0c918e6eaa5f590a6fd61d32311c8da85c414ace297d"
+  },
+  {
+   "bytes": 625681,
+   "format": "jpg",
+   "path": "polyhaven/wooden_picnic_table/1k/textures/wooden_picnic_table_top_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "1e65787457f9edfdd04f1ee3f777ac2d2a9d43bfbbd3cb40c1e086f939bba419"
+  },
+  {
+   "bytes": 279116,
+   "format": "bin",
+   "path": "polyhaven/wooden_picnic_table/1k/wooden_picnic_table.bin",
+   "role": "dependency",
+   "sha256": "1efd51c292843194fbd709452d56d06c9ddc770f43a013db57ca79bfc2731b01"
+  },
+  {
+   "bytes": 699984,
+   "format": "jpg",
+   "path": "polyhaven/wooden_picnic_table/1k/textures/wooden_picnic_table_bottom_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "555226136c1d754d4aa5da42385a9152a146c5175382c77cced611a6880efd35"
+  },
+  {
+   "bytes": 722582,
+   "format": "jpg",
+   "path": "polyhaven/wooden_picnic_table/1k/textures/wooden_picnic_table_top_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "4aefdef35bf343410dbebd8577dfc968f1d6420ccddc601b19912e84b2accc0a"
+  },
+  {
+   "bytes": 548315,
+   "format": "jpg",
+   "path": "polyhaven/wooden_picnic_table/1k/textures/wooden_picnic_table_bottom_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "c5d6eb388eceb6d98e92ff31d3f3346d411b1bbcb15c05dc9da71e4a7e398539"
+  },
+  {
+   "bytes": 680087,
+   "format": "jpg",
+   "path": "polyhaven/wooden_picnic_table/1k/textures/wooden_picnic_table_bottom_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "887b9a57213f87196fb090419e14d00095af8fa56c93ca6cd7d0d70ef4e5fd27"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.wooden_picnic_table",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Ulan Cabanilla",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wooden Picnic Table",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven wooden_picnic_table --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:46Z",
+  "source_id": "wooden_picnic_table",
+  "url": "https://polyhaven.com/a/wooden_picnic_table"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "old",
+  "worn",
+  "park",
+  "bench",
+  "outdoor",
+  "weathered",
+  "countryside",
+  "outdoor seating",
+  "furniture",
+  "seating",
+  "table"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2240.9759759902954,
+   3022.329568862915,
+   745.9869086742401
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "polycount_source": 10210,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

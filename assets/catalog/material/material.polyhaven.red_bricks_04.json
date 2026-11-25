@@ -1,0 +1,84 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture of red, uneven baked bricks with rough surface, weathered edges and clean mortar; urban, detailed wall material.",
+ "files": [
+  {
+   "bytes": 283965,
+   "format": "jpg",
+   "path": "polyhaven/red_bricks_04/1k/red_bricks_04_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "c3a51662fd3e859242d949843e88e8ca7ae50dd3bb57c4cad5b544d0a16111cd"
+  },
+  {
+   "bytes": 271822,
+   "format": "jpg",
+   "path": "polyhaven/red_bricks_04/1k/red_bricks_04_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "cd09ad1d86122a5eae9c18034025be95664ba031ac2739cc34371efe112fd69b"
+  },
+  {
+   "bytes": 339216,
+   "format": "jpg",
+   "path": "polyhaven/red_bricks_04/1k/red_bricks_04_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "cb9d3da93ef192ddbe5f649b15bd940fe2631bb8715002ff31a0f19294b354da"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.red_bricks_04",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Red Bricks 04",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven red_bricks_04 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:21Z",
+  "source_id": "red_bricks_04",
+  "url": "https://polyhaven.com/a/red_bricks_04"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "textured",
+  "bricks",
+  "baked",
+  "rough",
+  "uneven",
+  "urban",
+  "clean",
+  "red",
+  "outdoor",
+  "man made",
+  "wall",
+  "brick"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2500,
+   2500
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

@@ -1,0 +1,84 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Charlotte Baglioni"
+ ],
+ "description": "Free 8K stone tile texture featuring uneven slate slabs, rough chiseled surfaces, defined grout joints and subtle weathering, with natural color variation.",
+ "files": [
+  {
+   "bytes": 817710,
+   "format": "jpg",
+   "path": "polyhaven/stone_tiles_02/1k/stone_tiles_02_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "687ef4a6cc07fb680352cf26b0a2a6256d4c18d8084dcd59ac739bc509296e18"
+  },
+  {
+   "bytes": 623281,
+   "format": "jpg",
+   "path": "polyhaven/stone_tiles_02/1k/stone_tiles_02_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "5f19b8f986ec3fcabf29b125e225140066beb8f3bc687d62364968ac540514a9"
+  },
+  {
+   "bytes": 873564,
+   "format": "jpg",
+   "path": "polyhaven/stone_tiles_02/1k/stone_tiles_02_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "ab19cc9baacb0bc30a219f841254beb6837412ddad9bfc9c052b5aa805d1c3f0"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.stone_tiles_02",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Charlotte Baglioni",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Stone Tiles 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven stone_tiles_02 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:55Z",
+  "source_id": "stone_tiles_02",
+  "url": "https://polyhaven.com/a/stone_tiles_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "uneven",
+  "rock",
+  "stones",
+  "stone",
+  "floor",
+  "tiles",
+  "rocks",
+  "slates",
+  "floor",
+  "rock",
+  "outdoor",
+  "wall"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2000,
+   2000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

@@ -1,0 +1,232 @@
+{
+ "category": "vehicle.car",
+ "creators": [
+  "James Ray Cock",
+  "Rico Cilliers",
+  "Nicolò Zubbini",
+  "Yann Kervran"
+ ],
+ "description": "Free 4K model of a rigged wooden colonial pinnace - ornate, weathered hull, detailed rigging and sails, perfect for maritime, pirate, or historical scenes.",
+ "files": [
+  {
+   "bytes": 17175,
+   "format": "gltf",
+   "path": "polyhaven/ship_pinnace/1k/ship_pinnace_1k.gltf",
+   "role": "model",
+   "sha256": "668298cada1731ec93886bb7ec2f170bbbf45575d341b838a09580199fdf5ec5"
+  },
+  {
+   "bytes": 669629,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_rigging_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "8964c211b0462bc0546ad175cd492718b3a4019a47ae2c23c82eb824272c032a"
+  },
+  {
+   "bytes": 593277,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_sails_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "8aedb5c11ce8fec0ee9e2c369848e5fa3d41df299e1f886a25f0ae3b6587f5c0"
+  },
+  {
+   "bytes": 739906,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_deck_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "24ff82bf815607a3f4376d0fdb8df2a70437e9d4df77a059da39d685de8837ec"
+  },
+  {
+   "bytes": 553685,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_aft_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "4ad6d2bf79e7e0aab89519543c65cf2a122ece1c940b7fd23846151131b1a061"
+  },
+  {
+   "bytes": 700773,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_rigging_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "86d7d6e3c8f2753db4fb22ad44cf52e361b858a4f3ad76c13435b8d385a2197e"
+  },
+  {
+   "bytes": 712283,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_details_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "d38b20a57225153d97214184893b4e785b9312f776556af2f297aa6a446fcb56"
+  },
+  {
+   "bytes": 530854,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_deck_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "1362d0b0e48a7ce8ebcb154fd1d366efff2ba62fbf6398e15a89240fa4c84c9f"
+  },
+  {
+   "bytes": 713868,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_rigging_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "d6d895880d64043288771bfdf0db79511c2e5d4541fd60bc693a4464f826a763"
+  },
+  {
+   "bytes": 365806,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_interior_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "47b7da411c5936c755e935f20f6480af0dd9e8bc6c47d1b16464014e15d733d9"
+  },
+  {
+   "bytes": 7127428,
+   "format": "bin",
+   "path": "polyhaven/ship_pinnace/1k/ship_pinnace.bin",
+   "role": "dependency",
+   "sha256": "2066c551c756ca1bef9a03d8b2f7ee980b56f69eddf1682531899e9bcf2539db"
+  },
+  {
+   "bytes": 602406,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_hull_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "0fc6ae7bab8fb36aa3ae58bd5dc0d794854370b3be3ed72eb25c52f801877d00"
+  },
+  {
+   "bytes": 642694,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_hull_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "0c303af6b5f28d0cd1d366e264cfbfb0021e4b297478e7f9948c0435ef7e2028"
+  },
+  {
+   "bytes": 531487,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_sails_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "625a1a3e82d20ddba3ad6a05c5a9223ad0f1ab7690b04f1acec9be526a63a1df"
+  },
+  {
+   "bytes": 686048,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_hull_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "938e234941aa39fc514f14025c4f1941fa5ab59f18b426f96b8e0057a7731c2b"
+  },
+  {
+   "bytes": 720138,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_interior_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "82fcb97bf757f97ddba5a72e0ccee76a163a2f13e574b13f480d06bc1a8e8e57"
+  },
+  {
+   "bytes": 720399,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_interior_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "0bd7db3c15984cd3abb63e3aa185f4e07132bc30a8e96d64a8070d4cff50e6f9"
+  },
+  {
+   "bytes": 659920,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_aft_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "1f068682360f7f1a99bb8f6da817ef1264c8f648de505555eeff84d2c5b76c6a"
+  },
+  {
+   "bytes": 778067,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_deck_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "438d31dfa17b043242ec4984edbc719be217b5a42dfd05f28a670a862c123a9d"
+  },
+  {
+   "bytes": 767155,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_sails_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "f27589c79ebb986e865e4492506e4ce6633c2896a721f980734f159c13fd00ef"
+  },
+  {
+   "bytes": 884789,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_details_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "e0f4f97183c5559fd549c3ef35385646d613acd666338c4062643d2890d3e73c"
+  },
+  {
+   "bytes": 728770,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_aft_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "927077bb68b306e5eac3c7aaabb5ea07b26d66b91b1efdfee2ea2c0ece4da053"
+  },
+  {
+   "bytes": 628000,
+   "format": "jpg",
+   "path": "polyhaven/ship_pinnace/1k/textures/ship_pinnace_details_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "ef2359e86687fc4b5527ab622f9c7d787960cbe2d5ca56266b433ae42f678534"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.ship_pinnace",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock; Rico Cilliers; Nicolò Zubbini; Yann Kervran",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Ship Pinnace",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven ship_pinnace --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:52:58Z",
+  "source_id": "ship_pinnace",
+  "url": "https://polyhaven.com/a/ship_pinnace"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "old",
+  "wooden",
+  "wood",
+  "colonial",
+  "maritime",
+  "ship",
+  "boat",
+  "ocean",
+  "sea",
+  "pirates",
+  "commercial",
+  "sail",
+  "ships",
+  "rigged",
+  "collection: smugglers_cove"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   9606.00757598877,
+   39788.970947265625,
+   32575.069665908813
+  ],
+  "error": "No module named 'PIL'",
+  "format": "gltf",
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "polycount_source": 183837,
+  "texture_gpu_bytes": 0
+ },
+ "version": 1
+}

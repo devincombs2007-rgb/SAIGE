@@ -1,0 +1,87 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K texture of traditional overlapping slate roof tiles, even aged gray slates with chipped edges, subtle dirt and a rough stone surface with low sheen.",
+ "files": [
+  {
+   "bytes": 654296,
+   "format": "jpg",
+   "path": "polyhaven/roof_slates_03/1k/roof_slates_03_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "ad7caff0fae22a67c2429021129840d3d9247ec4370bafadc2c031e1693fe8a9"
+  },
+  {
+   "bytes": 827970,
+   "format": "jpg",
+   "path": "polyhaven/roof_slates_03/1k/roof_slates_03_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "9d9caa14a56f8861fb4ee97f3bcbccf1df7b819fdbe76fa2c2eeae8ff1e1dcd5"
+  },
+  {
+   "bytes": 788841,
+   "format": "jpg",
+   "path": "polyhaven/roof_slates_03/1k/roof_slates_03_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "0eb010215ea6e2de800adf6cf86fd5fb9e9a24b0d12d1297bb4b8d56b205c87d"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.roof_slates_03",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Roof Slates 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven roof_slates_03 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:39Z",
+  "source_id": "roof_slates_03",
+  "url": "https://polyhaven.com/a/roof_slates_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "slates",
+  "even",
+  "tiles",
+  "slate",
+  "roof tiles",
+  "overlapping",
+  "roofing material",
+  "aged",
+  "durable roofing",
+  "slate roofing",
+  "traditional roof tiles",
+  "roofing",
+  "man made",
+  "outdoor",
+  "clean"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   3000,
+   3000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

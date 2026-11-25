@@ -1,0 +1,82 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K cobblestone texture: smooth, worn rectangular stones with rounded edges, dirt-filled joints and patches of green moss, muted grey-beige tones and subtle wear sheen.",
+ "files": [
+  {
+   "bytes": 585727,
+   "format": "jpg",
+   "path": "polyhaven/cobblestone_floor_08/1k/cobblestone_floor_08_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "ec131f7a99a1e7f9df25d4725609c55a6dad1df487630685e9a66ecbf41ec33a"
+  },
+  {
+   "bytes": 198270,
+   "format": "jpg",
+   "path": "polyhaven/cobblestone_floor_08/1k/cobblestone_floor_08_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "4b2548135784852f07befc3bb0abb7c83738a3c022997c30527a15d5caa7a389"
+  },
+  {
+   "bytes": 1002410,
+   "format": "jpg",
+   "path": "polyhaven/cobblestone_floor_08/1k/cobblestone_floor_08_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "26bfff70b266a4e86983814c7e56a9b48daf93cd34dcdc16a5db13e4fabcfbb6"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.cobblestone_floor_08",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Cobblestone Floor 08",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven cobblestone_floor_08 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-25T19:55:53Z",
+  "source_id": "cobblestone_floor_08",
+  "url": "https://polyhaven.com/a/cobblestone_floor_08"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "cobblestone",
+  "smooth",
+  "old",
+  "moss",
+  "pavement",
+  "road",
+  "floor",
+  "man made",
+  "dirty",
+  "cobblestone"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2000,
+   2000
+  ],
+  "error": "No module named 'PIL'",
+  "format": "jpg",
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "polycount_source": null
+ },
+ "version": 1
+}

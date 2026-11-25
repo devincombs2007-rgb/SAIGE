@@ -263,6 +263,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
         ms.alpha_blending = settings_.alpha_blending;
+        ms.frustum_culling = settings_.frustum_culling;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
@@ -362,6 +363,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instances += model_stats.instances_drawn;
                 stats.model_instances_skipped += model_stats.instances_skipped;
                 stats.model_blended_primitives += model_stats.blended_primitives;
+                stats.model_primitives_culled += model_stats.primitives_culled;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

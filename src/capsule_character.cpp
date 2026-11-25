@@ -56,6 +56,12 @@ void validate(std::span<const Aabb> boxes) {
     }
 }
 
+void validate(std::span<const Triangle> triangles) {
+    for (const Triangle& t : triangles) {
+        if (!is_valid_triangle(t)) throw std::invalid_argument("Capsule character geometry contains an invalid triangle");
+    }
+}
+
 // Remove from `v` the part that points into each plane met so far. Clipping twice converges for the planes a box world produces;
 // whatever still points into a plane is met again by the next sweep, and the iteration cap ends a wedge. (A dedicated crease rule
 // was tried and had no effect on any scenario, including a character wedged between two rims, so it is not carried.)
@@ -72,40 +78,104 @@ Vec3 clip_to_planes(Vec3 v, const std::array<Vec3, 3>& planes, int count) {
 } // namespace
 
 CapsuleCharacter::CapsuleCharacter(Vec3 spawn, std::span<const Aabb> geometry, CapsuleCharacterConfig config)
-    : config_(config), spawn_(spawn), geometry_(geometry.begin(), geometry.end()) {
+    : CapsuleCharacter(spawn, geometry, std::span<const Triangle>{}, config) {}
+
+CapsuleCharacter::CapsuleCharacter(Vec3 spawn, std::span<const Aabb> boxes, std::span<const Triangle> triangles, CapsuleCharacterConfig config)
+    : config_(config), spawn_(spawn), geometry_(boxes.begin(), boxes.end()), triangles_(triangles.begin(), triangles.end()) {
     validate(config_);
     if (!finite(spawn)) throw std::invalid_argument("Capsule character spawn must be finite");
     require_in_envelope(config_, spawn);
     validate(geometry_);
-    if (overlaps(spawn_, geometry_)) throw std::invalid_argument("Capsule character spawn overlaps geometry");
+    validate(triangles_);
+    if (overlaps(spawn_, geometry_, triangles_)) throw std::invalid_argument("Capsule character spawn overlaps geometry");
     reset();
 }
 
 std::optional<CapsuleHit> CapsuleCharacter::sweep(Vec3 feet, Vec3 displacement) const {
-    return sweep_capsule_boxes(capsule_at(feet), displacement, geometry_);
+    const Capsule capsule = capsule_at(feet);
+    auto hit = sweep_capsule_boxes(capsule, displacement, geometry_);
+    if (triangles_.empty()) return hit;
+    // The earliest contact over both kinds of surface, by the exact contact fraction (contact_t, double) rather than the rounded t; a box
+    // wins an exact tie (it is checked first, and is the exact analytic result).
+    bool from_triangle = false;
+    if (const auto tri = sweep_capsule_triangles(capsule, displacement, triangles_)) {
+        if (!hit || tri->contact_t < hit->contact_t) {
+            hit = tri;
+            from_triangle = true;
+        }
+    }
+    if (!hit || geometry_.empty() || hit->started_overlapping || hit->t <= 0.0f) return hit;
+    // Each primitive made its stop clear of its own kind of surface only. The stop of the surface that was hit must also be clear of the
+    // other kind (a ramp meeting a wall), so judge it against both and back off if needed, the same rule the primitives use: the surface
+    // that was hit exactly, the others within half the contact tolerance, none deeper than where the capsule started.
+    constexpr double tolerance = 1e-5;
+    const std::size_t hit_index = hit->index;
+    const auto clear = [&](Vec3 pose) {
+        Capsule posed = capsule;
+        posed.feet = pose;
+        for (std::size_t i = 0; i < geometry_.size(); ++i) {
+            const double allowed = std::min(static_cast<double>(capsule_box_gap(capsule, geometry_[i])), 0.0) -
+                                   ((!from_triangle && i == hit_index) ? 0.0 : 0.5 * tolerance);
+            if (capsule_box_gap(posed, geometry_[i]) < allowed) return false;
+        }
+        for (std::size_t i = 0; i < triangles_.size(); ++i) {
+            const double allowed = std::min(static_cast<double>(capsule_triangle_gap(capsule, triangles_[i])), 0.0) -
+                                   ((from_triangle && i == hit_index) ? 0.0 : 0.5 * tolerance);
+            if (capsule_triangle_gap(posed, triangles_[i]) < allowed) return false;
+        }
+        return true;
+    };
+    if (!clear(hit->stop)) {
+        hit->stop = detail::conservative_stop(feet, displacement, hit->t, clear);
+        const float length = std::sqrt(length2(displacement));
+        const Vec3 moved = hit->stop - feet;
+        hit->t = length > 0.0f ? std::clamp(dot(moved, displacement) / (length * length), 0.0f, hit->t) : 0.0f;
+    }
+    return hit;
 }
 
-bool CapsuleCharacter::overlaps(Vec3 feet, std::span<const Aabb> geometry) const {
+bool CapsuleCharacter::overlaps(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const {
     const Capsule capsule = capsule_at(feet);
-    return std::any_of(geometry.begin(), geometry.end(), [&](const Aabb& box) { return capsule_box_push_out(capsule, box).has_value(); });
+    return std::any_of(boxes.begin(), boxes.end(), [&](const Aabb& box) { return capsule_box_push_out(capsule, box).has_value(); }) ||
+           std::any_of(triangles.begin(), triangles.end(), [&](const Triangle& t) { return capsule_triangle_push_out(capsule, t).has_value(); });
 }
 
 bool CapsuleCharacter::recover_from_overlap() {
     // Normally a no-op. It exists for float rounding at large coordinates and for geometry that changed under the character. A bounded
-    // number of passes resolves boxes one after another; a capsule squeezed between surfaces that are closer than its width cannot be
+    // number of passes resolves surfaces one after another; a capsule squeezed between surfaces that are closer than its width cannot be
     // separated from both, so the result says whether it ended up clear.
+    //
+    // A triangle has no thickness, so pushing out of one surface can carry the capsule straight through a thin one beside it and
+    // report success on the wrong side of a wall. A push that would move the capsule to the other side of a triangle than the one it
+    // started the recovery on is therefore a failure, not a solution (boxes have thickness, so they cannot be crossed this way).
+    const Vec3 origin = state_.feet;
+    // Transactional: a recovery that fails (it would cross a triangle, or cannot clear the capsule) leaves the feet where they were,
+    // never at a half-resolved pose.
+    const auto fail = [&] {
+        state_.feet = origin;
+        return false;
+    };
+    const auto apply_push = [&](const std::optional<Vec3>& push) {
+        if (!push) return false;
+        const float length = std::sqrt(length2(*push));
+        state_.feet = state_.feet + *push + (length > 0.0f ? *push * (skin / length) : Vec3{});
+        return true;
+    };
     for (int pass = 0; pass < 4; ++pass) {
         bool moved = false;
-        for (const Aabb& box : geometry_) {
-            if (const auto push = capsule_box_push_out(capsule(), box)) {
-                const float length = std::sqrt(length2(*push));
-                state_.feet = state_.feet + *push + (length > 0.0f ? *push * (skin / length) : Vec3{});
-                moved = true;
-            }
+        for (const Aabb& box : geometry_) moved = apply_push(capsule_box_push_out(capsule(), box)) || moved;
+        for (const Triangle& triangle : triangles_) {
+            const auto push = capsule_triangle_push_out(capsule(), triangle);
+            if (!push) continue;
+            const Vec3 normal = triangle_normal(triangle);
+            const float half = config_.height * 0.5f;
+            const float started_on = dot(normal, Vec3{origin.x, origin.y, origin.z + half} - triangle.a);
+            if (started_on != 0.0f && dot(*push, normal) * started_on < 0.0f) return fail();  // would cross the triangle
+            moved = apply_push(push) || moved;
         }
         if (!moved) return true;
     }
-    return !overlaps(state_.feet, geometry_);
+    return !overlaps(state_.feet, geometry_, triangles_) || fail();
 }
 
 std::optional<CapsuleCharacter::GroundContact> CapsuleCharacter::probe_ground(Vec3 feet) const {
@@ -198,6 +268,7 @@ void CapsuleCharacter::slide(Vec3 remaining, bool can_step) {
         const Vec3 leftover = remaining * (1.0f - hit->t);
 
         const bool walkable = is_walkable(normal, config_.max_slope_radians);
+        if (!walkable && normal.z > 0.0f) steep_contact_ = true;
         if (can_step && !walkable && normal.z > -0.2f && try_step_up(leftover)) return;
 
         // The character no longer moves into this surface.
@@ -218,11 +289,13 @@ void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
     // earlier motion) leaves the character exactly as it was before the call.
     const CapsuleCharacterState saved = state_;
     const bool saved_jump = previous_jump_;
+    const bool saved_steep = steep_contact_;
     try {
         step_unchecked(input, dt);
     } catch (...) {
         state_ = saved;
         previous_jump_ = saved_jump;
+        steep_contact_ = saved_steep;
         throw;
     }
 }
@@ -234,8 +307,14 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
     const float seconds = std::chrono::duration<float>(dt).count();
 
     (void)recover_from_overlap();  // a trapped capsule cannot be freed here; it simply cannot move (every sweep starts overlapping)
+    const bool was_sliding = steep_contact_;
+    steep_contact_ = false;
 
-    // Horizontal velocity moves toward the input's target, faster on the ground than in the air.
+    // Horizontal velocity moves toward the input's target, faster on the ground than in the air. Air control with no input is a brake
+    // on the horizontal speed, which is right for a fall but wrong for a slide: on a surface too steep to stand on, an idle character
+    // must keep the speed gravity gives it, or it creeps down the slope at a fraction of the speed it should have.
+    const bool no_input = input.forward == 0.0f && input.left == 0.0f;
+    const bool keep_horizontal_speed = !state_.grounded && was_sliding && no_input;
     const float speed = input.sprint ? config_.sprint_speed : config_.walk_speed;
     const float forward = std::clamp(input.forward, -1.0f, 1.0f);
     const float left = std::clamp(input.left, -1.0f, 1.0f);
@@ -245,8 +324,10 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
     const float change = std::hypot(dx, dy);
     const float limit = (state_.grounded ? config_.ground_acceleration : config_.air_acceleration) * seconds;
     const float fraction = change > limit ? limit / change : 1.0f;
-    state_.velocity.x += dx * fraction;
-    state_.velocity.y += dy * fraction;
+    if (!keep_horizontal_speed) {
+        state_.velocity.x += dx * fraction;
+        state_.velocity.y += dy * fraction;
+    }
 
     // A jump needs the button to go down while standing; holding it does not repeat.
     const bool jumped = input.jump && !previous_jump_ && state_.grounded;
@@ -271,11 +352,19 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
 }
 
 bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> geometry) {
-    validate(geometry);
-    if (overlaps(state_.feet, geometry) || overlaps(spawn_, geometry)) return false;
-    std::vector<Aabb> candidate(geometry.begin(), geometry.end());
+    return replace_static_geometry(geometry, std::span<const Triangle>{});
+}
+
+bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
+    validate(boxes);
+    validate(triangles);
+    if (overlaps(state_.feet, boxes, triangles) || overlaps(spawn_, boxes, triangles)) return false;
+    std::vector<Aabb> candidate(boxes.begin(), boxes.end());
+    std::vector<Triangle> candidate_triangles(triangles.begin(), triangles.end());
     const CapsuleCharacterState saved = state_;
+    const bool saved_steep = steep_contact_;
     geometry_.swap(candidate);
+    triangles_.swap(candidate_triangles);
     try {
         // The same ground probe as a step uses (it looks past a steep rim the capsule is touching), so a collision swap keeps the support
         // a character already had.
@@ -287,7 +376,9 @@ bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> geometry) {
         }
     } catch (...) {  // transactional: the old set and the old state stay in force
         geometry_.swap(candidate);
+        triangles_.swap(candidate_triangles);
         state_ = saved;
+        steep_contact_ = saved_steep;
         throw;
     }
     return true;
@@ -299,17 +390,21 @@ bool CapsuleCharacter::teleport(Vec3 feet) {
     // Transactional: a blocked teleport (false) and a throwing one (the recovery or the ground probe leaving the supported range, as a capsule standing
     // at the edge of it does when the probe looks down) both leave the character exactly as it was.
     const CapsuleCharacterState saved = state_;
+    const bool saved_steep = steep_contact_;
     try {
         state_.feet = feet;
         state_.velocity = {};
         state_.grounded = false;
+        steep_contact_ = false;
         if (!recover_from_overlap()) {
             state_ = saved;
+            steep_contact_ = saved_steep;
             return false;
         }
         snap_to_ground();
     } catch (...) {
         state_ = saved;
+        steep_contact_ = saved_steep;
         throw;
     }
     return true;
@@ -324,6 +419,7 @@ void CapsuleCharacter::reset() {
         fresh.ground_normal = ground->normal;
     }
     state_ = fresh;
+    steep_contact_ = false;
     previous_jump_ = false;
 }
 

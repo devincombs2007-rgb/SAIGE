@@ -1156,6 +1156,7 @@ private:
                     }
                 }
                 if (parent_joint < 0 && parent[node] >= 0) base = c * world[static_cast<std::size_t>(parent[node])] * c_inverse;
+                skin.joint_names.push_back(info.name);
                 skin.parent.push_back(parent_joint);
                 skin.base.push_back(base);
                 render::Transform rest;

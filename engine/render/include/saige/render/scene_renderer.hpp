@@ -163,6 +163,9 @@ struct SceneFrame {
     /// like the settings' lighting, before anything is recorded or written: `render` throws std::invalid_argument for a bad value and std::logic_error if the renderer
     /// was not built with dynamic lighting, and nothing has changed when it does.
     const SceneLighting* lighting = nullptr;
+    /// This frame's exposure in stops (HDR only; not retained): replaces `RendererSettings::tone_map.exposure_ev` for this frame's tone map, so a host can adapt the exposure over time
+    /// (day to night). Unset: the construction-time value. Clamped by the tone mapper like the setting.
+    std::optional<float> exposure_ev;
 };
 
 /// The lighting for a sun at `to_sun` (any non-zero direction; normalized), derived from the daytime look `day` and the atmosphere: the sun's color is `day.sun_color`

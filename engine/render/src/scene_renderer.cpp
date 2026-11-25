@@ -276,6 +276,8 @@ SceneLighting time_of_day_lighting(const AtmosphereSettings& atmosphere, Float3 
     s = s * s * (3.0f - 2.0f * s);
     const float k = night_ambient + (1.0f - night_ambient) * s;
     out.ambient_ground = {day.ambient_ground.x * k, day.ambient_ground.y * k, day.ambient_ground.z * k};
+    out.ambient_sky_floor = day.ambient_sky_floor;
+    out.emissive_gain = day.emissive_gain;
     return out;
 }
 
@@ -953,7 +955,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 c.begin_rendering(rd);
                 c.set_viewport({0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f});
                 c.set_scissor({0, 0, target.width, target.height});
-                tone_mapper_->draw(c, hdr_input_, settings_.tone_map, settings_.bloom.intensity);
+                ToneMapSettings frame_tone_map = settings_.tone_map;
+                if (frame.exposure_ev.has_value()) frame_tone_map.exposure_ev = *frame.exposure_ev;
+                tone_mapper_->draw(c, hdr_input_, frame_tone_map, settings_.bloom.intensity);
                 ++stats.draw_calls;
                 c.end_rendering();
                 c.end_debug_label();

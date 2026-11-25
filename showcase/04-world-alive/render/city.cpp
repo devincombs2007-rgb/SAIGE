@@ -289,7 +289,7 @@ struct CityScene::Impl {
         // Land base (courtyards, lots): paving; everything else is laid over it.
         mb.quad(MPaving, {-ext, -ext, 0}, {ext, -ext, 0}, {ext, static_cast<float>(d.quay_y), 0}, {-ext, static_cast<float>(d.quay_y), 0});
         // Beyond the district: a coarse skirt out to the horizon, so that nothing below the skyline shows the sky through.
-        mb.quad(MPaving, {-30000, -30000, -0.05f}, {30000, -30000, -0.05f}, {30000, static_cast<float>(d.quay_y), -0.05f}, {-30000, static_cast<float>(d.quay_y), -0.05f});
+        mb.quad(MPaving, {-300000, -300000, -0.05f}, {300000, -300000, -0.05f}, {300000, static_cast<float>(d.quay_y), -0.05f}, {-300000, static_cast<float>(d.quay_y), -0.05f});
         for (const Rect& rr : d.roadway) mb.quad(MAsphalt, {static_cast<float>(rr.x0), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y1), 0.004f}, {static_cast<float>(rr.x0), static_cast<float>(rr.y1), 0.004f});
         // Sidewalks and kerbs
         for (const Rect& rr : d.sidewalk) {

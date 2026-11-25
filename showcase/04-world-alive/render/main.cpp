@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
         rs.dynamic_lighting = true;
         rs.ground_half_size = 0.001f;
         rs.sky = {0.30f, 0.46f, 0.78f, 1.0f};
-        rs.fog_density = 0.00045f;
+        rs.fog_density = 0.00006f;
         rs.lighting.sun_direction = {0.5f, 0.1f, 0.6f};
         rs.lighting.sun_color = {2.4f, 2.0f, 1.65f};
         rs.lighting.ambient_ground = {0.17f, 0.15f, 0.125f};

@@ -348,7 +348,7 @@ struct Actors::Impl {
         // Flat water beyond the animated mesh, out to the horizon.
         MeshIn far;
         far.material = MWater;
-        const float lo = -30000.0f, hi = 30000.0f, x0 = xs.front(), x1 = xs.back(), y1 = ys.back();
+        const float lo = -300000.0f, hi = 300000.0f, x0 = xs.front(), x1 = xs.back(), y1 = ys.back();
         const float lvl = static_cast<float>(sea->config().level);
         const auto add = [&](float ax, float ay, float bx, float by) {
             const std::uint32_t base = static_cast<std::uint32_t>(far.vertices.size());

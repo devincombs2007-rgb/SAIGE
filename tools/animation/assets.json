@@ -96,7 +96,7 @@
   }
  },
  "cmu_candidates": {
-  "note": "REVIEWED, NONE USABLE (2026-11-25). These eight came from a root-motion scan that measured yaw from the first frame; CMU files open with a T-pose frame, so for 85_09, 104_15, 111_16, 111_25 and 113_12 the whole turn of about 90 degrees is the jump from the T-pose to the first real pose: from the third frame on the yaw changes by under 2.5 degrees in every one of them (a person standing still). 75_09 is a 3 s motion with arm swings and a bow (30 degrees of yaw, the left foot travelling 48 units), not a turn. 78_26 travels diagonally with the body turning (not a clean sidestep); 45_01 turns 139 degrees while walking 80 units. Kept as a record of what was checked; tools/animation/bvh_contact_sheet.py documents the cause, and the scan was corrected and re-run. Not fetched by default and not used by any test.",
+  "note": "REVIEWED, NONE USABLE (2026-11-25). These eight came from a root-motion scan that measured yaw from the first frame; CMU files open with a T-pose frame, so for 85_09, 104_15, 111_16, 111_25 and 113_12 the whole turn of about 90 degrees is the jump from the T-pose to the first real pose: from the third frame on the yaw changes by under 2.5 degrees in every one of them (a person standing still). 75_09 is a 3 s motion with arm swings and a bow (30 degrees of yaw, the left foot travelling 48 units), not a turn. 78_26 travels diagonally with the body turning (not a clean sidestep); 45_01 turns 139 degrees while walking 80 units. Kept as a record of what was checked; tools/animation/bvh_contact_sheet.py documents the cause. The corrected scan (T-pose frames skipped, 1,222 clips) found no clean turn in place (its one candidate, 141_18, is a gesture with raised hands and a step at the end) and one plausible sidestep, recorded in `reviewed_candidates` below. Not fetched by default and not used by any test.",
   "files": [
    {
     "id": "85_09",
@@ -203,5 +203,19 @@
     "lateral_units": 41.4
    }
   ]
- }
+ },
+  "reviewed_candidates": {
+    "note": "Found with the corrected scan (tools/animation/bvh_contact_sheet.py skips nothing itself; the scan skips the T-pose first frames) and looked at on a contact sheet. Not fetched by default and not used by any test. CMU mocap is free to use (its site says so); the raw-host mirror is the one the project already fetches from.",
+    "files": [
+      {
+        "id": "78_29",
+        "also": "102_27 (the same bytes)",
+        "what": "a single sidestep, 1.4 s: lateral travel along the shoulder line, torso facing forward, knees bent, feet apart then together",
+        "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/078/78_29.bvh",
+        "sha256": "e290d70ef33f028502ef057bcc0c9f84357a8ce9d923bf0b8bb211ce59300134",
+        "bytes": 136628,
+        "review": "plausible by eye: not yet retargeted or looped; it is one step, not a cycle"
+      }
+    ]
+  }
 }

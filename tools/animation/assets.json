@@ -94,5 +94,106 @@
    "bytes": 10257419,
    "member": "Universal Animation Library 2 [Standard]/Unreal-Godot/UAL2_Standard.glb"
   }
+ },
+ "cmu_candidates": {
+  "note": "Not fetched by default and not yet used by any test. Found by measuring the root motion of 1,223 CMU clips (subjects chosen for locomotion) through the raw host: a turn in place has a large yaw change and almost no travel, a sidestep travels mostly sideways. The measurement is of the root track only: a clip's character (a wave, a dance) was NOT checked by looking at it, so these are candidates to review before use. Travel is in the BVH's own units.",
+  "files": [
+   {
+    "id": "85_09",
+    "what": "turn in place, about 90 degrees right",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/085/85_09.bvh",
+    "sha256": "792e56aacd1ad896657f17a5c56b5ad239cab0afbe61546f6eab90b836bbc085",
+    "bytes": 196606,
+    "seconds": 2.11,
+    "yaw_change_deg": -88.4,
+    "net_travel_units": 0.5,
+    "along_units": 0.1,
+    "lateral_units": -0.4
+   },
+   {
+    "id": "104_15",
+    "what": "turn in place, about 87 degrees left",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/104/104_15.bvh",
+    "sha256": "23299eb1431846830be761e46369c58635ddf644997e3679f258c44e8903b5a9",
+    "bytes": 161215,
+    "seconds": 1.73,
+    "yaw_change_deg": 86.9,
+    "net_travel_units": 0.1,
+    "along_units": 0.1,
+    "lateral_units": 0.0
+   },
+   {
+    "id": "111_16",
+    "what": "turn in place, about 87 degrees",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/111/111_16.bvh",
+    "sha256": "19904d5f841e117bc4bd7a8e4088340f30979fb05e7fd9cd89faa1a34a07f93c",
+    "bytes": 329131,
+    "seconds": 3.58,
+    "yaw_change_deg": -87.2,
+    "net_travel_units": 0.2,
+    "along_units": -0.1,
+    "lateral_units": -0.2
+   },
+   {
+    "id": "111_25",
+    "what": "turn in place, about 84 degrees",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/111/111_25.bvh",
+    "sha256": "1105724204fcd10a7fc7c32df7f0e8c29a0c2ac7a4fc21d9edeedc3be38263a5",
+    "bytes": 221822,
+    "seconds": 2.42,
+    "yaw_change_deg": -83.9,
+    "net_travel_units": 0.2,
+    "along_units": 0.1,
+    "lateral_units": -0.0
+   },
+   {
+    "id": "113_12",
+    "what": "turn in place, about 85 degrees",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/113/113_12.bvh",
+    "sha256": "f729ac5f1ce4a70fe4d643f0d714147e3c4b5ba2da180859897bbc48b1f3d14f",
+    "bytes": 306085,
+    "seconds": 3.31,
+    "yaw_change_deg": -84.7,
+    "net_travel_units": 0.2,
+    "along_units": -0.1,
+    "lateral_units": 0.1
+   },
+   {
+    "id": "75_09",
+    "what": "turn in place, about 209 degrees",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/075/75_09.bvh",
+    "sha256": "db0874cb2440b3c6d89d850be0fb60105b6c1024778ed9964bf6c1c9ccfc7530",
+    "bytes": 283413,
+    "seconds": 3.1,
+    "yaw_change_deg": -209.2,
+    "net_travel_units": 0.9,
+    "along_units": 0.7,
+    "lateral_units": -0.5
+   },
+   {
+    "id": "78_26",
+    "what": "sidestep, lateral travel with little turn",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/078/78_26.bvh",
+    "sha256": "810fcba67fbf159bd98ac19335662345d1fd75e82f4ee4b1bc13381d2746bd7c",
+    "bytes": 253512,
+    "seconds": 2.72,
+    "yaw_change_deg": -13.7,
+    "net_travel_units": 60.1,
+    "along_units": -18.8,
+    "lateral_units": 57.1
+   },
+   {
+    "id": "45_01",
+    "what": "sidestep-like, lateral travel",
+    "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/045/45_01.bvh",
+    "sha256": "b0de21cac27182011931148761e304c73213d32d173c795b82f8ce255df9d00b",
+    "bytes": 349723,
+    "seconds": 3.8,
+    "yaw_change_deg": -13.1,
+    "net_travel_units": 49.6,
+    "along_units": 27.2,
+    "lateral_units": 41.4
+   }
+  ]
  }
 }

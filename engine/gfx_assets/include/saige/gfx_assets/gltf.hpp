@@ -93,6 +93,11 @@ struct Primitive {
     int32_t material = -1;
     bool normals_generated = false;
     Aabb bounds;
+    /// Skinning (empty when the primitive has no JOINTS_0 / WEIGHTS_0): four influences per vertex. `joints` index the joint list of
+    /// the skin of any instance that uses the mesh; `weights` are non-negative and sum to 1 (renormalized at import; a vertex with no
+    /// weight at all is bound fully to its first joint).
+    std::vector<uint16_t> joints;
+    std::vector<float> weights;
 
     [[nodiscard]] uint32_t vertex_count() const noexcept { return static_cast<uint32_t>(positions.size() / 3); }
 };
@@ -107,11 +112,52 @@ struct Mesh {
 struct MeshInstance {
     int32_t mesh = -1;
     int32_t node = -1;
-    render::Mat4 world;  ///< engine space; places the (already converted) mesh vertices
+    /// Engine space; places the (already converted) mesh vertices. For a skinned instance it is the identity: glTF defines the mesh node's
+    /// own transform as irrelevant to a skinned mesh, because the joint matrices already carry the whole hierarchy.
+    render::Mat4 world;
     std::string name;
+    int32_t skin = -1;  ///< index into GltfAsset::skins; -1 = rigid. A skinned instance is placed by its skin matrices, not by `world` (last, so aggregate initialization of the older fields keeps working)
+};
+
+/// A skeleton: the joints one or more skinned meshes are bound to. Engine space throughout. See animation.hpp for posing and skinning.
+struct Skin {
+    std::string name;
+    std::vector<int32_t> joint_nodes;           ///< the glTF node of each joint, in joint order (what JOINTS_0 indexes)
+    std::vector<int32_t> parent;                ///< per joint: the index of its parent joint, or -1 for a top joint
+    std::vector<render::Transform> rest;        ///< per joint: the local rest transform (translation, rotation, scale)
+    std::vector<render::Mat4> base;             ///< per joint: where the joint's parent node stands at rest (identity when the joint has no parent); used only for top joints
+    std::vector<render::Mat4> inverse_bind;     ///< per joint: the inverse bind matrix, converted to engine space (identity when the file gives none)
+    [[nodiscard]] std::size_t joint_count() const noexcept { return joint_nodes.size(); }
+};
+
+enum class Interpolation : uint8_t { Step, Linear, CubicSpline };
+enum class AnimationPath : uint8_t { Translation, Rotation, Scale };
+
+/// Keyframes of one channel. `values` are engine space: 3 floats per key (translation, scale) or 4 (a rotation quaternion x, y, z, w). For
+/// CubicSpline each key stores three of those: the in-tangent, the value, and the out-tangent, in that order.
+struct AnimationSampler {
+    std::vector<float> times;   ///< seconds, finite, non-negative, strictly increasing, at least one key (two for CubicSpline)
+    std::vector<float> values;
+    Interpolation interpolation = Interpolation::Linear;
+    int components = 3;         ///< 3 or 4
+};
+
+struct AnimationChannel {
+    int32_t node = -1;          ///< the glTF node it animates
+    AnimationPath path = AnimationPath::Translation;
+    int32_t sampler = -1;       ///< index into AnimationClip::samplers
+};
+
+struct AnimationClip {
+    std::string name;
+    std::vector<AnimationSampler> samplers;
+    std::vector<AnimationChannel> channels;
+    float duration = 0.0f;      ///< the last key time over all samplers
 };
 
 struct GltfAsset {
+    std::vector<Skin> skins;
+    std::vector<AnimationClip> animations;
     std::vector<Mesh> meshes;
     std::vector<Material> materials;
     std::vector<Texture> textures;
@@ -130,6 +176,10 @@ struct GltfLimits {
     std::size_t max_vertices_per_primitive = std::size_t{1} << 23;
     std::size_t max_instances = std::size_t{1} << 20;
     std::size_t max_node_depth = 256;
+    std::size_t max_joints_per_skin = 512;
+    std::size_t max_skins = 4096;
+    std::size_t max_animations = 4096;
+    std::size_t max_animation_keys = std::size_t{1} << 22;  ///< per sampler
 };
 
 /// Reads an external resource given a *validated, normalized, relative* path. Returns nullopt if it can't be read.

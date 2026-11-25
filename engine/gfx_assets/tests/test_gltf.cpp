@@ -409,13 +409,13 @@ TEST_CASE("glTF: required extensions must be supported; optional unsupported one
 
 TEST_CASE("glTF: things that are ignored produce one deduplicated warning each")
 {
-    // Two nodes with cameras, a skin and weights; two meshes would each warn about TEXCOORD_1; warnings dedupe.
+    // Two nodes with cameras and morph weights; an unsupported attribute set would warn once each; warnings dedupe. (Skins are imported: test_gltf_skin.cpp.)
     Blob b;
     b.vec3(0, 0, 0); b.vec3(1, 0, 0); b.vec3(0, 1, 0);
     b.f32(0); b.f32(0); b.f32(1); b.f32(0); b.f32(0); b.f32(1);
     const std::string json =
-        R"({"asset":{"version":"2.0"},"nodes":[{"mesh":0,"camera":0,"skin":0},{"mesh":0,"camera":0,"weights":[0.5]}],)"
-        R"("meshes":[{"primitives":[{"attributes":{"POSITION":0,"TEXCOORD_1":1,"JOINTS_0":1}}]}],)"
+        R"({"asset":{"version":"2.0"},"nodes":[{"mesh":0,"camera":0},{"mesh":0,"camera":0,"weights":[0.5]}],)"
+        R"("meshes":[{"primitives":[{"attributes":{"POSITION":0,"TEXCOORD_1":1,"COLOR_1":1}}]}],)"
         R"("accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"},)"
         R"({"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"}],)"
         R"("bufferViews":[{"buffer":0,"byteLength":36},{"buffer":0,"byteOffset":36,"byteLength":24}],)"
@@ -425,7 +425,7 @@ TEST_CASE("glTF: things that are ignored produce one deduplicated warning each")
     int camera = 0;
     for (const std::string& w : r.asset->warnings) camera += w.find("cameras") != std::string::npos ? 1 : 0;
     CHECK(camera == 1);   // two cameras, one warning
-    CHECK(r.asset->warnings.size() == 5);  // cameras, skins, morph weights, TEXCOORD_1, JOINTS_0
+    CHECK(r.asset->warnings.size() == 4);  // cameras, morph weights, TEXCOORD_1, COLOR_1
     CHECK(r.asset->instances.size() == 2);
 }
 

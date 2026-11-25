@@ -31,6 +31,7 @@ The film was built from 9c87457 (ancestor of both branches). It is unchanged.
 * Water at scale (`docs/water.md`): distance-based cell counts (5x cheaper, 0.6 mm far error), deterministic threads (3.2x at 100 bodies), reduced waves (not a default: 0.3 m far error), the shared cache (slower for scattered bodies, opt-in).
 * Large world (`docs/large-world.md`): `WorldPosition` (cell + chunk-local float), 15 micrometers at every distance, no second strategy; Jolt double works and is not needed.
 * Ragdoll (`docs/ragdoll.md`): thirteen bodies, anatomical joints, momentum-continuous start, recovery blend, joint motors, ankle balance strategy through 0.29 m/s pushes.
+* Since checkpoint 8: buoyancy for dynamics bodies (`docs/water.md`, agrees with `FloatingBody` to 1 mm in waves), the skeleton to and from the ragdoll (`ragdoll_glue.hpp`, synthetic rig, not yet the UAL rig), `StanceBlend::eased`, the Jolt v5.7.0 harness re-run (`physics-backend-evaluation.md`), the corrected CMU scan (no clean turn in place; one sidestep candidate), navigation links/blockers/crowd step, the integration candidate (23 of 38 PRs merge; 58/58 tests).
 * Local test counts: 132 default (dynamics and ragdoll skipped without Jolt), all pass with Jolt on. Hardware class: CPU only, no GPU result.
 
 ## Open pull requests (all draft except #64 and #67), grouped by stack

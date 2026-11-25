@@ -6,6 +6,7 @@
 #include "saige/rhi/handle_pool.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstring>
 #include <functional>
@@ -516,6 +517,7 @@ private:
     VkDeviceMemory allocate(const VkMemoryRequirements& req, MemoryLocation location);
     void free_memory(VkDeviceMemory memory);
     void collect_timestamps(FrameSlot& slot);
+    void probe_capabilities();
     void set_name(VkObjectType type, uint64_t handle, const char* name);
     VkDescriptorSet allocate_descriptor_set(VkDescriptorSetLayout layout, VkDescriptorPool& pool_out);
     bool group_resources_alive(const VkBindGroupRes& g) const;
@@ -549,6 +551,8 @@ private:
     // GPU timestamps: one block of max_gpu_timestamps queries per frame slot.
     VkQueryPool timestamp_pool_ = VK_NULL_HANDLE;
     bool timestamps_ = false;
+    uint32_t selected_api_version_ = 0;                 // the chosen physical device's own apiVersion
+    std::vector<std::string> selected_extensions_;      // the chosen device's advertised extensions
     uint32_t timestamp_valid_bits_ = 0;
     float timestamp_period_ns_ = 0.0f;
     std::optional<GpuTimestamps> completed_timestamps_;
@@ -651,10 +655,20 @@ void VulkanDevice::create_instance()
     if (vk_.vkEnumerateInstanceVersion != nullptr) {
         vk_.vkEnumerateInstanceVersion(&api);
     }
-    if (api < VK_API_VERSION_1_3) {
-        throw std::runtime_error("Vulkan: the loader supports only Vulkan " + std::to_string(VK_API_VERSION_MAJOR(api)) +
-                                 "." + std::to_string(VK_API_VERSION_MINOR(api)) + "; SAIGE requires 1.3");
+    const ApiVersion loader{VK_API_VERSION_MAJOR(api), VK_API_VERSION_MINOR(api)};
+    // The instance is asked for min(loader, desc cap, the highest version the backend has a path for). The default cap is
+    // the baseline, so the request stays 1.3 unless a caller opts in.
+    const std::optional<ApiVersion> requested = negotiate_instance_version(loader, desc_.max_api_version);
+    if (!requested) {
+        if (loader < api_baseline) {
+            throw std::runtime_error("Vulkan: the loader supports only Vulkan " + to_string(loader) + "; SAIGE requires " +
+                                     to_string(api_baseline));
+        }
+        throw std::runtime_error("Vulkan: DeviceDesc::max_api_version " + to_string(desc_.max_api_version) +
+                                 " is below the supported baseline " + to_string(api_baseline));
     }
+    info_.loader_api_version = loader;
+    info_.instance_api_version = *requested;
 
     uint32_t count = 0;
     vk_.vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
@@ -709,7 +723,7 @@ void VulkanDevice::create_instance()
     app.pApplicationName = desc_.application_name.c_str();
     app.pEngineName = "SAIGE";
     app.engineVersion = VK_MAKE_API_VERSION(0, 0, 1, 0);
-    app.apiVersion = VK_API_VERSION_1_3;
+    app.apiVersion = VK_MAKE_API_VERSION(0, requested->major, requested->minor, 0);
 
     // Optional synchronization validation, enabled in code (environment variables are ignored by elevated Windows
     // processes). The extension is provided by the validation layer itself.
@@ -847,6 +861,11 @@ void VulkanDevice::pick_physical_device()
             info_.api_version_major = VK_API_VERSION_MAJOR(props.apiVersion);
             info_.api_version_minor = VK_API_VERSION_MINOR(props.apiVersion);
             info_.software_device = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+            selected_api_version_ = props.apiVersion;
+            selected_extensions_.clear();
+            for (const VkExtensionProperties& e : exts) {
+                selected_extensions_.emplace_back(e.extensionName);
+            }
         }
     }
     if (physical_ == VK_NULL_HANDLE) {
@@ -856,6 +875,88 @@ void VulkanDevice::pick_physical_device()
     vk_.vkGetPhysicalDeviceMemoryProperties(physical_, &memory_props_);
     info_.backend = Backend::Vulkan;
     info_.presentation_supported = swapchain_extension_;
+    probe_capabilities();
+}
+
+/// Reads which optional capabilities above the baseline the selected device offers, and from where (core version or promoted
+/// extension). Read-only: nothing is enabled on the logical device, and a probe that finds nothing changes nothing.
+void VulkanDevice::probe_capabilities()
+{
+    const ApiVersion device{VK_API_VERSION_MAJOR(selected_api_version_), VK_API_VERSION_MINOR(selected_api_version_)};
+    const ApiVersion effective = effective_device_version(info_.instance_api_version, device);
+    info_.effective_api_version = effective;
+
+    const auto has_extension = [&](const char* name) {
+        return std::find(selected_extensions_.begin(), selected_extensions_.end(), name) != selected_extensions_.end();
+    };
+    std::array<FeatureQuery, optional_feature_count> q{};
+    const auto at = [&](OptionalFeature f) -> FeatureQuery& { return q[static_cast<std::size_t>(f)]; };
+
+    VkPhysicalDeviceVulkan12Features f12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    f2.pNext = &f12;
+
+    // Promoted extensions are probed through their own feature structs and only when the device advertises them: chaining a
+    // struct for an extension the device lacks is invalid.
+    VkPhysicalDeviceVulkan14Features f14{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES};
+    VkPhysicalDeviceDynamicRenderingLocalReadFeaturesKHR local_read{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_LOCAL_READ_FEATURES_KHR};
+    VkPhysicalDeviceHostImageCopyFeaturesEXT host_copy{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT};
+    VkPhysicalDeviceMaintenance5FeaturesKHR m5{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
+    VkPhysicalDeviceMaintenance6FeaturesKHR m6{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_6_FEATURES_KHR};
+    VkPhysicalDeviceIndexTypeUint8FeaturesKHR uint8{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES_KHR};
+    VkPhysicalDeviceLineRasterizationFeaturesKHR lines{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_LINE_RASTERIZATION_FEATURES_KHR};
+    const bool core14 = effective >= ApiVersion{1, 4};
+    void** tail = &f12.pNext;
+    const auto chain = [&](auto& structure) {
+        *tail = &structure;
+        tail = &structure.pNext;
+    };
+    const bool ext_local_read = has_extension(VK_KHR_DYNAMIC_RENDERING_LOCAL_READ_EXTENSION_NAME);
+    const bool ext_host_copy = has_extension(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
+    const bool ext_m5 = has_extension(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
+    const bool ext_m6 = has_extension(VK_KHR_MAINTENANCE_6_EXTENSION_NAME);
+    const bool ext_uint8 = has_extension(VK_KHR_INDEX_TYPE_UINT8_EXTENSION_NAME);
+    const bool ext_lines = has_extension(VK_KHR_LINE_RASTERIZATION_EXTENSION_NAME);
+    const bool ext_push = has_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+    if (core14) {
+        chain(f14);
+    } else {
+        if (ext_local_read) chain(local_read);
+        if (ext_host_copy) chain(host_copy);
+        if (ext_m5) chain(m5);
+        if (ext_m6) chain(m6);
+        if (ext_uint8) chain(uint8);
+        if (ext_lines) chain(lines);
+    }
+    vk_.vkGetPhysicalDeviceFeatures2(physical_, &f2);
+
+    at(OptionalFeature::ScalarBlockLayout).feature_bit = f12.scalarBlockLayout == VK_TRUE;
+    if (core14) {
+        at(OptionalFeature::PushDescriptor).feature_bit = f14.pushDescriptor == VK_TRUE;
+        at(OptionalFeature::DynamicRenderingLocalRead).feature_bit = f14.dynamicRenderingLocalRead == VK_TRUE;
+        at(OptionalFeature::HostImageCopy).feature_bit = f14.hostImageCopy == VK_TRUE;
+        at(OptionalFeature::Maintenance5).feature_bit = f14.maintenance5 == VK_TRUE;
+        at(OptionalFeature::Maintenance6).feature_bit = f14.maintenance6 == VK_TRUE;
+        at(OptionalFeature::IndexTypeUint8).feature_bit = f14.indexTypeUint8 == VK_TRUE;
+        at(OptionalFeature::LineRasterization).feature_bit = f14.bresenhamLines == VK_TRUE;
+    } else {
+        at(OptionalFeature::PushDescriptor).feature_bit = ext_push;  // the extension has no feature bit: advertising is support
+        at(OptionalFeature::DynamicRenderingLocalRead).feature_bit = ext_local_read && local_read.dynamicRenderingLocalRead == VK_TRUE;
+        at(OptionalFeature::HostImageCopy).feature_bit = ext_host_copy && host_copy.hostImageCopy == VK_TRUE;
+        at(OptionalFeature::Maintenance5).feature_bit = ext_m5 && m5.maintenance5 == VK_TRUE;
+        at(OptionalFeature::Maintenance6).feature_bit = ext_m6 && m6.maintenance6 == VK_TRUE;
+        at(OptionalFeature::IndexTypeUint8).feature_bit = ext_uint8 && uint8.indexTypeUint8 == VK_TRUE;
+        at(OptionalFeature::LineRasterization).feature_bit = ext_lines && lines.bresenhamLines == VK_TRUE;
+    }
+    at(OptionalFeature::PushDescriptor).extension_present = ext_push;
+    at(OptionalFeature::DynamicRenderingLocalRead).extension_present = ext_local_read;
+    at(OptionalFeature::HostImageCopy).extension_present = ext_host_copy;
+    at(OptionalFeature::Maintenance5).extension_present = ext_m5;
+    at(OptionalFeature::Maintenance6).extension_present = ext_m6;
+    at(OptionalFeature::IndexTypeUint8).extension_present = ext_uint8;
+    at(OptionalFeature::LineRasterization).extension_present = ext_lines;
+    info_.capabilities = negotiate_capabilities(effective, q);
 }
 
 void VulkanDevice::create_logical_device()

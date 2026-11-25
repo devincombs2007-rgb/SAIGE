@@ -64,3 +64,18 @@ if(TARGET saige::core)
         saige_gfx_configure_target(saige_horizon)
     endif()
 endif()
+
+# SAIGE Showcase 04 "A World Alive" (docs/showcase/04-world-alive.md): a coastal district and the living world on it. The district is pure data from a seed; the world joins it to the engine's
+# simulation (world_sim, crowd, traffic, multi_floor_nav), physics (CapsuleCharacter, Vehicle, DynamicsWorld) and audio. Everything here builds without a GPU; the renderer app is a separate target.
+if(TARGET saige::core)
+    add_library(saige_alive_district STATIC
+        04-world-alive/src/district.cpp 04-world-alive/src/district_interiors.cpp 04-world-alive/src/district_network.cpp)
+    target_include_directories(saige_alive_district PUBLIC 04-world-alive/src)
+    target_link_libraries(saige_alive_district PUBLIC saige::core)
+    if(BUILD_TESTING)
+        add_executable(alive_district_test 04-world-alive/tests/district_test.cpp)
+        target_link_libraries(alive_district_test PRIVATE saige_alive_district)
+        add_test(NAME alive_district COMMAND alive_district_test)
+        set_tests_properties(alive_district PROPERTIES TIMEOUT 120)
+    endif()
+endif()

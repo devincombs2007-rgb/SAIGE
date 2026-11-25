@@ -82,8 +82,14 @@ void validate_vehicle_config(const VehicleConfig& c) {
     if (!(c.drag_area_cd >= 0.0f) || !std::isfinite(c.drag_area_cd) || !(c.rolling_resistance >= 0.0f) || !std::isfinite(c.rolling_resistance)) {
         throw std::invalid_argument("VehicleConfig: drag and rolling resistance must be finite and not negative");
     }
+    if (static_cast<std::uint8_t>(c.differential) > static_cast<std::uint8_t>(VehicleDifferential::LimitedSlip)) throw std::invalid_argument("VehicleConfig: unknown differential");
+    if (!(c.lsd_bias >= 1.0f && c.lsd_bias <= 20.0f) || !(c.lsd_preload >= 0.0f && std::isfinite(c.lsd_preload))) throw std::invalid_argument("VehicleConfig: lsd_bias must be in [1, 20] and lsd_preload finite and not negative");
+    if (!(c.lateral_stiffness >= 2.0f && c.lateral_stiffness <= 60.0f) || !(c.lateral_slide_ratio >= 0.3f && c.lateral_slide_ratio <= 1.0f)) {
+        throw std::invalid_argument("VehicleConfig: lateral_stiffness must be in [2, 60] and lateral_slide_ratio in [0.3, 1]");
+    }
     if (c.powertrain.enabled) {
         const VehiclePowertrain& t = c.powertrain;
+        if (!(t.engine_brake >= 0.0f && t.engine_brake <= 500.0f)) throw std::invalid_argument("VehicleConfig: powertrain engine_brake must be in [0, 500] N m");
         const auto finite_positive = [](float x) { return std::isfinite(x) && x > 0.0f; };
         if (t.gear_count < 1 || t.gear_count > 6) throw std::invalid_argument("VehicleConfig: powertrain gear_count must be 1 to 6");
         for (int g = 0; g < t.gear_count; ++g) {
@@ -119,6 +125,12 @@ void validate_vehicle_config(const VehicleConfig& c) {
     if (driven == 0) throw std::invalid_argument("VehicleConfig: at least one wheel must be driven");
 }
 
+double tire_lateral_ratio(double slip_angle, double stiffness, double slide_ratio) noexcept {
+    const double pi = 3.14159265358979323846;
+    const double shape_c = 2.0 / pi * (pi - std::asin(slide_ratio));
+    return std::sin(shape_c * std::atan(stiffness * std::fabs(slip_angle)));
+}
+
 Vehicle::Vehicle(const VehicleConfig& config, Vec3 position, float yaw_radians) : config_(config) {
     validate_vehicle_config(config_);
     if (!finite(position) || !std::isfinite(yaw_radians)) throw std::invalid_argument("Vehicle: the position and heading must be finite");
@@ -133,6 +145,7 @@ Vehicle::Vehicle(const VehicleConfig& config, Vec3 position, float yaw_radians) 
     inertia_[0] = m / 3.0 * (hy * hy + hz * hz);
     inertia_[1] = m / 3.0 * (hx * hx + hz * hz);
     inertia_[2] = m / 3.0 * (hx * hx + hy * hy);
+    grip_limit_.fill(m * gravity / 4.0 * static_cast<double>(config_.tire_friction));  // at rest on level ground
     publish();
 }
 
@@ -264,7 +277,29 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
         }
         powertrain_force = torque * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * std::fabs(throttle);
         if (g == -1) powertrain_force = -powertrain_force;
+        if (pt.engine_brake > 0.0f && throttle == 0.0 && shift_timer_ <= 0.0) {
+            // The engine drags the driven wheels back against the way the car rolls, fading out below a walking pace (the clutch disengages).
+            const double gate = clamp((std::fabs(speed_along) - 0.5) / 2.0, 0.0, 1.0);
+            const double tau = static_cast<double>(pt.engine_brake) * engine_rpm_ / static_cast<double>(pt.redline_rpm);
+            powertrain_force = -(speed_along < 0.0 ? -1.0 : 1.0) * tau * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * gate;
+        }
     }
+    // The differential: what share of the drive each driven wheel can take, against the friction limits of the previous substep.
+    const auto shared = [&](std::size_t i, double share) {
+        if (config_.differential == VehicleDifferential::Legacy) return share;
+        double weakest = 1e30, total = 0.0;
+        for (std::size_t j = 0; j < 4; ++j) {
+            if (!config_.wheels[j].driven) continue;
+            weakest = std::min(weakest, grip_limit_[j]);
+            total += grip_limit_[j];
+        }
+        const double magnitude = std::fabs(share), sign = share < 0.0 ? -1.0 : 1.0;
+        switch (config_.differential) {
+        case VehicleDifferential::Open: return sign * std::min(magnitude, weakest);
+        case VehicleDifferential::Locked: return total > 0.0 ? sign * magnitude * driven * grip_limit_[i] / total : 0.0;
+        default: return sign * std::min({magnitude, grip_limit_[i], static_cast<double>(config_.lsd_bias) * weakest + static_cast<double>(config_.lsd_preload)});
+        }
+    };
 
     for (std::size_t i = 0; i < 4; ++i) {
         const VehicleWheelConfig& wc = config_.wheels[i];
@@ -284,6 +319,8 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
             compression_[i] = 0.0;
             // A wheel in the air keeps turning with the body's forward speed.
             spin_[i] += dot(v, steer_forward) / static_cast<double>(config_.wheel_radius) * dt;
+            grip_limit_[i] = 0.0;
+            drive_[i] = slip_[i] = 0.0;
             continue;
         }
         const double travel = static_cast<double>(config_.suspension_travel);
@@ -305,14 +342,14 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
         const double v_long = dot(v_cp, f), v_lat = dot(v_cp, l);
         double fx = 0.0;
         if (wc.driven && pt.enabled) {
-            fx += powertrain_force / driven;
+            fx += shared(i, powertrain_force / driven);
         } else if (wc.driven) {
             const double throttle = static_cast<double>(input.throttle);
             const double per_wheel = static_cast<double>(config_.engine_force) / driven;
             const double power_cap = static_cast<double>(config_.engine_power) / (std::max(std::fabs(v_long), 2.0) * driven);
             double drive = std::min(per_wheel, power_cap) * throttle;
             if (throttle < 0.0) drive *= 0.55;  // reverse is weaker
-            fx += drive;
+            fx += shared(i, drive);
         }
         // What the tire is on: its grip scales the friction circle, its rolling resistance the rolling term (both 1 without a surface map).
         const PhysicsMaterial& surface = surfaces != nullptr ? surfaces->material_at(contact.primitive) : physics_material(Surface::Default);
@@ -330,12 +367,23 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
         double grip = mu * static_cast<double>(surface.tire_grip);
         if (handbrake > 0.0) grip *= 1.0 - handbrake * (1.0 - static_cast<double>(config_.handbrake_grip));
         const double limit = grip * spring_force;
+        grip_limit_[i] = limit;
+        if (config_.slip_angle_lateral) {
+            const double alpha = std::atan2(v_lat, std::max(std::fabs(v_long), 1.5));
+            const double model = limit * tire_lateral_ratio(alpha, static_cast<double>(config_.lateral_stiffness), static_cast<double>(config_.lateral_slide_ratio));
+            const double signed_model = v_lat > 0.0 ? -model : model;
+            if (std::fabs(signed_model) < std::fabs(fy)) fy = signed_model;  // never more than cancelling the sideslip
+            slip_[i] = alpha;
+        } else {
+            slip_[i] = std::atan2(v_lat, std::max(std::fabs(v_long), 1.5));
+        }
         const double magnitude = std::hypot(fx, fy);
         if (magnitude > limit && magnitude > 0.0) {
             fx *= limit / magnitude;
             fy *= limit / magnitude;
         }
         apply(f * fx + l * fy, cp);
+        drive_[i] = fx;
         spin_[i] += v_long / static_cast<double>(config_.wheel_radius) * dt;
     }
 
@@ -478,6 +526,8 @@ void Vehicle::publish() noexcept {
         ws.compression = static_cast<float>(compression_[i]);
         ws.spin = static_cast<float>(std::remainder(spin_[i], 2.0 * 3.14159265358979323846));
         ws.load = static_cast<float>(static_cast<double>(config_.spring) * compression_[i]);
+        ws.drive_force = static_cast<float>(drive_[i]);
+        ws.slip_angle = static_cast<float>(slip_[i]);
         ws.steer_angle = static_cast<float>(steer_[i]);
         ws.contact_point = contact_point_[i];
         ws.contact_normal = contact_normal_[i];

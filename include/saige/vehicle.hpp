@@ -13,8 +13,7 @@
 // cone, so an off-centre impact produces yaw and roll. Impacts above a speed threshold are recorded as events (speed, point, normal, energy) for effects
 // and sound to consume; nothing is faked from the event.
 //
-// What this is not: no tire deformation, no suspension geometry beyond a vertical spring, no anti-roll bar, no gearbox (an engine force and power limit only), no damage model (the host reads the
-// impact events), no vehicle-vehicle contact, and one contact point per primitive. Everything is deterministic for the same inputs and build.
+// What this is not: no tire deformation or tire slip-ratio state (wheel speed is the ground speed; traction is the friction circle), no suspension geometry beyond a vertical spring, no anti-roll bar, no vehicle-vehicle contact, and one contact point per primitive. Everything is deterministic for the same inputs and build.
 //
 // Frame: local +X forward, +Y left, +Z up (counter-clockwise from above, as make_oriented_box). Positions are chunk-local (see capsule_sweep.hpp's envelope).
 
@@ -57,7 +56,20 @@ struct VehiclePowertrain {
     float upshift_rpm = 6000.0f;
     float downshift_rpm = 2600.0f;
     float shift_time = 0.25f;          // seconds
+    // Engine braking: with the throttle released (and the clutch engaged, above a walking pace) the engine's own friction and pumping losses drag the driven wheels back. This is the drag torque at the redline, N m,
+    // scaled linearly with the engine speed and multiplied through the gear and final drive, so it is strongest in a low gear at speed. 0 is off (and bit-identical to before).
+    float engine_brake = 0.0f;
 };
+
+// How the drive force is shared between the driven wheels. Legacy (the default) splits it equally and lets the tires' friction circles clip each share, exactly as before. The others use the friction
+// limit each driven wheel had on the previous substep: Open gives every wheel the same force, so it is capped by the wheel with the least grip (a wheel on ice or in the air starves the other); Locked
+// shares the force in proportion to each wheel's grip (an idealised locked axle: no wheel-speed state is modelled, so it does not bind in a corner); LimitedSlip lets a wheel take up to `lsd_bias` times what the
+// weakest driven wheel can carry plus `lsd_preload`.
+enum class VehicleDifferential : std::uint8_t { Legacy, Open, Locked, LimitedSlip };
+
+// The lateral tire force over the friction limit at a slip angle (VehicleConfig::slip_angle_lateral): sin(C atan(B |a|)) with C = (2/pi)(pi - asin(slide_ratio)). It is 0 at no slip, rises with initial slope C*B per radian,
+// peaks at 1 where atan(B |a|) = pi / (2 C), and falls to `slide_ratio` as the angle grows. Even in the angle (the sign of the force opposes the sliding, applied by the caller).
+[[nodiscard]] double tire_lateral_ratio(double slip_angle, double stiffness, double slide_ratio) noexcept;
 
 struct VehicleConfig {
     float mass = 1450.0f;                       // kg
@@ -87,6 +99,16 @@ struct VehicleConfig {
     float handbrake_force = 9000.0f;
     float handbrake_grip = 0.45f;
     VehiclePowertrain powertrain;
+    VehicleDifferential differential = VehicleDifferential::Legacy;
+    float lsd_bias = 2.5f;       // LimitedSlip: the most a wheel may carry as a multiple of the weakest driven wheel's grip (1 is an open differential)
+    float lsd_preload = 300.0f;  // LimitedSlip: N of extra force a wheel may take over the bias, per driven wheel
+    // Lateral tire force from the slip angle instead of cancelling the sideslip outright: a Pacejka-like curve F = limit * sin(C atan(B a)) with `a` the slip angle of the contact (atan of the lateral over
+    // the longitudinal speed, the latter floored at 1.5 m/s), rising with stiffness B, peaking, then falling to `lateral_slide_ratio` of the peak (a sliding tire grips less than a rolling one: this is what lets
+    // a tail stay out in a drift and a rear that has broken away under power stay broken). C follows from the ratio. The force never exceeds what would cancel the sideslip in one substep, so the
+    // low-speed behavior stays that of the original model. The friction circle still limits the sum with the drive and brake force. Off by default (bit-identical).
+    bool slip_angle_lateral = false;
+    float lateral_stiffness = 12.0f;     // B, per radian of slip angle: the peak is at atan(B a) = pi / (2 C)
+    float lateral_slide_ratio = 0.85f;   // the force at a large slip angle over the peak, in [0.3, 1]
     std::array<VehicleWheelConfig, 4> wheels{{
         {{1.30f, 0.80f, -0.05f}, true, false},    // front left
         {{1.30f, -0.80f, -0.05f}, true, false},   // front right
@@ -114,6 +136,8 @@ struct VehicleWheelState {
     Vec3 contact_point;
     Vec3 contact_normal;
     float load{};            // N pushed through the spring, last substep
+    float drive_force{};     // N of longitudinal force the tire put on the chassis in the last substep (drive, engine braking, brake, rolling resistance; positive forward)
+    float slip_angle{};      // rad, signed: atan of the contact's lateral over longitudinal speed (the longitudinal floored at 1.5 m/s); positive when the contact slides to the left
 };
 
 struct VehicleImpact {
@@ -187,6 +211,8 @@ private:
     double shift_timer_ = 0.0;
     double engine_rpm_ = 0.0;
     std::array<double, 4> steer_{};
+    std::array<double, 4> grip_limit_{};  // each wheel's friction limit in the last substep, N (0 in the air): what the differential shares against
+    std::array<double, 4> drive_{}, slip_{};
     std::array<Vec3, 4> contact_point_{}, contact_normal_{};
 };
 

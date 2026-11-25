@@ -66,6 +66,6 @@ jobs:
           -DSAIGE_BUILD_GRAPHICS=OFF -DSAIGE_BUILD_PROJECTS=OFF
           -DSAIGE_PHYSICS_JOLT=ON -DSAIGE_JOLT_ROOT="$env:RUNNER_TEMP/jolt"
       - name: Build
-        run: cmake --build build --config Release --parallel --target dynamics_test
+        run: cmake --build build --config Release --parallel --target dynamics_test ragdoll_test
       - name: Gates
         run: ctest --test-dir build -C Release -R "dynamics|ragdoll" --output-on-failure

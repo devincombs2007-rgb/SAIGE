@@ -11,6 +11,16 @@ For the next agent (Claude Code, Codex or a person) picking this up cold.
 6. A regression test is not done until you have seen it fail against the defect (a mutation or a control). Restore mutated files from a copy and re-run; never leave a mutation in the tree.
 7. A command that needs the owner (money, credentials, security permissions, a merge to `main`, a release) goes to the owner as a short, specific request on the issue. Never paste a secret anywhere.
 
+## Where the character and physics work stands (2026-11-25)
+
+Branch `claude/production-infrastructure`, CI green through run 593 (all three Graphics jobs). `development-state.md` has the per-feature record and `capabilities.md` the status table; checkpoints 1 to 5 are on issue #43. Not merged, no PR.
+
+* Done and CI-validated: the humanoid animation module (`engine/animation`: locomotion, retargeting, IK, foot lock and `FootPlacement`, root-motion actions including vertical climbs, layering, look-at, hand IK, crouch), the matching additive Core fields (`CapsuleInput::traction`, `drive`, `crouch`; `CapsuleCharacterConfig::crouch_*`; `CapsuleCharacterState::crouched`), surface materials and `contact_velocity`, and the vehicle's handling options and powertrain. Every new Core field is additive and bit-identical when unused (the Showcase 03 replay checks are the guard).
+* Needs an owner decision, not more code: strafing and turn-in-place (no clips in UAL or UAL 2; `mocap.cs.cmu.edu` does not resolve from the cloud session's network: allow that host or name another CC0 or properly licensed source), adopting a physics library (Jolt or Bullet; evaluation is in `docs/engineering/`), creating the scheduled run below, any merge to `main`.
+* Open and unblocked but speculative until a product need picks them: a vehicle differential, damage state and engine braking, arm joint limits and body avoidance for hand IK, a second jump, crouch transitions, aligning a character to a ledge before a climb, replacing CesiumMan in a Showcase-class app (not Showcase 03).
+* Pitfalls found the hard way: compare `CapsuleCharacterState` with `==`, never `memcmp` (padding); MSVC rounds differently from gcc, so never test `acos`-style distances of identical values against 0 (`rotation_angle_between` is exact for identical rotations); a CMake test target that links nothing needs `cxx_std_20` or MSVC builds it as C++14; do not push while a CI run is in progress (a new push cancels it); the physics envelope is +-256 m, so long vehicle tests start at x = -240.
+* Assets are fetched, not committed: `python3 tools/animation/fetch_humanoid_assets.py DIR` (UAL, CMU, optional UAL 2) and `SAIGE_ANIM_ASSETS=DIR`; without them the real-asset tests skip.
+
 ## Scheduled engineering run (proposal; not enabled)
 
 A cloud scheduled task could advance the backlog in bounded increments. Constraints it must carry: a single writer (one branch, `claude/engineering-run`, rebased from the target branch before each run);

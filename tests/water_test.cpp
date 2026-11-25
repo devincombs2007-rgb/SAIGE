@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <span>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -601,6 +603,251 @@ void test_exposed_state() {
     require(peak_depth < -0.3 && std::fabs(dropped.state().position.z - (0.4 - 0.6 * 0.8)) < 0.01, "it plunges below its floating draft and settles to it");
 }
 
+// A sea of twelve waves from several directions, the largest 0.5 m, each next 0.8 of the one before and shorter.
+WaterConfig busy_sea() {
+    WaterConfig c;
+    double amp = 0.5, len = 60.0;
+    for (int i = 0; i < 12; ++i) {
+        c.waves.push_back({0.35 * i - 1.0, len, amp, 0.7 * i});
+        amp *= 0.8;
+        len *= 0.82;
+    }
+    return c;
+}
+
+bool same_bits(double a, double b) { return std::memcmp(&a, &b, sizeof(double)) == 0; }
+
+void test_level_of_detail() {
+    const WaterSurface full(busy_sea());
+    require(full.wave_count() == 12, "control: twelve waves");
+    // reduced(n) keeps the n largest: with all of them it is the same sea; fewer waves have less energy but most of it.
+    const WaterSurface all = full.reduced(12), eight = full.reduced(8), four = full.reduced(4);
+    require(eight.wave_count() == 8 && four.wave_count() == 4, "reduced keeps the count asked for");
+    double worst_same = 0.0;
+    for (int i = 0; i < 50; ++i) worst_same = std::max(worst_same, std::fabs(all.height(3.0 * i, -2.0 * i, 0.7 * i) - full.height(3.0 * i, -2.0 * i, 0.7 * i)));
+    require(worst_same == 0.0, "keeping all the waves changes nothing");
+    const auto energy = [](const WaterSurface& w) {
+        double e = 0.0;
+        for (const auto& wave : w.config().waves) e += wave.amplitude * wave.amplitude;
+        return e;
+    };
+    require(energy(eight) > 0.97 * energy(full) && energy(four) > 0.80 * energy(full) && energy(four) < energy(eight) && energy(eight) < energy(full), "the largest waves carry most of the energy and fewer carry less");
+    for (const auto& w : four.config().waves) require(w.amplitude >= 0.5 * std::pow(0.8, 3) - 1e-12, "the waves kept are the largest ones");
+    bool threw = false;
+    try {
+        (void)full.reduced(0);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "a count of zero is refused");
+    const WaterSurface long_only = full.filtered(25.0);
+    require(long_only.wave_count() > 0 && long_only.wave_count() < 12, "filtered drops the shorter waves");
+    for (const auto& w : long_only.config().waves) require(w.wavelength >= 25.0, "and keeps the longer ones");
+}
+
+void test_cells() {
+    // A body with fewer cells keeps its state, floats at the same draft in calm water, and follows swell nearly as well (the cost is cells, the error is small and measured, not assumed).
+    FloatingBodyConfig bc;
+    bc.half_extents = {1.0, 0.6, 0.4};
+    bc.density = 600.0;
+    bc.cells = 6;
+    const WaterSurface calm(WaterConfig{});
+    FloatingBody a(bc, {0, 0, 0}), b(bc, {0, 0, 0});
+    b.set_cells(3);
+    double t = 0.0;
+    for (int i = 0; i < 600; ++i) {
+        a.step(1.0 / 60.0, calm, t);
+        t = b.step(1.0 / 60.0, calm, t);
+    }
+    std::printf("calm draft with 6 cells %.4f, with 3 cells %.4f\n", a.state().position.z, b.state().position.z);
+    require(std::fabs(a.state().position.z - b.state().position.z) < 0.01, "the draft in calm water does not depend on the cell count (to a centimeter)");
+    bool threw = false;
+    try {
+        b.set_cells(1);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "a cell count below 2 is refused");
+    const WaterSurface swell(busy_sea());
+    FloatingBody c(bc, {0, 0, 0}), d(bc, {0, 0, 0});
+    d.set_cells(3);
+    double sq = 0.0, sq_roll = 0.0;
+    int n = 0;
+    t = 0.0;
+    for (int i = 0; i < 60 * 40; ++i) {
+        c.step(1.0 / 60.0, swell, t);
+        t = d.step(1.0 / 60.0, swell, t);
+        if (t > 10.0) {
+            const double dz = c.state().position.z - d.state().position.z;
+            sq += dz * dz;
+            ++n;
+        }
+    }
+    const double rms = std::sqrt(sq / n);
+    std::printf("3 cells against 6 in a sea of Hs ~1 m: RMS height difference %.1f mm\n", rms * 1000.0);
+    (void)sq_roll;
+    require(c.wetted().size() > 27 && d.wetted().size() <= 27 && d.wetted().size() > 0, "the body with 3 cells has at most 27 sample cells and the one with 6 many more (set_cells rebuilt them)");
+    require(rms < 0.01, "three cells per axis follow the swell to within a centimeter RMS for a body of this size");
+}
+
+void test_lod_cells() {
+    require(water_lod_cells(0.0, 6) == 6 && water_lod_cells(39.9, 6) == 6, "within 40 m a body keeps all its cells");
+    require(water_lod_cells(40.0, 6) == 4 && water_lod_cells(99.9, 6) == 4, "out to 100 m two thirds");
+    require(water_lod_cells(100.0, 6) == 3 && water_lod_cells(5000.0, 6) == 3, "beyond that half");
+    require(water_lod_cells(60.0, 3) == 3 && water_lod_cells(500.0, 3) == 2 && water_lod_cells(500.0, 2) == 2, "never below 3 in the middle band nor 2 beyond it");
+    bool threw = false;
+    try {
+        (void)water_lod_cells(-1.0, 6);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "a negative distance is refused");
+}
+
+void test_field_cache() {
+    const WaterSurface surface(busy_sea());
+    WaterFieldCache cache(surface, 0.5);
+    require(cache.usable(), "a deep sea can be cached");
+    cache.begin(10.0, 10.0 + 1.0 / 60.0);
+    cache.cover(5.0, -3.0, 2.0);
+    require(cache.tile_count() > 0 && cache.points_computed() > 0, "covering a body computes tiles");
+    double worst_h = 0.0, worst_flow = 0.0;
+    for (int i = 0; i < 200; ++i) {
+        const double x = 5.0 + 1.9 * std::cos(0.31 * i), y = -3.0 + 1.9 * std::sin(0.17 * i), t = 10.0 + (i % 17) / 17.0 / 60.0;
+        double h, he;
+        WaterVec f, fe;
+        cache.sample(x, y, -0.2, t, h, f);
+        surface.sample(x, y, -0.2, t, he, fe);
+        worst_h = std::max(worst_h, std::fabs(h - he));
+        worst_flow = std::max(worst_flow, std::fabs(f.x - fe.x) + std::fabs(f.y - fe.y) + std::fabs(f.z - fe.z));
+    }
+    std::printf("cache against exact over 200 samples: height %.2f mm, flow %.4f m/s\n", worst_h * 1000.0, worst_flow);
+    require(cache.fallbacks() == 0, "inside the prepared tiles nothing falls back (at the depths asked)");
+    require(worst_h < 0.01, "the cached height is within 10 mm of the exact");
+    require(worst_flow < 0.02, "and the flow within 0.02 m/s");
+    // Flow at depth: a quarter meter under the surface the single-wavenumber decay is good to a few percent; deeper than max_flow_depth the cache answers exactly (and says so).
+    double near_err = 0.0, near_exact = 0.0;
+    for (int i = 0; i < 100; ++i) {
+        const double x = 5.0 + 1.9 * std::cos(0.37 * i), y = -3.0 + 1.9 * std::sin(0.23 * i), t = 10.0 + (i % 11) / 11.0 / 60.0;
+        double h2, he2;
+        WaterVec f2, fe2;
+        const double z = surface.height(x, y, t) - 0.2;  // 0.2 m under the surface wherever it is
+        cache.sample(x, y, z, t, h2, f2);
+        surface.sample(x, y, z, t, he2, fe2);
+        near_err = std::max(near_err, std::fabs(f2.x - fe2.x) + std::fabs(f2.y - fe2.y) + std::fabs(f2.z - fe2.z));
+        near_exact = std::max(near_exact, std::fabs(fe2.x) + std::fabs(fe2.y) + std::fabs(fe2.z));
+    }
+    std::printf("flow 0.2 m under the surface: exact up to %.3f, largest difference %.4f m/s (%.1f%%)\n", near_exact, near_err, 100.0 * near_err / near_exact);
+    require(near_err < 0.05 * near_exact, "0.2 m under the surface the cached flow is within 5% of the exact (the error grows to 14% at 0.9 m, hence the default depth limit)");
+    {
+        // For a sea of one wave the single-wavenumber decay is exact: the cached flow follows the orbital decay with depth, to interpolation error.
+        const WaterSurface one(sea(0.5, 40.0));
+        WaterFieldCache c1(one, 0.5, 5.0);
+        c1.begin(4.0, 4.0 + 1.0 / 60.0);
+        c1.cover(2.0, 1.0, 2.0);
+        double worst = 0.0, top = 0.0;
+        for (int i = 0; i < 60; ++i) {
+            const double x = 2.0 + 1.8 * std::cos(0.4 * i), y = 1.0 + 1.8 * std::sin(0.3 * i), t = 4.0 + (i % 7) / 7.0 / 60.0, z = one.height(x, y, t) - 3.0;
+            double hh, he1;
+            WaterVec ff, fe1;
+            c1.sample(x, y, z, t, hh, ff);
+            one.sample(x, y, z, t, he1, fe1);
+            worst = std::max(worst, std::fabs(ff.x - fe1.x) + std::fabs(ff.y - fe1.y) + std::fabs(ff.z - fe1.z));
+            top = std::max(top, std::fabs(fe1.x) + std::fabs(fe1.y) + std::fabs(fe1.z));
+        }
+        require(c1.fallbacks() == 0, "control: the single-wave samples were served from the cache");
+        require(top > 0.05 && worst < 0.01 * 0.5 * 1.0 + 0.004, "for one wave the cached flow 3 m down has the exact orbital decay (0.4% of the surface speed)");
+    }
+    const std::size_t before = cache.fallbacks();
+    double hd, hed;
+    WaterVec fd, fed;
+    cache.sample(5.0, -3.0, -4.0, 10.0, hd, fd);
+    surface.sample(5.0, -3.0, -4.0, 10.0, hed, fed);
+    require(cache.fallbacks() == before + 1 && fd.x == fed.x && fd.z == fed.z, "four meters down the cache refuses and answers exactly, counted (default limit 0.25 m)");
+    
+    cache.sample(5.0, -3.0, -4.0, 10.0, hd, fd, 1e9);  // no flow wanted (surface not above the threshold): the height alone is cached
+    require(cache.fallbacks() == before + 1, "and a height-only query at that depth is served from the cache");
+    double h, he;
+    WaterVec f, fe;
+    cache.sample(400.0, 400.0, -0.2, 10.0, h, f);
+    surface.sample(400.0, 400.0, -0.2, 10.0, he, fe);
+    require(cache.fallbacks() == before + 2 && h == he, "a point outside the tiles falls back to the exact answer and is counted");
+    cache.sample(5.0, -3.0, -0.2, 30.0, h, f, 1e9);  // height only, so a refusal for depth cannot stand in for the time check
+    surface.sample(5.0, -3.0, -0.2, 30.0, he, fe);
+    require(cache.fallbacks() == before + 3 && h == he, "so does a time outside the interval");
+    WaterConfig shallow = busy_sea();
+    shallow.depth = 20.0;
+    const WaterSurface shallow_surface(shallow);
+    require(!WaterFieldCache(shallow_surface).usable(), "a sea of finite depth is not cached (its flow decays per wave)");
+}
+
+void test_parallel_bodies() {
+    const WaterSurface surface(busy_sea());
+    const WaterSurface coarse = surface.reduced(6);
+    const auto build = [&](std::vector<FloatingBody>& bodies) {
+        bodies.clear();
+        for (int i = 0; i < 24; ++i) {
+            FloatingBodyConfig bc;
+            bc.half_extents = {0.6 + 0.05 * (i % 5), 0.5, 0.3};
+            bc.density = 400.0 + 20.0 * i;
+            bc.cells = 3 + (i % 4);
+            bodies.emplace_back(bc, WaterVec{9.0 * (i % 6), 9.0 * (i / 6), 0.0});
+        }
+    };
+    const auto run = [&](unsigned threads) {
+        std::vector<FloatingBody> bodies;
+        build(bodies);
+        std::vector<BodyStep> steps;
+        for (std::size_t i = 0; i < bodies.size(); ++i) steps.push_back({&bodies[i], i % 2 == 0 ? static_cast<const WaterSource*>(&surface) : &coarse});
+        double t = 0.0;
+        for (int i = 0; i < 90; ++i) t = step_bodies(steps, 1.0 / 60.0, t, threads);
+        std::vector<FloatingBodyState> out;
+        for (const auto& b : bodies) out.push_back(b.state());
+        return out;
+    };
+    const auto one = run(1), four = run(4), seven = run(7);
+    bool same = true, moved = false;
+    for (std::size_t i = 0; i < one.size(); ++i) {
+        for (const auto* other : {&four, &seven}) {
+            const FloatingBodyState& a = one[i];
+            const FloatingBodyState& b = (*other)[i];
+            same = same && same_bits(a.position.x, b.position.x) && same_bits(a.position.y, b.position.y) && same_bits(a.position.z, b.position.z) && same_bits(a.velocity.z, b.velocity.z) && same_bits(a.orientation[3], b.orientation[3]);
+        }
+        moved = moved || std::fabs(one[i].position.z) > 1e-3;
+    }
+    require(moved, "control: the bodies move");
+    require(same, "the bodies end bit-identical on 1, 4 and 7 threads");
+    // The same bodies stepped one by one give the same bits as step_bodies.
+    std::vector<FloatingBody> bodies;
+    build(bodies);
+    double t = 0.0;
+    for (int i = 0; i < 90; ++i) {
+        for (std::size_t k = 0; k < bodies.size(); ++k) bodies[k].step(1.0 / 60.0, k % 2 == 0 ? static_cast<const WaterSource&>(surface) : coarse, t);
+        t += 1.0 / 60.0;
+    }
+    bool serial = true;
+    for (std::size_t i = 0; i < bodies.size(); ++i) serial = serial && same_bits(bodies[i].state().position.z, one[i].position.z);
+    require(serial, "and the same as stepping each body alone");
+    bool threw = false;
+    try {
+        std::vector<FloatingBody> none;
+        const BodyStep bad{nullptr, &surface};
+        (void)step_bodies(std::span<const BodyStep>(&bad, 1), 1.0 / 60.0, 0.0, 2);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "a null body or source is refused");
+    threw = false;
+    try {
+        FloatingBody twice(FloatingBodyConfig{}, {0, 0, 0});
+        const BodyStep dup[2] = {{&twice, &surface}, {&twice, &surface}};
+        (void)step_bodies(dup, 1.0 / 60.0, 0.0, 2);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "the same body twice is refused (two threads would step it at once)");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -610,7 +857,7 @@ int main(int argc, char** argv) {
     };
     const Named tests[] = {{"validation", test_validation}, {"dispersion", test_dispersion}, {"queries", test_queries}, {"flow", test_flow},       {"foam", test_foam_and_chop},    {"wind", test_wind},
                            {"density", test_density},       {"waves", test_waves_and_bodies}, {"drag", test_drag},      {"time_step", test_time_step}, {"current", test_current}, {"stability", test_stability},
-                           {"exposed", test_exposed_state}};
+                           {"exposed", test_exposed_state}, {"lod", test_level_of_detail}, {"cells", test_cells}, {"lodcells", test_lod_cells}, {"cache", test_field_cache}, {"parallel", test_parallel_bodies}};
     int failures = 0;
     for (const Named& t : tests) {
         if (argc > 1 && std::string(argv[1]) != t.name) continue;

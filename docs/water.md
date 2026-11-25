@@ -43,3 +43,42 @@ Measured:
 ## Limits
 
 No added mass, no wave diffraction or radiation beyond the damping ratios, no slamming or planing, no body-body contact, one rigid box per body, one uniform current, a heightfield surface (no breaking waves, spray or interior flow).
+
+## Many floating bodies (WATER-2)
+
+`tools/benchmarks/water_workloads.cpp` (`saige_water_workloads [--cost-only|--accuracy-only]`) places N bodies at deterministic scattered positions in a 300 x 300 m wind sea (twelve Gerstner waves, Hs about 2 m) with
+distance bands from the viewer, steps them at 60 Hz, and compares each option with the exact reference: 216 sample cells per body, every wave, serial. Release build, one CPU of this development container (shared, not a
+workstation; absolute numbers will differ, the ratios are the finding). Cost is milliseconds per 1/60 s frame (median of three runs of 60 frames):
+
+| Variant | 1 body | 10 | 50 | 100 |
+| --- | --- | --- | --- | --- |
+| reference: exact, 216 cells, serial | 1.005 | 9.587 | 49.082 | 104.857 |
+| shared surface cache (`WaterFieldCache`) | 1.507 | 15.144 | 77.267 | 142.742 |
+| distance: fewer waves (8, then 4 of 12) | 0.391 | 5.622 | 25.627 | 48.524 |
+| distance: fewer cells (6, 4, 3 per axis) | 0.133 | 2.593 | 10.146 | 21.007 |
+| cache + fewer waves + fewer cells | 0.606 | 7.965 | 34.483 | 63.624 |
+| all of that on 4 threads | 0.453 | 7.680 | 35.728 | 65.913 |
+| exact reference on 4 threads | 1.056 | 4.099 | 16.720 | 32.650 |
+
+Accuracy against the reference (20 bodies for 20 s; RMS error of the body's height and roll; "near" is within 40 m, "far" beyond):
+
+| Variant | near z (mm) | near roll (deg) | far z (mm) | far roll (deg) |
+| --- | --- | --- | --- | --- |
+| shared surface cache | 1.49 | 0.019 | 2.45 | 0.032 |
+| fewer waves (8 and 4 of 12) | 0.00 | 0.000 | **295.7** | **2.881** |
+| fewer cells (6, 4, 3) | 0.00 | 0.000 | 0.64 | 0.181 |
+| exact on 4 threads | 0.00 | 0.000 | 0.00 | 0.000 |
+
+(Zero near error is by construction: bodies within 40 m run the reference configuration. Nothing nearby is traded for a benchmark number.)
+
+What the measurements say, including what did not work:
+
+* **Threads** (`step_bodies`): 3.2x at 100 bodies on 4 threads with no change in the result (bit-identical for 1, 4 and 7 threads, tested). Not worth it for one body (thread start-up outweighs 1 ms), worth it from about ten.
+* **Fewer cells by distance** (`water_lod_cells`): 5x cheaper for bodies beyond 40 m, with 0.6 mm height and 0.18 degree roll error. This is the best trade and costs nothing nearby.
+* **Fewer waves** (`WaterSurface::reduced`): 2x cheaper but the far bodies' height error is 0.3 m RMS and roll 2.9 degrees in this sea, because dropping waves removes real motion (the largest four carry 83% of the energy here, not all). Acceptable only for decorative or very distant bodies; not recommended as a default. `filtered(min_wavelength)` removed nothing from this sea (all waves exceed 9 m), so wavelength filtering is of no use for it.
+* **Shared surface cache** (`WaterFieldCache`): **slower** than the exact reference for scattered bodies (1.4 times the cost at 100) because bodies do not overlap, so there is nothing to share, and each tile computes 16 points of which a body uses a few. It also approximates the flow below the surface with one wavenumber: 0% at the surface, 4% at 0.25 m under it, 8% at 0.5 m, 14% at 0.9 m, 39% at 3 m, so it refuses (falls back to exact) deeper than `max_flow_depth` (0.25 m by default). It is kept as an opt-in for dense clusters (a fleet of buoys, debris) and cheap height-only queries; it is not used by default and is not a general speed-up. This was a hypothesis that the measurements did not support.
+* **Inversion tolerance**: the exact height iterates a fixed point to 1e-8; relaxing it was not tried because the heights are already dominated by other costs (the wave sums), not iteration count.
+
+Recommended defaults for many bodies: `water_lod_cells(distance, full)` per body, `step_bodies` on the available cores (determinism does not depend on the count), the exact surface for everyone. Reduced waves only beyond a distance where error of a third of a meter is invisible.
+
+Not done: wakes, swimming (a character in water), displacement, and two-way coupling with the dynamics backend's rigid bodies (a dynamic crate floating through `FloatingBody` forces). The water module and the dynamics backend are separate; the force evaluation (`FloatingBody` cells) can be applied to a `DynamicsWorld` body as external forces once the dynamics interface has force application (it has impulses; a per-step force API is the next addition).

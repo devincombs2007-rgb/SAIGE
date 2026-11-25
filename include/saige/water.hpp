@@ -18,7 +18,11 @@
 // Frame: +Z up, the mean surface at z = `level`. Time is in seconds as a double (it grows without bound). Positions in meters, chunk-local like the rest of the physics.
 
 #include <array>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace saige {
@@ -52,11 +56,26 @@ void validate_water_config(const WaterConfig& config);
 // direction within +-35 degrees of the wind and a fixed phase. The significant wave height of the sea it describes is about 0.21 U^2 / g.
 [[nodiscard]] std::vector<WaterWave> waves_from_wind(double speed, double direction, int count = 12, double depth = 0.0, double gravity = 9.81);
 
-class WaterSurface {
+// What a floating body asks of the water: the height at a place and time and the flow there. WaterSurface answers exactly; WaterFieldCache answers from values shared between bodies; both are safe to read from
+// several threads at once as long as nothing is being prepared (see WaterFieldCache).
+class WaterSource {
+public:
+    virtual ~WaterSource() = default;
+    [[nodiscard]] virtual const WaterConfig& config() const noexcept = 0;
+    // The height at (x, y) and the flow at min(z, height) there; the flow is only computed (else zero) when the height is above `flow_only_above`.
+    virtual void sample(double x, double y, double z, double t, double& height_out, WaterVec& flow_out, double flow_only_above = -1e300) const = 0;
+};
+
+class WaterSurface : public WaterSource {
 public:
     explicit WaterSurface(const WaterConfig& config);  // throws std::invalid_argument (validate_water_config)
 
-    [[nodiscard]] const WaterConfig& config() const noexcept { return config_; }
+    [[nodiscard]] const WaterConfig& config() const noexcept override { return config_; }
+    // The same sea without its waves shorter than `min_wavelength` (a coarser level of detail: a large or distant body averages short waves out anyway). Every other setting is kept.
+    [[nodiscard]] WaterSurface filtered(double min_wavelength) const;
+    // The same sea with only its `count` largest waves by amplitude (ties by the longer wave): a coarse level of detail that keeps the energy of the sea. Throws for a count of 0 when the sea has waves.
+    [[nodiscard]] WaterSurface reduced(std::size_t count) const;
+    [[nodiscard]] std::size_t wave_count() const noexcept { return config_.waves.size(); }
     // The surface height at a world position and time.
     [[nodiscard]] double height(double x, double y, double t) const;
     // The unit surface normal (pointing up) there.
@@ -64,7 +83,7 @@ public:
     // The water's velocity at a world point (below the surface it decays with depth; above it the surface's own value): the orbital motion of every wave plus the current.
     [[nodiscard]] WaterVec velocity(double x, double y, double z, double t) const;
     // The height at a world position and the flow at min(z, height) there, from one inversion of the displacement (what a body asks for each sample cell: about 40% cheaper than height() followed by velocity(); the flow is computed only when the height is above `flow_only_above`, else it is zero).
-    void sample(double x, double y, double z, double t, double& height_out, WaterVec& flow_out, double flow_only_above = -1e300) const;
+    void sample(double x, double y, double z, double t, double& height_out, WaterVec& flow_out, double flow_only_above = -1e300) const override;
     // The Jacobian of the horizontal displacement at a world position: 1 for a calm surface, falling toward 0 where the surface is folding (a breaking crest), never negative for a valid configuration.
     [[nodiscard]] double jacobian(double x, double y, double t) const;
     // Foam in [0, 1]: 0 where the Jacobian is above `threshold` (0.8), rising to 1 at 0.
@@ -81,6 +100,41 @@ private:
     WaterVec velocity_at_source(double x0, double y0, double z, double t) const;
     WaterConfig config_;
     std::vector<double> k_, w_, cx_, cy_;
+};
+
+// Surface values computed once and shared by every body near them. `begin(t0, t1)` starts a frame interval, `cover` computes the tiles around a body (4 x 4 points of `spacing` meters, height and the flow at the surface, at t0 and
+// at t1), and `sample` interpolates bilinearly in space and linearly in time (a frame is short against a wave period, so linear in time costs about nothing). A sample outside the interval, the prepared tiles or a sea of finite
+// depth falls back to the exact surface (counted in `fallbacks()`), so the result is always an answer. The flow below the surface is the surface flow decayed with one wavenumber (the amplitude-weighted mean of the sea's), the
+// one approximation besides the interpolation, and it is measured, not assumed: for a twelve-wave sea (60 m down to 7 m) the horizontal flow error is 0% at the surface, 4% at 0.25 m under it, 8% at 0.5 m, 14% at 0.9 m and 39% at 3 m:
+// a flow asked for deeper than `max_flow_depth` below the surface falls back to the exact answer too. `begin` and `cover` change the cache and must not run while another thread samples; `sample` only reads (and bumps an atomic counter).
+class WaterFieldCache : public WaterSource {
+public:
+    explicit WaterFieldCache(const WaterSurface& surface, double spacing = 0.5, double max_flow_depth = 0.25);
+    void begin(double t0, double t1);
+    void cover(double x, double y, double radius);
+    [[nodiscard]] const WaterConfig& config() const noexcept override { return surface_.config(); }
+    void sample(double x, double y, double z, double t, double& height_out, WaterVec& flow_out, double flow_only_above = -1e300) const override;
+    [[nodiscard]] std::size_t tile_count() const noexcept { return tiles_.size(); }
+    [[nodiscard]] std::size_t points_computed() const noexcept { return points_; }
+    [[nodiscard]] std::size_t fallbacks() const noexcept { return fallbacks_.load(std::memory_order_relaxed); }
+    [[nodiscard]] bool usable() const noexcept { return usable_; }
+
+private:
+    static constexpr int tile_size = 4;
+    struct Tile {
+        std::array<double, tile_size * tile_size> h0, h1;
+        std::array<std::array<double, 3>, tile_size * tile_size> f0, f1;
+    };
+    [[nodiscard]] const Tile* tile_at(std::int64_t px, std::int64_t py) const;
+    void corner(std::int64_t px, std::int64_t py, double& h0, double& h1, std::array<double, 3>& f0, std::array<double, 3>& f1, bool& ok) const;
+    const WaterSurface& surface_;
+    double spacing_;
+    double t0_ = 0.0, t1_ = 0.0;
+    bool open_ = false, usable_ = false;
+    double k_dom_ = 0.0, max_flow_depth_ = 0.25;
+    std::unordered_map<std::int64_t, Tile> tiles_;
+    std::size_t points_ = 0;
+    mutable std::atomic<std::size_t> fallbacks_{0};
 };
 
 struct FloatingBodyConfig {
@@ -118,7 +172,9 @@ public:
     FloatingBody(const FloatingBodyConfig& config, WaterVec position);
 
     // Advances from time `t` by `dt` seconds (any positive dt up to one second; it is cut into substeps of at most 1/240 s). Returns the new time. Throws std::invalid_argument for a non-finite or non-positive dt.
-    double step(double dt, const WaterSurface& water, double t);
+    double step(double dt, const WaterSource& water, double t);
+    // Re-samples the body with `cells` cells per axis (2 to 16), keeping its state: a nearer body can have more, a far one fewer. The wet-cell list is cleared until the next step.
+    void set_cells(int cells);
 
     [[nodiscard]] const FloatingBodyState& state() const noexcept { return state_; }
     [[nodiscard]] const FloatingBodyConfig& config() const noexcept { return config_; }
@@ -136,7 +192,8 @@ public:
     [[nodiscard]] double pitch() const noexcept;  // rad about the box's y axis
 
 private:
-    void substep_once(double dt, const WaterSurface& water, double t);
+    void substep_once(double dt, const WaterSource& water, double t);
+    void build_cells();
     FloatingBodyConfig config_;
     FloatingBodyState state_;
     double mass_ = 0.0, volume_ = 0.0;
@@ -150,5 +207,18 @@ private:
     double p_[3]{}, q_[4]{0, 0, 0, 1}, v_[3]{}, w_[3]{};
     std::vector<WetSample> wet_;
 };
+
+// The sample cells per axis a body needs at `distance` meters from the viewer, for a body that has `full_cells` up close: all of them within 40 m, two thirds (at least 3) out to 100 m, half (at least 2) beyond.
+// Measured on a wind sea of Hs 2 m (tools/benchmarks/water_workloads.cpp, docs/water.md): the far bodies' height error is under a millimeter RMS and their roll error under 0.2 degrees, for a fifth of the cost. Bodies within
+// 40 m keep every cell, so nearby water is exactly the reference.
+[[nodiscard]] int water_lod_cells(double distance, int full_cells);
+
+// A body and the water it should see (a body far away can be given a filtered sea or a cache of its own).
+struct BodyStep {
+    FloatingBody* body = nullptr;
+    const WaterSource* water = nullptr;
+};
+// Advances every body by dt from time t, on `threads` threads (1 runs on the caller's). Bodies are independent and the sources are only read, so the result is bit-identical for any thread count. Returns t + dt.
+double step_bodies(std::span<const BodyStep> bodies, double dt, double t, unsigned threads);
 
 } // namespace saige

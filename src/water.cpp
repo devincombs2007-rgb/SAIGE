@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <thread>
 
 namespace saige {
 namespace {
@@ -95,6 +96,31 @@ WaterSurface::WaterSurface(const WaterConfig& config) : config_(config) {
         cx_.push_back(std::cos(w.direction));
         cy_.push_back(std::sin(w.direction));
     }
+}
+
+WaterSurface WaterSurface::reduced(std::size_t count) const {
+    if (count == 0 && !config_.waves.empty()) throw std::invalid_argument("WaterSurface::reduced: keep at least one wave");
+    WaterConfig c = config_;
+    std::vector<std::size_t> order(config_.waves.size());
+    for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        if (config_.waves[a].amplitude != config_.waves[b].amplitude) return config_.waves[a].amplitude > config_.waves[b].amplitude;
+        return config_.waves[a].wavelength > config_.waves[b].wavelength;
+    });
+    order.resize(std::min(count, order.size()));
+    std::sort(order.begin(), order.end());  // keep the original order of the kept waves
+    c.waves.clear();
+    for (const std::size_t i : order) c.waves.push_back(config_.waves[i]);
+    return WaterSurface(c);
+}
+
+WaterSurface WaterSurface::filtered(double min_wavelength) const {
+    WaterConfig c = config_;
+    c.waves.clear();
+    for (const WaterWave& w : config_.waves) {
+        if (w.wavelength >= min_wavelength) c.waves.push_back(w);
+    }
+    return WaterSurface(c);
 }
 
 void WaterSurface::source(double x, double y, double t, double& x0, double& y0) const {
@@ -230,7 +256,19 @@ FloatingBody::FloatingBody(const FloatingBodyConfig& config, WaterVec position) 
     inertia_[1] = m / 3.0 * (hx * hx + hz * hz) + m * (c.x * c.x + c.z * c.z);
     inertia_[2] = m / 3.0 * (hx * hx + hy * hy) + m * (c.x * c.x + c.y * c.y);
     com_[0] = c.x, com_[1] = c.y, com_[2] = c.z;
+    build_cells();
+    p_[0] = position.x, p_[1] = position.y, p_[2] = position.z;
+    // The state's position is the box center; internally p_ is the center of mass.
+    p_[0] += c.x, p_[1] += c.y, p_[2] += c.z;
+    state_.position = position;
+    state_.waterline = 0.0;
+    state_.orientation = {0, 0, 0, 1};
+}
+
+void FloatingBody::build_cells() {
+    const double hx = config_.half_extents.x, hy = config_.half_extents.y, hz = config_.half_extents.z;
     const int n = config_.cells;
+    cells_.clear();
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < n; ++j) {
             for (int k = 0; k < n; ++k) {
@@ -242,12 +280,14 @@ FloatingBody::FloatingBody(const FloatingBodyConfig& config, WaterVec position) 
     cell_height_ = 2.0 * hz / n;
     // The mean of the three face areas shared out over the cells, so a fully submerged body's drag is the textbook one on a cube and a fair mean on a box.
     cell_area_ = (4.0 * hx * hy + 4.0 * hy * hz + 4.0 * hx * hz) / 3.0 / static_cast<double>(cells_.size());
-    p_[0] = position.x, p_[1] = position.y, p_[2] = position.z;
-    // The state's position is the box center; internally p_ is the center of mass.
-    p_[0] += c.x, p_[1] += c.y, p_[2] += c.z;
-    state_.position = position;
-    state_.waterline = 0.0;
-    state_.orientation = {0, 0, 0, 1};
+}
+
+void FloatingBody::set_cells(int cells) {
+    if (cells < 2 || cells > 16) throw std::invalid_argument("FloatingBody::set_cells: cells must be 2 to 16");
+    if (cells == config_.cells) return;
+    config_.cells = cells;
+    build_cells();
+    wet_.clear();
 }
 
 void FloatingBody::set_velocity(WaterVec v) noexcept { v_[0] = v.x, v_[1] = v.y, v_[2] = v.z; state_.velocity = v; }
@@ -276,7 +316,7 @@ double FloatingBody::pitch() const noexcept {
     return std::atan2(up.x, up.z);
 }
 
-double FloatingBody::step(double dt, const WaterSurface& water, double t) {
+double FloatingBody::step(double dt, const WaterSource& water, double t) {
     if (!finite(dt) || !(dt > 0.0) || dt > 1.0 || !finite(t)) throw std::invalid_argument("FloatingBody::step: dt must be finite, positive and at most one second");
     double remaining = dt;
     while (remaining > 1e-12) {
@@ -288,7 +328,7 @@ double FloatingBody::step(double dt, const WaterSurface& water, double t) {
     return t;
 }
 
-void FloatingBody::substep_once(double dt, const WaterSurface& water, double t) {
+void FloatingBody::substep_once(double dt, const WaterSource& water, double t) {
     const WaterConfig& wc = water.config();
     Q q{q_[0], q_[1], q_[2], q_[3]};
     V p{p_[0], p_[1], p_[2]}, v{v_[0], v_[1], v_[2]}, w{w_[0], w_[1], w_[2]};
@@ -335,7 +375,9 @@ void FloatingBody::substep_once(double dt, const WaterSurface& water, double t) 
         if (piercing) {
             const double stiffness = wc.density * wc.gravity * 4.0 * config_.half_extents.x * config_.half_extents.y;
             const double c = 2.0 * config_.heave_damping * std::sqrt(stiffness * mass_);
-            const WaterVec flow = water.velocity(p.x, p.y, std::min(p.z, wc.level), t);
+            double surface_here;
+            WaterVec flow;
+            water.sample(p.x, p.y, std::min(p.z, wc.level), t, surface_here, flow);
             force.z += -c * (v.z - flow.z);
         }
     }
@@ -372,6 +414,145 @@ void FloatingBody::substep_once(double dt, const WaterSurface& water, double t) 
     state_.angular_velocity = {w.x, w.y, w.z};
     state_.submerged_volume = submerged;
     state_.waterline = wet_.empty() ? wc.level : surface_sum / static_cast<double>(wet_.size());
+}
+
+
+// ---- WaterFieldCache ----
+
+namespace {
+std::int64_t tile_key(std::int64_t px, std::int64_t py) { return (px << 32) ^ (py & 0xffffffffLL); }
+std::int64_t floor_div(std::int64_t a, std::int64_t b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
+}
+
+WaterFieldCache::WaterFieldCache(const WaterSurface& surface, double spacing, double max_flow_depth) : surface_(surface), spacing_(spacing) {
+    if (!(spacing >= 0.05 && spacing <= 8.0) || !std::isfinite(spacing)) throw std::invalid_argument("WaterFieldCache: the spacing must be 0.05 to 8 m");
+    if (!(max_flow_depth >= 0.0) || !std::isfinite(max_flow_depth)) throw std::invalid_argument("WaterFieldCache: max_flow_depth must be finite and not negative");
+    max_flow_depth_ = max_flow_depth;
+    usable_ = surface.config().depth == 0.0;  // the decay below the surface is the deep-water one
+    double num = 0.0, den = 0.0;
+    for (std::size_t i = 0; i < surface.wave_count(); ++i) {
+        const double w = surface.config().waves[i].amplitude * surface.omega(i);
+        num += w * surface.wavenumber(i);
+        den += w;
+    }
+    k_dom_ = den > 0.0 ? num / den : 0.0;
+}
+
+void WaterFieldCache::begin(double t0, double t1) {
+    if (!std::isfinite(t0) || !std::isfinite(t1) || !(t1 >= t0)) throw std::invalid_argument("WaterFieldCache::begin: need finite t0 <= t1");
+    tiles_.clear();
+    t0_ = t0;
+    t1_ = t1;
+    points_ = 0;
+    fallbacks_.store(0, std::memory_order_relaxed);
+    open_ = true;
+}
+
+void WaterFieldCache::cover(double x, double y, double radius) {
+    if (!open_ || !usable_) return;
+    const double r = radius + spacing_ * 2.0;
+    const std::int64_t i0 = static_cast<std::int64_t>(std::floor((x - r) / spacing_)), i1 = static_cast<std::int64_t>(std::floor((x + r) / spacing_));
+    const std::int64_t j0 = static_cast<std::int64_t>(std::floor((y - r) / spacing_)), j1 = static_cast<std::int64_t>(std::floor((y + r) / spacing_));
+    for (std::int64_t tj = floor_div(j0, tile_size); tj <= floor_div(j1, tile_size); ++tj) {
+        for (std::int64_t ti = floor_div(i0, tile_size); ti <= floor_div(i1, tile_size); ++ti) {
+            const std::int64_t key = tile_key(ti, tj);
+            if (tiles_.count(key)) continue;
+            Tile tile;
+            for (int j = 0; j < tile_size; ++j) {
+                for (int i = 0; i < tile_size; ++i) {
+                    const double px = static_cast<double>(ti * tile_size + i) * spacing_, py = static_cast<double>(tj * tile_size + j) * spacing_;
+                    WaterVec f;
+                    const std::size_t k = static_cast<std::size_t>(j * tile_size + i);
+                    surface_.sample(px, py, 1e9, t0_, tile.h0[k], f);
+                    tile.f0[k] = {f.x, f.y, f.z};
+                    surface_.sample(px, py, 1e9, t1_, tile.h1[k], f);
+                    tile.f1[k] = {f.x, f.y, f.z};
+                    points_ += 2;
+                }
+            }
+            tiles_.emplace(key, tile);
+        }
+    }
+}
+
+const WaterFieldCache::Tile* WaterFieldCache::tile_at(std::int64_t px, std::int64_t py) const {
+    const auto it = tiles_.find(tile_key(floor_div(px, tile_size), floor_div(py, tile_size)));
+    return it == tiles_.end() ? nullptr : &it->second;
+}
+
+void WaterFieldCache::sample(double x, double y, double z, double t, double& height_out, WaterVec& flow_out, double flow_only_above) const {
+    const auto exact = [&] {
+        fallbacks_.fetch_add(1, std::memory_order_relaxed);
+        surface_.sample(x, y, z, t, height_out, flow_out, flow_only_above);
+    };
+    if (!open_ || !usable_ || t < t0_ || t > t1_) return exact();
+    const double gx = x / spacing_, gy = y / spacing_;
+    const std::int64_t ix = static_cast<std::int64_t>(std::floor(gx)), iy = static_cast<std::int64_t>(std::floor(gy));
+    const double fx = gx - static_cast<double>(ix), fy = gy - static_cast<double>(iy);
+    const double ft = t1_ > t0_ ? (t - t0_) / (t1_ - t0_) : 0.0;
+    double h = 0.0;
+    double f[3] = {0, 0, 0};
+    const double w[4] = {(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy};
+    const Tile* last = nullptr;
+    std::int64_t last_tx = 0, last_ty = 0;
+    for (int c = 0; c < 4; ++c) {
+        const std::int64_t cx = ix + (c & 1), cy = iy + (c >> 1);
+        const std::int64_t tx = floor_div(cx, tile_size), ty = floor_div(cy, tile_size);
+        const Tile* tile = (last != nullptr && tx == last_tx && ty == last_ty) ? last : tile_at(cx, cy);  // the four corners are usually in one tile
+        if (tile == nullptr) return exact();
+        last = tile;
+        last_tx = tx;
+        last_ty = ty;
+        const std::size_t k = static_cast<std::size_t>((cy - floor_div(cy, tile_size) * tile_size) * tile_size + (cx - floor_div(cx, tile_size) * tile_size));
+        h += w[c] * (tile->h0[k] + (tile->h1[k] - tile->h0[k]) * ft);
+        for (int a = 0; a < 3; ++a) f[a] += w[c] * (tile->f0[k][static_cast<std::size_t>(a)] + (tile->f1[k][static_cast<std::size_t>(a)] - tile->f0[k][static_cast<std::size_t>(a)]) * ft);
+    }
+    height_out = h;
+    if (!(h > flow_only_above)) {
+        flow_out = {};
+        return;
+    }
+    if (h - z > max_flow_depth_) return exact();  // the single-wavenumber decay is too coarse this far down
+    // The stored flow is at the surface; deeper cells decay by the mean wavenumber, relative to the decay the surface point already has below the mean level.
+    const double level = surface_.config().level;
+    const double zc = std::min(z, h);
+    const double decay = std::exp(-k_dom_ * (std::max(0.0, level - zc) - std::max(0.0, level - h)));
+    flow_out = {surface_.config().current.x + (f[0] - surface_.config().current.x) * decay, surface_.config().current.y + (f[1] - surface_.config().current.y) * decay, f[2] * decay};
+}
+
+int water_lod_cells(double distance, int full_cells) {
+    if (!(full_cells >= 2 && full_cells <= 16) || !(distance >= 0.0) || !std::isfinite(distance)) throw std::invalid_argument("water_lod_cells: cells 2 to 16 and a finite distance of at least 0");
+    if (distance < 40.0) return full_cells;
+    if (distance < 100.0) return std::max(3, full_cells * 2 / 3);
+    return std::max(2, full_cells / 2);
+}
+
+double step_bodies(std::span<const BodyStep> bodies, double dt, double t, unsigned threads) {
+    if (!std::isfinite(dt) || !(dt > 0.0) || dt > 1.0) throw std::invalid_argument("step_bodies: dt must be finite, positive and at most one second");
+    for (const BodyStep& b : bodies) {
+        if (b.body == nullptr || b.water == nullptr) throw std::invalid_argument("step_bodies: a body or its water is null");
+    }
+    {
+        std::vector<const FloatingBody*> seen;
+        seen.reserve(bodies.size());
+        for (const BodyStep& b : bodies) seen.push_back(b.body);
+        std::sort(seen.begin(), seen.end());
+        if (std::adjacent_find(seen.begin(), seen.end()) != seen.end()) throw std::invalid_argument("step_bodies: a body appears twice (two threads would step it at once)");
+    }
+    const unsigned n = std::max(1u, std::min<unsigned>(threads, static_cast<unsigned>(bodies.size())));
+    if (n == 1) {
+        for (const BodyStep& b : bodies) b.body->step(dt, *b.water, t);
+        return t + dt;
+    }
+    std::vector<std::thread> pool;
+    for (unsigned k = 1; k < n; ++k) {
+        pool.emplace_back([&, k] {
+            for (std::size_t i = k; i < bodies.size(); i += n) bodies[i].body->step(dt, *bodies[i].water, t);
+        });
+    }
+    for (std::size_t i = 0; i < bodies.size(); i += n) bodies[i].body->step(dt, *bodies[i].water, t);
+    for (std::thread& th : pool) th.join();
+    return t + dt;
 }
 
 } // namespace saige

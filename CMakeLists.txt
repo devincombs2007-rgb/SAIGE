@@ -22,6 +22,8 @@ add_library(saige_core STATIC
     src/world.cpp
 )
 add_library(saige::core ALIAS saige_core)
+find_package(Threads REQUIRED)
+target_link_libraries(saige_core PUBLIC Threads::Threads)
 target_include_directories(saige_core PUBLIC include)
 target_compile_features(saige_core PUBLIC cxx_std_20)
 
@@ -59,6 +61,8 @@ endif()
 
 add_executable(saige_sim_baseline tools/benchmarks/sim_baseline.cpp)
 target_link_libraries(saige_sim_baseline PRIVATE saige_core)
+add_executable(saige_water_workloads tools/benchmarks/water_workloads.cpp)
+target_link_libraries(saige_water_workloads PRIVATE saige_core)
 
 add_executable(saige_headless apps/headless.cpp)
 target_link_libraries(saige_headless PRIVATE saige_core)

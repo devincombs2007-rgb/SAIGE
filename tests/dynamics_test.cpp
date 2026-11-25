@@ -20,6 +20,16 @@ void require(bool c, const std::string& m) {
     if (!c) throw std::runtime_error(m);
 }
 
+template <class F>
+bool throws_invalid(F f) {
+    try {
+        f();
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
 constexpr double g = 9.81;
 
 StaticCollision floor_only(float half = 200.0f) {
@@ -577,6 +587,112 @@ void test_dynamic_interactions() {
     }
 }
 
+void test_controls() {
+    // The interface pieces the ragdoll and its controllers rest on: teleport, angular impulse, waking, self-collision groups, joint motors, constraint removal.
+    const StaticCollision c = floor_only();
+    {
+        auto w = make(c);
+        const BodyId b = w->add_body(box_at(0, 0, 5));
+        w->set_transform(b, {3, -2, 7}, {0, 0, std::sin(0.3), std::cos(0.3)});
+        const DBodyState s = w->state(b);
+        require(std::fabs(s.position.x - 3) < 1e-6 && std::fabs(s.position.y + 2) < 1e-6 && std::fabs(s.position.z - 7) < 1e-6 && std::fabs(s.rotation.z - std::sin(0.3)) < 1e-6, "set_transform places a body exactly");
+    }
+    {
+        DynamicsConfig cfg;
+        cfg.gravity = 0.0;
+        auto w = make(c, nullptr, cfg);
+        DBodyDesc d = box_at(0, 0, 5, 0.5, 0.5, 0.5);
+        d.mass = 6.0;  // a unit cube of 6 kg: I = m (1 + 1) / 12 = 1 kg m^2
+        const BodyId b = w->add_body(d);
+        w->add_angular_impulse(b, {0, 0, 2.0});
+        require(std::fabs(w->state(b).angular_velocity.z - 2.0) < 1e-4, "an angular impulse of 2 N m s on 1 kg m^2 spins at 2 rad/s");
+    }
+    {
+        // A body that has come to rest sleeps; wake and an impulse bring it back.
+        auto w = make(c);
+        const BodyId b = w->add_body(box_at(0, 0, 0.5));
+        run(*w, 3.0);
+        require(!w->state(b).active, "control: a resting body goes to sleep");
+        w->wake(b);
+        require(w->state(b).active, "wake wakes it");
+        run(*w, 3.0);
+        require(!w->state(b).active, "and it sleeps again");
+        w->add_angular_impulse(b, {0, 0, 1.0});
+        require(w->state(b).active, "an angular impulse wakes a sleeping body");
+        run(*w, 3.0);
+        w->add_impulse(b, {0, 0, 0.01}, w->state(b).position);
+        require(w->state(b).active, "so does a linear one");
+    }
+    {
+        DynamicsConfig cfg;
+        cfg.allow_sleeping = false;
+        auto w = make(c, nullptr, cfg);
+        const BodyId b = w->add_body(box_at(0, 0, 0.5));
+        run(*w, 3.0);
+        require(w->state(b).active, "with sleeping off a resting body stays active");
+    }
+    for (const std::uint32_t group_b : {0u, 7u}) {  // two boxes dropped in the same place: in one group they pass through each other, otherwise they push apart
+        auto w = make(c);
+        DBodyDesc a = box_at(0, 0, 0.5);
+        a.self_collision_group = 7;
+        DBodyDesc b = box_at(0.1, 0, 0.5);
+        b.self_collision_group = group_b;
+        const BodyId ia = w->add_body(a), ib = w->add_body(b);
+        run(*w, 2.0);
+        const double apart = std::fabs(w->state(ia).position.x - w->state(ib).position.x);
+        if (group_b == 7) require(apart < 0.15, "bodies in one self-collision group do not push each other apart");
+        else require(apart > 0.9, "control: without the group they do");
+    }
+    {
+        DBodyDesc d = box_at(0, 0, 1);
+        d.self_collision_group = 3;
+        auto w = make(c);
+        for (int i = 0; i < 64; ++i) (void)w->add_body(d);
+        require(throws_invalid([&] { (void)w->add_body(d); }), "a self-collision group holds at most 64 bodies");
+    }
+    {
+        // A hinge motor holds a bar out at 0.8 rad against gravity; without it the bar hangs; a stale id and a wrong kind are refused; removing the constraint lets go.
+        auto w = make(c);
+        DBodyDesc bar = box_at(1.0, 0.0, 6.0, 1.0, 0.1, 0.1);  // pivot at (0, 0, 6), the bar's end
+        bar.mass = 10.0;
+        const BodyId id = w->add_body(bar);
+        DConstraintDesc h;
+        h.kind = DConstraintKind::Hinge;
+        h.a = id;
+        h.pivot = {0, 0, 6};
+        h.axis = {0, 1, 0};
+        h.min_angle = -0.1;
+        h.max_angle = 1.5;
+        const ConstraintId hinge = w->add_constraint(h);
+        w->set_motor(hinge, {0, std::sin(0.4), 0, std::cos(0.4)}, {10.0, 1.0, 0.0});  // 0.8 rad about +Y (the bar swings down)
+        run(*w, 3.0, 1.0 / 120.0);
+        const DBodyState held = w->state(id);
+        const double angle = std::atan2(6.0 - held.position.z, held.position.x);
+        std::printf("  hinge motor aimed at 0.8 rad: the bar sits at %.3f rad\n", angle);
+        require(std::fabs(angle - 0.8) < 0.03, "the motor holds the bar at the target angle against gravity");
+        w->clear_motor(hinge);
+        run(*w, 4.0, 1.0 / 120.0);
+        std::printf("  motor cleared: the bar center is at z = %.3f (x = %.3f)\n", w->state(id).position.z, w->state(id).position.x);
+        require(w->state(id).position.z < 5.1, "with the motor cleared the bar falls to hang (limit 1.5 rad: it stops at the bottom or the limit)");
+        w->set_motor(hinge, {0, 0, 0, 1}, {10.0, 1.0, 0.0});
+        run(*w, 3.0, 1.0 / 120.0);
+        require(std::fabs(std::atan2(6.0 - w->state(id).position.z, w->state(id).position.x)) < 0.05, "a motor aimed at zero brings the bar up level");
+        require(throws_invalid([&] { w->set_motor(hinge, {0, 0, 0, 1}, {0.0, 1.0, 0.0}); }), "a motor with no frequency is refused");
+        require(throws_invalid([&] { w->set_motor(hinge, {0, 0, 0, 1}, {5.0, -1.0, 0.0}); }), "so is a negative damping");
+        w->remove_constraint(hinge);
+        require(throws_invalid([&] { w->clear_motor(hinge); }), "a removed constraint's id is stale");
+        run(*w, 2.0, 1.0 / 120.0);
+        require(w->state(id).position.z < 0.5, "and with the hinge gone the bar falls to the floor");
+        DConstraintDesc dist;
+        dist.kind = DConstraintKind::Distance;
+        dist.a = id;
+        dist.pivot = w->state(id).position;
+        dist.max_distance = 1.0;
+        const ConstraintId rope = w->add_constraint(dist);
+        require(throws_invalid([&] { w->set_motor(rope, {0, 0, 0, 1}, {5.0, 1.0, 0.0}); }), "only hinges and swing-twists have motors");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -589,7 +705,7 @@ int main(int argc, char** argv) {
         void (*fn)();
     };
     const Named tests[] = {{"api", test_api},           {"parity", test_static_parity}, {"materials", test_materials},   {"stacking", test_stacking}, {"constraints", test_constraints},
-                           {"ccd", test_ccd},           {"replay", test_replay},        {"origin", test_origin_shift},   {"interactions", test_dynamic_interactions}};
+                           {"ccd", test_ccd},           {"replay", test_replay},        {"origin", test_origin_shift},   {"interactions", test_dynamic_interactions}, {"controls", test_controls}};
     int failures = 0;
     for (const Named& t : tests) {
         if (argc > 1 && std::string(argv[1]) != t.name) continue;

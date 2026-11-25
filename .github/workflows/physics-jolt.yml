@@ -50,9 +50,9 @@ jobs:
           -DSAIGE_PHYSICS_JOLT=ON -DSAIGE_JOLT_ROOT="$RUNNER_TEMP/jolt" -DSAIGE_JOLT_DOUBLE=${{ matrix.double }}
           -DCMAKE_CXX_FLAGS="${{ matrix.flags }}"
       - name: Build
-        run: cmake --build build --parallel --target dynamics_test
-      - name: Gates (static parity, materials, stacking, constraints, CCD, replay, origin shift, interactions)
-        run: ctest --test-dir build -R dynamics --output-on-failure
+        run: cmake --build build --parallel --target dynamics_test ragdoll_test
+      - name: Gates (static parity, materials, stacking, constraints, CCD, replay, origin shift, interactions, controls) and the ragdoll
+        run: ctest --test-dir build -R "dynamics|ragdoll" --output-on-failure
 
   windows-msvc:
     runs-on: windows-2022
@@ -68,4 +68,4 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel --target dynamics_test
       - name: Gates
-        run: ctest --test-dir build -C Release -R dynamics --output-on-failure
+        run: ctest --test-dir build -C Release -R "dynamics|ragdoll" --output-on-failure

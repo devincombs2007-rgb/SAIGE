@@ -51,6 +51,7 @@ struct DBodyDesc {
     float friction = -1.0f;
     float restitution = -1.0f;
     bool continuous = false;             // continuous collision detection against everything (thin walls, fast bodies): costs time
+    std::uint32_t self_collision_group = 0;  // nonzero: bodies of one group never collide with each other (up to 64 per group), only with everything else: the limbs of a ragdoll
     float linear_damping = 0.0f;         // per second; SAIGE bodies have none by default (a library's own default of 0.05 would be a hidden drag)
     float angular_damping = 0.0f;
     DVec linear_velocity;
@@ -63,6 +64,21 @@ struct DBodyState {
     DVec linear_velocity;
     DVec angular_velocity;
     bool active = true;                  // false: asleep
+};
+
+struct ConstraintId {
+    std::uint32_t index = 0xffffffffu;
+    std::uint32_t generation = 0;
+    [[nodiscard]] bool valid() const noexcept { return index != 0xffffffffu; }
+    bool operator==(const ConstraintId&) const = default;
+};
+
+// A joint motor: a spring-damper toward a target, solved with the constraints (implicitly, so it is stable at any stiffness and while the body is in contact). `frequency` (Hz) and `damping` (1: critical) are
+// those of the spring in the joint's own motion, independent of the masses; `max_torque` (N m) caps what it can push (0: unlimited).
+struct DMotor {
+    double frequency = 4.0;
+    double damping = 1.0;
+    double max_torque = 0.0;
 };
 
 enum class DConstraintKind : std::uint8_t { Fixed, Hinge, SwingTwist, Distance };
@@ -104,6 +120,7 @@ struct DynamicsConfig {
     int collision_steps = 1;             // physics sub-steps per step() call
     int velocity_iterations = 10;
     int position_iterations = 2;
+    bool allow_sleeping = true;          // bodies at rest go to sleep (cheap); off for controllers that act on bodies every step (ragdoll drives)
 };
 
 class DynamicsWorld {
@@ -115,10 +132,21 @@ public:
     // Throws std::invalid_argument for a non-finite or non-positive size, a mass, damping or velocity not finite, or a world that is full.
     virtual BodyId add_body(const DBodyDesc& desc) = 0;
     virtual void remove_body(BodyId id) = 0;
-    virtual void add_constraint(const DConstraintDesc& desc) = 0;
+    virtual ConstraintId add_constraint(const DConstraintDesc& desc) = 0;
+    // Drives a hinge or swing-twist toward the orientation of its second body relative to its first (the second body's rotation = the first's times `target`, both in body space; identity is the pose the
+    // constraint was created in). A hinge follows only the part about its axis. Throws std::invalid_argument for a stale id, another kind of constraint or a bad motor.
+    virtual void set_motor(ConstraintId id, DQuat target, const DMotor& motor) = 0;
+    virtual void clear_motor(ConstraintId id) = 0;
+    virtual void remove_constraint(ConstraintId id) = 0;
     [[nodiscard]] virtual DBodyState state(BodyId id) const = 0;
     virtual void set_velocity(BodyId id, DVec linear, DVec angular) = 0;
     virtual void add_impulse(BodyId id, DVec impulse, DVec world_point) = 0;
+    // An angular impulse (N m s, world axes) about the center of mass: a torque held for dt is `torque * dt` (motors and controllers apply their torques this way, once per step).
+    virtual void add_angular_impulse(BodyId id, DVec impulse) = 0;
+    // Wakes a sleeping body (a body driven by a joint motor sleeps like any other once it is still, short of its target; wake it, or run the world with allow_sleeping off, while a controller is acting).
+    virtual void wake(BodyId id) = 0;
+    // Teleports a body (its velocity is kept; set it with set_velocity). Constraints keep their reference frames in the bodies, so a pose consistent with the joints (limb lengths) carries them along.
+    virtual void set_transform(BodyId id, DVec position, DQuat rotation) = 0;
     virtual void set_kinematic_target(BodyId id, DVec position, DQuat rotation, double dt) = 0;
     [[nodiscard]] virtual std::size_t body_count() const = 0;
     // Advances by dt seconds (a fixed step of 1/60 s or shorter is the supported use). Throws for a non-finite or non-positive dt or one over 0.1 s.

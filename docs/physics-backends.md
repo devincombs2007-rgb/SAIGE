@@ -46,6 +46,12 @@ un-flipped ray normals, continuous flag ignored, explicit friction ignored, one 
 * **Violent constraint blows**: a swing-twist cone is exceeded by 0.2 rad by a 40 m/s blow at 120 Hz. The correction needs more than a step. Ragdolls must keep limb speeds or substeps in a range where this does not matter, or use `collision_steps`.
 * **Determinism**: Jolt promises cross-platform determinism only with `JPH_CROSS_PLATFORM_DETERMINISTIC`, which this build does not enable; `info().deterministic_across_threads` reports false. What is tested and required: the same build, same inputs and same thread count give bit-identical results. Cross-platform replay (Windows against Linux) is **not** established and will need that option and its cost measured.
 
+## Interface additions since the first gates (ragdoll support)
+
+`add_angular_impulse`, `set_transform`, `wake`, `remove_constraint`, constraint ids (`add_constraint` returns one), joint motors (`set_motor`/`clear_motor`: a spring-damper toward the second body's orientation relative to
+the first, Jolt's motor springs), self-collision groups (`DBodyDesc::self_collision_group`, up to 64 bodies) and `DynamicsConfig::allow_sleeping`. Found while testing: a motor or its removal does not wake a sleeping body (the
+adapter wakes both), and a motor's stiffness follows the *joint's* reduced mass, not the load above it (`docs/ragdoll.md`). Gates: `dynamics_test controls` plus the ragdoll tests; each adapter path is mutation-checked.
+
 ## Double precision
 
 `-DSAIGE_JOLT_DOUBLE=ON` builds Jolt with 64-bit positions (`JPH_DOUBLE_PRECISION`). The whole gate suite passes in that configuration as well (parity within 1e-7, origin shift 2.6e-6 m). SAIGE's large-world strategy is global

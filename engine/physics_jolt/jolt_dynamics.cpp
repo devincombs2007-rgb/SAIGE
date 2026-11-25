@@ -8,6 +8,7 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/GroupFilterTable.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -16,16 +17,19 @@
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/MotorSettings.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <map>
 #include <mutex>
 #include <stdexcept>
+#include <vector>
 
 JPH_SUPPRESS_WARNINGS
 
@@ -91,6 +95,7 @@ public:
         JPH::PhysicsSettings s = ps_.GetPhysicsSettings();
         s.mNumVelocitySteps = static_cast<unsigned>(c.velocity_iterations);
         s.mNumPositionSteps = static_cast<unsigned>(c.position_iterations);
+        s.mAllowSleeping = c.allow_sleeping;
         ps_.SetPhysicsSettings(s);
         // SAIGE's contact rule, stated rather than inherited: friction by the geometric mean, restitution by the larger.
         ps_.SetCombineFriction([](const JPH::Body& a, const JPH::SubShapeID&, const JPH::Body& b, const JPH::SubShapeID&) { return std::sqrt(a.GetFriction() * b.GetFriction()); });
@@ -98,8 +103,10 @@ public:
     }
     ~JoltDynamics() override {
         auto& bi = ps_.GetBodyInterface();
-        for (JPH::Constraint* c : constraints_) ps_.RemoveConstraint(c);
-        constraints_.clear();
+        for (CSlot& c : cslots_) {
+            if (c.alive) ps_.RemoveConstraint(c.c);
+        }
+        cslots_.clear();
         for (const Slot& s : slots_) {
             if (s.alive) {
                 bi.RemoveBody(s.id);
@@ -197,6 +204,17 @@ public:
         s.mRestitution = d.restitution >= 0.0f ? d.restitution : m.restitution;
         s.mLinearDamping = d.linear_damping;
         s.mAngularDamping = d.angular_damping;
+        if (d.self_collision_group != 0) {
+            Group& g = groups_[d.self_collision_group];
+            if (g.count >= 64) throw std::invalid_argument("add_body: a self-collision group holds at most 64 bodies");
+            if (g.filter == nullptr) {
+                g.filter = new JPH::GroupFilterTable(64);
+                for (JPH::CollisionGroup::SubGroupID a = 0; a < 64; ++a) {
+                    for (JPH::CollisionGroup::SubGroupID b = a + 1; b < 64; ++b) g.filter->DisableCollision(a, b);
+                }
+            }
+            s.mCollisionGroup = JPH::CollisionGroup(g.filter, d.self_collision_group, g.count++);
+        }
         if (dynamic) {
             const double mass = d.mass > 0.0 ? d.mass : static_cast<double>(m.density) * volume;
             s.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
@@ -219,13 +237,8 @@ public:
 
     void remove_body(BodyId id) override {
         Slot& s = slot(id);
-        for (auto it = constraints_.begin(); it != constraints_.end();) {  // a constraint on a removed body goes with it
-            if (((*it)->GetType() == JPH::EConstraintType::TwoBodyConstraint) && uses(static_cast<JPH::TwoBodyConstraint*>(*it), s.id)) {
-                ps_.RemoveConstraint(*it);
-                it = constraints_.erase(it);
-            } else {
-                ++it;
-            }
+        for (CSlot& cs : cslots_) {  // a constraint on a removed body goes with it
+            if (cs.alive && uses(static_cast<JPH::TwoBodyConstraint*>(cs.c), s.id)) drop(cs);
         }
         ps_.GetBodyInterface().RemoveBody(s.id);
         ps_.GetBodyInterface().DestroyBody(s.id);
@@ -233,7 +246,7 @@ public:
         ++s.generation;
     }
 
-    void add_constraint(const DConstraintDesc& d) override {
+    ConstraintId add_constraint(const DConstraintDesc& d) override {
         if (!fin(d.pivot) || !fin(d.axis) || !fin(d.pivot_b) || !fin(d.min_angle) || !fin(d.max_angle) || !fin(d.swing_half_angle) || !fin(d.min_distance) || !fin(d.max_distance) || !(d.min_angle <= d.max_angle) ||
             !(d.min_distance >= 0.0 && d.max_distance >= d.min_distance)) {
             throw std::invalid_argument("DConstraintDesc: a value is not finite or a range is reversed");
@@ -290,13 +303,74 @@ public:
             break;
         }
         }
-        if (constraints_.size() >= config_.max_constraints) {
+        std::size_t alive = 0;
+        for (const CSlot& cs : cslots_) alive += cs.alive ? 1u : 0u;
+        if (alive >= config_.max_constraints) {
             c->AddRef();
             c->Release();
             throw std::invalid_argument("add_constraint: too many constraints");
         }
         ps_.AddConstraint(c);
-        constraints_.push_back(c);
+        for (std::size_t i = 0; i < cslots_.size(); ++i) {
+            if (!cslots_[i].alive) {
+                cslots_[i].c = c;
+                cslots_[i].kind = d.kind;
+                cslots_[i].alive = true;
+                return {static_cast<std::uint32_t>(i), cslots_[i].generation};
+            }
+        }
+        cslots_.push_back({c, d.kind, 0, true});
+        return {static_cast<std::uint32_t>(cslots_.size() - 1), 0};
+    }
+
+    void set_motor(ConstraintId id, DQuat target, const DMotor& m) override {
+        CSlot& cs = cslot(id);
+        if (!fin(target.x) || !fin(target.y) || !fin(target.z) || !fin(target.w) || !(m.frequency > 0.0) || !fin(m.frequency) || !(m.damping >= 0.0) || !fin(m.damping) || !(m.max_torque >= 0.0) || !fin(m.max_torque)) {
+            throw std::invalid_argument("set_motor: a value is not finite or the frequency is not positive");
+        }
+        const float limit = m.max_torque > 0.0 ? static_cast<float>(m.max_torque) : 1.0e7f;  // "unlimited" is a very large finite torque (FLT_MAX would overflow the solver)
+        const auto configure = [&](JPH::MotorSettings& ms) {
+            ms.mSpringSettings = JPH::SpringSettings(JPH::ESpringMode::FrequencyAndDamping, static_cast<float>(m.frequency), static_cast<float>(m.damping));
+            ms.SetTorqueLimit(limit);
+        };
+        if (cs.kind == DConstraintKind::Hinge) {
+            auto* h = static_cast<JPH::HingeConstraint*>(cs.c);
+            configure(h->GetMotorSettings());
+            h->SetMotorState(JPH::EMotorState::Position);
+            h->SetTargetOrientationBS(jq(target));
+            wake_both(cs);
+        } else if (cs.kind == DConstraintKind::SwingTwist) {
+            auto* t = static_cast<JPH::SwingTwistConstraint*>(cs.c);
+            configure(t->GetSwingMotorSettings());
+            configure(t->GetTwistMotorSettings());
+            t->SetSwingMotorState(JPH::EMotorState::Position);
+            t->SetTwistMotorState(JPH::EMotorState::Position);
+            t->SetTargetOrientationBS(jq(target));
+            wake_both(cs);
+        } else {
+            throw std::invalid_argument("set_motor: only hinge and swing-twist constraints have motors");
+        }
+    }
+
+    void clear_motor(ConstraintId id) override {
+        CSlot& cs = cslot(id);
+        if (cs.kind == DConstraintKind::Hinge) {
+            static_cast<JPH::HingeConstraint*>(cs.c)->SetMotorState(JPH::EMotorState::Off);
+            wake_both(cs);
+        } else if (cs.kind == DConstraintKind::SwingTwist) {
+            auto* t = static_cast<JPH::SwingTwistConstraint*>(cs.c);
+            t->SetSwingMotorState(JPH::EMotorState::Off);
+            t->SetTwistMotorState(JPH::EMotorState::Off);
+            wake_both(cs);
+        } else {
+            throw std::invalid_argument("clear_motor: only hinge and swing-twist constraints have motors");
+        }
+    }
+
+    void remove_constraint(ConstraintId id) override {
+        CSlot& cs = cslot(id);
+        wake_both(cs);  // what it was holding up must fall
+        drop(cs);
     }
 
     DBodyState state(BodyId id) const override {
@@ -319,6 +393,15 @@ public:
     void add_impulse(BodyId id, DVec impulse, DVec world_point) override {
         if (!fin(impulse) || !fin(world_point)) throw std::invalid_argument("add_impulse: not finite");
         ps_.GetBodyInterface().AddImpulse(slot(id).id, jv(impulse), jr(world_point));
+    }
+    void add_angular_impulse(BodyId id, DVec impulse) override {
+        if (!fin(impulse)) throw std::invalid_argument("add_angular_impulse: not finite");
+        ps_.GetBodyInterface().AddAngularImpulse(slot(id).id, jv(impulse));
+    }
+    void wake(BodyId id) override { ps_.GetBodyInterface().ActivateBody(slot(id).id); }
+    void set_transform(BodyId id, DVec position, DQuat rotation) override {
+        if (!fin(position) || !fin(rotation.x) || !fin(rotation.y) || !fin(rotation.z) || !fin(rotation.w)) throw std::invalid_argument("set_transform: not finite");
+        ps_.GetBodyInterface().SetPositionAndRotation(slot(id).id, jr(position), jq(rotation), JPH::EActivation::Activate);
     }
     void set_kinematic_target(BodyId id, DVec position, DQuat rotation, double dt) override {
         if (!fin(position) || !(dt > 0.0) || !fin(dt)) throw std::invalid_argument("set_kinematic_target: not finite");
@@ -364,6 +447,35 @@ public:
     }
 
 private:
+    struct CSlot {
+        JPH::Constraint* c = nullptr;
+        DConstraintKind kind = DConstraintKind::Fixed;
+        std::uint32_t generation = 0;
+        bool alive = false;
+    };
+    CSlot& cslot(ConstraintId id) {
+        if (id.index >= cslots_.size() || !cslots_[id.index].alive || cslots_[id.index].generation != id.generation) throw std::invalid_argument("a stale or invalid constraint id");
+        return cslots_[id.index];
+    }
+    void drop(CSlot& cs) {
+        ps_.RemoveConstraint(cs.c);
+        cs.alive = false;
+        cs.c = nullptr;
+        ++cs.generation;
+    }
+    void wake_both(const CSlot& cs) {  // a motor, or the lack of one, changes what a resting body should do: it must not sleep through that
+        const auto* tb = static_cast<const JPH::TwoBodyConstraint*>(cs.c);
+        for (const JPH::Body* b : {tb->GetBody1(), tb->GetBody2()}) {
+            if (b != &JPH::Body::sFixedToWorld && b->IsDynamic()) ps_.GetBodyInterface().ActivateBody(b->GetID());
+        }
+    }
+
+    std::vector<CSlot> cslots_;
+    struct Group {
+        JPH::Ref<JPH::GroupFilterTable> filter;
+        std::uint32_t count = 0;
+    };
+    std::map<std::uint32_t, Group> groups_;
     struct Slot {
         JPH::BodyID id;
         std::uint32_t generation = 0;
@@ -396,7 +508,6 @@ private:
     std::unique_ptr<JPH::JobSystemThreadPool> js_;
     std::vector<Slot> slots_;
     std::vector<JPH::BodyID> static_ids_;
-    std::vector<JPH::Constraint*> constraints_;
 };
 
 } // namespace

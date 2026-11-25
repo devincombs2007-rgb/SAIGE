@@ -173,6 +173,11 @@ bool unit_direction(Float3 v, Float3& out)
 
 } // namespace
 
+bool unit_sun_direction(Float3 v, Float3& out) noexcept
+{
+    return unit_direction(v, out);
+}
+
 void validate_lighting(const SceneLighting& lighting)
 {
     const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };

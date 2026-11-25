@@ -23,6 +23,7 @@ set(SAIGE_SHADER_SOURCES
     scene/shadow_depth.hlsl
     scene/shadow_depth_mask.hlsl
     scene/shadow_depth_skinned.hlsl
+    scene/sky.hlsl
     test/blend_color.hlsl
     test/depth_only.hlsl
     test/shadow_probe.hlsl

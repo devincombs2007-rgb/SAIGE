@@ -435,6 +435,41 @@ District build_district(std::uint32_t seed) {
             }
         }
     }
+    // The paved strips along the streets and avenues cross each other and cross the roadway; keep only the part that is not road (a raised strip through an intersection would be a speed bump).
+    {
+        std::vector<Rect> pieces = d.sidewalk;
+        for (const Rect& road : d.roadway) {
+            std::vector<Rect> next;
+            for (const Rect& p : pieces) {
+                if (!p.overlaps(road)) {
+                    next.push_back(p);
+                    continue;
+                }
+                if (p.x0 < road.x0) next.push_back({p.x0, p.y0, road.x0, p.y1});
+                if (p.x1 > road.x1) next.push_back({road.x1, p.y0, p.x1, p.y1});
+                const double mx0 = std::max(p.x0, road.x0), mx1 = std::min(p.x1, road.x1);
+                if (p.y0 < road.y0) next.push_back({mx0, p.y0, mx1, road.y0});
+                if (p.y1 > road.y1) next.push_back({mx0, road.y1, mx1, p.y1});
+            }
+            pieces.swap(next);
+        }
+        std::erase_if(pieces, [](const Rect& r) { return r.w() < 0.05 || r.h() < 0.05; });
+        d.sidewalk = std::move(pieces);
+    }
+    // Parked cars occupy most of the bays: solid for pedestrians and for moving vehicles alike (they are scenery with a collision box; moving vehicles can hit them and are damaged by it).
+    for (ParkingSpot& spot : d.parking) {
+        if (rng.unit() < 0.7) {
+            spot.taken = true;
+            StreetProp car;
+            car.type = "parked_car";
+            car.x = spot.x;
+            car.y = spot.y;
+            car.z = 0.0;
+            car.yaw = spot.yaw;
+            car.scale = static_cast<double>(rng.pick(5));   // the colour/body family the renderer picks
+            d.props.push_back(car);
+        }
+    }
     build_interiors(d, rng);
     build_props(d, rng);
     build_ped_network(d);

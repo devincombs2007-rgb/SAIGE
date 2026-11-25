@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
     for (const Crosswalk& c : d.crosswalks) std::fprintf(f, "cw %.2f %.2f %.2f %.2f %d\n", c.strip.x0, c.strip.y0, c.strip.x1, c.strip.y1, w.walk_signal(c.id) ? 1 : 0);
     for (const StreetProp& p : d.props) std::fprintf(f, "prop %s %.2f %.2f\n", p.type.c_str(), p.x, p.y);
     for (const BoatSpawn& b : d.boats) std::fprintf(f, "boat %.2f %.2f %.2f %.2f\n", b.x, b.y, b.length, b.beam);
+    for (const VehicleView& v : w.vehicles()) std::fprintf(f, "veh %.2f %.2f %.3f %d %d %d %d\n", v.x, v.y, v.yaw, static_cast<int>(v.kind), v.disabled ? 1 : 0, v.siren ? 1 : 0, v.braking ? 1 : 0);
     for (const PedView& p : w.pedestrians()) if (p.visible) std::fprintf(f, "ped %.2f %.2f %d %d\n", p.x, p.y, static_cast<int>(p.state), p.palette);
     std::fclose(f);
     return 0;

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "district.hpp"
+#include "traffic_driver.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -18,6 +19,8 @@ namespace saige::alive {
 struct WorldConfig {
     std::uint32_t seed = 7;
     int residents = 60;                 // pedestrians in the district (workers, shoppers, strollers)
+    int vehicles = 14;                  // cars the streets keep in circulation
+    bool accidents = true;              // chance of a driver losing attention (the physics decides what follows)
     double start_minute = 8 * 60 + 30;  // time of day at the start
     double time_scale = 20.0;           // game seconds per real second (the simulation's clock: 20 makes a six-minute film span two game hours)
 };
@@ -51,6 +54,7 @@ struct WorldStats {
     std::uint32_t pedestrians = 0, walking = 0, waiting = 0, crossing = 0, dwelling = 0, indoors = 0, fleeing = 0;
     std::uint64_t crossings_started = 0;
     std::uint64_t crossings_against_signal = 0;   // must stay zero: nobody steps onto a crosswalk without the walk signal
+    std::uint64_t danger_reactions = 0;            // times a resident heard of a danger (an accident) and reacted
     std::uint64_t venue_arrivals = 0;
     std::uint64_t interior_arrivals = 0;           // arrivals at a venue by walking into a modelled interior
     std::uint64_t stair_climbs = 0;                // arrivals on the upper floor of the cafe
@@ -78,6 +82,11 @@ public:
     [[nodiscard]] double minute_of_day() const;
     [[nodiscard]] std::vector<PedView> pedestrians() const;
     [[nodiscard]] WorldStats stats() const;
+    [[nodiscard]] std::vector<VehicleView> vehicles() const;
+    [[nodiscard]] TrafficStats traffic_stats() const;
+    // Everything that happened on the road since the last call (impacts, accidents, the response), for the audio and the effects.
+    [[nodiscard]] std::vector<TrafficEvent> take_traffic_events();
+    [[nodiscard]] TrafficDriver& traffic_driver();
     // Which walk signal the crosswalk shows now (the renderer draws the lamps from it).
     [[nodiscard]] bool walk_signal(std::uint32_t crosswalk) const;
 

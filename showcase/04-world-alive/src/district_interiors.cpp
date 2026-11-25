@@ -38,6 +38,7 @@ bool dims_for(const std::string& t, double scale, Dims& out) {
     if (t == "cafe_chair") { out = {0.22, 0.22, 0.85}; return true; }
     if (t == "crate") { out = {0.35, 0.35, 0.6}; return true; }
     if (t == "mooring_post") { out = {0.15, 0.15, 0.6}; return true; }
+    if (t == "parked_car") { out = {2.2, 0.9, 1.45}; return true; }
     if (t == "kiosk") { out = {1.4, 1.4, 2.6}; return true; }
     (void)scale;
     return false;

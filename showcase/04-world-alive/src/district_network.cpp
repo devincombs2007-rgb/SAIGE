@@ -299,7 +299,7 @@ void build_venues(District& d, Rng& rng) {
 void build_collision(District& d) {
     std::vector<Aabb>& c = d.collision;
     // Ground: one slab under everything, the sidewalks raised, a sea bed.
-    c.push_back(box(d.bounds.x0 - 25.0, d.bounds.y0 - 25.0, -3.0, d.bounds.x1 + 25.0, d.quay_y, 0.0));
+    c.push_back(box(d.bounds.x0 - 100.0, d.bounds.y0 - 100.0, -3.0, d.bounds.x1 + 100.0, d.quay_y, 0.0));   // the road stubs run 80 m past the district edge
     for (const Rect& r : d.sidewalk) c.push_back(box(r.x0, r.y0, 0.0, r.x1, std::min(r.y1, d.quay_y), 0.15));
     c.push_back(box(d.bounds.x0 - 25.0, d.quay_y, -8.0, d.bounds.x1 + 25.0, d.quay_y + 140.0, -6.0));
     c.push_back(box(d.bounds.x0 - 25.0, d.quay_y - 0.6, -6.0, d.bounds.x1 + 25.0, d.quay_y, 0.15));  // the bulkhead below the promenade edge

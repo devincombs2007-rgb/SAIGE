@@ -74,6 +74,8 @@ struct World::Impl {
     world_sim::WorldSimulation sim;
     crowd::CrowdSolver crowd;
     std::vector<Ped> peds;
+    std::unique_ptr<TrafficDriver> traffic;
+    std::vector<TrafficEvent> outbox;
     Rng rng;
     double accumulator = 0.0;
     double time = 0.0;
@@ -88,6 +90,7 @@ struct World::Impl {
         sim.clock().time_scale = cfg.time_scale;
         sim.clock().minute_of_day = cfg.start_minute;
         for (const world_sim::Venue& v : d.venues) sim.register_venue(v);
+        traffic = std::make_unique<TrafficDriver>(d, c.seed, c.vehicles, c.accidents);
         populate();
         std::vector<crowd::ObstacleSegment> walls;
         crowd::ObstacleId id = 1;
@@ -363,6 +366,13 @@ struct World::Impl {
         return c->phases[c->active_phase_idx].green_lanes.empty() && c->current_color == traffic::SignalColor::Green;
     }
 
+    void handle_traffic_events() {
+        for (const TrafficEvent& e : traffic->take_events()) {
+            if (e.type == TrafficEvent::Type::Accident) sim.report_traffic_accident(++next_event_id, world_sim::WorldPosition::from_world_double({e.x, e.y, 0.0}), 90.0);
+            outbox.push_back(e);
+        }
+    }
+
     // ---- decisions ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
     void think() {
         for (Ped& p : peds) {
@@ -437,7 +447,8 @@ struct World::Impl {
     void substep() {
         time += kStep;
         PerfClock pc;
-        d.traffic.step(kStep);
+        traffic->step(kStep);
+        handle_traffic_events();
         sim.step(kStep, world_sim::WorldPosition::from_world_double({focus_x, focus_y, 0.0}));
         st.ms_sim += pc.lap();
         if (time >= next_think) {
@@ -457,6 +468,10 @@ struct World::Impl {
         st.ms_decide += pc.lap();
         if (++crowd_phase >= 3) {   // the crowd solver plans at 20 Hz; the bodies move at 60 Hz on the last plan
             crowd_phase = 0;
+            std::vector<crowd::MovingObstacle> obs;
+            crowd::ObstacleId oid = 1;
+            for (const auto& o : traffic->obstacles()) obs.push_back({oid++, {o[0], o[1]}, {o[2], o[3]}, o[4]});
+            crowd.set_moving_obstacles(std::move(obs));
             const auto m = crowd.step(3.0 * kStep);
             st.min_separation_m = m.min_separation_m;
         }
@@ -625,6 +640,8 @@ struct World::Impl {
                 if (p.state == PedState::Walking && time - p.last_move_time > 100.0) ++s.stuck;
             }
         }
+        s.danger_reactions = 0;
+        for (const auto& n : sim.npcs()) s.danger_reactions += n.world_event_reaction_count;
         s.game_minute = sim.clock().minute_of_day;
         s.day = sim.clock().day_index;
         st.ms_stats += pc.lap();
@@ -654,6 +671,14 @@ const District& World::district() const { return impl_->d; }
 double World::time_seconds() const { return impl_->time; }
 double World::minute_of_day() const { return impl_->sim.clock().minute_of_day; }
 WorldStats World::stats() const { return impl_->cached; }
+std::vector<VehicleView> World::vehicles() const { return impl_->traffic->vehicles(); }
+TrafficStats World::traffic_stats() const { return impl_->traffic->stats(); }
+TrafficDriver& World::traffic_driver() { return *impl_->traffic; }
+std::vector<TrafficEvent> World::take_traffic_events() {
+    std::vector<TrafficEvent> out;
+    out.swap(impl_->outbox);
+    return out;
+}
 bool World::walk_signal(std::uint32_t crosswalk) const { return impl_->walk_lamp(crosswalk); }
 
 std::vector<PedView> World::pedestrians() const {

@@ -318,6 +318,13 @@ int main(int argc, char** argv) {
             const double rel = metrics::window_slide(set, cfg, i, v);
             std::printf("  cycle %zu at %.2f m/s: planted feet move at %.1f%% of the speed\n", i, static_cast<double>(v), rel * 100.0);
             worst_rel = std::max(worst_rel, rel);
+            for (const float factor : {0.7f, 1.0f, 1.4f}) {
+                double limited = 0.0, shortfall = 0.0;
+                const double r = metrics::window_slide(set, cfg, i, v * factor, 8.0f, 2.0f, true, &limited, &shortfall);
+                check(shortfall < 0.005, "the foot lock reaches its anchor within 5 mm at 70 to 140 percent of a cycle's speed (no pelvis correction is needed)", shortfall);
+                std::printf("    lock at %.0f%% of the speed: planted feet move at %.1f%%; the lock could not reach its anchor on %.1f%% of locked ticks (worst miss %.1f mm)\n", static_cast<double>(factor) * 100.0, r * 100.0,
+                            limited * 100.0, shortfall * 1000.0);
+            }
             const double locked = metrics::window_slide(set, cfg, i, v, 8.0f, 2.0f, true);
             std::printf("    with foot locking: %.1f%%\n", locked * 100.0);
             worst_locked = std::max(worst_locked, locked);

@@ -239,14 +239,18 @@ void lock_planted_feet(const gfx::Skin& skin, const HumanoidMap& map, const RigI
         const float target = state.locked[f] ? 1.0f : 0.0f;
         const float rate = target > state.weight[f] ? dt / std::max(cfg.blend_in, 1e-3f) : dt / std::max(cfg.release_time, 1e-3f);
         state.weight[f] += std::clamp(target - state.weight[f], -rate, rate);
+        state.limited[f] = false;
+        state.shortfall[f] = 0.0f;
         if (state.weight[f] <= 1e-4f || len < 1e-5f) continue;
         const Float3 wanted = to_model_dir(pull * state.weight[f]);
         const Float3 ankle_before = w[ankle].position;
         const Quat foot_rotation = w[ankle].rotation;
         const Float3 pole = to_model_dir(Float3{1, 0, 0});
-        solve_two_bone(skin, pose, static_cast<std::size_t>(map[feet[f].upper]), static_cast<std::size_t>(map[feet[f].lower]), ankle, ankle_before + wanted, pole);
+        const TwoBoneResult solved = solve_two_bone(skin, pose, static_cast<std::size_t>(map[feet[f].upper]), static_cast<std::size_t>(map[feet[f].lower]), ankle, ankle_before + wanted, pole);
         const std::vector<JointWorld> after = joint_world(skin, pose);
         set_world_rotation(skin, pose, after, ankle, foot_rotation);
+        state.limited[f] = solved.solved && !solved.reached;
+        state.shortfall[f] = solved.solved ? solved.end_error : 0.0f;
     }
 }
 

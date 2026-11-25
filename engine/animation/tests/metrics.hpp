@@ -72,7 +72,7 @@ Slide measure_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig
 // Slide inside the stance of one cycle, for real clips whose toes are never exactly flat on a nominal floor. The character moves at `speed` (a pure cycle plays when the speed is that cycle's own or
 // beyond the fastest), and each foot counts while the shared phase is inside the interior of that foot's refined stance window (the middle 70% of it). Returns the mean horizontal world speed of the
 // planted contact points divided by `speed`.
-inline double window_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig& cfg, std::size_t cycle_index, float speed, float seconds = 8.0f, float warmup = 2.0f, bool lock = false) {
+inline double window_slide(const anim::LocomotionSet& set, const anim::LocomotionConfig& cfg, std::size_t cycle_index, float speed, float seconds = 8.0f, float warmup = 2.0f, bool lock = false, double* limited_fraction = nullptr, double* worst_shortfall = nullptr) {
     anim::FootLockState lock_state;
     anim::LocomotionController c(set, cfg);
     const anim::LocomotionCycle& cy = set.cycles()[cycle_index];
@@ -91,11 +91,21 @@ inline double window_slide(const anim::LocomotionSet& set, const anim::Locomotio
     bool have = false;
     double sum = 0.0;
     int count = 0;
+    int locked_ticks = 0, limited_ticks = 0;
+    double worst = 0.0;
     for (int i = 0; i < static_cast<int>(seconds / dt); ++i) {
         c.update(dt, {speed, true, 0.0f});
         x += speed * dt;
         gfx::Pose pose = c.pose();
-        if (lock) anim::lock_planted_feet(set.skin(), set.map(), set.rig(), pose, {fwd * x, {0, 0, 0, 1}, {1, 1, 1}}, {}, lock_state, dt);
+        if (lock) {
+            anim::lock_planted_feet(set.skin(), set.map(), set.rig(), pose, {fwd * x, {0, 0, 0, 1}, {1, 1, 1}}, {}, lock_state, dt);
+            for (int f = 0; f < 2; ++f) {
+                if (lock_state.weight[f] <= 1e-4f || static_cast<float>(i) * dt <= warmup) continue;
+                ++locked_ticks;
+                if (lock_state.limited[f]) ++limited_ticks;
+                worst = std::max(worst, static_cast<double>(lock_state.shortfall[f]));
+            }
+        }
         const render::Float3 now[2] = {contact(set, pose, true) + fwd * x, contact(set, pose, false) + fwd * x};
         const float u = fract(c.phase() - set.reference_phase() + cy.info.left.contact_start);
         if (have && static_cast<float>(i) * dt > warmup) {
@@ -112,6 +122,8 @@ inline double window_slide(const anim::LocomotionSet& set, const anim::Locomotio
         prev[1] = now[1];
         have = true;
     }
+    if (limited_fraction != nullptr) *limited_fraction = locked_ticks > 0 ? static_cast<double>(limited_ticks) / locked_ticks : 0.0;
+    if (worst_shortfall != nullptr) *worst_shortfall = worst;
     return count > 0 ? (sum / count) / static_cast<double>(speed) : 0.0;
 }
 

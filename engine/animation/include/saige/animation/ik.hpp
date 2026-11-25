@@ -70,6 +70,8 @@ struct FootLockState {
     bool locked[2] = {false, false};
     render::Float3 anchor[2]{};   // the world position (horizontal) a locked foot is pinned to
     float weight[2] = {0.0f, 0.0f};
+    bool limited[2] = {false, false};      // the last call could not put the foot on its anchor: the leg was fully extended (a diagnostic: the foot skates by `shortfall`)
+    float shortfall[2] = {0.0f, 0.0f};     // meters the contact missed its anchor by after the last solve
 };
 
 // Foot locking: pins a planted foot to the spot of the ground where it landed for as long as it is planted, so that a stride that does not quite match the speed (retargeted motion capture, a

@@ -107,3 +107,18 @@ a host that publishes to the model renderer by hand while also rendering models 
   pass against `sky_radiance` and the ground's ambient against the horizon color for four consecutive suns; and byte-identical images between the fixed-lighting renderer,
   a dynamic renderer given no lighting, and a dynamic renderer given the same lighting explicitly (with cascades, atmosphere and fog on and off), with a different sun
   being a different image and the next unlit frame returning to the original.
+
+## Per-frame exposure and a night ambient floor (Showcase 03)
+
+Two small additions let a host adapt to the light over a long day without rebuilding the renderer. Both default to the old behavior, so every existing image is unchanged.
+
+* `SceneFrame::exposure_ev` (`std::optional<float>`, HDR only, not retained): replaces `RendererSettings::tone_map.exposure_ev` for that frame's tone map. A host that advances a clock raises the exposure as
+  the sun sets (an eye adapting), instead of scaling every light by hand. Bloom and the sky are unaffected apart from the tone map's scale.
+* `SceneLighting::ambient_sky_floor` (a non-negative float, default 0): the sky half of the hemispherical ambient becomes `max(fog color * 0.6, ambient_ground * ambient_sky_floor)`. With the atmosphere on,
+  the fog color is the horizon radiance of the sky, which falls to nothing at night, so the sky half of the ambient (and every upward-facing surface) goes black while the ground half does not. A host raises
+  the floor at night, together with a blue `ambient_ground`, to keep a faint moonlit fill. `time_of_day_lighting` passes the day value through. The scene constants carry it in the previously unused
+  `w` of the ambient vector (the shader's `sc_ambient_ground.w`); the second-view lighting check still compares the sun, its color and the ground ambient only.
+* `SceneLighting::emissive_gain` (a non-negative float, default 1): a global multiplier of every imported material's emission, applied in the shader (`sc_flags.y`). It exists so that a host can switch windows and
+  lamps on over a stretch of the day with a continuous ramp. Swapping between pre-built material sets by sun elevation (what Showcase 03 did, with four levels) changes every lit surface in one frame, which
+  reads as a pop (measured: a lit window's pixel value went 159 to 65 between two frames 0.5 s apart at the 6 degree threshold, and 106 to 178, 186 to 243, 248 to 255 at the dusk thresholds). The gain
+  is per frame, travels in the frame's lighting and is passed through by `time_of_day_lighting`. Cube, ground and sky shaders have no emission and are unaffected.

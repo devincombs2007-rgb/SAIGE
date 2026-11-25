@@ -1,0 +1,75 @@
+# Dynamics backend CI (owner: Core). The Jolt adapter (engine/physics_jolt) is optional until its compatibility gates pass on every platform, so it has its own workflow and the default
+# build stays Jolt-free. Jolt is fetched file by file from the raw host at the pinned tag and verified against tools/physics_eval/jolt-<tag>.sha256 before anything is compiled.
+#   - linux-gcc: single precision under ASan+UBSan in Debug (Jolt asserts on), and the double-precision configuration in Release (evaluated separately).
+#   - windows-msvc: single precision, Release, MSVC with Jolt's own warnings off and SAIGE's on.
+# Results from these jobs are software CPU results on shared runners: they say nothing about GPU or workstation performance.
+name: Physics Jolt
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: physics-jolt-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  JOLT_TAG: v5.7.0
+
+jobs:
+  linux-gcc:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: single-asan
+            build_type: Debug
+            double: "OFF"
+            flags: -fsanitize=address,undefined -fno-omit-frame-pointer
+          - name: double-release
+            build_type: Release
+            double: "ON"
+            flags: ""
+          - name: single-tsan
+            build_type: RelWithDebInfo
+            double: "OFF"
+            flags: -fsanitize=thread -fno-omit-frame-pointer
+    name: linux-gcc (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Fetch Jolt (hash-verified)
+        run: python3 -I tools/physics_eval/fetch_jolt.py "$RUNNER_TEMP/jolt" --tag "$JOLT_TAG"
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_TESTING=ON
+          -DSAIGE_BUILD_GRAPHICS=OFF -DSAIGE_BUILD_PROJECTS=OFF
+          -DSAIGE_PHYSICS_JOLT=ON -DSAIGE_JOLT_ROOT="$RUNNER_TEMP/jolt" -DSAIGE_JOLT_DOUBLE=${{ matrix.double }}
+          -DCMAKE_CXX_FLAGS="${{ matrix.flags }}"
+      - name: Build
+        run: cmake --build build --parallel --target dynamics_test ragdoll_test buoyancy_test destruction_test
+      - name: Gates (static parity, materials, stacking, constraints, CCD, replay, origin shift, interactions, controls) and the ragdoll
+        run: ctest --test-dir build -R "dynamics|ragdoll|buoyancy|destruction" --output-on-failure
+
+  windows-msvc:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch Jolt (hash-verified)
+        run: python -I tools/physics_eval/fetch_jolt.py "$env:RUNNER_TEMP/jolt" --tag "$env:JOLT_TAG"
+      - name: Configure
+        run: >
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
+          -DSAIGE_BUILD_GRAPHICS=OFF -DSAIGE_BUILD_PROJECTS=OFF
+          -DSAIGE_PHYSICS_JOLT=ON -DSAIGE_JOLT_ROOT="$env:RUNNER_TEMP/jolt"
+      - name: Build
+        run: cmake --build build --config Release --parallel --target dynamics_test ragdoll_test buoyancy_test destruction_test
+      - name: Gates
+        run: ctest --test-dir build -C Release -R "dynamics|ragdoll|buoyancy|destruction" --output-on-failure

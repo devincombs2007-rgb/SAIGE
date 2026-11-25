@@ -30,7 +30,8 @@ void validate(const CapsuleCharacterConfig& c) {
     if (!positive(c.radius) || !std::isfinite(c.height) || c.height < 2.0f * c.radius || !positive(c.walk_speed) ||
         !positive(c.sprint_speed) || !positive(c.ground_acceleration) || !positive(c.air_acceleration) || !non_negative(c.gravity) ||
         !non_negative(c.jump_speed) || !positive(c.terminal_speed) || !std::isfinite(c.max_slope_radians) || c.max_slope_radians < 0.0f ||
-        c.max_slope_radians >= 1.5707963f || !non_negative(c.step_height) || !non_negative(c.ground_snap)) {
+        c.max_slope_radians >= 1.5707963f || !non_negative(c.step_height) || !non_negative(c.ground_snap) || !non_negative(c.crouch_height) || !non_negative(c.crouch_speed) ||
+        (c.crouch_height > 0.0f && (c.crouch_height < 2.0f * c.radius || c.crouch_height > c.height))) {
         throw std::invalid_argument("Capsule character configuration is invalid");
     }
     // Every sweep the controller issues must stay inside the supported envelope (capsule_sweep.hpp): the farthest a tick moves is the
@@ -140,6 +141,12 @@ bool CapsuleCharacter::overlaps(Vec3 feet, std::span<const Aabb> boxes, std::spa
            std::any_of(triangles.begin(), triangles.end(), [&](const Triangle& t) { return capsule_triangle_push_out(capsule, t).has_value(); });
 }
 
+bool CapsuleCharacter::overlaps_standing(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const {
+    const Capsule capsule{feet, config_.radius, config_.height};
+    return std::any_of(boxes.begin(), boxes.end(), [&](const Aabb& box) { return capsule_box_push_out(capsule, box).has_value(); }) ||
+           std::any_of(triangles.begin(), triangles.end(), [&](const Triangle& t) { return capsule_triangle_push_out(capsule, t).has_value(); });
+}
+
 bool CapsuleCharacter::recover_from_overlap() {
     // Normally a no-op. It exists for float rounding at large coordinates and for geometry that changed under the character. A bounded
     // number of passes resolves surfaces one after another; a capsule squeezed between surfaces that are closer than its width cannot be
@@ -168,7 +175,7 @@ bool CapsuleCharacter::recover_from_overlap() {
             const auto push = capsule_triangle_push_out(capsule(), triangle);
             if (!push) continue;
             const Vec3 normal = triangle_normal(triangle);
-            const float half = config_.height * 0.5f;
+            const float half = current_height() * 0.5f;
             const float started_on = dot(normal, Vec3{origin.x, origin.y, origin.z + half} - triangle.a);
             if (started_on != 0.0f && dot(*push, normal) * started_on < 0.0f) return fail();  // would cross the triangle
             moved = apply_push(push) || moved;
@@ -301,7 +308,7 @@ void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
 }
 
 void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt) {
-    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left)) {
+    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left) || !std::isfinite(input.traction) || !std::isfinite(input.drive.x) || !std::isfinite(input.drive.y) || !std::isfinite(input.drive.z)) {
         throw std::invalid_argument("Capsule character step requires finite input and a fixed step in (0, 100 ms]");
     }
     const float seconds = std::chrono::duration<float>(dt).count();
@@ -313,24 +320,50 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
     // Horizontal velocity moves toward the input's target, faster on the ground than in the air. Air control with no input is a brake
     // on the horizontal speed, which is right for a fall but wrong for a slide: on a surface too steep to stand on, an idle character
     // must keep the speed gravity gives it, or it creeps down the slope at a fraction of the speed it should have.
+    // Crouching lowers the capsule at once (the feet stay, the head comes down); standing up needs room for the standing capsule.
+    if (input.crouch) {
+        state_.crouched = true;
+    } else if (state_.crouched && !overlaps_standing(state_.feet, geometry_, triangles_)) {
+        state_.crouched = false;
+    }
+    if (input.drive.active && input.drive.vertical) {
+        // A scripted 3D move (see CapsuleDrive): the action owns the whole velocity this tick, gravity included.
+        Vec3 v{input.drive.x, input.drive.y, input.drive.z};
+        const float magnitude = std::sqrt(length2(v));
+        if (magnitude > config_.terminal_speed) v = v * (config_.terminal_speed / magnitude);
+        state_.velocity = v;
+        if (v.z > 0.0f) state_.grounded = false;
+        previous_jump_ = input.jump;
+        slide(v * seconds, /*can_step=*/false);
+        if (!(v.z > 0.0f)) snap_to_ground();
+        return;
+    }
     const bool no_input = input.forward == 0.0f && input.left == 0.0f;
     const bool keep_horizontal_speed = !state_.grounded && was_sliding && no_input;
-    const float speed = input.sprint ? config_.sprint_speed : config_.walk_speed;
+    const float crouch_speed = config_.crouch_speed > 0.0f ? config_.crouch_speed : 0.5f * config_.walk_speed;
+    const float speed = state_.crouched ? crouch_speed : (input.sprint ? config_.sprint_speed : config_.walk_speed);
     const float forward = std::clamp(input.forward, -1.0f, 1.0f);
     const float left = std::clamp(input.left, -1.0f, 1.0f);
     const float scale = speed / std::max(1.0f, std::hypot(forward, left));
     const float dx = forward * scale - state_.velocity.x;
     const float dy = left * scale - state_.velocity.y;
     const float change = std::hypot(dx, dy);
-    const float limit = (state_.grounded ? config_.ground_acceleration : config_.air_acceleration) * seconds;
+    const float traction = std::clamp(input.traction, 0.02f, 1.0f);
+    const float limit = (state_.grounded ? config_.ground_acceleration * traction : config_.air_acceleration) * seconds;
     const float fraction = change > limit ? limit / change : 1.0f;
-    if (!keep_horizontal_speed) {
+    if (input.drive.active && state_.grounded) {
+        // An action owns the horizontal velocity this tick (see CapsuleDrive); the collision below still decides how far it really goes.
+        const float magnitude = std::hypot(input.drive.x, input.drive.y);
+        const float cap = magnitude > config_.terminal_speed ? config_.terminal_speed / magnitude : 1.0f;
+        state_.velocity.x = input.drive.x * cap;
+        state_.velocity.y = input.drive.y * cap;
+    } else if (!keep_horizontal_speed) {
         state_.velocity.x += dx * fraction;
         state_.velocity.y += dy * fraction;
     }
 
     // A jump needs the button to go down while standing; holding it does not repeat.
-    const bool jumped = input.jump && !previous_jump_ && state_.grounded;
+    const bool jumped = input.jump && !previous_jump_ && state_.grounded && !state_.crouched;
     previous_jump_ = input.jump;
     if (jumped) {
         state_.velocity.z = config_.jump_speed;
@@ -358,7 +391,7 @@ bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> geometry) {
 bool CapsuleCharacter::replace_static_geometry(std::span<const Aabb> boxes, std::span<const Triangle> triangles) {
     validate(boxes);
     validate(triangles);
-    if (overlaps(state_.feet, boxes, triangles) || overlaps(spawn_, boxes, triangles)) return false;
+    if (overlaps(state_.feet, boxes, triangles) || overlaps_standing(spawn_, boxes, triangles)) return false;
     std::vector<Aabb> candidate(boxes.begin(), boxes.end());
     std::vector<Triangle> candidate_triangles(triangles.begin(), triangles.end());
     const CapsuleCharacterState saved = state_;
@@ -431,11 +464,20 @@ void CapsuleCharacter::reset() {
     // Strong guarantee: the new state is built aside and adopted only when the ground probe has succeeded.
     CapsuleCharacterState fresh;
     fresh.feet = spawn_;
+    const bool was_crouched = state_.crouched;
+    state_.crouched = false;  // the reset character stands: probe with the standing capsule
+    struct Restore {
+        CapsuleCharacter* self;
+        bool crouched;
+        bool done = false;
+        ~Restore() { if (!done) self->state_.crouched = crouched; }
+    } restore{this, was_crouched};
     if (const auto ground = probe_ground(spawn_)) {  // the same probe as a step: a spawn touching a ledge's rim still counts as supported
         fresh.grounded = true;
         fresh.ground_normal = ground->normal;
     }
     state_ = fresh;
+    restore.done = true;
     steep_contact_ = false;
     previous_jump_ = false;
 }

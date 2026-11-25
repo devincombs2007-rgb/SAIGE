@@ -1,0 +1,2572 @@
+{
+ "environment": {
+  "cpu": "see docs",
+  "build": "Release, g++ 13.3, -ffp-contract=off",
+  "jolt": "v5.3.0",
+  "bullet": "3.24+dfsg (Ubuntu 24.04)"
+ },
+ "float_build": [
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i10",
+   "metric": "max horizontal drift",
+   "value": 24.7213,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i10",
+   "metric": "top box height error",
+   "value": 19,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i10",
+   "metric": "top box tilt",
+   "value": 95.8802,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i10",
+   "metric": "max speed after 5 s",
+   "value": 19.3738,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i10",
+   "metric": "cost per frame",
+   "value": 0.0254356,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i10",
+   "metric": "max horizontal drift",
+   "value": 35.7216,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i10",
+   "metric": "top box height error",
+   "value": 19,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i10",
+   "metric": "top box tilt",
+   "value": 109.363,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i10",
+   "metric": "max speed after 5 s",
+   "value": 19.3078,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i10",
+   "metric": "cost per frame",
+   "value": 0.0291569,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i10",
+   "metric": "max horizontal drift",
+   "value": 15.0866,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i10",
+   "metric": "top box height error",
+   "value": 19,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i10",
+   "metric": "top box tilt",
+   "value": 147.29,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i10",
+   "metric": "max speed after 5 s",
+   "value": 8.14715,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i10",
+   "metric": "cost per frame",
+   "value": 0.0189855,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x2/i10",
+   "metric": "max horizontal drift",
+   "value": 0.676183,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x2/i10",
+   "metric": "top box height error",
+   "value": 0.028614,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x2/i10",
+   "metric": "top box tilt",
+   "value": 2.64113,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x2/i10",
+   "metric": "max speed after 5 s",
+   "value": 0.814869,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x2/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 0,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x2/i10",
+   "metric": "cost per frame",
+   "value": 0.0812559,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 2, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x2/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0194796,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x2/i10",
+   "metric": "top box height error",
+   "value": 0.0149918,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x2/i10",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x2/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x2/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x2/i10",
+   "metric": "cost per frame",
+   "value": 0.00501142,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 2, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x2/i10",
+   "metric": "max horizontal drift",
+   "value": 16.3707,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x2/i10",
+   "metric": "top box height error",
+   "value": 19,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x2/i10",
+   "metric": "top box tilt",
+   "value": 150.882,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x2/i10",
+   "metric": "max speed after 5 s",
+   "value": 20.1483,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x2/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x2/i10",
+   "metric": "cost per frame",
+   "value": 0.0557054,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 2, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x4/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0245035,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x4/i10",
+   "metric": "top box height error",
+   "value": 0.00388527,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x4/i10",
+   "metric": "top box tilt",
+   "value": 0.104678,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x4/i10",
+   "metric": "max speed after 5 s",
+   "value": 0.082625,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x4/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 0,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x4/i10",
+   "metric": "cost per frame",
+   "value": 0.161843,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 4, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x4/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0102185,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x4/i10",
+   "metric": "top box height error",
+   "value": 0.00366974,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x4/i10",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x4/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x4/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x4/i10",
+   "metric": "cost per frame",
+   "value": 0.0170451,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 4, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x4/i10",
+   "metric": "max horizontal drift",
+   "value": 0.21193,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x4/i10",
+   "metric": "top box height error",
+   "value": 0.00837898,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x4/i10",
+   "metric": "top box tilt",
+   "value": 1.01644,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x4/i10",
+   "metric": "max speed after 5 s",
+   "value": 0.367857,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x4/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 0,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x4/i10",
+   "metric": "cost per frame",
+   "value": 0.150594,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 4, velocity iterations 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i30",
+   "metric": "max horizontal drift",
+   "value": 0.014405,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i30",
+   "metric": "top box height error",
+   "value": 0.0189266,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i30",
+   "metric": "top box tilt",
+   "value": 0.0884694,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i30",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i30",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i30",
+   "metric": "cost per frame",
+   "value": 0.00471398,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 30"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i30",
+   "metric": "max horizontal drift",
+   "value": 0.0127254,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i30",
+   "metric": "top box height error",
+   "value": 0.0170727,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i30",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i30",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i30",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i30",
+   "metric": "cost per frame",
+   "value": 0.00317264,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 30"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i30",
+   "metric": "max horizontal drift",
+   "value": 0.015913,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i30",
+   "metric": "top box height error",
+   "value": 0.0448971,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i30",
+   "metric": "top box tilt",
+   "value": 0.316518,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i30",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i30",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i30",
+   "metric": "cost per frame",
+   "value": 0.00388332,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 30"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i60",
+   "metric": "max horizontal drift",
+   "value": 0.0224292,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i60",
+   "metric": "top box height error",
+   "value": 0.00878143,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i60",
+   "metric": "top box tilt",
+   "value": 0.0884694,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i60",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i60",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack x1/i60",
+   "metric": "cost per frame",
+   "value": 0.00505553,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 60"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i60",
+   "metric": "max horizontal drift",
+   "value": 0.0133413,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i60",
+   "metric": "top box height error",
+   "value": 0.00840187,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i60",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i60",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i60",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack perturbed x1/i60",
+   "metric": "cost per frame",
+   "value": 0.00507265,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 60"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i60",
+   "metric": "max horizontal drift",
+   "value": 0.0138556,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i60",
+   "metric": "top box height error",
+   "value": 0.0161896,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i60",
+   "metric": "top box tilt",
+   "value": 0.181308,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i60",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i60",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "stack heavy top x1/i60",
+   "metric": "cost per frame",
+   "value": 0.00506806,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 60"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "bounce apex on rubber",
+   "value": 0.749959,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.739375"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "slide distance on rubber",
+   "value": 1.69258,
+   "unit": "m",
+   "note": "SAIGE rule expects 1.733980"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "bounce apex on concrete",
+   "value": 0.0823003,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "slide distance on concrete",
+   "value": 2.08204,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.123683"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "bounce apex on ice",
+   "value": 0.0823003,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "slide distance on ice",
+   "value": 7.31512,
+   "unit": "m",
+   "note": "SAIGE rule expects 7.356655"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "bounce apex on sand",
+   "value": 0.0823003,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials",
+   "metric": "slide distance on sand",
+   "value": 2.28482,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.326378"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "bounce apex on rubber",
+   "value": 0.749959,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.739375"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "slide distance on rubber",
+   "value": 1.69258,
+   "unit": "m",
+   "note": "SAIGE rule expects 1.733980"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "bounce apex on concrete",
+   "value": 0.0823003,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "slide distance on concrete",
+   "value": 2.08204,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.123683"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "bounce apex on ice",
+   "value": 0.0823003,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "slide distance on ice",
+   "value": 7.31512,
+   "unit": "m",
+   "note": "SAIGE rule expects 7.356655"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "bounce apex on sand",
+   "value": 0.0823003,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "materials+rule",
+   "metric": "slide distance on sand",
+   "value": 2.28482,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.326378"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "ccd sphere off",
+   "metric": "tunnelled through the wall",
+   "value": 1,
+   "unit": "bool",
+   "note": "speed 300 m/s (5.000000 m per step), furthest x 30.000002"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "ccd box off",
+   "metric": "tunnelled through the wall",
+   "value": 1,
+   "unit": "bool",
+   "note": "speed 100 m/s (1.666667 m per step), furthest x 31.666662"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "ccd sphere on",
+   "metric": "tunnelled through the wall",
+   "value": 0,
+   "unit": "bool",
+   "note": "speed 300 m/s (5.000000 m per step), furthest x 22.215000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "ccd box on",
+   "metric": "tunnelled through the wall",
+   "value": 0,
+   "unit": "bool",
+   "note": "speed 100 m/s (1.666667 m per step), furthest x 22.215000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "chain",
+   "metric": "max joint separation",
+   "value": 0.0236565,
+   "unit": "m",
+   "note": "10 links, 120 Hz"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "chain",
+   "metric": "max link speed",
+   "value": 11.7759,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "chain",
+   "metric": "final worst swing between links",
+   "value": 15.847,
+   "unit": "deg",
+   "note": "limit 45"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "chain",
+   "metric": "final speed of the last link",
+   "value": 3.8533,
+   "unit": "m/s",
+   "note": "settling"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "vehicle",
+   "metric": "momentum after / before",
+   "value": 1,
+   "unit": "ratio",
+   "note": "1.0 when conserved (frictionless floor)"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "vehicle",
+   "metric": "fastest crate",
+   "value": 19.7026,
+   "unit": "m/s",
+   "note": "an elastic 72:1 hit would give up to 2x the car speed"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "vehicle",
+   "metric": "car speed after",
+   "value": 17.649,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "forces",
+   "metric": "angular accel from an offset force",
+   "value": 30,
+   "unit": "rad/s2",
+   "note": "analytic 30.000000"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "forces",
+   "metric": "linear accel from the same force",
+   "value": 10,
+   "unit": "m/s2",
+   "note": "analytic 10"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "determinism",
+   "metric": "same build, same threads: identical",
+   "value": 1,
+   "unit": "bool",
+   "note": "hash 12385067342906155607"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "determinism",
+   "metric": "1 thread vs 4 threads: identical",
+   "value": 1,
+   "unit": "bool",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@0m",
+   "metric": "slow slide displacement",
+   "value": 0.999999,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@0m",
+   "metric": "resting box height error",
+   "value": 1.78814e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@0m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@0m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000669392,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@256m",
+   "metric": "slow slide displacement",
+   "value": 0.997925,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@256m",
+   "metric": "resting box height error",
+   "value": 8.9407e-08,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@256m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@256m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000632274,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@5000m",
+   "metric": "slow slide displacement",
+   "value": 1.02539,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@5000m",
+   "metric": "resting box height error",
+   "value": 1.78814e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@5000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@5000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@20000m",
+   "metric": "slow slide displacement",
+   "value": 1.17188,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@20000m",
+   "metric": "resting box height error",
+   "value": 1.78814e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@20000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@20000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@100000m",
+   "metric": "slow slide displacement",
+   "value": 0,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@100000m",
+   "metric": "resting box height error",
+   "value": 1.78814e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@100000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "largeworld@100000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=100 threads=1 mean ms/step",
+   "value": 0.0283757,
+   "unit": "ms",
+   "note": "last second 0.000319 ms, active 0, +0 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=100 threads=4 mean ms/step",
+   "value": 0.0422853,
+   "unit": "ms",
+   "note": "last second 0.000725 ms, active 0, +0 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=500 threads=1 mean ms/step",
+   "value": 0.812587,
+   "unit": "ms",
+   "note": "last second 0.114005 ms, active 0, +0 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=500 threads=4 mean ms/step",
+   "value": 0.64096,
+   "unit": "ms",
+   "note": "last second 0.165917 ms, active 0, +0 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=1000 threads=1 mean ms/step",
+   "value": 3.47581,
+   "unit": "ms",
+   "note": "last second 3.383851 ms, active 1000, +1 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=1000 threads=4 mean ms/step",
+   "value": 3.12142,
+   "unit": "ms",
+   "note": "last second 3.401065 ms, active 1000, +1 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=2000 threads=1 mean ms/step",
+   "value": 10.4416,
+   "unit": "ms",
+   "note": "last second 11.964797 ms, active 2000, +4 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=2000 threads=4 mean ms/step",
+   "value": 6.23149,
+   "unit": "ms",
+   "note": "last second 7.645367 ms, active 2000, +3 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=5000 threads=1 mean ms/step",
+   "value": 39.8278,
+   "unit": "ms",
+   "note": "last second 56.266462 ms, active 5000, +13 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=5000 threads=4 mean ms/step",
+   "value": 15.9521,
+   "unit": "ms",
+   "note": "last second 22.516278 ms, active 5000, +12 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=10000 threads=1 mean ms/step",
+   "value": 90.6946,
+   "unit": "ms",
+   "note": "last second 169.715031 ms, active 10000, +32 MiB"
+  },
+  {
+   "backend": "Jolt 5.3.0",
+   "workload": "scaling",
+   "metric": "n=10000 threads=4 mean ms/step",
+   "value": 33.3474,
+   "unit": "ms",
+   "note": "last second 58.025699 ms, active 10000, +30 MiB"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i10",
+   "metric": "max horizontal drift",
+   "value": 0.299868,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i10",
+   "metric": "top box height error",
+   "value": 0.0412102,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i10",
+   "metric": "top box tilt",
+   "value": 1.58951,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i10",
+   "metric": "cost per frame",
+   "value": 0.00823531,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0443898,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i10",
+   "metric": "top box height error",
+   "value": 0.0328655,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i10",
+   "metric": "top box tilt",
+   "value": 0.111906,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i10",
+   "metric": "cost per frame",
+   "value": 0.00687995,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i10",
+   "metric": "max horizontal drift",
+   "value": 15.6818,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i10",
+   "metric": "top box height error",
+   "value": 19,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i10",
+   "metric": "top box tilt",
+   "value": 94.2403,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i10",
+   "metric": "max speed after 5 s",
+   "value": 14.363,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i10",
+   "metric": "cost per frame",
+   "value": 0.0186609,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x2/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0722709,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x2/i10",
+   "metric": "top box height error",
+   "value": 0.0111637,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x2/i10",
+   "metric": "top box tilt",
+   "value": 0.282549,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x2/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x2/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x2/i10",
+   "metric": "cost per frame",
+   "value": 0.0134075,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 2, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x2/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0264406,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x2/i10",
+   "metric": "top box height error",
+   "value": 0.0104389,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x2/i10",
+   "metric": "top box tilt",
+   "value": 0.0685281,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x2/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x2/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x2/i10",
+   "metric": "cost per frame",
+   "value": 0.0134564,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 2, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x2/i10",
+   "metric": "max horizontal drift",
+   "value": 0.113898,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x2/i10",
+   "metric": "top box height error",
+   "value": 0.0095005,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x2/i10",
+   "metric": "top box tilt",
+   "value": 0.677239,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x2/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x2/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x2/i10",
+   "metric": "cost per frame",
+   "value": 0.0138909,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 2, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x4/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0219515,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x4/i10",
+   "metric": "top box height error",
+   "value": 0.00270462,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x4/i10",
+   "metric": "top box tilt",
+   "value": 0.0685281,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x4/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x4/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x4/i10",
+   "metric": "cost per frame",
+   "value": 0.028736,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 4, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x4/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0126378,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x4/i10",
+   "metric": "top box height error",
+   "value": 0.00265884,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x4/i10",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x4/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x4/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x4/i10",
+   "metric": "cost per frame",
+   "value": 0.0289093,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 4, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x4/i10",
+   "metric": "max horizontal drift",
+   "value": 0.0338873,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x4/i10",
+   "metric": "top box height error",
+   "value": 0.00434494,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x4/i10",
+   "metric": "top box tilt",
+   "value": 0.148038,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x4/i10",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x4/i10",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x4/i10",
+   "metric": "cost per frame",
+   "value": 0.0280215,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 4, velocity iterations 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i30",
+   "metric": "max horizontal drift",
+   "value": 0.129366,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i30",
+   "metric": "top box height error",
+   "value": 0.0145073,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i30",
+   "metric": "top box tilt",
+   "value": 0.452839,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i30",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i30",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i30",
+   "metric": "cost per frame",
+   "value": 0.0123534,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 30"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i30",
+   "metric": "max horizontal drift",
+   "value": 0.0190309,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i30",
+   "metric": "top box height error",
+   "value": 0.0133591,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i30",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i30",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i30",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i30",
+   "metric": "cost per frame",
+   "value": 0.013127,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 30"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i30",
+   "metric": "max horizontal drift",
+   "value": 0.168842,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i30",
+   "metric": "top box height error",
+   "value": 0.0265903,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i30",
+   "metric": "top box tilt",
+   "value": 1.08857,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i30",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i30",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i30",
+   "metric": "cost per frame",
+   "value": 0.0114461,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 30"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i60",
+   "metric": "max horizontal drift",
+   "value": 0.0686234,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i60",
+   "metric": "top box height error",
+   "value": 0.00643349,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i60",
+   "metric": "top box tilt",
+   "value": 0.223812,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i60",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i60",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack x1/i60",
+   "metric": "cost per frame",
+   "value": 0.0176331,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 60"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i60",
+   "metric": "max horizontal drift",
+   "value": 0.0159469,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i60",
+   "metric": "top box height error",
+   "value": 0.0061512,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i60",
+   "metric": "top box tilt",
+   "value": 0,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i60",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i60",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack perturbed x1/i60",
+   "metric": "cost per frame",
+   "value": 0.020114,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 60"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i60",
+   "metric": "max horizontal drift",
+   "value": 0.0879952,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i60",
+   "metric": "top box height error",
+   "value": 0.0125847,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i60",
+   "metric": "top box tilt",
+   "value": 0.456283,
+   "unit": "deg",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i60",
+   "metric": "max speed after 5 s",
+   "value": 0,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i60",
+   "metric": "boxes asleep at 20 s",
+   "value": 20,
+   "unit": "of 20",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "stack heavy top x1/i60",
+   "metric": "cost per frame",
+   "value": 0.0171456,
+   "unit": "ms",
+   "note": "includes the first seconds of motion; substeps 1, velocity iterations 60"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "bounce apex on rubber",
+   "value": 0.000849098,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.739375"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "slide distance on rubber",
+   "value": 2.31927,
+   "unit": "m",
+   "note": "SAIGE rule expects 1.733980"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "bounce apex on concrete",
+   "value": 0,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "slide distance on concrete",
+   "value": 3.49856,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.123683"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "bounce apex on ice",
+   "value": 0.000497848,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "slide distance on ice",
+   "value": 42.0887,
+   "unit": "m",
+   "note": "SAIGE rule expects 7.356655"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "bounce apex on sand",
+   "value": 0.000890255,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials",
+   "metric": "slide distance on sand",
+   "value": 4.20474,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.326378"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "bounce apex on rubber",
+   "value": 0.729241,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.739375"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "slide distance on rubber",
+   "value": 1.68484,
+   "unit": "m",
+   "note": "SAIGE rule expects 1.733980"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "bounce apex on concrete",
+   "value": 0.0430865,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "slide distance on concrete",
+   "value": 2.06991,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.123683"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "bounce apex on ice",
+   "value": 0.0430865,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "slide distance on ice",
+   "value": 7.25077,
+   "unit": "m",
+   "note": "SAIGE rule expects 7.356655"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "bounce apex on sand",
+   "value": 0.0430865,
+   "unit": "m",
+   "note": "SAIGE rule expects 0.070000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "materials+rule",
+   "metric": "slide distance on sand",
+   "value": 2.28583,
+   "unit": "m",
+   "note": "SAIGE rule expects 2.326378"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "ccd sphere off",
+   "metric": "tunnelled through the wall",
+   "value": 1,
+   "unit": "bool",
+   "note": "speed 300 m/s (5.000000 m per step), furthest x 30.000002"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "ccd box off",
+   "metric": "tunnelled through the wall",
+   "value": 1,
+   "unit": "bool",
+   "note": "speed 100 m/s (1.666667 m per step), furthest x 31.666662"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "ccd sphere on",
+   "metric": "tunnelled through the wall",
+   "value": 0,
+   "unit": "bool",
+   "note": "speed 300 m/s (5.000000 m per step), furthest x 22.244999"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "ccd box on",
+   "metric": "tunnelled through the wall",
+   "value": 0,
+   "unit": "bool",
+   "note": "speed 100 m/s (1.666667 m per step), furthest x 22.249418"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "chain",
+   "metric": "max joint separation",
+   "value": 0.0451755,
+   "unit": "m",
+   "note": "10 links, 120 Hz"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "chain",
+   "metric": "max link speed",
+   "value": 14.8403,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "chain",
+   "metric": "final worst swing between links",
+   "value": 23.938,
+   "unit": "deg",
+   "note": "limit 45"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "chain",
+   "metric": "final speed of the last link",
+   "value": 1.25729,
+   "unit": "m/s",
+   "note": "settling"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "vehicle",
+   "metric": "momentum after / before",
+   "value": 0.99952,
+   "unit": "ratio",
+   "note": "1.0 when conserved (frictionless floor)"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "vehicle",
+   "metric": "fastest crate",
+   "value": 20.7977,
+   "unit": "m/s",
+   "note": "an elastic 72:1 hit would give up to 2x the car speed"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "vehicle",
+   "metric": "car speed after",
+   "value": 17.6084,
+   "unit": "m/s",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "forces",
+   "metric": "angular accel from an offset force",
+   "value": 30,
+   "unit": "rad/s2",
+   "note": "analytic 30.000000"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "forces",
+   "metric": "linear accel from the same force",
+   "value": 10,
+   "unit": "m/s2",
+   "note": "analytic 10"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "determinism",
+   "metric": "same build, same threads: identical",
+   "value": 1,
+   "unit": "bool",
+   "note": "hash 14095419003743973862"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "determinism",
+   "metric": "1 thread vs 4 threads: identical",
+   "value": -1,
+   "unit": "n/a",
+   "note": "this build has no multithreading"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@0m",
+   "metric": "slow slide displacement",
+   "value": 0.403333,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@0m",
+   "metric": "resting box height error",
+   "value": 2.98023e-08,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@0m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@0m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.00113746,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@256m",
+   "metric": "slow slide displacement",
+   "value": 0.402496,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@256m",
+   "metric": "resting box height error",
+   "value": 2.98023e-08,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@256m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@256m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000511795,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@5000m",
+   "metric": "slow slide displacement",
+   "value": 0.413574,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@5000m",
+   "metric": "resting box height error",
+   "value": 2.98023e-08,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@5000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@5000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@20000m",
+   "metric": "slow slide displacement",
+   "value": 0.472656,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@20000m",
+   "metric": "resting box height error",
+   "value": 2.98023e-08,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@20000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@20000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@100000m",
+   "metric": "slow slide displacement",
+   "value": 0,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@100000m",
+   "metric": "resting box height error",
+   "value": 2.98023e-08,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@100000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "largeworld@100000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "scaling",
+   "metric": "n=100 threads=1 mean ms/step",
+   "value": 0.137551,
+   "unit": "ms",
+   "note": "last second 0.018375 ms, active 0, +0 MiB"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "scaling",
+   "metric": "n=500 threads=1 mean ms/step",
+   "value": 1.25649,
+   "unit": "ms",
+   "note": "last second 0.661320 ms, active 0, +0 MiB"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "scaling",
+   "metric": "n=1000 threads=1 mean ms/step",
+   "value": 4.3169,
+   "unit": "ms",
+   "note": "last second 4.422212 ms, active 1000, +2 MiB"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "scaling",
+   "metric": "n=2000 threads=1 mean ms/step",
+   "value": 11.1785,
+   "unit": "ms",
+   "note": "last second 12.503210 ms, active 2000, +13 MiB"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "scaling",
+   "metric": "n=5000 threads=1 mean ms/step",
+   "value": 66.9288,
+   "unit": "ms",
+   "note": "last second 110.712810 ms, active 5000, +57 MiB"
+  },
+  {
+   "backend": "Bullet 3.24",
+   "workload": "scaling",
+   "metric": "n=10000 threads=1 mean ms/step",
+   "value": 126.941,
+   "unit": "ms",
+   "note": "last second 232.034688 ms, active 10000, +102 MiB"
+  }
+ ],
+ "jolt_double_largeworld": [
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@0m",
+   "metric": "slow slide displacement",
+   "value": 1,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@0m",
+   "metric": "resting box height error",
+   "value": 2.08589e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@0m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@0m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000670111,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@256m",
+   "metric": "slow slide displacement",
+   "value": 1,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@256m",
+   "metric": "resting box height error",
+   "value": 2.08589e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@256m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@256m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000670111,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@5000m",
+   "metric": "slow slide displacement",
+   "value": 1,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@5000m",
+   "metric": "resting box height error",
+   "value": 2.08589e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@5000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@5000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000670111,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@20000m",
+   "metric": "slow slide displacement",
+   "value": 1,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@20000m",
+   "metric": "resting box height error",
+   "value": 2.08589e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@20000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@20000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000670111,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@100000m",
+   "metric": "slow slide displacement",
+   "value": 1,
+   "unit": "m",
+   "note": "expected 1.0"
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@100000m",
+   "metric": "resting box height error",
+   "value": 2.08589e-07,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@100000m",
+   "metric": "resting box jitter",
+   "value": 0,
+   "unit": "m",
+   "note": ""
+  },
+  {
+   "backend": "Jolt 5.3.0 (double)",
+   "workload": "largeworld@100000m",
+   "metric": "5-stack horizontal drift",
+   "value": 0.000670115,
+   "unit": "m",
+   "note": ""
+  }
+ ]
+}

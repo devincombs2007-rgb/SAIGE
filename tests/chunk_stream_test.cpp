@@ -792,6 +792,86 @@ void test_persistent_vehicle(const fs::path& fixture) {
             "reset returns the player to the checkpoint without dragging the vehicle to it");
 }
 
+void test_terrain_driving(const fs::path& fixture) {
+    using namespace std::chrono_literals;
+    Workspace workspace;
+    fs::copy(fixture.parent_path(), workspace.root / "assets", fs::copy_options::recursive);
+    const auto manifest = workspace.root / "terrain.json";
+    write_chunk_fixture(manifest, R"({"schema_version":2,"origin":[10,0],"checkpoint":[4,4,0],"chunks":[
+        {"coord":[10,0],"project":"assets/saige.scene.json","collision":"floor.json"},
+        {"coord":[11,0],"project":"assets/saige.scene.json","collision":"ramp.json"},
+        {"coord":[12,0],"project":"assets/saige.scene.json","collision":"landing.json"},
+        {"coord":[13,0],"project":"assets/saige.scene.json","collision":"landing.json"},
+        {"coord":[14,0],"project":"assets/saige.scene.json","collision":"landing.json"}
+    ]})");
+    write_chunk_fixture(workspace.root / "floor.json", R"({"schema_version":1,"boxes":[{"min":[0,0,-1],"max":[8,8,0]}]})");
+    write_chunk_fixture(workspace.root / "ramp.json", R"({"schema_version":2,"boxes":[],"triangles":[
+        [[0,0,0],[8,0,2],[8,8,2]], [[0,0,0],[8,8,2],[0,8,0]]
+    ]})");
+    write_chunk_fixture(workspace.root / "landing.json", R"({"schema_version":1,"boxes":[{"min":[0,0,1],"max":[8,8,2]}]})");
+
+    const auto drive = [&] {
+        saige::World world;
+        CourseKeys keys;
+        CourseOutputProbe output;
+        saige::sample::StreamedCourse course(world, keys, manifest, &output, {}, true, false, {}, true);
+        const auto tick = [&] { course.fixed_update(world, 16'666'667ns); };
+        keys.right = true;
+        for (int i = 0; i < 49; ++i) tick();
+        keys.right = false;
+        keys.interact = true;
+        tick();
+        require(course.driving(), "enter the terrain vehicle from the streamed character course");
+        keys.interact = false;
+        keys.forward = true;
+        std::vector<saige::Vec3> replay;
+        const auto logical_vehicle = [&] {
+            auto local = course.active_vehicle()->position;
+            local.x -= std::floor(local.x / 8.0f) * 8.0f;
+            local.x += static_cast<float>(course.absolute_cell().first - 10) * 8.0f;
+            return local;
+        };
+        while (logical_vehicle().x < 11.0f && replay.size() < 180) {
+            tick();
+            replay.push_back(logical_vehicle());
+        }
+        keys.brake = true;
+        for (int i = 0; i < 50; ++i) tick();
+        keys.interact = true;
+        tick();
+        require(!course.driving() && world.snapshot().front().position.z > 0.5f,
+                "exit onto a supported incline through the existing capsule");
+        keys.interact = false;
+        keys.forward = false;
+        keys.brake = false;
+        tick();
+        keys.interact = true;
+        tick();
+        require(course.driving(), "reenter the terrain vehicle on the incline");
+
+        keys.interact = false;
+        keys.forward = true;
+        for (int tick_index = 0; tick_index < 290; ++tick_index) {
+            tick();
+            replay.push_back(logical_vehicle());
+        }
+        const auto ramp = std::ranges::find_if(replay, [](saige::Vec3 p) { return p.x > 10 && p.x < 14 && p.z > 0.5f; });
+        require(ramp != replay.end(), "wheel support lifts the chassis across the streamed ramp");
+        require(replay.back().x > 36 && replay.back().x < 39.5f && std::abs(replay.back().z - 2) < 0.001f &&
+                    course.origin_epoch() > 0,
+                "shift the world while driving and stop at the unstreamed edge on the upper landing");
+        keys.forward = false;
+        keys.brake = true;
+        for (int i = 0; i < 30; ++i) tick();
+        keys.interact = true;
+        tick();
+        require(!course.driving() && world.snapshot().front().position.z > 1.99f,
+                "exit on the upper landing through the existing capsule controller");
+        return replay;
+    };
+    require(drive() == drive(), "terrain driving replays exactly with the same fixed steps");
+}
+
 void test_rebased_ramp_course(const fs::path& fixture) {
     using namespace std::chrono_literals;
     const auto play = [&] {
@@ -889,6 +969,7 @@ int main(int argc, char** argv) {
         test_rebased_ramp_course(argv[1]);
         test_streamed_vehicle(argv[1]);
         test_persistent_vehicle(argv[1]);
+        test_terrain_driving(argv[1]);
         test_live_origin_migration(argv[1]);
         test_persistent_checkpoint(argv[1]);
         test_collision_handoff(argv[1]);

@@ -21,3 +21,7 @@ SAIGE is an independently owned, reusable, AI-native engine. Project Brotherhood
 Use the dependency-ordered roadmap in [architecture.md](docs/architecture.md). Prefer stable, production-ready tools, keep vendor SDKs behind capability-gated backend boundaries, and preserve project and asset compatibility with explicit versioning and tested migrations. Review new dependencies for licensing, security, stability, performance, and maintenance. Instrument representative workloads before changing fundamental storage or threading.
 
 For a merge, review the exact GitHub head and the proposed base, run the applicable checks, and request owner approval for major changes. Record build hashes, adapter classification and test evidence for render changes. Keep software Vulkan and physical GPU results distinct. Obtain owner approval before incurring costs or publishing a release.
+
+## Engineering program notes (added; the sections above are unchanged)
+
+Standing engineering material for long-running work, including the checkpoint format, the capability and branch inventory and the Showcase 03 defect record, lives in [docs/engineering](docs/engineering/agent-handoff.md). It adds working notes only; it does not change the roles, approvals or merge rules above.

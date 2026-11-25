@@ -11,6 +11,7 @@ set(SAIGE_SHADER_SOURCES
     scene/bloom_prefilter.hlsl
     scene/bloom_up.hlsl
     scene/cube.hlsl
+    scene/fxaa.hlsl
     scene/ground.hlsl
     scene/model.hlsl
     test/blend_color.hlsl

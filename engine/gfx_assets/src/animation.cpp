@@ -171,6 +171,42 @@ Float3 skin_position(const Primitive& primitive, std::size_t vertex, std::span<c
     return out;
 }
 
+SkinnedVertex skin_vertex(const Primitive& primitive, std::size_t vertex, std::span<const Mat4> matrices)
+{
+    const auto vec3 = [&](const std::vector<float>& a) { return Float3{a[vertex * 3], a[vertex * 3 + 1], a[vertex * 3 + 2]}; };
+    const Float3 p = vec3(primitive.positions);
+    const Float3 n = primitive.normals.size() == primitive.positions.size() ? vec3(primitive.normals) : Float3{0, 0, 1};
+    Float3 t{0, 0, 0}, b{0, 0, 0};
+    if (primitive.tangents.size() == primitive.positions.size() / 3 * 4) {
+        t = {primitive.tangents[vertex * 4], primitive.tangents[vertex * 4 + 1], primitive.tangents[vertex * 4 + 2]};
+        b = render::cross(n, t) * primitive.tangents[vertex * 4 + 3];
+    }
+    if (primitive.joints.size() != primitive.positions.size() / 3 * 4 || primitive.weights.size() != primitive.joints.size()) return {p, n, t, b};
+    // The blended affine matrix, column by column: B = sum_i w_i M_i.
+    float blend[3][4] = {};
+    for (std::size_t i = 0; i < 4; ++i) {
+        const float w = primitive.weights[vertex * 4 + i];
+        if (w == 0.0f) continue;
+        const std::size_t joint = primitive.joints[vertex * 4 + i];
+        if (joint >= matrices.size()) throw std::invalid_argument("skin_vertex: a joint index is outside the skin matrices");
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) blend[r][c] += w * matrices[joint].at(r, c);
+        }
+    }
+    const auto apply = [&](Float3 v, float w) {
+        return Float3{blend[0][0] * v.x + blend[0][1] * v.y + blend[0][2] * v.z + blend[0][3] * w,
+                      blend[1][0] * v.x + blend[1][1] * v.y + blend[1][2] * v.z + blend[1][3] * w,
+                      blend[2][0] * v.x + blend[2][1] * v.y + blend[2][2] * v.z + blend[2][3] * w};
+    };
+    const Float3 c0{blend[0][0], blend[1][0], blend[2][0]}, c1{blend[0][1], blend[1][1], blend[2][1]}, c2{blend[0][2], blend[1][2], blend[2][2]};
+    SkinnedVertex out;
+    out.position = apply(p, 1.0f);
+    out.normal = render::cross(c1, c2) * n.x + render::cross(c2, c0) * n.y + render::cross(c0, c1) * n.z;
+    out.tangent = apply(t, 0.0f);
+    out.bitangent = apply(b, 0.0f);
+    return out;
+}
+
 std::vector<float> skin_positions(const Primitive& primitive, std::span<const Mat4> matrices)
 {
     std::vector<float> out(primitive.positions.size());

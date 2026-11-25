@@ -88,6 +88,7 @@ public:
     FrameResult end_frame() override;
     void wait_idle() override;
     [[nodiscard]] uint64_t frame_number() const noexcept override;
+    [[nodiscard]] bool supports_filtered_sampling(Format format) const override;
     [[nodiscard]] uint32_t validation_error_count() const noexcept override;
     /// The null device has no GPU: timestamps are unavailable. Memory is estimated from the resource descriptions
     /// (tightly packed texture sizes), so it is a stand-in for tests, not a measurement.
@@ -100,6 +101,8 @@ public:
     /// registered for that call. 0 cancels. Consumed by the creation it fails. Lets tests prove that code acquiring several resources
     /// releases the earlier ones when a later acquisition fails.
     void fail_creation_after(uint32_t n) noexcept;
+    /// Makes supports_filtered_sampling(format) answer false (Format::Unknown cancels), to test the renderer's refusal.
+    void deny_filtered_sampling(Format format) noexcept;
     /// Commands recorded in the most recently ended frame.
     [[nodiscard]] const std::vector<RecordedCommand>& last_frame_commands() const noexcept;
     [[nodiscard]] const std::vector<std::string>& validation_messages() const noexcept;

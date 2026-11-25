@@ -18,6 +18,7 @@
 #pragma once
 
 #include "saige/gfx_assets/hdr_image.hpp"
+#include "saige/render/environment_lighting.hpp"
 #include "saige/render/math.hpp"
 
 #include <array>
@@ -72,6 +73,9 @@ struct EnvironmentResult {
 /// Precomputes the environment from an equirectangular HDR image (width at least 2, any aspect; the image is resampled to the settings' size).
 /// Returns an error for invalid settings, a malformed image, or non-finite or negative radiance. Deterministic: the same input gives the same bits in the same build.
 [[nodiscard]] EnvironmentResult precompute_environment(const HdrImage& source, const EnvironmentSettings& settings = {});
+
+/// The renderer's form of an environment: the SH coefficients and the RGBA16F texels of every level, with the sky's intensity scale.
+[[nodiscard]] render::EnvironmentLighting to_environment_lighting(const Environment& environment, float intensity = 1.0f);
 
 /// The equirectangular mapping (see the header comment).
 [[nodiscard]] render::Float3 equirect_direction(float u, float v) noexcept;

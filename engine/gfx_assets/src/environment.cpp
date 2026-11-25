@@ -170,6 +170,18 @@ std::vector<uint16_t> Environment::to_rgba16f() const
     return out;
 }
 
+render::EnvironmentLighting to_environment_lighting(const Environment& e, float intensity)
+{
+    render::EnvironmentLighting out;
+    out.sh = e.diffuse.c;
+    out.width = e.width;
+    out.height = e.height;
+    out.levels = e.levels;
+    out.rgba16f = e.to_rgba16f();
+    out.intensity = intensity;
+    return out;
+}
+
 EnvironmentResult precompute_environment(const HdrImage& source, const EnvironmentSettings& s)
 {
     EnvironmentResult result;

@@ -143,13 +143,25 @@ void validate_shadows(const RendererSettings& settings)
     }
 }
 
+/// The environment is validated, and refused for a shading mode that would ignore it, before the renderer acquires anything from the device.
+void validate_environment(const RendererSettings& settings)
+{
+    if (!settings.environment) {
+        return;
+    }
+    validate_environment_lighting(*settings.environment);
+    if (settings.model_shading != ModelShading::MetallicRoughness) {
+        throw std::invalid_argument("SceneRenderer: an environment needs model_shading = MetallicRoughness (the other modes would ignore it)");
+    }
+}
+
 } // namespace
 
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validated_ao(validated_bloom(validated_fxaa(settings))))),
+      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_environment(settings), validated_ao(validated_bloom(validated_fxaa(settings))))),
       registry_(device)
 {
     // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that
@@ -395,6 +407,8 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
         ms.alpha_blending = settings_.alpha_blending;
+        ms.environment = settings_.environment;
+        ms.skinning = settings_.skinning;
         ms.frustum_culling = settings_.frustum_culling;
         ms.shadows.enabled = settings_.shadows.enabled;
         ms.shadows.map_size = settings_.shadows.map_size;
@@ -415,6 +429,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     const std::optional<rhi::TextureDesc> color_desc = device_.texture_desc(target.texture);
     if (!color_desc) {
         throw std::invalid_argument("SceneRenderer::render: invalid target texture");
+    }
+    if (models_ && !frame.models.empty()) {
+        models_->check_palettes_unfrozen(frame.models);  // a palette changed after its first use this frame: refused before anything is created or recorded
     }
     ensure_targets(target.width, target.height);
 
@@ -550,6 +567,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                         shadow_models->draw_shadow(c, sun_cascades->cascades[i].view_proj, frame.models, shadow_stats);
                         stats.draw_calls += shadow_stats.draw_calls;
                         stats.shadow_draw_calls += shadow_stats.draw_calls;
+                        stats.model_skinned_draws += shadow_stats.skinned_draws;
+                        stats.model_skinned_skipped += shadow_stats.skinned_skipped;
                     }
                 } else {
                     c.set_viewport({0.0f, 0.0f, static_cast<float>(atlas_w), static_cast<float>(atlas_h), 0.0f, 1.0f});
@@ -617,6 +636,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instances_skipped += model_stats.instances_skipped;
                 stats.model_blended_primitives += model_stats.blended_primitives;
                 stats.model_primitives_culled += model_stats.primitives_culled;
+                stats.model_skinned_draws += model_stats.skinned_draws;
+                stats.model_skinned_skipped += model_stats.skinned_skipped;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

@@ -33,11 +33,13 @@ add_library(saige_render STATIC
     src/bloom_pass.cpp
     src/ambient_occlusion.cpp
     src/camera.cpp
+    src/environment_lighting.cpp
     src/env_brdf.cpp
     src/fxaa.cpp
     src/env_brdf_asset.cpp
     src/gpu_resources.cpp
     src/model_renderer.cpp
+    src/skin_palette.cpp
     src/render_graph.cpp
     src/scene_renderer.cpp
     src/shadow_cascades.cpp

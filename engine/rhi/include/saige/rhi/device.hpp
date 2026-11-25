@@ -376,6 +376,11 @@ public:
     virtual void wait_idle() = 0;
     [[nodiscard]] virtual uint64_t frame_number() const noexcept = 0;
 
+    /// Whether a sampled image of `format` can be read with linear filtering (including between mip levels) on this device. A feature the
+    /// renderer relies on (the prefiltered HDR environment) asks before acquiring anything, so an unsupported device is refused with a clear
+    /// error rather than sampling garbage. Vulkan answers from VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT.
+    [[nodiscard]] virtual bool supports_filtered_sampling(Format format) const = 0;
+
     /// Timestamps of the most recent frame whose GPU work has completed and been collected (collection happens when a
     /// later frame reuses that frame's slot, so this lags by up to `frames_in_flight` frames). nullopt where the device
     /// has no timestamps or before any frame has completed.

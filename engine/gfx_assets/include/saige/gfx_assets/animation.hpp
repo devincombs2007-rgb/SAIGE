@@ -48,6 +48,19 @@ void evaluate_clip(const AnimationClip& clip, const ClipBinding& binding, float 
 /// The CPU reference for linear blend skinning of one vertex of a skinned primitive (positions only). The GPU path must agree with it.
 [[nodiscard]] render::Float3 skin_position(const Primitive& primitive, std::size_t vertex, std::span<const render::Mat4> matrices);
 
+/// One skinned vertex as the GPU skinned pipelines compute it (docs/rendering/skinning.md): with B the blend sum_i w_i M_i of the vertex's skin
+/// matrices, the position is B p, the tangent and the bitangent (built from the unskinned normal and tangent, cross(n, t) * handedness) are moved by the
+/// linear part of B, and the normal by the cofactor of that linear part (the inverse transpose up to a positive scale, so it stays perpendicular under
+/// non-uniform scale and blends). Directions are not normalized. A primitive without joints returns its own attributes. The tangent is zero when the
+/// primitive has none.
+struct SkinnedVertex {
+    render::Float3 position;
+    render::Float3 normal;
+    render::Float3 tangent;
+    render::Float3 bitangent;
+};
+[[nodiscard]] SkinnedVertex skin_vertex(const Primitive& primitive, std::size_t vertex, std::span<const render::Mat4> matrices);
+
 /// Skins a whole primitive's positions (xyz per vertex).
 [[nodiscard]] std::vector<float> skin_positions(const Primitive& primitive, std::span<const render::Mat4> matrices);
 

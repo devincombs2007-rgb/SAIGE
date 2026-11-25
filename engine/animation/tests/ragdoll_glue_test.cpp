@@ -135,7 +135,7 @@ int main() {
             };
             const auto angle = [](render::Quat a, render::Quat c) {
                 const float d = std::fabs(a.x * c.x + a.y * c.y + a.z * c.z + a.w * c.w);
-                return 2.0 * std::acos(std::min(1.0f, d));
+                return 2.0 * static_cast<double>(std::acos(std::min(1.0f, d)));
             };
             const double foot = angle(skeleton_turn(anim::Bone::LeftFoot), body_turn(::saige::Bone::FootL)), rfoot = angle(skeleton_turn(anim::Bone::RightFoot), body_turn(::saige::Bone::FootR));
             const double hand = angle(skeleton_turn(anim::Bone::LeftHand), body_turn(::saige::Bone::ForearmL)), head = angle(skeleton_turn(anim::Bone::Head), body_turn(::saige::Bone::Head));

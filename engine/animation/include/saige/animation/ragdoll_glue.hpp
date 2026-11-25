@@ -25,7 +25,8 @@ namespace detail {
 
 inline DVec to_world(const RagdollFrame& f, render::Float3 p) {
     const double c = std::cos(f.yaw), s = std::sin(f.yaw);
-    return {f.origin.x + c * p.x - s * p.y, f.origin.y + s * p.x + c * p.y, f.origin.z + p.z};
+    const double px = static_cast<double>(p.x), py = static_cast<double>(p.y), pz = static_cast<double>(p.z);
+    return {f.origin.x + c * px - s * py, f.origin.y + s * px + c * py, f.origin.z + pz};
 }
 inline render::Float3 to_model(const RagdollFrame& f, DVec p) {
     const double c = std::cos(-f.yaw), s = std::sin(-f.yaw);

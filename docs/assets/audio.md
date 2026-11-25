@@ -19,6 +19,17 @@ adapter function. `check_poc.py` measures what it rendered and passes: a 40 m/s 
 level peaks at closest approach, a source on the left is louder in the left channel, an occlusion low-pass (20 kHz down to 300 Hz plus a gain drop) removes the tone, the reverb node leaves a tail, and the RPM layer blend
 is equal-power at every rpm. This is a feasibility proof for Codex's runtime, not the runtime: ownership, threading and streaming of the real audio system are Codex's design (shared interfaces are proposed on issue #43).
 
+**Prototype of the engine's own model** (`tools/production/audio_poc/audio_proto.cpp`, `build_proto.sh`, `check_proto.py`; AUD-1): the real `engine_audio` and `impact_sound` from `include/saige/audio_model.hpp` drive miniaudio voices offline,
+and the rendered WAVs are measured. Measured on this machine (CPU, offline render; nothing here says anything about a device or latency): across a 13 s idle-to-redline-and-back sweep the engine's fundamental follows the smoothed rpm to
+1.2% (worst over 120 windows), and the level dips at most 2.6 dB below its neighbours at the loop crossfades (the stand-in loops are not level matched; recorded ones must be, in `audio_prep`); the impact peak level tracks the model's gain
+within 15%, a heavier blow plays lower (centroid 5.5 kHz to 4.9 kHz over 100 J to 80 kJ), the category follows the materials (car on asphalt metal, on grass soft, on gravel granular, a rock on ice glassy, on concrete hard) and selects the sound
+played, and a 20 J scrape is silent. Seven mutations of the mapping (pitch, gains, volume, category, metal flag, raw rpm) are each caught.
+**The sounds in it are procedural stand-ins** (harmonic stacks, decaying partials, noise grains): they exist so the mapping can be measured. No recording was acquired: the brief prefers professionally recorded, appropriately licensed
+assets, and acquiring them is an owner action (a licence and, for anything paid, a budget). Candidates to evaluate when that is decided, none verified or fetched: CC0 engine and impact material on OpenGameArt and Freesound (licence per asset, attribution
+records in `docs/assets/licenses.md`), royalty-free professional libraries (Sonniss GameAudioGDC bundles, whose licence text must be read before use) and a commissioned recording session for the vehicle loops (4 to 6 fixed-rpm loops, on and off throttle).
+**Dependency status:** miniaudio 0.11.26 (public domain / MIT-0, one header) stays isolated in this prototype and tool; making it a permanent dependency of the runtime is the owner's decision, which this evidence is meant to support
+(device I/O and decoders are not exercised here: only the device-less engine).
+
 ## What the runtime has to do, and how the mixer covers it
 
 | Requirement | Approach |

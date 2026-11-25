@@ -25,6 +25,14 @@ The film was built from 9c87457 (ancestor of both branches). It is unchanged.
 * Tests: 128 locally (software Vulkan, CPU only). Hardware class: no physical GPU; nothing here is a GPU result.
 * Integration proposal: `integration-plan.md` (stacks, landing order, review of the Vulkan 1.4 PRs #44 and #45).
 
+## Directive increment, 2026-11-25 (checkpoint 8; on `claude/production-infrastructure`, no PR)
+
+* Dynamics (`docs/physics-backends.md`): a SAIGE-owned `DynamicsWorld` with an optional Jolt v5.7.0 adapter (off by default, `SAIGE_PHYSICS_JOLT`, hash-verified fetch). Gates (static parity with `StaticCollision`, materials, stacking, constraints, CCD, replay, origin shift, kinematic character and vehicle pushes, controls) pass on Linux single (ASan/UBSan) and double precision and on Windows MSVC (CI run `Physics Jolt` #1 on c583fb9). Cross-platform determinism is not claimed.
+* Water at scale (`docs/water.md`): distance-based cell counts (5x cheaper, 0.6 mm far error), deterministic threads (3.2x at 100 bodies), reduced waves (not a default: 0.3 m far error), the shared cache (slower for scattered bodies, opt-in).
+* Large world (`docs/large-world.md`): `WorldPosition` (cell + chunk-local float), 15 micrometers at every distance, no second strategy; Jolt double works and is not needed.
+* Ragdoll (`docs/ragdoll.md`): thirteen bodies, anatomical joints, momentum-continuous start, recovery blend, joint motors, ankle balance strategy through 0.29 m/s pushes.
+* Local test counts: 132 default (dynamics and ragdoll skipped without Jolt), all pass with Jolt on. Hardware class: CPU only, no GPU result.
+
 ## Open pull requests (all draft except #64 and #67), grouped by stack
 
 * Physics: #69 capsule-box sweep, #70 capsule character (on #69), #73 capsule-triangle sweep (on #69), #74 capsule on triangles (on #70, #73), #80 static collision (on #73), #88 oriented-box and wheel probes (on #80), #65 character collision course, #68 perf instrumentation.
@@ -46,4 +54,4 @@ Hardware class: software Vulkan only. No frame time in this repository's documen
 
 ## Open items
 
-* Owner decisions needed: strafing and turn-in-place need an asset source (neither the UAL nor UAL 2 has the clips; `mocap.cs.cmu.edu` does not resolve from the cloud session's network: allow that host or name another licensed source). Pending for later: adopting a physics library (Jolt or Bullet), adopting an audio runtime, creating the scheduled engineering run, any merge to `main`.
+* Owner decisions needed: strafing and turn-in-place need an asset source (neither the UAL nor UAL 2 has the clips; `mocap.cs.cmu.edu` does not resolve from the cloud session's network: allow that host or name another licensed source). Pending for later: the permanent Jolt dependency decision (the adapter is optional and gated; the director's message makes proceeding conditional on the owner's authorization), adopting an audio runtime, creating the scheduled engineering run, any merge to `main`.

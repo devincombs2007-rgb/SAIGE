@@ -2,6 +2,7 @@
 #include "saige/navigation.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -260,6 +261,246 @@ void test_pedestrians() {
     require(c0.min_distance < 0.3f * pc.radius, "control: without the steering the opposing streams walk through each other");
 }
 
+// Two platforms 4 m apart over a gap (a ditch the world has no floor in): no path without a link, a path with one that says which segment is the link.
+Scene gap_scene() {
+    return Scene({{{-12, -6, -1}, {-2, 6, 0}}, {{2, -6, -1}, {12, 6, 0}}});
+}
+
+void test_links() {
+    NavConfig c;
+    Scene s = gap_scene();
+    NavMap m = map_of(s, c, -14, -8, 14, 8);
+    require(m.find_path({-8, 0, 0}, {8, 0, 0}).empty(), "control: no way across the gap without a link");
+    m.set_link(1, {{-2.5f, 0, 0}, {2.5f, 0, 0}, 0.0f, true});
+    require(m.link_count() == 1, "a link was added");
+    const auto path = m.find_path({-8, 0, 0}, {8, 0, 0});
+    require(path.size() >= 3, "with the link there is a path across");
+    std::size_t links = 0, link_at = 0;
+    for (std::size_t i = 0; i < path.size(); ++i) {
+        if (path[i].link) {
+            ++links;
+            link_at = i;
+        }
+    }
+    require(links == 1, "exactly one of its segments is a link");
+    require(std::fabs(path[link_at].position.x + 2.5f) < 0.3f && std::fabs(path[link_at + 1].position.x - 2.5f) < 0.3f, "and it is the one across the gap, from the near edge to the far edge");
+    require(path.back().position.x > 7.5f && path.front().position.x < -7.5f, "the ends are where they were asked");
+    // The way back, and one way links.
+    require(!m.find_path({8, 0, 0}, {-8, 0, 0}).empty(), "a two-way link works both ways");
+    m.set_link(1, {{-2.5f, 0, 0}, {2.5f, 0, 0}, 0.0f, false});
+    require(!m.find_path({-8, 0, 0}, {8, 0, 0}).empty() && m.find_path({8, 0, 0}, {-8, 0, 0}).empty(), "a one-way link only works one way (and replaces the earlier one of the same id)");
+    // Removing it takes the path away; a link whose end is not on walkable ground does not exist.
+    m.remove_link(1);
+    require(m.find_path({-8, 0, 0}, {8, 0, 0}).empty() && m.link_count() == 0, "removing the link removes the way");
+    m.set_link(2, {{-2.5f, 0, 0}, {40.0f, 0, 0}, 0.0f, true});
+    require(m.find_path({-8, 0, 0}, {8, 0, 0}).empty(), "a link to nowhere does not make a way");
+    bool threw = false;
+    try {
+        m.set_link(3, {{std::nanf(""), 0, 0}, {1, 0, 0}, 0.0f, true});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "a link with a non-finite end is refused");
+    threw = false;
+    try {
+        m.set_link(3, {{0, 0, 0}, {1, 0, 0}, -1.0f, true});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "and one with a negative extra cost");
+    // A link is taken only when it saves more than it costs: a floor with a wall across it that a door-link bypasses.
+    Scene w({{{-30, -10, -1}, {30, 10, 0}}, {{-0.5f, -10, 0}, {0.5f, 6, 3}}});  // a wall from y = -10 to 6: the way round is through y > 6
+    NavMap n = map_of(w, c, -20, -12, 20, 12);
+    const auto round = n.find_path({-5, 0, 0}, {5, 0, 0});
+    require(!round.empty() && path_length(round) > 17.0f, "control: the way round the wall is long");
+    n.set_link(1, {{-1.5f, 0, 0}, {1.5f, 0, 0}, 1.0f, true});
+    const auto door = n.find_path({-5, 0, 0}, {5, 0, 0});
+    require(door.size() >= 3 && path_length(door) < 11.0f, "a link through the wall shortens it");
+    n.set_link(1, {{-1.5f, 0, 0}, {1.5f, 0, 0}, 60.0f, true});
+    require(path_length(n.find_path({-5, 0, 0}, {5, 0, 0})) > 17.0f, "a link that costs more than the detour saves is not taken");
+    // The same through the heuristic: a link far off the straight line is found when it is the only way (A* must not be misled by a straight-line estimate that ignores it).
+    n.set_link(1, {{-1.5f, 8.0f, 0}, {1.5f, 8.0f, 0}, 0.0f, true});
+    const auto far_link = n.find_path({-5, 0, 0}, {5, 0, 0});
+    require(!far_link.empty(), "a link away from the line is still considered");
+}
+
+void test_pedestrian_links() {
+    NavConfig c;
+    Scene s = gap_scene();
+    NavMap m = map_of(s, c, -14, -8, 14, 8);
+    m.set_link(1, {{-2.5f, 0, 0}, {2.5f, 0, 0}, 0.0f, true});
+    PedestrianConfig pc;
+    PedestrianAgent a;
+    a.position = {-8, 0, 0};
+    require(pedestrian_go(m, a, {8, 0, 0}), "the pedestrian has a path across the gap");
+    float lowest_walkable_miss = 0.0f;
+    bool crossed = false;
+    for (int i = 0; i < 60 * 30 && !a.arrived; ++i) {
+        pedestrian_step(m, pc, a, {}, 1.0f / 60.0f);
+        if (a.position.x > -1.5f && a.position.x < 1.5f) crossed = true;  // over the gap
+        lowest_walkable_miss = std::max(lowest_walkable_miss, a.position.z < -0.5f ? 1.0f : 0.0f);
+    }
+    require(a.arrived && crossed, "the pedestrian crosses the gap by the link and arrives");
+    require(a.position.x > 7.5f, "on the far platform");
+    require(lowest_walkable_miss == 0.0f, "without dropping into the gap");
+}
+
+void test_link_heights() {
+    // A platform at 0 and one at 1.2 m across a gap (a jump up): the height follows the link's line between the ends.
+    NavConfig c;
+    Scene s({{{-12, -6, -1}, {-2, 6, 0}}, {{2, -6, -1}, {12, 6, 1.2f}}});
+    NavMap m = map_of(s, c, -14, -8, 14, 8);
+    m.set_link(1, {{-2.5f, 0, 0}, {2.5f, 0, 1.2f}, 0.0f, true});
+    PedestrianConfig pc;
+    PedestrianAgent a;
+    a.position = {-8, 0, 0};
+    require(pedestrian_go(m, a, {8, 0, 1.2f}), "a path up across the gap");
+    float z_mid = -1.0f;
+    for (int i = 0; i < 60 * 30 && !a.arrived; ++i) {
+        pedestrian_step(m, pc, a, {}, 1.0f / 60.0f);
+        if (std::fabs(a.position.x) < 0.05f && z_mid < 0.0f) z_mid = a.position.z;
+    }
+    require(a.arrived && a.position.z > 1.1f, "it arrives on the higher platform");
+    require(z_mid > 0.45f && z_mid < 0.75f, "half way across the link it is half way up");
+}
+
+void test_blockers() {
+    NavConfig c;
+    Scene s({{{-30, -10, -1}, {30, 10, 0}}});
+    NavMap m = map_of(s, c, -20, -12, 20, 12);
+    const auto open_path = m.find_path({-8, 0, 0}, {8, 0, 0});
+    require(!open_path.empty() && path_length(open_path) < 16.5f, "control: a straight way on an open floor");
+    require(m.path_clear(open_path), "and it is clear");
+    m.set_blocker(7, {0.0f, 0.0f, 1.5f});
+    require(m.blocker_count() == 1 && !m.walkable_at(0.0f, 0.0f) && !m.walkable_at(1.5f, 0.0f) && m.walkable_at(2.5f, 0.0f), "a blocker takes the lattice points within its radius plus the agent's");
+    require(!m.path_clear(open_path), "the old path is no longer clear");
+    const auto round = m.find_path({-8, 0, 0}, {8, 0, 0});
+    require(!round.empty() && path_length(round) > path_length(open_path) + 0.5f && m.path_clear(round), "a new path goes around it");
+    for (const NavPoint& p : round) require(std::hypot(p.position.x, p.position.y) > 1.5f + c.agent_radius - 0.01f, "none of its waypoints is in the blocker");
+    // An agent standing inside a (small) blocker starts from the nearest free point.
+    m.set_blocker(9, {-8.0f, 0.0f, 0.4f});
+    const auto from_inside = m.find_path({-8.0f, 0.0f, 0}, {8, 0, 0});
+    require(!from_inside.empty() && std::hypot(from_inside.front().position.x + 8.0f, from_inside.front().position.y) >= 0.4f + c.agent_radius - 0.01f, "a path from inside a blocker starts at the nearest free point");
+    m.remove_blocker(9);
+    // A wall of blockers across the whole floor: no path; clear it and the path is back, identical to the first.
+    for (std::uint32_t i = 0; i < 9; ++i) m.set_blocker(100 + i, {0.0f, -10.0f + 2.5f * static_cast<float>(i), 1.5f});
+    require(m.find_path({-8, 0, 0}, {8, 0, 0}).empty(), "blockers across the whole floor leave no way");
+    for (std::uint32_t i = 0; i < 9; ++i) m.remove_blocker(100 + i);
+    m.remove_blocker(7);
+    require(m.blocker_count() == 0, "blockers removed");
+    const auto again = m.find_path({-8, 0, 0}, {8, 0, 0});
+    require(again.size() == open_path.size() && std::fabs(path_length(again) - path_length(open_path)) < 1e-4f, "and the path is the one it was");
+    bool threw = false;
+    try {
+        m.set_blocker(1, {0, 0, 0.0f});
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    require(threw, "a blocker with no radius is refused");
+    // A pedestrian walking the old path is told to go round when a blocker lands on it.
+    PedestrianConfig pc;
+    PedestrianAgent a;
+    a.position = {-8, 0, 0};
+    require(pedestrian_go(m, a, {8, 0, 0}), "a pedestrian sets off");
+    for (int i = 0; i < 60 * 3; ++i) pedestrian_step(m, pc, a, {}, 1.0f / 60.0f);
+    require(a.position.x > -5.0f && a.position.x < 0.0f, "control: it is part of the way");
+    require(pedestrian_replan(m, a, {8, 0, 0}) && a.path.size() == open_path.size(), "with the way clear, replanning keeps the path");
+    m.set_blocker(8, {2.0f, 0.0f, 1.5f});
+    require(pedestrian_replan(m, a, {8, 0, 0}) && m.path_clear(std::vector<NavPoint>(a.path.begin() + static_cast<std::ptrdiff_t>(a.next), a.path.end())), "with a blocker on it, replanning finds a way round");
+    for (int i = 0; i < 60 * 20 && !a.arrived; ++i) {
+        pedestrian_step(m, pc, a, {}, 1.0f / 60.0f);
+        require(std::hypot(a.position.x - 2.0f, a.position.y) > 1.5f + 0.2f, "and the pedestrian never enters the blocker");
+    }
+    require(a.arrived, "and arrives");
+}
+
+// A square crowd crossing a plaza from four sides: the stepped crowd (grid neighbours) equals stepping each agent against all the others, bit for bit, and larger populations still all arrive.
+struct Plaza {
+    StaticCollision world;
+    QueryScratch scratch;
+    NavMap map;
+    float half;
+    Plaza(float edge) : world(std::vector<Aabb>{{{-edge / 2 - 20, -edge / 2 - 20, -1}, {edge / 2 + 20, edge / 2 + 20, 0}}}, {}), map(NavConfig{}), half(edge / 2) {
+        map.set_chunk(1, build_nav_grid(world, scratch, NavConfig{}, -half - 10, -half - 10, half + 10, half + 10));
+    }
+};
+
+// n agents, a quarter from each side, on slots a metre apart along the edge (so nobody starts inside another), each bound for the mirrored slot on the opposite side.
+std::vector<PedestrianAgent> populate(const NavMap& map, int n, float edge) {
+    std::vector<PedestrianAgent> agents(static_cast<std::size_t>(n));
+    const int per_side = n / 4;
+    const float step = edge / static_cast<float>(per_side);
+    for (int i = 0; i < n; ++i) {
+        const int side = i % 4, k = i / 4;
+        const float t = -edge / 2 + (static_cast<float>(k) + 0.5f) * step, h = edge / 2;
+        Vec3 from, to;
+        if (side == 0) from = {-h, t, 0}, to = {h, -t, 0};
+        else if (side == 1) from = {h, t, 0}, to = {-h, -t, 0};
+        else if (side == 2) from = {t, -h, 0}, to = {-t, h, 0};
+        else from = {t, h, 0}, to = {-t, -h, 0};
+        agents[static_cast<std::size_t>(i)].position = from;
+        pedestrian_go(map, agents[static_cast<std::size_t>(i)], to);
+    }
+    return agents;
+}
+
+void test_crowd() {
+    PedestrianConfig pc;
+    // Equality with the all-pairs reference over 1500 steps of 120 agents (the streams meet in the middle after about 14 s).
+    {
+        Plaza p(40.0f);
+        auto a = populate(p.map, 120, 40.0f), b = a;
+        for (int step = 0; step < 1500; ++step) {  // 25 s: the four streams meet in the middle
+            crowd_step(p.map, pc, a, 1.0f / 60.0f);
+            std::vector<PedestrianNeighbor> all;
+            for (const PedestrianAgent& g : b) all.push_back({g.position, g.velocity});
+            for (PedestrianAgent& g : b) pedestrian_step(p.map, pc, g, all, 1.0f / 60.0f);
+        }
+        bool same = true;
+        for (std::size_t i = 0; i < a.size(); ++i) same = same && a[i].position.x == b[i].position.x && a[i].position.y == b[i].position.y && a[i].velocity.x == b[i].velocity.x && a[i].velocity.y == b[i].velocity.y;
+        require(same, "the crowd step equals stepping every agent against every other, bit for bit (120 agents, 1500 steps through the crossing)");
+        require(std::fabs(a[0].position.x + 20.0f) > 1.0f, "control: the crowd moved");
+    }
+    // Stress: increasing populations across a plaza whose edge grows with the crowd. At one agent every 2 m along each edge (about 0.7 agents per metre of flow per second at walking speed, under what a doorway of
+    // real people carries) all must arrive; at one a metre (1.4 per metre per second, at the capacity of real crowds) the four streams jam in the middle: that is measured and printed, not required.
+    std::printf("  population  edge  slot  arrived  seconds  closest  fastest  ms per step\n");
+    for (const auto& [n, slot] : {std::pair{100, 2.0f}, std::pair{200, 2.0f}, std::pair{400, 2.0f}, std::pair{200, 1.0f}}) {
+        const float edge = std::max(40.0f, static_cast<float>(n) / 4.0f * slot);
+        Plaza p(edge);
+        auto agents = populate(p.map, n, edge);
+        float closest = 1e9f, fastest = 0.0f;
+        int steps = 0;
+        std::size_t arrived = 0;
+        double total_ms = 0.0;
+        const int limit = static_cast<int>((edge * 2.0f / pc.walk_speed + 60.0f) * 60.0f);  // twice the free-flow crossing time and a minute
+        for (; steps < limit && arrived < agents.size(); ++steps) {
+            const auto t0 = std::chrono::steady_clock::now();
+            crowd_step(p.map, pc, agents, 1.0f / 60.0f);
+            total_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            arrived = 0;
+            for (const PedestrianAgent& g : agents) {
+                arrived += g.arrived ? 1u : 0u;
+                fastest = std::max(fastest, std::hypot(g.velocity.x, g.velocity.y));
+            }
+            if (steps % 30 == 0) {
+                for (std::size_t i = 0; i < agents.size(); ++i) {
+                    for (std::size_t j = i + 1; j < agents.size(); ++j) {
+                        const float dx = agents[i].position.x - agents[j].position.x;
+                        if (std::fabs(dx) > 2.0f) continue;
+                        closest = std::min(closest, std::hypot(dx, agents[i].position.y - agents[j].position.y));
+                    }
+                }
+            }
+        }
+        std::size_t on_ground = 0;
+        for (const PedestrianAgent& g : agents) on_ground += p.map.walkable_at(g.position.x, g.position.y) ? 1u : 0u;
+        std::printf("  %10d %5.0f %5.1f %7zu %8.1f %8.2f %8.2f %12.3f\n", n, static_cast<double>(edge), static_cast<double>(slot), arrived, static_cast<double>(steps) / 60.0, static_cast<double>(closest), static_cast<double>(fastest), total_ms / std::max(1, steps));
+        if (slot >= 2.0f) require(arrived * 100 >= agents.size() * 95, "at least 95% of the crowd arrives");
+        require(fastest <= pc.walk_speed * 1.01f, "nobody exceeds walking speed");
+        require(on_ground == agents.size(), "everybody stays on walkable ground");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -267,7 +508,7 @@ int main(int argc, char** argv) {
         const char* name;
         void (*fn)();
     };
-    const Named tests[] = {{"grid", test_grid}, {"paths", test_paths}, {"streaming", test_streaming}, {"pedestrians", test_pedestrians}};
+    const Named tests[] = {{"grid", test_grid}, {"paths", test_paths}, {"streaming", test_streaming}, {"pedestrians", test_pedestrians}, {"links", test_links}, {"pedlinks", test_pedestrian_links}, {"linkheights", test_link_heights}, {"blockers", test_blockers}, {"crowd", test_crowd}};
     int failures = 0;
     for (const Named& t : tests) {
         if (argc > 1 && std::string(argv[1]) != t.name) continue;

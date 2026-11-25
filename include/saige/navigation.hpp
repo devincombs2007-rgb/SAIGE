@@ -9,8 +9,11 @@
 // cells beside it (no cutting a corner). Paths are shortened by string pulling over the same walkability (a straight run is taken only if every lattice point along it is walkable and its steps are small).
 //
 // Frame and range: one local frame in meters, within the physics envelope (+-max_local_extent, capsule_sweep.hpp); a host streaming a larger world rebases (migrate_origin) and rebuilds or shifts its grids.
-// What this is not: no navigation mesh (a lattice, so the narrowest passage it finds is one cell wide), no dynamic obstacles in the grid (agents avoid each other by steering), no multiple floors in one column (the
-// highest walkable surface below `search_top` is the one used), no off-mesh links (jumps, doors, ladders).
+// Off-mesh links (NavLink: a jump across a gap, a ladder, a door, a lift) join two places that the lattice does not: A* may cross one for its length plus an extra cost, and a path says which of its segments are links
+// (`NavPoint::link`). Dynamic obstacles (blockers: a circle in the plane) make the lattice points near them unwalkable until they are cleared, without rebuilding any grid; `path_clear` says whether an existing path
+// still holds and `pedestrian_replan` goes around what has appeared.
+// What this is not: no navigation mesh (a lattice, so the narrowest passage it finds is one cell wide), no multiple floors in one column (the highest walkable surface below `search_top` is the one used: a bridge
+// over a road is two grids of two maps joined by links, see NavWorld), no navigation of the vertical (a link is the only way to leave the ground).
 
 #include "saige/static_collision.hpp"
 
@@ -46,6 +49,19 @@ struct NavGrid {
 
 struct NavPoint {
     Vec3 position;                  // on the ground
+    bool link = false;              // the segment from this point to the next is an off-mesh link: traverse it, do not walk it
+};
+
+// An off-mesh link between two places (each moved to its nearest walkable lattice point within a metre when a path is searched). `extra_cost` is added to its length, so a link is taken only when it saves more than that.
+struct NavLink {
+    Vec3 from, to;
+    float extra_cost = 0.0f;
+    bool bidirectional = true;
+};
+
+// A dynamic obstacle: lattice points within `radius + agent_radius` of the centre are unwalkable while it exists.
+struct NavBlocker {
+    float x = 0.0f, y = 0.0f, radius = 0.5f;
 };
 
 class NavMap {
@@ -65,11 +81,25 @@ public:
     [[nodiscard]] std::vector<NavPoint> find_path(Vec3 from, Vec3 to, std::size_t max_nodes = 200000) const;
     [[nodiscard]] const NavConfig& config() const noexcept { return config_; }
 
+    // Off-mesh links by id (a second add of an id replaces it). Throws std::invalid_argument for non-finite ends or a negative or non-finite extra cost.
+    void set_link(std::uint32_t id, const NavLink& link);
+    void remove_link(std::uint32_t id) { links_.erase(id); }
+    [[nodiscard]] std::size_t link_count() const noexcept { return links_.size(); }
+    // Dynamic obstacles by id (same replacement rule). Throws std::invalid_argument for a non-finite centre or a radius that is not positive and finite.
+    void set_blocker(std::uint32_t id, const NavBlocker& blocker);
+    void remove_blocker(std::uint32_t id) { blockers_.erase(id); }
+    [[nodiscard]] std::size_t blocker_count() const noexcept { return blockers_.size(); }
+    // Whether every walked segment of `path` still holds (the lattice points along it are walkable and not blocked, steps small) and every link's ends are walkable: false once a blocker has appeared on it.
+    [[nodiscard]] bool path_clear(const std::vector<NavPoint>& path) const;
+
 private:
+    [[nodiscard]] bool blocked(std::int32_t ix, std::int32_t iy) const;
     [[nodiscard]] const NavGrid* grid_for(std::int32_t ix, std::int32_t iy) const;
     [[nodiscard]] bool step_ok(std::int32_t ix, std::int32_t iy, std::int32_t jx, std::int32_t jy) const;
     [[nodiscard]] bool line_ok(const NavPoint& a, const NavPoint& b) const;
     NavConfig config_;
+    std::map<std::uint32_t, NavLink> links_;
+    std::map<std::uint32_t, NavBlocker> blockers_;
     std::map<std::uint32_t, NavGrid> chunks_;  // ordered: a lookup that two grids could both answer is answered the same way on every machine
 };
 
@@ -101,9 +131,20 @@ struct PedestrianAgent {
 
 // Gives an agent a path to `goal` (from its position). Returns false (and marks it failed) when there is none.
 bool pedestrian_go(const NavMap& map, PedestrianAgent& agent, Vec3 goal);
+// If the rest of the agent's path (from the waypoint it is walking to) no longer holds, a new path to `goal` is searched. Returns true when the agent has a path to follow afterwards (the old one if it still held).
+bool pedestrian_replan(const NavMap& map, PedestrianAgent& agent, Vec3 goal);
 // One step of dt seconds: steer toward the next waypoint at walk speed, apart from close neighbours and around those on course to collide (the closest approach of the relative motion within `horizon`; the sidestep
 // is always to the right of the way the agent is heading, so two that meet head on each give way to the same side and a lane forms), accelerate within the limit, and stay on the grid's ground (the height
 // follows the nearest walkable point). Deterministic. `others` may include the agent itself (it is skipped by being at distance 0 from itself).
 void pedestrian_step(const NavMap& map, const PedestrianConfig& config, PedestrianAgent& agent, const std::vector<PedestrianNeighbor>& others, float dt);
+
+} // namespace saige
+
+namespace saige {
+
+// A crowd stepped together: every agent sees only the neighbours that can matter (those within the distance at which the separation push or the predicted-collision sidestep can act, found with a uniform grid), in index
+// order, so the result is bit-identical to calling pedestrian_step for each agent against all the others (checked by the tests) at a cost that grows with the density, not with the square of the population. Agents are updated from
+// the state at the start of the step (not one after another), so the order of the agents does not matter. Throws what pedestrian_step throws.
+void crowd_step(const NavMap& map, const PedestrianConfig& config, std::vector<PedestrianAgent>& agents, float dt);
 
 } // namespace saige

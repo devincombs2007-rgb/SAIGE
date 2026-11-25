@@ -6,6 +6,7 @@
 #include <queue>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace saige {
 
@@ -67,6 +68,27 @@ void NavMap::set_chunk(std::uint32_t id, NavGrid grid) {
 
 void NavMap::remove_chunk(std::uint32_t id) { chunks_.erase(id); }
 
+void NavMap::set_link(std::uint32_t id, const NavLink& l) {
+    if (!fin(l.from.x) || !fin(l.from.y) || !fin(l.from.z) || !fin(l.to.x) || !fin(l.to.y) || !fin(l.to.z) || !fin(l.extra_cost) || l.extra_cost < 0.0f) throw std::invalid_argument("NavMap::set_link: non-finite end or a negative extra cost");
+    links_[id] = l;
+}
+
+void NavMap::set_blocker(std::uint32_t id, const NavBlocker& b) {
+    if (!fin(b.x) || !fin(b.y) || !fin(b.radius) || !(b.radius > 0.0f)) throw std::invalid_argument("NavMap::set_blocker: non-finite centre or a radius that is not positive");
+    blockers_[id] = b;
+}
+
+bool NavMap::blocked(std::int32_t ix, std::int32_t iy) const {
+    if (blockers_.empty()) return false;
+    const float x = static_cast<float>(ix) * config_.cell, y = static_cast<float>(iy) * config_.cell;
+    for (const auto& entry : blockers_) {
+        const NavBlocker& b = entry.second;
+        const float r = b.radius + config_.agent_radius;
+        if ((x - b.x) * (x - b.x) + (y - b.y) * (y - b.y) < r * r) return true;
+    }
+    return false;
+}
+
 const NavGrid* NavMap::grid_for(std::int32_t ix, std::int32_t iy) const {
     for (const auto& entry : chunks_) {
         if (entry.second.contains(ix, iy)) return &entry.second;
@@ -77,7 +99,7 @@ const NavGrid* NavMap::grid_for(std::int32_t ix, std::int32_t iy) const {
 bool NavMap::walkable_at(float x, float y, float* ground) const {
     const std::int32_t ix = static_cast<std::int32_t>(std::lround(x / config_.cell)), iy = static_cast<std::int32_t>(std::lround(y / config_.cell));
     const NavGrid* g = grid_for(ix, iy);
-    if (g == nullptr || !g->walkable[g->index(ix, iy)]) return false;
+    if (g == nullptr || !g->walkable[g->index(ix, iy)] || blocked(ix, iy)) return false;
     if (ground != nullptr) *ground = g->ground[g->index(ix, iy)];
     return true;
 }
@@ -91,7 +113,7 @@ bool NavMap::nearest_walkable(float x, float y, float radius, NavPoint& out) con
         for (std::int32_t dx = -rings; dx <= rings; ++dx) {
             const std::int32_t ix = cx + dx, iy = cy + dy;
             const NavGrid* g = grid_for(ix, iy);
-            if (g == nullptr || !g->walkable[g->index(ix, iy)]) continue;
+            if (g == nullptr || !g->walkable[g->index(ix, iy)] || blocked(ix, iy)) continue;
             const float px = static_cast<float>(ix) * config_.cell, py = static_cast<float>(iy) * config_.cell;
             const float d2 = (px - x) * (px - x) + (py - y) * (py - y);
             if (d2 < best) {  // the first of equals in scan order wins: deterministic
@@ -107,7 +129,7 @@ bool NavMap::nearest_walkable(float x, float y, float radius, NavPoint& out) con
 bool NavMap::step_ok(std::int32_t ix, std::int32_t iy, std::int32_t jx, std::int32_t jy) const {
     const NavGrid* a = grid_for(ix, iy);
     const NavGrid* b = grid_for(jx, jy);
-    if (a == nullptr || b == nullptr || !a->walkable[a->index(ix, iy)] || !b->walkable[b->index(jx, jy)]) return false;
+    if (a == nullptr || b == nullptr || !a->walkable[a->index(ix, iy)] || !b->walkable[b->index(jx, jy)] || blocked(jx, jy)) return false;  // (the first end is a node the search already reached: it cannot be blocked)
     return std::fabs(a->ground[a->index(ix, iy)] - b->ground[b->index(jx, jy)]) <= config_.max_step;
 }
 
@@ -147,19 +169,42 @@ std::vector<NavPoint> NavMap::find_path(Vec3 from, Vec3 to, std::size_t max_node
         float g;
         std::int64_t parent;
         bool closed;
+        bool via_link;
     };
-    std::unordered_map<std::int64_t, Node> nodes;
+    // The links as edges between lattice nodes: each end moved to the nearest walkable lattice point within a metre (a link with an end off the walkable ground does not exist).
+    struct Edge {
+        std::int64_t to;
+        float cost;
+    };
+    std::unordered_map<std::int64_t, std::vector<Edge>> link_edges;
+    for (const auto& entry : links_) {
+        const NavLink& l = entry.second;
+        NavPoint a, b;
+        if (!nearest_walkable(l.from.x, l.from.y, 1.0f, a) || !nearest_walkable(l.to.x, l.to.y, 1.0f, b)) continue;
+        const std::int32_t ax = static_cast<std::int32_t>(std::lround(a.position.x / config_.cell)), ay = static_cast<std::int32_t>(std::lround(a.position.y / config_.cell));
+        const std::int32_t bx = static_cast<std::int32_t>(std::lround(b.position.x / config_.cell)), by = static_cast<std::int32_t>(std::lround(b.position.y / config_.cell));
+        if (ax == bx && ay == by) continue;
+        const float len = std::sqrt((a.position.x - b.position.x) * (a.position.x - b.position.x) + (a.position.y - b.position.y) * (a.position.y - b.position.y) + (a.position.z - b.position.z) * (a.position.z - b.position.z));
+        link_edges[key(ax, ay)].push_back({key(bx, by), len + l.extra_cost});
+        if (l.bidirectional) {
+            link_edges[key(bx, by)].push_back({key(ax, ay), len + l.extra_cost});
+        }
+    }
     struct Open {
         float f;
         std::int64_t k;
         bool operator>(const Open& o) const { return f != o.f ? f > o.f : k > o.k; }
     };
+    std::unordered_map<std::int64_t, Node> nodes;
     std::priority_queue<Open, std::vector<Open>, std::greater<Open>> open;
-    const auto heuristic = [&](std::int32_t x, std::int32_t y) {
-        const float dx = static_cast<float>(std::abs(x - gx)), dy = static_cast<float>(std::abs(y - gy));
+    const auto octile = [&](std::int32_t x, std::int32_t y, std::int32_t tx, std::int32_t ty) {
+        const float dx = static_cast<float>(std::abs(x - tx)), dy = static_cast<float>(std::abs(y - ty));
         return config_.cell * ((dx + dy) + (1.41421356f - 2.0f) * std::min(dx, dy));
     };
-    nodes[key(sx, sy)] = {0.0f, kNoNode, false};
+    // The octile distance to the goal. A link costs at least its length, so it can only undercut this estimate by the difference between the octile and the straight-line distance (at most 8.2%): paths with links are
+    // within that of the optimum, and without links the estimate is exact for the lattice.
+    const auto heuristic = [&](std::int32_t x, std::int32_t y) { return octile(x, y, gx, gy); };
+    nodes[key(sx, sy)] = {0.0f, kNoNode, false, false};
     open.push({heuristic(sx, sy), key(sx, sy)});
     std::size_t expanded = 0;
     std::int64_t goal_key = kNoNode;
@@ -185,30 +230,60 @@ std::vector<NavPoint> NavMap::find_path(Vec3 from, Vec3 to, std::size_t max_node
                 const float cost = base + config_.cell * (dx != 0 && dy != 0 ? 1.41421356f : 1.0f);
                 auto it = nodes.find(key(nx, ny));
                 if (it != nodes.end() && (it->second.closed || it->second.g <= cost)) continue;
-                nodes[key(nx, ny)] = {cost, top.k, false};
+                nodes[key(nx, ny)] = {cost, top.k, false, false};
                 open.push({cost + heuristic(nx, ny), key(nx, ny)});
+            }
+        }
+        const auto links = link_edges.find(top.k);
+        if (links != link_edges.end()) {
+            for (const Edge& e : links->second) {
+                const float cost = base + e.cost;
+                auto it = nodes.find(e.to);
+                if (it != nodes.end() && (it->second.closed || it->second.g <= cost)) continue;
+                nodes[e.to] = {cost, top.k, false, true};
+                open.push({cost + heuristic(static_cast<std::int32_t>(e.to >> 32), static_cast<std::int32_t>(static_cast<std::uint32_t>(e.to & 0xffffffff))), e.to});
             }
         }
     }
     if (goal_key == kNoNode) return {};
-    std::vector<NavPoint> raw;
+    struct Raw {
+        NavPoint p;
+        bool link_from_prev;  // the edge into this node is a link
+    };
+    std::vector<Raw> raw;
     for (std::int64_t k = goal_key; k != kNoNode; k = nodes[k].parent) {
         const std::int32_t ix = static_cast<std::int32_t>(k >> 32), iy = static_cast<std::int32_t>(static_cast<std::uint32_t>(k & 0xffffffff));
         float z = 0.0f;
         (void)walkable_at(static_cast<float>(ix) * config_.cell, static_cast<float>(iy) * config_.cell, &z);
-        raw.push_back({{static_cast<float>(ix) * config_.cell, static_cast<float>(iy) * config_.cell, z}});
+        raw.push_back({{{static_cast<float>(ix) * config_.cell, static_cast<float>(iy) * config_.cell, z}}, nodes[k].via_link});
     }
     std::reverse(raw.begin(), raw.end());
-    // String pulling: from each point take the furthest later point that can be walked to in a straight line.
-    std::vector<NavPoint> path{raw.front()};
-    std::size_t i = 0;
-    while (i + 1 < raw.size()) {
-        std::size_t j = raw.size() - 1;
-        while (j > i + 1 && !line_ok(raw[i], raw[j])) --j;
-        path.push_back(raw[j]);
-        i = j;
+    // String pulling within each walked run: a link ends a run (its start is the run's last point, flagged; its end starts the next run).
+    std::vector<NavPoint> path;
+    std::size_t run_start = 0;
+    while (run_start < raw.size()) {
+        std::size_t run_end = run_start;
+        while (run_end + 1 < raw.size() && !raw[run_end + 1].link_from_prev) ++run_end;
+        path.push_back(raw[run_start].p);
+        std::size_t i = run_start;
+        while (i < run_end) {
+            std::size_t j = run_end;
+            while (j > i + 1 && !line_ok(raw[i].p, raw[j].p)) --j;
+            path.push_back(raw[j].p);
+            i = j;
+        }
+        if (run_end + 1 < raw.size()) path.back().link = true;  // the next segment is the link
+        run_start = run_end + 1;
     }
     return path;
+}
+
+bool NavMap::path_clear(const std::vector<NavPoint>& path) const {
+    for (std::size_t i = 0; i < path.size(); ++i) {
+        if (!walkable_at(path[i].position.x, path[i].position.y)) return false;
+        if (i + 1 < path.size() && !path[i].link && !line_ok(path[i], path[i + 1])) return false;
+    }
+    return true;
 }
 
 bool pedestrian_go(const NavMap& map, PedestrianAgent& agent, Vec3 goal) {
@@ -219,15 +294,47 @@ bool pedestrian_go(const NavMap& map, PedestrianAgent& agent, Vec3 goal) {
     return !agent.failed;
 }
 
+bool pedestrian_replan(const NavMap& map, PedestrianAgent& agent, Vec3 goal) {
+    if (!agent.failed && !agent.arrived && !agent.path.empty()) {
+        // The way ahead: from where the agent stands (the segment to the waypoint it is walking to is tested too, and if it stands where a blocker has appeared, that is a blocked way) to the goal.
+        std::vector<NavPoint> ahead;
+        ahead.push_back({{agent.position.x, agent.position.y, agent.position.z}, agent.next > 0 && agent.path[agent.next - 1].link});
+        ahead.insert(ahead.end(), agent.path.begin() + static_cast<std::ptrdiff_t>(std::min(agent.next, agent.path.size() - 1)), agent.path.end());
+        if (map.path_clear(ahead)) return true;
+    }
+    return pedestrian_go(map, agent, goal);
+}
+
 void pedestrian_step(const NavMap& map, const PedestrianConfig& c, PedestrianAgent& a, const std::vector<PedestrianNeighbor>& others, float dt) {
     if (!(dt > 0.0f) || !fin(dt)) throw std::invalid_argument("pedestrian_step: dt must be finite and positive");
     float desired_x = 0.0f, desired_y = 0.0f;
     if (!a.arrived && !a.failed && !a.path.empty()) {
         // Passing waypoints (the last one is the goal and is reached by the arrival radius).
         while (a.next + 1 < a.path.size()) {
+            if (a.next > 0 && a.path[a.next - 1].link) break;  // the far end of a link is reached by crossing it, not by coming near
             const NavPoint& w = a.path[a.next];
             if (std::hypot(w.position.x - a.position.x, w.position.y - a.position.y) < c.waypoint_radius) ++a.next;
             else break;
+        }
+        // On an off-mesh link: a straight run to its far end at walking speed, the height following the line between the ends (there is no ground to follow, and nobody to give way to in mid-jump).
+        if (a.next > 0 && a.next < a.path.size() && a.path[a.next - 1].link) {
+            const NavPoint& from = a.path[a.next - 1];
+            const NavPoint& to = a.path[a.next];
+            const float dx = to.position.x - a.position.x, dy = to.position.y - a.position.y;
+            const float d = std::hypot(dx, dy);
+            const float step = c.walk_speed * dt;
+            if (d <= step || d < 1e-5f) {
+                a.position = to.position;
+                a.velocity = {0, 0, 0};
+                if (a.next + 1 >= a.path.size()) a.arrived = true;
+                else ++a.next;
+                return;
+            }
+            a.velocity = {dx / d * c.walk_speed, dy / d * c.walk_speed, 0.0f};
+            const float total = std::max(1e-5f, std::hypot(to.position.x - from.position.x, to.position.y - from.position.y));
+            const float travelled = std::clamp(1.0f - (d - step) / total, 0.0f, 1.0f);
+            a.position = {a.position.x + a.velocity.x * dt, a.position.y + a.velocity.y * dt, from.position.z + (to.position.z - from.position.z) * travelled};
+            return;
         }
         const NavPoint& w = a.path[std::min(a.next, a.path.size() - 1)];
         const float dx = w.position.x - a.position.x, dy = w.position.y - a.position.y;
@@ -296,6 +403,40 @@ void pedestrian_step(const NavMap& map, const PedestrianConfig& c, PedestrianAge
         a.velocity.x = 0.0f;
     } else {
         a.velocity = {0, 0, 0};
+    }
+}
+
+void crowd_step(const NavMap& map, const PedestrianConfig& c, std::vector<PedestrianAgent>& agents, float dt) {
+    if (!(dt > 0.0f) || !fin(dt)) throw std::invalid_argument("crowd_step: dt must be finite and positive");
+    const std::size_t n = agents.size();
+    std::vector<PedestrianNeighbor> snapshot(n);
+    float vmax = 0.0f;
+    for (std::size_t i = 0; i < n; ++i) {
+        snapshot[i] = {agents[i].position, agents[i].velocity};
+        vmax = std::max(vmax, std::hypot(agents[i].velocity.x, agents[i].velocity.y));
+    }
+    // A neighbour matters only inside the separation distance or if it can come within 1.3 sums of radii inside the horizon: at most the horizon times the sum of the two speeds, plus that distance. Beyond it
+    // pedestrian_step adds nothing, so leaving it out changes no bit of the result. The speeds after this step's acceleration are bounded by the walk speed and the current maximum.
+    const float speed_bound = std::max(vmax, c.walk_speed) + c.acceleration * dt;
+    const float reach = std::max(c.separation * 2.0f * c.radius, c.horizon * 2.0f * speed_bound + 2.0f * c.radius * 1.3f) + 1e-3f;
+    const auto cell_of = [&](float v) { return static_cast<std::int32_t>(std::floor(v / reach)); };
+    std::unordered_map<std::int64_t, std::vector<std::uint32_t>> grid;
+    for (std::size_t i = 0; i < n; ++i) grid[key(cell_of(snapshot[i].position.x), cell_of(snapshot[i].position.y))].push_back(static_cast<std::uint32_t>(i));  // ascending within a cell
+    std::vector<std::uint32_t> near;
+    std::vector<PedestrianNeighbor> others;
+    for (std::size_t i = 0; i < n; ++i) {
+        near.clear();
+        const std::int32_t cx = cell_of(snapshot[i].position.x), cy = cell_of(snapshot[i].position.y);
+        for (std::int32_t dy = -1; dy <= 1; ++dy) {
+            for (std::int32_t dx = -1; dx <= 1; ++dx) {
+                const auto it = grid.find(key(cx + dx, cy + dy));
+                if (it != grid.end()) near.insert(near.end(), it->second.begin(), it->second.end());
+            }
+        }
+        std::sort(near.begin(), near.end());  // the same order as the full list: the sums add in the same order
+        others.clear();
+        for (const std::uint32_t j : near) others.push_back(snapshot[j]);
+        pedestrian_step(map, c, agents[i], others, dt);
     }
 }
 

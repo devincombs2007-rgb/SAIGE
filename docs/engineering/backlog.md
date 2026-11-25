@@ -38,7 +38,7 @@
 
 * Navigation mesh over streamed cells; schedules; traffic.
 * Quality presets; point lights; capability-gated RT and upscalers.
-* Production audio runtime evaluated against the miniaudio proof of concept.
+* Production audio runtime evaluated against the miniaudio proof of concept. The simulation side is done and backend-independent (`include/saige/audio_model.hpp`: engine loop pitches and equal-power crossfade from the published rpm and throttle with inertial smoothing; impact category, gain and pitch from the materials and the collision energy); choosing and integrating the runtime itself is not.
 
 ## Automation
 

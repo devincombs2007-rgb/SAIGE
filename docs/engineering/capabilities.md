@@ -27,4 +27,5 @@ correctness evidence only, never performance evidence. No capability here is har
 | Core | Perf instrumentation | yes | yes | draft | no | no | #68 | |
 | Showcase | Showcase 03 sim, props table, wheel rig, time-of-day ramp | yes | yes | yes (run 579) | no | no | `claude/production-infrastructure` | film delivered, build 9c87457 |
 | Assets | Catalog (about 105 records), validator and importer check, prep pipeline | yes | yes | yes | no | no | `tools/production`, `assets/catalog` | one Python test skips unless the tools venv is at its default path (its 10 tests pass when run with `SAIGE_TOOLS_HOME` set) |
+| Audio | Engine rpm and load audio model, material impact sound selection (pure functions, no audio library) | yes | yes | pending | no | no | `include/saige/audio_model.hpp` | feeds any loop and one-shot player; no runtime chosen |
 | Audio | miniaudio proof of concept (Doppler, pan, attenuation, occlusion, reverb, RPM blend) | yes | yes | no | no | no | `docs/assets/audio.md` | PoC, not an engine subsystem |

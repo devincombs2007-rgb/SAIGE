@@ -147,6 +147,27 @@ GpuModel skinned_model(GpuResourceRegistry& registry, GpuMaterial material, cons
     return m;
 }
 
+/// Per-joint bind-space boxes for `prim`, as the importer's staging computes them (the vertices each joint influences with a weight above zero).
+void add_joint_bounds(GpuModel& model, const gfx::Primitive& prim)
+{
+    std::vector<JointBounds> boxes(kJoints);
+    for (std::size_t v = 0; v < prim.vertex_count(); ++v) {
+        const Float3 p{prim.positions[v * 3], prim.positions[v * 3 + 1], prim.positions[v * 3 + 2]};
+        for (std::size_t c = 0; c < 4; ++c) {
+            if (!(prim.weights[v * 4 + c] > 0.0f)) continue;
+            JointBounds& b = boxes[prim.joints[v * 4 + c]];
+            if (!b.used) {
+                b.min = b.max = p;
+                b.used = true;
+            } else {
+                b.min = {std::min(b.min.x, p.x), std::min(b.min.y, p.y), std::min(b.min.z, p.z)};
+                b.max = {std::max(b.max.x, p.x), std::max(b.max.y, p.y), std::max(b.max.z, p.z)};
+            }
+        }
+    }
+    model.meshes[0][0].joint_bounds = std::move(boxes);
+}
+
 /// The same tube as a rigid model whose vertices are the CPU reference's output.
 GpuModel reference_model(GpuResourceRegistry& registry, GpuMaterial material, const gfx::Primitive& prim, std::span<const Mat4> matrices, bool tangents)
 {
@@ -178,6 +199,7 @@ struct Options {
     bool ibl = false;
     bool blend = false;
     bool skinning = true;
+    bool culling = true;
     uint32_t joint_limit = kJoints;
 };
 
@@ -200,6 +222,7 @@ struct Scene {
         s.shadows.map_size = 1024;
         s.alpha_blending = false;
         s.skinning = o.skinning;
+        s.frustum_culling = o.culling;
         if (o.ibl) s.environment = environment;
         renderer = std::make_unique<SceneRenderer>(*device, rhi::Format::RGBA8_SRGB, s);
         target = std::make_unique<OffscreenTarget>(*device, kW, kH);
@@ -618,4 +641,200 @@ TEST_CASE("Skinning: an imported (staged) skinned asset draws like the same asse
     std::printf("  staged skinned asset: worst channel delta %d, %u pixels over 3\n", d.worst, d.over);
     CHECK(d.over <= 6 && d.worst <= 40);
     CHECK(scene.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Skinning: a posed mesh that is inside the view while its bind pose is outside is drawn, with frustum culling on")
+{
+    // The bind-pose bounds of the tube (a sphere around (0, 0, 1.5) of radius 4, placed 60 m to the side of the camera's view) are far outside the frustum; the palette's pose
+    // translates every joint 60 m back, so the posed tube stands in view. It must be drawn exactly like the same tube with the pose baked into its vertices.
+    const Rig rig = make_rig();
+    Scene scene({});
+    ModelRenderer& models = scene.renderer->model_renderer();
+    const GpuModel skinned = skinned_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive);
+    SkinPalette palette = models.create_skin_palette(kJoints, "walker");
+    std::vector<Mat4> matrices = pose_matrices(rig, 0.8f, false);
+    const Mat4 away = translation({0.0f, -60.0f, 0.0f});
+    for (Mat4& m : matrices) m = away * m;  // the posed mesh is where it was; the instance matrix below moves the bind pose 60 m away
+    palette.update(matrices);
+    const GpuModel reference = reference_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive, matrices, false);
+    const Mat4 offset = translation({0.0f, 60.0f, 0.0f});
+    const ModelDraw a[] = {{&scene.floor, Mat4::identity()}, {&skinned, offset, &palette}};
+    const ModelDraw b[] = {{&scene.floor, Mat4::identity()}, {&reference, offset}};
+    const ModelDraw empty[] = {{&scene.floor, Mat4::identity()}};
+    FrameStats stats;
+    const Image drawn = scene.render(a, &stats);
+    CHECK(stats.model_skinned_draws == 1);
+    CHECK(stats.model_skinned_cull_bypassed == 1);
+    const Diff same = compare(drawn, scene.render(b), 3);
+    CHECK(same.over <= 6 && same.worst <= 40);
+    const Diff visible = compare(drawn, scene.render(empty), 3);
+    CHECK(visible.over >= 200);  // the tube really is in the image (not a vacuous comparison of two empty views)
+    CHECK(scene.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Skinning: with per-joint bounds, culling follows the pose: a tube sliding out of the view is culled only when it cannot be seen, and culling never changes the image")
+{
+    // Two identical scenes, one with frustum culling and one without; the tube (with per-joint bounds, as staging produces them) slides sideways in steps while it bends, from the
+    // middle of the view to far outside it. Every frame must be the same image with culling on and off; the culled frames are exactly the ones where nothing of the tube is on screen.
+    const Rig rig = make_rig();
+    Options on_options, off_options;
+    off_options.culling = false;
+    Scene on(on_options), off(off_options);
+    const auto make = [&](Scene& scene) {
+        GpuModel model = skinned_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive);
+        add_joint_bounds(model, rig.primitive);
+        return model;
+    };
+    const GpuModel tube_on = make(on), tube_off = make(off);
+    SkinPalette palette_on = on.renderer->model_renderer().create_skin_palette(kJoints, "walker");
+    SkinPalette palette_off = off.renderer->model_renderer().create_skin_palette(kJoints, "walker");
+    const ModelDraw floor_only_on[] = {{&on.floor, Mat4::identity()}};
+    const Image bare = on.render(floor_only_on);
+    const Float3 lateral{-4.0f / 6.8f, 5.5f / 6.8f, 0.0f};  // perpendicular to the camera's line of sight on the ground
+    int drawn = 0, culled = 0, partial = 0;
+    for (int step = 0; step < 16; ++step) {
+        const float slide = 0.9f * static_cast<float>(step);
+        std::vector<Mat4> matrices = pose_matrices(rig, 0.4f + 0.1f * static_cast<float>(step), step % 4 == 3);
+        const Mat4 shift = translation({lateral.x * slide, lateral.y * slide, 0.0f});
+        for (Mat4& m : matrices) m = shift * m;
+        palette_on.update(matrices);
+        palette_off.update(matrices);
+        const ModelDraw a[] = {{&on.floor, Mat4::identity()}, {&tube_on, Mat4::identity(), &palette_on}};
+        const ModelDraw b[] = {{&off.floor, Mat4::identity()}, {&tube_off, Mat4::identity(), &palette_off}};
+        FrameStats stats_on, stats_off;
+        const Image with_culling = on.render(a, &stats_on);
+        const Image without = off.render(b, &stats_off);
+        CHECK(compare(with_culling, without, 0).over == 0);  // culling is invisible
+        CHECK(stats_on.model_skinned_cull_bypassed == 0);    // every frame was tested against the pose's bounds
+        CHECK(stats_off.model_skinned_culled == 0);
+        const uint32_t on_screen = compare(without, bare, 3).over;  // pixels of the tube, as drawn without culling
+        if (stats_on.model_skinned_culled == 1) {
+            ++culled;
+            CHECK(stats_on.model_skinned_draws == 0);
+            CHECK(on_screen == 0);  // culled only when nothing of it would have been drawn
+        } else {
+            ++drawn;
+            CHECK(stats_on.model_skinned_draws == 1);
+            partial += on_screen > 0 && on_screen < 600 ? 1 : 0;
+        }
+        if (on_screen > 0) CHECK(stats_on.model_skinned_culled == 0);  // never culled while any of it is visible
+    }
+    std::printf("  16 frames of a tube sliding out of the view: %d drawn (%d barely or partly on screen), %d culled\n", drawn, partial, culled);
+    CHECK(drawn >= 4);
+    CHECK(culled >= 4);
+    CHECK(partial >= 1);  // including a frame where only part of the tube is on screen
+    CHECK(on.device->validation_error_count() == 0);
+    CHECK(off.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Skinning: with per-joint bounds a posed mesh that is inside the view while its bind pose is outside is drawn and tested, not bypassed")
+{
+    const Rig rig = make_rig();
+    Scene scene({});
+    ModelRenderer& models = scene.renderer->model_renderer();
+    GpuModel skinned = skinned_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive);
+    add_joint_bounds(skinned, rig.primitive);
+    SkinPalette palette = models.create_skin_palette(kJoints, "walker");
+    std::vector<Mat4> matrices = pose_matrices(rig, 0.8f, false);
+    const Mat4 away = translation({0.0f, -60.0f, 0.0f});
+    for (Mat4& m : matrices) m = away * m;
+    palette.update(matrices);
+    const GpuModel reference = reference_model(scene.renderer->registry(), scene.material(0.3f, 0.6f, 0.85f), rig.primitive, matrices, false);
+    const Mat4 offset = translation({0.0f, 60.0f, 0.0f});
+    const ModelDraw a[] = {{&scene.floor, Mat4::identity()}, {&skinned, offset, &palette}};
+    const ModelDraw b[] = {{&scene.floor, Mat4::identity()}, {&reference, offset}};
+    FrameStats stats;
+    const Image drawn = scene.render(a, &stats);
+    CHECK(stats.model_skinned_draws == 1);
+    CHECK(stats.model_skinned_cull_bypassed == 0);
+    CHECK(stats.model_skinned_culled == 0);
+    const Diff same = compare(drawn, scene.render(b), 3);
+    CHECK(same.over <= 6 && same.worst <= 40);
+    // The bind pose, by contrast, is out of view: with an identity pose the same model (the palette's bind pose) is culled.
+    const ModelDraw bind[] = {{&scene.floor, Mat4::identity()}, {&skinned, offset}};
+    FrameStats bind_stats;
+    (void)scene.render(bind, &bind_stats);
+    CHECK(bind_stats.model_skinned_culled == 1 && bind_stats.model_skinned_draws == 0);
+    CHECK(scene.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Living scene: an animated skinned tube under a moving sun with cascaded shadows, image-based lighting and frustum culling matches its CPU-skinned rigid twin over frames in flight")
+{
+    // Everything this stack composes at once: GPU skinning (a palette updated every frame), per-frame dynamic lighting (the sun moves and changes color each frame), two shadow
+    // cascades, image-based lighting and frustum culling. The oracle is the same tube with the pose baked into its vertices, drawn by an identically configured renderer under
+    // the same lighting. Eight frames, more than there are frames in flight.
+    const Rig rig = make_rig();
+    const auto device = make_validated_device("living_scene", /*synchronization=*/true);
+    RendererSettings s = deterministic_settings();
+    s.fog_density = 0.0f;
+    s.model_shading = ModelShading::MetallicRoughness;
+    s.environment = sky_environment();
+    s.skinning = true;
+    s.dynamic_lighting = true;
+    s.shadows.enabled = true;
+    s.shadows.map_size = 1024;
+    s.shadows.cascades = 2;
+    s.shadows.distance = 30.0f;
+    SceneRenderer animated(*device, rhi::Format::RGBA8_SRGB, s);
+    SceneRenderer twin(*device, rhi::Format::RGBA8_SRGB, s);
+    OffscreenTarget target(*device, kW, kH);
+    const auto floor_for = [&](SceneRenderer& r) {
+        MaterialParams mp;
+        mp.base_color[0] = mp.base_color[1] = mp.base_color[2] = 0.7f;
+        mp.roughness = 1.0f;
+        const CubeMesh cube = make_unit_cube();
+        std::vector<ModelVertex> v;
+        for (const CubeVertex& cv : cube.vertices) v.push_back({cv.position, cv.normal, {0, 0}});
+        std::vector<uint32_t> idx(cube.indices, cube.indices + 36);
+        GpuModel floor;
+        floor.name = "floor";
+        floor.materials.push_back(r.model_renderer().create_material(mp, {}, {}, "floor"));
+        floor.meshes.push_back({make_primitive(r.registry(), v, idx, 0)});
+        floor.placements.push_back({0, translation({0.0f, 0.0f, -0.05f}) * scale_matrix({6.0f, 6.0f, 0.1f})});
+        return floor;
+    };
+    const auto tube_material = [&](SceneRenderer& r) {
+        MaterialParams mp;
+        mp.base_color[0] = 0.3f;
+        mp.base_color[1] = 0.6f;
+        mp.base_color[2] = 0.85f;
+        mp.roughness = 0.7f;
+        return r.model_renderer().create_material(mp, {}, {}, "tube");
+    };
+    const GpuModel floor_a = floor_for(animated), floor_b = floor_for(twin);
+    const GpuModel skinned = skinned_model(animated.registry(), tube_material(animated), rig.primitive);
+    SkinPalette palette = animated.model_renderer().create_skin_palette(kJoints, "walker");
+    const Camera camera = look_at_camera({-5.5f, -4.0f, 2.6f}, {0.0f, 0.0f, 1.3f});
+
+    std::vector<Image> frames;
+    for (int frame = 0; frame < 8; ++frame) {
+        const float t = static_cast<float>(frame) / 7.0f;
+        const double elevation = 62.0 - 40.0 * static_cast<double>(t), azimuth = 20.0 + 70.0 * static_cast<double>(frame);
+        SceneLighting light;
+        light.sun_direction = {static_cast<float>(std::cos(elevation * pi_d / 180.0) * std::cos(azimuth * pi_d / 180.0)),
+                               static_cast<float>(std::cos(elevation * pi_d / 180.0) * std::sin(azimuth * pi_d / 180.0)), static_cast<float>(std::sin(elevation * pi_d / 180.0))};
+        light.sun_color = {1.2f - 0.4f * t, 1.0f - 0.3f * t, 0.9f - 0.5f * t};
+        light.ambient_ground = {0.2f, 0.18f, 0.16f};
+        const std::vector<Mat4> matrices = pose_matrices(rig, 0.2f + 0.2f * static_cast<float>(frame), frame % 3 == 2);
+        palette.update(matrices);
+        const GpuModel reference = reference_model(twin.registry(), tube_material(twin), rig.primitive, matrices, false);
+        const ModelDraw a[] = {{&floor_a, Mat4::identity()}, {&skinned, Mat4::identity(), &palette}};
+        const ModelDraw b[] = {{&floor_b, Mat4::identity()}, {&reference, Mat4::identity()}};
+        const ModelDraw floor_only[] = {{&floor_b, Mat4::identity()}};
+        FrameStats stats;
+        const Image got = target.render(animated, {}, camera, 0, a, &stats, &light);
+        const Image want = target.render(twin, {}, camera, 0, b, nullptr, &light);
+        const Image bare = target.render(twin, {}, camera, 0, floor_only, nullptr, &light);
+        const Diff d = compare(got, want, 3);
+        if (d.over > 8) std::printf("  frame %d: %u pixels differ (worst %d)\n", frame, d.over, d.worst);
+        CHECK(d.over <= 8 && d.worst <= 40);
+        CHECK(stats.model_skinned_draws >= 2);          // the color pass and at least one cascade's shadow pass
+        CHECK(stats.model_skinned_cull_bypassed >= 1);  // the culling was on and the skinned tube skipped it
+        CHECK(stats.shadow_draw_calls >= 4);            // both cascades drew the floor and the tube
+        CHECK(compare(got, bare, 3).over >= 300);       // the tube and its shadow are really in the image
+        frames.push_back(got);
+    }
+    // The sun and the pose really changed: no two consecutive frames are the same image.
+    for (std::size_t i = 1; i < frames.size(); ++i) CHECK(compare(frames[i - 1], frames[i], 3).over >= 300);
+    CHECK(device->validation_error_count() == 0);
 }

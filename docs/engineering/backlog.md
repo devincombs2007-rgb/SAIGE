@@ -36,7 +36,7 @@
 
 ## World simulation and AI (10%), graphics (7%), audio (7%)
 
-* Navigation mesh over streamed cells; schedules; traffic.
+* Navigation over streamed cells and pedestrian agents: done as a lattice (`docs/navigation.md`). Next: a hierarchical level and cost fields (roads), off-mesh links, schedules, traffic.
 * Quality presets; point lights; capability-gated RT and upscalers.
 * Production audio runtime evaluated against the miniaudio proof of concept. The simulation side is done and backend-independent (`include/saige/audio_model.hpp`: engine loop pitches and equal-power crossfade from the published rpm and throttle with inertial smoothing; impact category, gain and pitch from the materials and the collision energy); choosing and integrating the runtime itself is not.
 

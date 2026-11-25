@@ -206,3 +206,4 @@ endif()
 
 add_subdirectory(showcase)
 add_subdirectory(tools/production/inspect)
+add_subdirectory(tools/animation/viewer)

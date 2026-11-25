@@ -69,7 +69,13 @@
    "Jump_Loop",
    "Jump_Land"
   ],
-  "note": "keyframed by artists, not motion capture; one rig with a mesh and 46 clips"
+  "note": "keyframed by artists, not motion capture; one rig with a mesh and 46 clips",
+  "archive": {
+   "url": "https://opengameart.org/sites/default/files/universal_animation_librarystandard.zip",
+   "sha256": "18ff1a7215f4852b320203e8aaf02a1578b5c8eef9027fbaedfcedc7b85a3ac2",
+   "bytes": 14541205,
+   "member": "Animation Library[Standard]/Godot/AnimationLibrary_Godot_Standard.glb"
+  }
  },
  "ual2": {
   "license": "CC0-1.0 (Quaternius, Universal Animation Library 2 Standard)",
@@ -81,6 +87,12 @@
    "ClimbUp_1m_RM"
   ],
   "optional": true,
-  "note": "keyframed by artists, not motion capture; 43 clips on a 65-joint Unreal-style rig, including climbing, sliding, dashes and a carry walk; no strafe or turn clips"
+  "note": "keyframed by artists, not motion capture; 43 clips on a 65-joint Unreal-style rig, including climbing, sliding, dashes and a carry walk; no strafe or turn clips",
+  "archive": {
+   "url": "https://opengameart.org/sites/default/files/universal_animation_library_2standard.zip",
+   "sha256": "ec0e40d6d78fe9aaad59e322f40865a8675c22f0745e291622e54520391a9217",
+   "bytes": 10257419,
+   "member": "Universal Animation Library 2 [Standard]/Unreal-Godot/UAL2_Standard.glb"
+  }
  }
 }

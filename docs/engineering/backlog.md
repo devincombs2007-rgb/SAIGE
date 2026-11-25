@@ -5,7 +5,7 @@
 * Barrel stack prop is non-solid (multi-piece model); give it a compound hull.
 * The unlit window material is a flat dark glass; lit windows have no interior and light nothing around them.
 * Wheel-of-a-wagon aliasing at 30 fps; add temporal supersampling (average sub-frames) to the offline capture path before any further film.
-* `production_tools_python` skips when the tools venv is not at `$SAIGE_TOOLS_HOME` or `~/.saige-tools`; make CI create it with `tools/production/setup.sh` so the test runs rather than skips.
+* CI asset restoration (done, awaiting the first CI run): the Graphics workflow installs the production tools' Python packages (so `production_tools_python` runs) and restores the humanoid assets with `tools/animation/fetch_humanoid_assets.py --no-cache` (download, archive and file SHA-256, retries; cached by the manifest hash and re-verified), so the real-asset animation tests and the viewer smoke test run in all three jobs instead of skipping. The CMU hashes come from raw.githubusercontent.com; the UAL archives from opengameart.org.
 
 ## Physics (22%)
 

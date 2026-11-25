@@ -12,6 +12,9 @@ if(BUILD_TESTING)
         add_test(NAME production_tools_python COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/run_tests.py)
         set_tests_properties(production_tools_python PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
         # The toolchain audit's own tests (standard library only; the audit itself is run by hand or in the scheduled qualification, see tools/audit/README.md).
+        # The animation asset restoration (download, archive and file hashes, retries): offline, standard library only.
+        add_test(NAME animation_assets_fetch_python COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/../../animation/tests/test_fetch.py)
+        set_tests_properties(animation_assets_fetch_python PROPERTIES TIMEOUT 60)
         add_test(NAME audit_tools_python COMMAND ${Python3_EXECUTABLE} -m unittest discover -s ${CMAKE_CURRENT_SOURCE_DIR}/../../audit)
         set_tests_properties(audit_tools_python PROPERTIES TIMEOUT 120)
     endif()

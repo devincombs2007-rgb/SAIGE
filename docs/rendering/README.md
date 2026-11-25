@@ -47,6 +47,7 @@ rendering will **not** implement dependent code yet. This directory documents:
 | [shader-pipeline.md](shader-pipeline.md) | Shader language, offline compilation, permutations, bindless conventions, hot reload. |
 | [asset-pipeline.md](asset-pipeline.md) | glTF 2.0 import, PBR material model, texture and mesh cooking, runtime formats. |
 | [testing-strategy.md](testing-strategy.md) | Unit, null-backend, headless Vulkan, shader and golden-image tests, plus CI. |
+| [vulkan-adapter-matrix.md](vulkan-adapter-matrix.md) | What the Vulkan adapter builds against and negotiates at run time; the 1.3 fallback rules; the header and SDK pin. |
 
 ## 3. Ownership boundaries (proposed)
 

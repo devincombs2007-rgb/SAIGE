@@ -435,6 +435,38 @@ public:
     void step(double dt) override {
         if (!(dt > 0.0) || !fin(dt) || dt > 0.1) throw std::invalid_argument("step: dt must be finite, positive and at most 0.1 s");
         ps_.Update(static_cast<float>(dt), config_.collision_steps, &temp_, js_.get());
+        last_substep_ = dt / static_cast<double>(std::max(1, config_.collision_steps));
+    }
+    DConstraintLoad constraint_load(ConstraintId id) const override {
+        if (id.index >= cslots_.size() || !cslots_[id.index].alive || cslots_[id.index].generation != id.generation || !(last_substep_ > 0.0)) return {};
+        const CSlot& cs = cslots_[id.index];
+        // Jolt reports the impulse a constraint applied during the last sub-step (its accumulated lambda): divided by the sub-step it is the force or torque held.
+        DConstraintLoad out;
+        switch (cs.kind) {
+        case DConstraintKind::Fixed: {
+            const auto* c = static_cast<const JPH::FixedConstraint*>(cs.c);
+            out.force = static_cast<double>(c->GetTotalLambdaPosition().Length()) / last_substep_;
+            out.torque = static_cast<double>(c->GetTotalLambdaRotation().Length()) / last_substep_;
+            break;
+        }
+        case DConstraintKind::Hinge: {
+            const auto* c = static_cast<const JPH::HingeConstraint*>(cs.c);
+            out.force = static_cast<double>(c->GetTotalLambdaPosition().Length()) / last_substep_;
+            out.torque = static_cast<double>(c->GetTotalLambdaRotation().Length()) / last_substep_;
+            break;
+        }
+        case DConstraintKind::SwingTwist: {
+            const auto* c = static_cast<const JPH::SwingTwistConstraint*>(cs.c);
+            out.force = static_cast<double>(c->GetTotalLambdaPosition().Length()) / last_substep_;
+            break;
+        }
+        case DConstraintKind::Distance: {
+            const auto* c = static_cast<const JPH::DistanceConstraint*>(cs.c);
+            out.force = std::abs(static_cast<double>(c->GetTotalLambdaPosition())) / last_substep_;
+            break;
+        }
+        }
+        return out;
     }
     void shift_origin(DVec shift) override {
         if (!fin(shift)) throw std::invalid_argument("shift_origin: not finite");
@@ -467,6 +499,7 @@ public:
     }
 
 private:
+    double last_substep_ = 0.0;
     struct CSlot {
         JPH::Constraint* c = nullptr;
         DConstraintKind kind = DConstraintKind::Fixed;

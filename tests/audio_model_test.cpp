@@ -299,6 +299,20 @@ void test_water_and_ambience() {
     require(throws_invalid([] { (void)reverb_for_space(0.5f, 0.0f, 0.5f); }) && throws_invalid([] { (void)reverb_for_space(1.5f, 10.0f, 0.5f); }), "invalid space throws");
 }
 
+void test_break_sounds() {
+    const BreakSound glass = break_sound(BreakMaterial::Glass, 2.0f, 0.5f, 1), wood = break_sound(BreakMaterial::Wood, 2.0f, 0.5f, 1), stone = break_sound(BreakMaterial::Stone, 2.0f, 0.5f, 1), metal = break_sound(BreakMaterial::Metal, 2.0f, 0.5f, 1);
+    require(glass.category == ImpactCategory::Glassy && wood.category == ImpactCategory::Wood && stone.category == ImpactCategory::Hard && metal.category == ImpactCategory::Metal, "the material chooses the bank");
+    require(glass.pitch > wood.pitch && wood.pitch > stone.pitch && glass.crack > wood.crack && wood.crack > metal.crack, "glass is the brightest and sharpest, wood duller, stone and metal heavier");
+    const BreakSound soft = break_sound(BreakMaterial::Wood, 1.0f, 5.0f, 3), hard = break_sound(BreakMaterial::Wood, 10.0f, 5.0f, 3), crash = break_sound(BreakMaterial::Wood, 100.0f, 5.0f, 3);
+    require(soft.gain < hard.gain && hard.gain < crash.gain && crash.gain <= 1.0f && soft.crack < crash.crack, "a harder break is louder and sharper");
+    require(break_sound(BreakMaterial::Wood, 4.0f, 40.0f, 3).pitch < break_sound(BreakMaterial::Wood, 4.0f, 0.5f, 3).pitch, "a heavier piece sounds lower");
+    require(break_sound(BreakMaterial::Wood, 4.0f, 2.0f, 5).pitch == break_sound(BreakMaterial::Wood, 4.0f, 2.0f, 5).pitch && break_sound(BreakMaterial::Wood, 4.0f, 2.0f, 5).pitch != break_sound(BreakMaterial::Wood, 4.0f, 2.0f, 6).pitch,
+            "the seed varies the pitch, deterministically");
+    require(throws_invalid([] { (void)break_sound(BreakMaterial::Wood, 0.5f, 1.0f, 1); }) && throws_invalid([] { (void)break_sound(BreakMaterial::Wood, 2.0f, 0.0f, 1); }) &&
+                throws_invalid([] { (void)break_sound(BreakMaterial::Wood, NAN, 1.0f, 1); }),
+            "invalid break input throws");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -306,7 +320,7 @@ int main(int argc, char** argv) {
         const char* name;
         void (*fn)();
     };
-    const Named tests[] = {{"crossfade", test_crossfade_and_pitch}, {"smoothing", test_smoothing}, {"vehicle", test_with_the_vehicle}, {"impacts", test_impacts}, {"footsteps", test_footsteps}, {"tires", test_tires}, {"water_ambience", test_water_and_ambience}};
+    const Named tests[] = {{"crossfade", test_crossfade_and_pitch}, {"smoothing", test_smoothing}, {"vehicle", test_with_the_vehicle}, {"impacts", test_impacts}, {"footsteps", test_footsteps}, {"tires", test_tires}, {"water_ambience", test_water_and_ambience}, {"breaks", test_break_sounds}};
     int failures = 0;
     for (const Named& t : tests) {
         if (argc > 1 && std::string(argv[1]) != t.name) continue;

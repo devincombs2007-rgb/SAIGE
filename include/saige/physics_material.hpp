@@ -27,6 +27,9 @@ namespace saige {
 
 enum class Surface : std::uint8_t { Default, Asphalt, AsphaltWet, Concrete, Gravel, Dirt, Grass, Sand, Snow, Ice, Rubber, Count };
 
+// What a breakable object is made of (include/saige/destruction.hpp): it decides how it sounds and what it throws when it breaks, not how it collides (that is the Surface).
+enum class BreakMaterial : std::uint8_t { Wood, Glass, Metal, Stone, Plastic };
+
 struct PhysicsMaterial {
     const char* name;
     float tire_grip;            // multiplier of the tire's friction circle (dry asphalt = 1)

@@ -1,0 +1,40 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2ffbba5..7327b27 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -35,19 +35,7 @@ endif()
+ 
+ include(CTest)
+ if(BUILD_TESTING)
+-<<<<<<< ours
+     foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character character_course capsule_triangle capsule_slopes static_collision oriented_box wheel_contact)
+-||||||| base
+-<<<<<<<<< Temporary merge branch 1
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character character_course)
+-||||||||| 93bf158
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character)
+-=========
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes)
+->>>>>>>>> Temporary merge branch 2
+-=======
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course)
+->>>>>>> theirs
+         add_executable(${suite}_test tests/${suite}_test.cpp)
+         target_link_libraries(${suite}_test PRIVATE saige_core)
+         add_test(NAME ${suite} COMMAND ${suite}_test)
+diff --git a/src/project.cpp b/src/project.cpp
+index 94d4074..b0c6b45 100644
+--- a/src/project.cpp
++++ b/src/project.cpp
+@@ -1,11 +1,5 @@
+-<<<<<<< ours
+ #include "project_load.hpp"
+-||||||| base
+-#include "saige/project.hpp"
+-=======
+-#include "saige/project.hpp"
+ #include "atomic_save.hpp"
+->>>>>>> theirs
+ 
+ #include <nlohmann/json.hpp>
+ 

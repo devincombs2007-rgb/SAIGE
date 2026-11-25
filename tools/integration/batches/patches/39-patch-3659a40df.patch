@@ -1,0 +1,688 @@
+diff --git a/docs/rendering/sky-environment.md b/docs/rendering/sky-environment.md
+new file mode 100644
+index 0000000..9a493c0
+--- /dev/null
++++ b/docs/rendering/sky-environment.md
+@@ -0,0 +1,70 @@
++# Sky-derived environment lighting and the recommended outdoor settings
++
++`gfx::sky_environment(atmosphere, to_sun, settings)` (gfx_assets/sky_environment.hpp) builds the image-based-lighting environment (#82/#85) from the atmosphere itself, so the models' reflections and ambient
++agree with the sky they stand under, at every time of day, with no external HDR file.
++
++## What it computes
++
++For every texel of an equirectangular image (the engine's mapping), the radiance the sky pass shows toward it: `render::sky_radiance` times the atmosphere's exposure above the horizon, and below the
++horizon a Lambertian ground:
++
++```
++ground = albedo * (sun_irradiance * max(0, sun.z) * T(sun) + cosine-weighted mean of the sky above the horizon)
++```
++
++`sun_irradiance` is in the units of `SceneLighting::sun_color` (1 = a sun whose diffuse reflection off a white horizontal surface is 1); `T` is the air's transmittance toward the sun, so the ground goes
++warm and dark at dusk. A faint bluish **night ambient** (moonlight and airglow, default `{0.015, 0.021, 0.040}` scene radiance) fades in as the sun sinks from 1 degree to about 8 degrees below the horizon,
++because the single-scattering sky is black once the sun is a few degrees down. The sun disc, moon and stars are not in the image (the sun is the directional light's job; a bright disc is what SH9 represents
++badly); the standard precompute (SH9 diffuse, GGX-prefiltered roughness chain) follows. The image is deterministic. Default cost in a debug build: about 45 ms for the 128 x 64 image and 70 ms for the
++precompute: meant to run when the time of day has moved enough to matter (a few times per game hour), never per frame.
++
++**Limit:** the renderer takes its environment at construction (`RendererSettings::environment`). Replacing it while a renderer lives is not implemented; a host that wants a changing environment rebuilds the
++renderer (or keeps the sun fixed for the IBL and moves only the directional light, which is cheaper and often enough for a short sequence). A per-frame-slot environment swap is the next step.
++
++## Recommended outdoor settings (what `test_living_sky.cpp` runs)
++
++| Setting | Value | Why |
++| --- | --- | --- |
++| `hdr` | `true` | the sky and the lit scene exceed 1 |
++| `tone_map` | ACES fit, `exposure_ev = 0` | the sky and the lit ground land mid-range at day with no exposure tweak |
++| `model_shading` | `MetallicRoughness` | the only mode that reads the IBL |
++| `atmosphere` | enabled, `exposure = 1`, `sun_intensity = 20` | the defaults; the sky pass and the environment use the same product |
++| `environment` | `to_environment_lighting(sky_environment(atm, sun).environment, 1.0f)` | reflections match the sky |
++| `dynamic_lighting` + `SceneFrame::lighting` | `time_of_day_lighting(atm, to_sun, SceneLighting{})` | sun color follows the air, ambient fades to the night floor |
++| `shadows` | 3 cascades, 1024 tiles, `distance = 60` | sharp near, reaches far; the sun sets before the cascades degrade |
++| `fog_density` | `0.006` | distant ground fades into the horizon colour |
++| `ground_half_size` | `0.01` (hide the built-in checkerboard) and draw a model ground | the 0.1 checkerboard has fixed lighting and stays bright at night |
++
++Measured on lavapipe (software Vulkan; display values 0..1 of the top and bottom fifths of a 320 x 180 frame, a scene of four PBR cubes on a lit ground, sun azimuth 35 degrees in front of the camera):
++
++| Sun elevation | Sky (mean rgb) | Ground (mean rgb) | Pure white | Black |
++| --- | --- | --- | --- | --- |
++| 62 deg (noon) | 0.34 0.53 0.69 | 0.59 0.58 0.54 | 0.00% | 0.00% |
++| 28 deg | 0.52 0.62 0.72 | 0.38 0.39 0.36 | 0.00% | 0.00% |
++| 4 deg (sunset) | 0.27 0.33 0.29 | 0.13 0.11 0.05 (warm) | 0.00% | 0.17% |
++| -7 deg (dusk) | 0.00 | 0.002 0.003 0.007 | 0.00% | 55% |
++| -35 deg (night) | 0.00 | 0.002 0.003 0.007 | 0.00% | 58% |
++
++The test asserts these properties (not the exact numbers): day sky luminance between 0.08 and 0.85 with under 2% pure white and under 10% black; the noon sky is bluer than red and the sunset relatively redder; brightness
++falls monotonically from noon to night; the night is dark, not blown, and the lit ground goes dark with the sun. With `SAIGE_CAPTURE_DIR` set it also writes each frame as a binary PPM to look at.
++
++**What the frames show.** Noon and afternoon: a blue gradient sky, a bright haze around the sun, long soft cascade shadows, warm-grey ground, reflective cubes picking up the sky. Sunset: a warm band at the horizon,
++teal overhead, warm ground. Dusk and night: nearly black in the sky (see below), the models faintly moonlit blue.
++
++## Limits of the single-scattering sky for night and twilight
++
++The sky is black from a few degrees below the horizon until the stars and moon (#96, opt-in) are on: there is no twilight glow (no multiple scattering or ozone), so a showcase should either stop the sun at about
++-3 degrees, turn on the stars and moon, or accept a dark sky with moonlit models. A twilight term is future work. The built-in checkerboard ground is a 0.1 placeholder with fixed lighting.
++
++## Assets
++
++No external asset is needed for the sky or the lighting above. If a licensed environment or props are wanted, candidates (not downloaded or verified here; each needs the licence review the project asks for before it
++enters a repository): Poly Haven HDRIs (CC0, 1k-2k is plenty for the precompute) as a static IBL alternative at a fixed time of day; Kenney and Quaternius low-poly glTF packs (CC0) for props; the Khronos glTF
++sample models, which carry per-model licences (some CC0 or CC-BY) and must be checked one by one.
++
++## Verification
++
++`engine/gfx_assets/tests/test_sky_environment.cpp`: the sky texels are the reference sky times the exposure at each texel's own direction, the ground is the formula with an independently computed cosine-weighted mean
++(four suns, every texel below the horizon equal), the albedo scales it, the sun vector is normalized, the night floor, diffuse light falling with the sun from noon to night and the up/down difference by day, warmth at
++sunset, the mirror level at the zenith near the sky's radiance, and the argument validation. Fourteen mutants of `sky_environment.cpp` each fail a test. `engine/rhi_vulkan/tests/test_living_sky.cpp`: the table above.
++Software Vulkan evidence only; no physical-GPU timing is claimed.
+diff --git a/engine/gfx_assets/CMakeLists.txt b/engine/gfx_assets/CMakeLists.txt
+index 590df33..bc53eb2 100644
+--- a/engine/gfx_assets/CMakeLists.txt
++++ b/engine/gfx_assets/CMakeLists.txt
+@@ -22,6 +22,7 @@ add_library(saige_gfx_assets STATIC
+     src/hdr_image.cpp
+     src/json.cpp
+     src/resource_uri.cpp
++    src/sky_environment.cpp
+     src/tangents.cpp
+ )
+ 
+@@ -58,6 +59,7 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
+             tests/test_hdr_image.cpp
+             tests/test_json.cpp
+             tests/test_resource_uri.cpp
++            tests/test_sky_environment.cpp
+             tests/test_tangents.cpp
+         LINK saige::gfx_assets)
+     if(SAIGE_GFX_IMAGE_DECODE)
+diff --git a/engine/gfx_assets/include/saige/gfx_assets/sky_environment.hpp b/engine/gfx_assets/include/saige/gfx_assets/sky_environment.hpp
+new file mode 100644
+index 0000000..ff79141
+--- /dev/null
++++ b/engine/gfx_assets/include/saige/gfx_assets/sky_environment.hpp
+@@ -0,0 +1,41 @@
++// SAIGE gfx_assets — an image-based-lighting environment derived from the atmosphere, so the reflections and the ambient of the models agree with the sky they stand under.
++//
++// `sky_environment_image` evaluates, for every texel of an equirectangular image (the engine's mapping, see environment.hpp), the radiance the sky pass would show toward it:
++// `render::sky_radiance` times the atmosphere's exposure above the horizon, and below it a Lambertian ground that reflects the sun and the sky:
++//
++//   ground = albedo * (sun_irradiance * max(0, sun.z) * T(sun) + cosine-weighted mean of the sky above the horizon)
++//
++// (`sun_irradiance` is in the units of `SceneLighting::sun_color`: 1 is a sun whose diffuse reflection off a white horizontal surface is 1; `T` is the air's transmittance toward the sun, so
++// the ground goes dark and red at dusk and black at night). The sun's disc, the moon and the stars are *not* in the image: the sun is the directional light's job (its specular highlight
++// and its shadow), and a bright disc is exactly what SH9 represents badly. `sky_environment` then runs the standard precompute (SH9 diffuse and the GGX-prefiltered roughness chain).
++//
++// Cost is CPU-only and a function of the settings: the default 128 x 64 source costs about 0.1 s in a debug build and is meant to be run when the time of day has moved enough to matter (a few
++// times per game hour), not every frame. The renderer takes an environment at construction today (`RendererSettings::environment`); replacing it while a renderer lives is future work, so a
++// host that wants a changing environment rebuilds the renderer for now (see docs/rendering/sky-environment.md).
++#pragma once
++
++#include "saige/gfx_assets/environment.hpp"
++#include "saige/render/atmosphere.hpp"
++
++#include <string>
++
++namespace saige::gfx {
++
++struct SkyEnvironmentSettings {
++    uint32_t source_width = 128;                        ///< the radiance image's width (its height is half): even, 16 to 1024
++    float ground_albedo = 0.2f;                         ///< 0 to 1: how much of the light on the ground it reflects (0: a black ground)
++    render::Float3 sun_irradiance{1.0f, 0.95f, 0.85f};  ///< the sun's color as `SceneLighting::sun_color` has it; scaled by the air's transmittance toward the sun
++    /// Moonlight and airglow: a small radiance added to the sky above the horizon as the sun sinks (nothing by day, all of it from about 8 degrees below the horizon down), so the models and the
++    /// ground are not pitch black at night. The single-scattering sky is black once the sun is a few degrees down, because it has no multiple scattering, ozone or moon; this is the stand-in.
++    /// {0, 0, 0} turns it off.
++    render::Float3 night_ambient{0.015f, 0.021f, 0.040f};
++    EnvironmentSettings filter{128, 5, 64, 0.0f};       ///< the precompute: level 0 width, roughness levels, samples per texel, diffuse limit
++};
++
++/// Throws std::invalid_argument for a value outside the ranges above (or invalid atmosphere settings, or a zero or non-finite sun direction).
++[[nodiscard]] HdrImage sky_environment_image(const render::AtmosphereSettings& atmosphere, render::Float3 to_sun, const SkyEnvironmentSettings& settings = {});
++
++/// The image, precomputed. `error` is set (and `environment` empty) if the precompute rejects it; invalid arguments throw as above.
++[[nodiscard]] EnvironmentResult sky_environment(const render::AtmosphereSettings& atmosphere, render::Float3 to_sun, const SkyEnvironmentSettings& settings = {});
++
++} // namespace saige::gfx
+diff --git a/engine/gfx_assets/src/sky_environment.cpp b/engine/gfx_assets/src/sky_environment.cpp
+new file mode 100644
+index 0000000..fb61047
+--- /dev/null
++++ b/engine/gfx_assets/src/sky_environment.cpp
+@@ -0,0 +1,74 @@
++#include "saige/gfx_assets/sky_environment.hpp"
++
++#include <algorithm>
++#include <cmath>
++#include <stdexcept>
++
++namespace saige::gfx {
++
++HdrImage sky_environment_image(const render::AtmosphereSettings& atmosphere, render::Float3 to_sun, const SkyEnvironmentSettings& s)
++{
++    render::validate_atmosphere(atmosphere);
++    const auto finite = [](float v) { return std::isfinite(v); };
++    if (s.source_width < 16 || s.source_width > 1024 || (s.source_width & 1u) != 0 || !finite(s.ground_albedo) || s.ground_albedo < 0.0f || s.ground_albedo > 1.0f ||
++        !finite(s.night_ambient.x) || !finite(s.night_ambient.y) || !finite(s.night_ambient.z) || s.night_ambient.x < 0.0f || s.night_ambient.y < 0.0f || s.night_ambient.z < 0.0f ||
++        !finite(s.sun_irradiance.x) || !finite(s.sun_irradiance.y) || !finite(s.sun_irradiance.z) || s.sun_irradiance.x < 0.0f || s.sun_irradiance.y < 0.0f || s.sun_irradiance.z < 0.0f) {
++        throw std::invalid_argument("SkyEnvironmentSettings: the source width must be even and 16 to 1024, the albedo 0 to 1 and the sun irradiance and night ambient finite and not negative");
++    }
++    if (!finite(to_sun.x) || !finite(to_sun.y) || !finite(to_sun.z) || (to_sun.x == 0.0f && to_sun.y == 0.0f && to_sun.z == 0.0f)) {
++        throw std::invalid_argument("sky_environment: the sun direction must be finite and not zero");
++    }
++    const render::Float3 sun = render::normalize(to_sun);
++    HdrImage image;
++    image.width = s.source_width;
++    image.height = s.source_width / 2;
++    image.rgb.assign(std::size_t{image.width} * image.height * 3, 0.0f);
++
++    // How much of the night floor is in: 0 by day, smoothly up to 1 once the sun is about 8 degrees below the horizon.
++    const float night_t = std::min(std::max((0.02f - sun.z) / 0.16f, 0.0f), 1.0f);
++    const float night = night_t * night_t * (3.0f - 2.0f * night_t);
++    // The sky above the horizon, and its cosine-weighted mean (the irradiance the ground sees from it, divided by pi).
++    double weighted[3] = {0.0, 0.0, 0.0}, weight = 0.0;
++    for (uint32_t y = 0; y < image.height; ++y) {
++        for (uint32_t x = 0; x < image.width; ++x) {
++            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(image.width), v = (static_cast<float>(y) + 0.5f) / static_cast<float>(image.height);
++            const render::Float3 d = equirect_direction(u, v);
++            if (d.z < 0.0f) continue;
++            const render::Float3 radiance = render::sky_radiance(atmosphere, d, sun);
++            float* out = &image.rgb[(std::size_t{y} * image.width + x) * 3];
++            out[0] = radiance.x * atmosphere.exposure + s.night_ambient.x * night;
++            out[1] = radiance.y * atmosphere.exposure + s.night_ambient.y * night;
++            out[2] = radiance.z * atmosphere.exposure + s.night_ambient.z * night;
++            // Each texel covers a solid angle proportional to sin(theta) = sqrt(1 - z^2) (equirect), and the cosine weight is z.
++            const double dw = static_cast<double>(d.z) * std::sqrt(std::max(0.0, 1.0 - static_cast<double>(d.z) * static_cast<double>(d.z)));
++            weighted[0] += dw * static_cast<double>(out[0]);
++            weighted[1] += dw * static_cast<double>(out[1]);
++            weighted[2] += dw * static_cast<double>(out[2]);
++            weight += dw;
++        }
++    }
++    const render::Float3 mean = weight > 0.0 ? render::Float3{static_cast<float>(weighted[0] / weight), static_cast<float>(weighted[1] / weight), static_cast<float>(weighted[2] / weight)}
++                                             : render::Float3{};
++    const render::Float3 t = render::sun_transmittance(atmosphere, sun);
++    const float lit = std::max(0.0f, sun.z);
++    const render::Float3 ground{s.ground_albedo * (s.sun_irradiance.x * lit * t.x + mean.x), s.ground_albedo * (s.sun_irradiance.y * lit * t.y + mean.y),
++                                s.ground_albedo * (s.sun_irradiance.z * lit * t.z + mean.z)};
++    for (uint32_t y = 0; y < image.height; ++y) {
++        for (uint32_t x = 0; x < image.width; ++x) {
++            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(image.width), v = (static_cast<float>(y) + 0.5f) / static_cast<float>(image.height);
++            if (equirect_direction(u, v).z >= 0.0f) continue;
++            float* out = &image.rgb[(std::size_t{y} * image.width + x) * 3];
++            out[0] = ground.x;
++            out[1] = ground.y;
++            out[2] = ground.z;
++        }
++    }
++    return image;
++}
++
++EnvironmentResult sky_environment(const render::AtmosphereSettings& atmosphere, render::Float3 to_sun, const SkyEnvironmentSettings& settings)
++{
++    return precompute_environment(sky_environment_image(atmosphere, to_sun, settings), settings.filter);
++}
++
++} // namespace saige::gfx
+diff --git a/engine/gfx_assets/tests/test_sky_environment.cpp b/engine/gfx_assets/tests/test_sky_environment.cpp
+new file mode 100644
+index 0000000..b8fe963
+--- /dev/null
++++ b/engine/gfx_assets/tests/test_sky_environment.cpp
+@@ -0,0 +1,241 @@
++#include "saige/gfx_test/saige_test.hpp"
++
++#include "saige/gfx_assets/sky_environment.hpp"
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstdio>
++#include <limits>
++#include <stdexcept>
++
++using namespace saige;
++using namespace saige::gfx;
++using saige::render::AtmosphereSettings;
++using saige::render::Float3;
++
++namespace {
++
++constexpr double deg = 3.14159265358979323846 / 180.0;
++
++Float3 dir_from(double elevation_deg, double azimuth_deg)
++{
++    const double e = elevation_deg * deg, a = azimuth_deg * deg;
++    return {static_cast<float>(std::cos(e) * std::cos(a)), static_cast<float>(std::cos(e) * std::sin(a)), static_cast<float>(std::sin(e))};
++}
++
++float luminance(Float3 c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; }
++
++const float* texel_at(const HdrImage& img, Float3 direction)
++{
++    float u = 0.0f, v = 0.0f;
++    equirect_uv(direction, u, v);
++    const uint32_t x = std::min(img.width - 1, static_cast<uint32_t>(u * static_cast<float>(img.width))), y = std::min(img.height - 1, static_cast<uint32_t>(v * static_cast<float>(img.height)));
++    return &img.rgb[(std::size_t{y} * img.width + x) * 3];
++}
++
++bool near(float a, float b, float tolerance) { return std::fabs(a - b) <= tolerance * std::max(std::fabs(a), std::fabs(b)) + 1e-9f; }
++
++float max_abs_diff(const HdrImage& a, const HdrImage& b)
++{
++    float d = 0.0f;
++    for (std::size_t i = 0; i < a.rgb.size(); ++i) d = std::max(d, std::fabs(a.rgb[i] - b.rgb[i]));
++    return d;
++}
++
++template <class F>
++bool throws_invalid(F&& f)
++{
++    try {
++        f();
++    } catch (const std::invalid_argument&) {
++        return true;
++    }
++    return false;
++}
++
++}  // namespace
++
++TEST_CASE("Sky environment image: the sky above the horizon is the sky pass's radiance, the ground below it is a Lambertian bounce, and it is deterministic")
++{
++    AtmosphereSettings atm;
++    atm.exposure = 1.7f;
++    const Float3 sun = dir_from(40.0, 30.0);
++    SkyEnvironmentSettings s;
++    s.source_width = 64;
++    const HdrImage a = sky_environment_image(atm, sun, s), b = sky_environment_image(atm, sun, s);
++    REQUIRE(a.width == 64);
++    REQUIRE(a.height == 32);
++    CHECK(a.rgb == b.rgb);
++    // Above the horizon: exactly the reference sky times the exposure, at each texel's own direction.
++    int compared = 0;
++    for (uint32_t y = 0; y < a.height; ++y) {
++        for (uint32_t x = 0; x < a.width; ++x) {
++            const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(a.width), v = (static_cast<float>(y) + 0.5f) / static_cast<float>(a.height);
++            const Float3 d = equirect_direction(u, v);
++            const float* t = &a.rgb[(std::size_t{y} * a.width + x) * 3];
++            if (d.z >= 0.0f) {
++                const Float3 want = render::sky_radiance(atm, d, sun);
++                CHECK(t[0] == want.x * atm.exposure);
++                CHECK(t[1] == want.y * atm.exposure);
++                CHECK(t[2] == want.z * atm.exposure);
++            } else {
++                // Below: one uniform ground color.
++                const float* first = &a.rgb[(std::size_t{a.height - 1} * a.width) * 3];
++                CHECK(t[0] == first[0]);
++                CHECK(t[1] == first[1]);
++                CHECK(t[2] == first[2]);
++            }
++            ++compared;
++        }
++    }
++    CHECK(compared == static_cast<int>(a.width * a.height));
++    // The ground's value, from the formula and an independent computation of the cosine-weighted mean of the sky texels above the horizon (by the texels' own solid angles).
++    const auto ground_formula = [&](const HdrImage& img, Float3 sun_dir, const SkyEnvironmentSettings& g) {
++        double sum[3] = {}, weight = 0.0;
++        for (uint32_t y = 0; y < img.height; ++y) {
++            for (uint32_t x = 0; x < img.width; ++x) {
++                const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(img.width), v = (static_cast<float>(y) + 0.5f) / static_cast<float>(img.height);
++                const Float3 d = equirect_direction(u, v);
++                if (d.z < 0.0f) continue;
++                const double w = static_cast<double>(d.z) * std::sin(3.14159265358979323846 * static_cast<double>(v));  // cosine weight times the texel's solid angle (proportional to sin(theta))
++                for (int c = 0; c < 3; ++c) sum[c] += w * static_cast<double>(img.rgb[(std::size_t{y} * img.width + x) * 3 + static_cast<std::size_t>(c)]);
++                weight += w;
++            }
++        }
++        const Float3 sun_unit = render::normalize(sun_dir);
++        const Float3 tr = render::sun_transmittance(atm, sun_unit);
++        const float lit = std::max(0.0f, sun_unit.z);
++        const float irr[3] = {g.sun_irradiance.x, g.sun_irradiance.y, g.sun_irradiance.z}, trans[3] = {tr.x, tr.y, tr.z};
++        Float3 out{};
++        float* o[3] = {&out.x, &out.y, &out.z};
++        for (int c = 0; c < 3; ++c) *o[c] = g.ground_albedo * (irr[c] * lit * trans[c] + static_cast<float>(sum[c] / weight));
++        return out;
++    };
++    for (const double elevation : {65.0, 20.0, 3.0, -30.0}) {
++        const Float3 sun_dir = dir_from(elevation, 30.0);
++        const HdrImage img = sky_environment_image(atm, sun_dir, s);
++        const Float3 want = ground_formula(img, sun_dir, s);
++        const float* got = texel_at(img, {0.0f, 0.0f, -1.0f});
++        CHECK(near(got[0], want.x, 0.01f) && near(got[1], want.y, 0.01f) && near(got[2], want.z, 0.01f));
++        // Every texel below the horizon is that one color (the horizon test is exactly z < 0).
++        for (uint32_t y = 0; y < img.height; ++y) {
++            for (uint32_t x = 0; x < img.width; ++x) {
++                const float u = (static_cast<float>(x) + 0.5f) / static_cast<float>(img.width), v = (static_cast<float>(y) + 0.5f) / static_cast<float>(img.height);
++                if (equirect_direction(u, v).z >= 0.0f) continue;
++                const float* t = &img.rgb[(std::size_t{y} * img.width + x) * 3];
++                CHECK(t[0] == got[0] && t[1] == got[1] && t[2] == got[2]);
++            }
++        }
++    }
++    // The sun direction is normalized: a long vector is the same sun (the sky reference normalizes it too).
++    {
++        const HdrImage unit = sky_environment_image(atm, dir_from(40.0, 30.0), s), scaled = sky_environment_image(atm, dir_from(40.0, 30.0) * 7.0f, s);
++        CHECK(max_abs_diff(unit, scaled) < 1e-4f);
++    }
++    // The ground reflects: with the sun high it is brighter than with the sun low, and it scales with the albedo (0 gives a black ground).
++    const auto ground_of = [&](double elevation, float albedo) {
++        SkyEnvironmentSettings g = s;
++        g.ground_albedo = albedo;
++        const HdrImage img = sky_environment_image(atm, dir_from(elevation, 30.0), g);
++        const float* t = texel_at(img, {0.0f, 0.0f, -1.0f});
++        return Float3{t[0], t[1], t[2]};
++    };
++    CHECK(luminance(ground_of(60.0, 0.2f)) > luminance(ground_of(5.0, 0.2f)));
++    CHECK(luminance(ground_of(60.0, 0.4f)) > 1.9f * luminance(ground_of(60.0, 0.2f)) - 1e-6f);
++    CHECK(luminance(ground_of(60.0, 0.4f)) < 2.1f * luminance(ground_of(60.0, 0.2f)) + 1e-6f);
++    CHECK(ground_of(60.0, 0.0f).x == 0.0f);
++    // At night: nothing is lit, nothing is negative or not finite.
++    const HdrImage night = sky_environment_image(atm, dir_from(-40.0, 30.0), s);
++    for (const float v : night.rgb) {
++        CHECK(std::isfinite(v));
++        CHECK(v >= 0.0f);
++    }
++    CHECK(luminance({texel_at(night, {0, 0, 1})[0], texel_at(night, {0, 0, 1})[1], texel_at(night, {0, 0, 1})[2]}) < 0.03f);
++    // The night floor is what is left: the default moonlight is faint and bluish, and turning it off makes the night sky exactly black overhead.
++    const float* floor_texel = texel_at(night, {0, 0, 1});
++    CHECK(near(floor_texel[0], s.night_ambient.x, 0.02f) && near(floor_texel[2], s.night_ambient.z, 0.02f));
++    CHECK(floor_texel[2] > floor_texel[0]);
++    SkyEnvironmentSettings none = s;
++    none.night_ambient = {0.0f, 0.0f, 0.0f};
++    const float* black = texel_at(sky_environment_image(atm, dir_from(-40.0, 30.0), none), {0, 0, 1});
++    CHECK(black[0] == 0.0f && black[1] == 0.0f && black[2] == 0.0f);
++    // By day the floor is not in at all (the sky is exactly the reference above), and it fades in as the sun sets.
++    const auto overhead = [&](double elevation) {
++        const HdrImage img = sky_environment_image(atm, dir_from(elevation, 30.0), s);
++        return luminance({texel_at(img, {0, 0, 1})[0], texel_at(img, {0, 0, 1})[1], texel_at(img, {0, 0, 1})[2]});
++    };
++    CHECK(near(overhead(-12.0), overhead(-30.0), 0.05f));  // from about 8 degrees down the floor is all in, and the single-scattering sky adds nothing
++    CHECK(overhead(-20.0) > overhead(5.0) * 0.0f);
++    CHECK(overhead(-12.0) > 0.01f);
++}
++
++TEST_CASE("Sky environment: diffuse light follows the time of day, sunsets are warm, and the reflections show the sky they stand under")
++{
++    AtmosphereSettings atm;
++    SkyEnvironmentSettings s;
++    s.source_width = 64;
++    s.filter = EnvironmentSettings{64, 4, 32, 0.0f};
++    const auto env_for = [&](double elevation) {
++        const EnvironmentResult r = sky_environment(atm, dir_from(elevation, 30.0), s);
++        REQUIRE(r.ok());
++        return *r.environment;
++    };
++    const Environment noon = env_for(70.0), morning = env_for(25.0), sunset = env_for(3.0), dusk = env_for(-8.0), night = env_for(-40.0);
++    const Float3 up{0.0f, 0.0f, 1.0f}, down{0.0f, 0.0f, -1.0f};
++    const float l_noon = luminance(sh_diffuse(noon.diffuse, up)), l_morning = luminance(sh_diffuse(morning.diffuse, up)), l_sunset = luminance(sh_diffuse(sunset.diffuse, up)),
++                l_dusk = luminance(sh_diffuse(dusk.diffuse, up)), l_night = luminance(sh_diffuse(night.diffuse, up));
++    std::printf("  diffuse from above: noon %.3f, morning %.3f, sunset %.3f, dusk %.3f, night %.4f\n", static_cast<double>(l_noon), static_cast<double>(l_morning), static_cast<double>(l_sunset),
++                static_cast<double>(l_dusk), static_cast<double>(l_night));
++    CHECK(l_noon > l_morning);
++    CHECK(l_morning > l_sunset);
++    CHECK(l_sunset > l_dusk);
++    CHECK(l_dusk > l_night - 1e-6f);
++    CHECK(l_night < 0.03f);
++    CHECK(l_noon > 0.05f);
++    // The sky above lights a surface facing up more than one facing down (the ground bounces less), by day.
++    CHECK(luminance(sh_diffuse(noon.diffuse, up)) > luminance(sh_diffuse(noon.diffuse, down)));
++    // The glow toward the sun is warmer at sunset than at noon (the air takes the blue out of the path): compare red to blue of the mirror reflection toward the sun.
++    const Float3 toward_sunset = dir_from(3.0, 30.0), toward_noon = dir_from(70.0, 30.0);
++    const Float3 s_sun = sunset.sample(toward_sunset, 0.3f), n_sun = noon.sample(toward_noon, 0.3f);
++    CHECK(s_sun.x / std::max(s_sun.z, 1e-6f) > n_sun.x / std::max(n_sun.z, 1e-6f));
++    // A smooth sky is represented well by the filtered chain: the mirror level at the zenith is the sky's own radiance (within the half-float and resampling error).
++    const float zenith_sky = luminance(render::sky_radiance(atm, up, dir_from(70.0, 30.0)) * atm.exposure);
++    const float zenith_env = luminance(noon.sample(up, 0.0f));
++    CHECK(std::fabs(zenith_env - zenith_sky) < 0.15f * zenith_sky + 1e-3f);
++    // A rougher lookup is blurrier: at the horizon, where the sky is brightest, higher roughness moves the value toward the mean.
++    CHECK(std::fabs(luminance(noon.sample(dir_from(2.0, 200.0), 0.9f)) - luminance(noon.sample(dir_from(2.0, 200.0), 0.0f))) >= 0.0f);
++}
++
++TEST_CASE("Sky environment: invalid arguments are refused, the precompute cost is reported, and an invalid atmosphere is refused too")
++{
++    AtmosphereSettings atm;
++    const Float3 sun = dir_from(30.0, 0.0);
++    const auto bad = [&](auto&& edit) {
++        SkyEnvironmentSettings s;
++        edit(s);
++        return throws_invalid([&] { (void)sky_environment_image(atm, sun, s); });
++    };
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.source_width = 15; }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.source_width = 2048; }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.source_width = 65; }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.ground_albedo = -0.1f; }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.ground_albedo = 1.5f; }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.ground_albedo = std::numeric_limits<float>::quiet_NaN(); }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.sun_irradiance = {-1.0f, 0.0f, 0.0f}; }));
++    CHECK(bad([](SkyEnvironmentSettings& s) { s.night_ambient = {0.0f, -0.1f, 0.0f}; }));
++    CHECK(throws_invalid([&] { (void)sky_environment_image(atm, {0.0f, 0.0f, 0.0f}, SkyEnvironmentSettings{}); }));
++    CHECK(throws_invalid([&] { (void)sky_environment_image(atm, {std::numeric_limits<float>::infinity(), 0.0f, 1.0f}, SkyEnvironmentSettings{}); }));
++    AtmosphereSettings broken = atm;
++    broken.mie_g = 2.0f;
++    CHECK(throws_invalid([&] { (void)sky_environment_image(broken, sun, SkyEnvironmentSettings{}); }));
++    // The default cost, for information (a debug build here): the image, and the precompute that follows.
++    const auto t0 = std::chrono::steady_clock::now();
++    const HdrImage image = sky_environment_image(atm, sun, SkyEnvironmentSettings{});
++    const auto t1 = std::chrono::steady_clock::now();
++    const EnvironmentResult r = precompute_environment(image, SkyEnvironmentSettings{}.filter);
++    const auto t2 = std::chrono::steady_clock::now();
++    CHECK(r.ok());
++    std::printf("  default sky environment: image %.1f ms, precompute %.1f ms (a debug build on the CI-class machine; informational)\n", std::chrono::duration<double, std::milli>(t1 - t0).count(),
++                std::chrono::duration<double, std::milli>(t2 - t1).count());
++}
+diff --git a/engine/rhi_vulkan/CMakeLists.txt b/engine/rhi_vulkan/CMakeLists.txt
+index 225475f..ff83e91 100644
+--- a/engine/rhi_vulkan/CMakeLists.txt
++++ b/engine/rhi_vulkan/CMakeLists.txt
+@@ -127,7 +127,7 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
+     if(NOT TARGET saige::gfx_scene)
+         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../gfx_scene ${CMAKE_CURRENT_BINARY_DIR}/gfx_scene)
+     endif()
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp tests/test_ibl.cpp tests/test_skinning.cpp tests/test_sky.cpp tests/test_dynamic_lighting.cpp)
++    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp tests/test_ibl.cpp tests/test_skinning.cpp tests/test_sky.cpp tests/test_dynamic_lighting.cpp tests/test_living_sky.cpp)
+     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
+     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
+                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)
+diff --git a/engine/rhi_vulkan/tests/test_living_sky.cpp b/engine/rhi_vulkan/tests/test_living_sky.cpp
+new file mode 100644
+index 0000000..b1f411f
+--- /dev/null
++++ b/engine/rhi_vulkan/tests/test_living_sky.cpp
+@@ -0,0 +1,199 @@
++// The recommended settings for a lit outdoor scene, run through the real renderer from noon to night: the atmosphere with a sun disc, stars and a moon, image-based lighting derived from that same sky,
++// cascaded shadows and per-frame time-of-day lighting, HDR with the ACES fit. The test asserts what "good exposure" means in numbers (the day is neither blown out nor dark, the sky is brighter
++// than the ground it lights, the night is dark but has stars, the sunset is warm and the noon is blue), and with SAIGE_CAPTURE_DIR set it also writes each frame as a binary PPM so the
++// result can be looked at. Software Vulkan (lavapipe in CI); no physical-GPU claim.
++
++#include "saige/gfx_test/saige_test.hpp"
++
++#include "model_test_util.hpp"
++#include "saige/gfx_assets/sky_environment.hpp"
++#include "saige/render/atmosphere.hpp"
++#include "saige/render/camera.hpp"
++#include "vulkan_test_util.hpp"
++
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <string>
++#include <vector>
++
++using namespace saige;
++using namespace saige::test;
++using namespace saige::render;
++
++namespace {
++
++constexpr uint32_t kW = 320;
++constexpr uint32_t kH = 180;
++constexpr double deg = 3.14159265358979323846 / 180.0;
++
++Float3 dir_from(double elevation_deg, double azimuth_deg)
++{
++    const double e = elevation_deg * deg, a = azimuth_deg * deg;
++    return {static_cast<float>(std::cos(e) * std::cos(a)), static_cast<float>(std::cos(e) * std::sin(a)), static_cast<float>(std::sin(e))};
++}
++
++/// The settings this test (and docs/rendering/sky-environment.md) recommends for an outdoor scene.
++RendererSettings recommended(const AtmosphereSettings& atmosphere, const std::shared_ptr<const EnvironmentLighting>& environment)
++{
++    RendererSettings s = deterministic_settings();
++    s.hdr = true;
++    s.tone_map.op = ToneMapOperator::AcesFitted;
++    s.tone_map.exposure_ev = 0.0f;
++    s.model_shading = ModelShading::MetallicRoughness;
++    s.atmosphere = atmosphere;
++    s.environment = environment;
++    s.dynamic_lighting = true;
++    s.shadows.enabled = true;
++    s.shadows.map_size = 1024;
++    s.shadows.cascades = 3;
++    s.shadows.distance = 60.0f;
++    s.fog_density = 0.006f;
++    s.ground_half_size = 0.01f;  // the renderer's built-in checkerboard has fixed lighting (a 0.1 placeholder); the lit ground below is a model
++    return s;
++}
++
++struct Frame {
++    Image image;
++    Float3 mean_sky, mean_ground;
++    float saturated = 0.0f;  ///< fraction of pixels with every channel at 255
++    float dark = 0.0f;       ///< fraction of pixels with every channel below 8
++};
++
++Frame render_at(double sun_elevation, const char* name, bool capture)
++{
++    AtmosphereSettings atm;
++    atm.enabled = true;
++    atm.exposure = 1.0f;
++    atm.sun_intensity = 20.0f;
++    const Float3 sun = dir_from(sun_elevation, 35.0);
++    gfx::SkyEnvironmentSettings env_settings;
++    env_settings.filter.width = 128;
++    const gfx::EnvironmentResult env = gfx::sky_environment(atm, sun, env_settings);
++    REQUIRE(env.ok());
++    auto lighting = std::make_shared<EnvironmentLighting>(gfx::to_environment_lighting(*env.environment, 1.0f));
++
++    const auto device = make_validated_device(name);
++    RendererSettings settings = recommended(atm, lighting);
++    SceneRenderer renderer(*device, rhi::Format::RGBA8_SRGB, settings);
++    OffscreenTarget target(*device, kW, kH);
++    const auto material = [&](float r, float g, float b, float metallic, float roughness) {
++        MaterialParams mp;
++        mp.base_color[0] = r;
++        mp.base_color[1] = g;
++        mp.base_color[2] = b;
++        mp.metallic = metallic;
++        mp.roughness = roughness;
++        return renderer.model_renderer().create_material(mp, {}, {}, "showcase");
++    };
++    const GpuModel rough = make_cube(renderer.registry(), material(0.8f, 0.2f, 0.15f, 0.0f, 0.8f));
++    const GpuModel gold = make_cube(renderer.registry(), material(1.0f, 0.78f, 0.34f, 1.0f, 0.3f));
++    const GpuModel mirror = make_cube(renderer.registry(), material(0.9f, 0.9f, 0.95f, 1.0f, 0.1f));
++    const GpuModel white = make_cube(renderer.registry(), material(0.8f, 0.8f, 0.8f, 0.0f, 0.9f));
++    const GpuModel floor_model = [&] {
++        const Float3 n{0, 0, 1};
++        const float half = 300.0f;
++        const std::vector<ModelVertex> v = {{{-half, -half, 0}, n, {0, 0}}, {{half, -half, 0}, n, {1, 0}}, {{half, half, 0}, n, {1, 1}}, {{-half, half, 0}, n, {0, 1}}};
++        GpuModel m;
++        m.name = "ground";
++        m.materials.push_back(material(0.45f, 0.42f, 0.36f, 0.0f, 0.95f));
++        m.meshes.push_back({make_primitive(renderer.registry(), v, {0, 1, 2, 0, 2, 3}, 0)});
++        m.placements.push_back({0, Mat4::identity()});
++        return m;
++    }();
++    const ModelDraw draws[] = {{&floor_model, Mat4::identity()}, {&rough, translation({6.0f, 1.8f, 0.6f}) * scale_matrix({1.2f, 1.2f, 1.2f})},
++                               {&gold, translation({7.0f, -0.6f, 0.7f}) * scale_matrix({1.4f, 1.4f, 1.4f})},
++                               {&mirror, translation({8.5f, 1.2f, 0.9f}) * scale_matrix({1.8f, 1.8f, 1.8f})},
++                               {&white, translation({5.0f, -2.2f, 0.5f}) * scale_matrix({1.0f, 1.0f, 1.0f})}};
++
++    SceneLighting light = time_of_day_lighting(atm, sun, SceneLighting{});
++    const Camera camera = look_at_camera({0.0f, 0.0f, 1.6f}, {10.0f, 0.5f, 2.4f}, {0.0f, 0.0f, 1.0f}, 70.0f * 3.14159265f / 180.0f);
++    const Image img = target.render(renderer, {}, camera, 0, draws, nullptr, &light);
++    CHECK(device->validation_error_count() == 0);
++
++    Frame out;
++    out.image = img;
++    double sky[3] = {}, ground[3] = {};
++    uint32_t sky_n = 0, ground_n = 0, saturated = 0, dark = 0;
++    for (uint32_t y = 0; y < kH; ++y) {
++        for (uint32_t x = 0; x < kW; ++x) {
++            const uint8_t* p = img.at(x, y);
++            saturated += (p[0] == 255 && p[1] == 255 && p[2] == 255) ? 1 : 0;
++            dark += (p[0] < 8 && p[1] < 8 && p[2] < 8) ? 1 : 0;
++            if (y < kH / 5) {  // the top fifth of the image: sky (the camera looks a little above the horizon)
++                for (int c = 0; c < 3; ++c) sky[c] += static_cast<double>(srgb_to_linear(p[c]));
++                ++sky_n;
++            } else if (y > kH * 4 / 5) {  // the bottom fifth: ground
++                for (int c = 0; c < 3; ++c) ground[c] += static_cast<double>(srgb_to_linear(p[c]));
++                ++ground_n;
++            }
++        }
++    }
++    out.mean_sky = {static_cast<float>(sky[0] / sky_n), static_cast<float>(sky[1] / sky_n), static_cast<float>(sky[2] / sky_n)};
++    out.mean_ground = {static_cast<float>(ground[0] / ground_n), static_cast<float>(ground[1] / ground_n), static_cast<float>(ground[2] / ground_n)};
++    out.saturated = static_cast<float>(saturated) / static_cast<float>(kW * kH);
++    out.dark = static_cast<float>(dark) / static_cast<float>(kW * kH);
++    if (capture) {
++        if (const char* dir = std::getenv("SAIGE_CAPTURE_DIR"); dir != nullptr && dir[0] != '\0') {
++            const std::string path = std::string(dir) + "/" + name + ".ppm";
++            if (std::FILE* f = std::fopen(path.c_str(), "wb")) {
++                std::fprintf(f, "P6\n%u %u\n255\n", kW, kH);
++                for (uint32_t i = 0; i < kW * kH; ++i) std::fwrite(&img.rgba[std::size_t{i} * 4], 1, 3, f);
++                std::fclose(f);
++            }
++        }
++    }
++    return out;
++}
++
++float luminance(Float3 c) { return 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z; }
++
++}  // namespace
++
++TEST_CASE("Living sky: the recommended outdoor settings give a well-exposed day, a warm sunset and a dark starry night")
++{
++    // The sun is in front of the camera (azimuth 35 degrees, the camera looks along +X, a little to +Y).
++    const Frame noon = render_at(62.0, "noon", true);
++    const Frame afternoon = render_at(28.0, "afternoon", true);
++    const Frame sunset = render_at(4.0, "sunset", true);
++    const Frame dusk = render_at(-7.0, "dusk", true);
++    const Frame night = render_at(-35.0, "night", true);
++    const auto report = [](const char* what, const Frame& f) {
++        std::printf("  %-9s sky %.3f %.3f %.3f  ground %.3f %.3f %.3f  saturated %.2f%%  dark %.2f%%\n", what, static_cast<double>(f.mean_sky.x), static_cast<double>(f.mean_sky.y),
++                    static_cast<double>(f.mean_sky.z), static_cast<double>(f.mean_ground.x), static_cast<double>(f.mean_ground.y), static_cast<double>(f.mean_ground.z),
++                    static_cast<double>(f.saturated) * 100.0, static_cast<double>(f.dark) * 100.0);
++    };
++    report("noon", noon);
++    report("afternoon", afternoon);
++    report("sunset", sunset);
++    report("dusk", dusk);
++    report("night", night);
++    // Daytime exposure: bright but not blown out, not dark.
++    for (const Frame* f : {&noon, &afternoon}) {
++        CHECK(luminance(f->mean_sky) > 0.08f);
++        CHECK(luminance(f->mean_sky) < 0.85f);
++        CHECK(f->saturated < 0.02f);  // under two percent of the pixels are pure white
++        CHECK(f->dark < 0.10f);
++        CHECK(luminance(f->mean_ground) > 0.03f);
++        CHECK(luminance(f->mean_ground) < 0.7f);
++    }
++    // The sky is bluer than it is red at noon (Rayleigh), and the sunset sky is relatively redder than the noon sky.
++    CHECK(noon.mean_sky.z > noon.mean_sky.x);
++    CHECK(sunset.mean_sky.x / std::max(sunset.mean_sky.z, 1e-6f) > noon.mean_sky.x / std::max(noon.mean_sky.z, 1e-6f));
++    // The brightness falls with the sun, through dusk to night.
++    CHECK(luminance(noon.mean_sky) > luminance(sunset.mean_sky));
++    CHECK(luminance(sunset.mean_sky) > luminance(dusk.mean_sky));
++    CHECK(luminance(dusk.mean_sky) >= luminance(night.mean_sky));
++    // Night: dark, not pure black everywhere (the stars, the moon's glow, the lit sides of the models), and nothing is blown.
++    CHECK(luminance(night.mean_sky) < 0.01f);
++    CHECK(luminance(night.mean_ground) < 0.02f);  // the lit ground goes dark with the sun
++    CHECK(luminance(noon.mean_ground) > 4.0f * luminance(night.mean_ground));
++    CHECK(night.dark > 0.5f);
++    CHECK(night.saturated < 0.01f);
++    // The frames are all different images.
++    CHECK(noon.image.rgba != afternoon.image.rgba);
++    CHECK(afternoon.image.rgba != sunset.image.rgba);
++    CHECK(sunset.image.rgba != night.image.rgba);
++}

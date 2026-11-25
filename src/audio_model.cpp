@@ -100,6 +100,25 @@ void need_nonneg(float x, const char* what) {
 }
 } // namespace
 
+BreakSound break_sound(BreakMaterial material, float severity, float piece_mass_kg, std::uint32_t seed) {
+    if (!std::isfinite(severity) || severity < 1.0f || !std::isfinite(piece_mass_kg) || !(piece_mass_kg > 0.0f)) throw std::invalid_argument("break_sound: severity must be finite and at least 1, the mass finite and positive");
+    BreakSound s;
+    float base_pitch = 1.0f, crack = 0.5f;
+    switch (material) {
+    case BreakMaterial::Glass: s.category = ImpactCategory::Glassy; base_pitch = 1.35f; crack = 0.9f; break;
+    case BreakMaterial::Wood: s.category = ImpactCategory::Wood; base_pitch = 1.0f; crack = 0.7f; break;
+    case BreakMaterial::Stone: s.category = ImpactCategory::Hard; base_pitch = 0.8f; crack = 0.5f; break;
+    case BreakMaterial::Metal: s.category = ImpactCategory::Metal; base_pitch = 0.9f; crack = 0.4f; break;
+    case BreakMaterial::Plastic: s.category = ImpactCategory::Dull; base_pitch = 1.15f; crack = 0.6f; break;
+    }
+    const float sev = std::log10(std::min(severity, 100.0f));      // 0..2
+    const float heavy = std::log10(piece_mass_kg + 1.0f);          // 0 at 0 kg, 1 at 9 kg, 2 at 99 kg
+    s.gain = std::clamp(0.35f + 0.3f * sev + 0.12f * heavy, 0.0f, 1.0f);
+    s.crack = std::clamp(crack * (0.7f + 0.3f * sev), 0.0f, 1.0f);
+    s.pitch = std::clamp(base_pitch - 0.12f * heavy + (hash01(seed) - 0.5f) * 0.08f, 0.5f, 1.8f);
+    return s;
+}
+
 FootstepSound footstep_sound(Surface surface, float speed, float mass_kg, float landing_speed, float slide_speed, std::uint32_t seed) {
     need_nonneg(speed, "footstep_sound: speed");
     need_nonneg(landing_speed, "footstep_sound: landing_speed");

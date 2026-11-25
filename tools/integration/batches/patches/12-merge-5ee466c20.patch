@@ -1,0 +1,19 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4ef68ab..33060b5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -35,13 +35,7 @@ endif()
+ 
+ include(CTest)
+ if(BUILD_TESTING)
+-<<<<<<< ours
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character character_course capsule_triangle static_collision)
+-||||||| base
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle static_collision)
+-=======
+-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle oriented_box wheel_contact static_collision)
+->>>>>>> theirs
++    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character character_course capsule_triangle static_collision oriented_box wheel_contact)
+         add_executable(${suite}_test tests/${suite}_test.cpp)
+         target_link_libraries(${suite}_test PRIVATE saige_core)
+         add_test(NAME ${suite} COMMAND ${suite}_test)

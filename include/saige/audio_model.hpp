@@ -46,7 +46,7 @@ struct EngineAudioFrame {
 // Throws std::invalid_argument for a configuration whose loop speeds are not ascending and positive, a non-positive time or pitch bound, or for non-finite input or a non-positive dt.
 EngineAudioFrame engine_audio(const EngineAudioConfig& config, EngineAudioState& state, float rpm, float throttle, float dt);
 
-enum class ImpactCategory : std::uint8_t { Soft, Hard, Granular, Metal, Glassy, Dull };
+enum class ImpactCategory : std::uint8_t { Soft, Hard, Granular, Metal, Glassy, Dull, Wood };
 
 struct ImpactSound {
     ImpactCategory category = ImpactCategory::Hard;
@@ -57,6 +57,17 @@ struct ImpactSound {
 // The sound of a collision between a car body (or any object whose material is `object`) and a surface, for `energy` joules removed from the object. `object_is_metal` makes the body's own character
 // metal; the surface decides the rest. Below `quiet_energy` the gain is 0 (nothing to play), at `loud_energy` and above it is 1. Throws for non-finite or negative energy.
 [[nodiscard]] ImpactSound impact_sound(Surface surface, bool object_is_metal, float energy, std::uint32_t seed, float quiet_energy = 50.0f, float loud_energy = 100000.0f);
+
+struct BreakSound {
+    ImpactCategory category = ImpactCategory::Wood;
+    float gain = 0.0f;    // 0..1
+    float pitch = 1.0f;
+    float crack = 0.0f;   // 0..1 the strength of the first transient (snap of a plank, the burst of a pane) over the tail of falling pieces
+};
+
+// The sound of a link breaking (include/saige/destruction.hpp): `severity` is the load over the limit (>= 1) and `piece_mass_kg` the lighter piece held. Glass is bright and sharp (high pitch, strong crack), wood
+// dull and lower, stone and metal heavy; harder breaks are louder on a logarithmic scale and heavier pieces lower. Deterministic; throws for non-finite input, a severity below 1 or a non-positive mass.
+[[nodiscard]] BreakSound break_sound(BreakMaterial material, float severity, float piece_mass_kg, std::uint32_t seed);
 
 // ---- Footsteps, tires, water and ambience: the same kind of pure decision, from published simulation state ----
 

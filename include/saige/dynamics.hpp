@@ -83,6 +83,13 @@ struct DMotor {
 
 enum class DConstraintKind : std::uint8_t { Fixed, Hinge, SwingTwist, Distance };
 
+// What a constraint carried in the last step: the magnitude of the force (N) and of the torque (N m) it applied to hold its two bodies in their relation, averaged over the last solver sub-step.
+// This is how a breakable joint knows it is overloaded (include/saige/destruction.hpp). The value is zero for a backend that cannot report it (the default) and for a stale id.
+struct DConstraintLoad {
+    double force = 0.0;
+    double torque = 0.0;
+};
+
 struct DConstraintDesc {
     DConstraintKind kind = DConstraintKind::Hinge;
     BodyId a, b;                         // b may be invalid: a is fixed to the world
@@ -138,6 +145,7 @@ public:
     virtual void set_motor(ConstraintId id, DQuat target, const DMotor& motor) = 0;
     virtual void clear_motor(ConstraintId id) = 0;
     virtual void remove_constraint(ConstraintId id) = 0;
+    [[nodiscard]] virtual DConstraintLoad constraint_load(ConstraintId id) const { (void)id; return {}; }  // additive in 5.8 of the interface; see DConstraintLoad
     [[nodiscard]] virtual DBodyState state(BodyId id) const = 0;
     virtual void set_velocity(BodyId id, DVec linear, DVec angular) = 0;
     virtual void add_impulse(BodyId id, DVec impulse, DVec world_point) = 0;

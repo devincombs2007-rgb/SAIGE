@@ -17,6 +17,7 @@
 #include "saige/render/gpu_resources.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/model.hpp"
+#include "saige/render/skin_palette.hpp"
 #include "saige/rhi/device.hpp"
 
 #include <array>
@@ -78,6 +79,8 @@ struct ModelFrameStats {
     uint32_t blended_primitives = 0; ///< primitives drawn in the sorted blended phase
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
     uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
+    uint32_t skinned_draws = 0;      ///< draw calls of skinned primitives (opaque, sorted and shadow phases together)
+    uint32_t skinned_skipped = 0;    ///< skinned primitives not drawn: skinning is off in this renderer, or the palette has fewer joints than the primitive uses
 };
 
 /// Renderer-local lighting selection. These values also identify the shader modes.
@@ -143,6 +146,10 @@ struct ModelRenderSettings {
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
     bool alpha_blending = false;
+    /// GPU skinning: creates the skinned vertex stages (and their shadow stage with shadows on), the joint palette layout and the skinned pipelines, and
+    /// lets `create_skin_palette` and skinned primitives (`GpuPrimitive::skinned`) work. **Off by default**: off allocates nothing for skinning, and a
+    /// skinned primitive is skipped and counted. The pixel stage is the one of the other settings, so skinning combines freely with shadows and IBL.
+    bool skinning = false;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
     /// Skip primitives whose bounding sphere (`GpuPrimitive::bounds_center`/`bounds_radius`, placed by the instance's world matrix, scaled by its
@@ -195,6 +202,14 @@ public:
     [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }
     [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
     [[nodiscard]] bool ibl_enabled() const noexcept { return ibl_enabled_; }
+    [[nodiscard]] bool skinning_enabled() const noexcept { return skinning_enabled_; }
+    /// Creates the palette of one animated instance with `joint_count` joints (1 to kMaxSkinJoints), initially the bind pose (identity matrices).
+    /// Throws std::logic_error if skinning is off, std::invalid_argument for a bad count. Nothing is leaked on failure.
+    [[nodiscard]] SkinPalette create_skin_palette(uint32_t joint_count, const char* name);
+    /// Throws std::logic_error, changing nothing, if one of these draws' palettes was updated after its first use in the current device frame (see SkinPalette: a palette's
+    /// pose is frozen for the frame once a draw has bound it). `draw` and `draw_shadow` call this before recording anything; `SceneRenderer::render` calls it before building
+    /// its graph, so a refused frame leaves no half-recorded pass behind.
+    void check_palettes_unfrozen(std::span<const ModelDraw> draws) const;
     /// The sun shadow map: a D32_FLOAT texture, valid only when shadows are enabled. The caller (SceneRenderer's render graph) owns its
     /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
     [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }
@@ -223,6 +238,8 @@ public:
 private:
     [[nodiscard]] rhi::PipelineHandle pipeline_for(bool mirrored, bool double_sided) const noexcept;
     void ensure_blend_pipelines();
+    [[nodiscard]] SkinPalette make_palette(uint32_t joint_count, const char* name);
+    [[nodiscard]] rhi::BindGroupHandle palette_group(const SkinPalette& palette);  ///< the palette's bind group for this frame, uploading the pose if stale
     void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
     void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
     [[nodiscard]] rhi::BindGroupHandle constants_group() const noexcept;
@@ -235,6 +252,7 @@ private:
         const GpuMaterial* material = nullptr;
         Mat4 world;
         bool mirrored = false;
+        const SkinPalette* palette = nullptr;  ///< set for a skinned primitive
     };
 
     rhi::Device& device_;
@@ -246,6 +264,15 @@ private:
     rhi::GraphicsPipelineDesc pipeline_template_;  ///< everything but cull, winding and blend, kept to create blend variants lazily
     rhi::PipelineHandle blend_pipelines_[4];       ///< [mirrored][pass]: pass 0 culls back faces (draws front faces), pass 1 culls front faces
     bool blend_pipelines_ready_ = false;
+    // Skinning (all empty when off).
+    bool skinning_enabled_ = false;
+    rhi::ShaderHandle skin_vs_, skin_shadow_vs_;
+    rhi::BindGroupLayoutHandle palette_layout_;
+    rhi::PipelineHandle skinned_pipelines_[4];        ///< [mirrored][double_sided], as pipelines_
+    rhi::PipelineHandle skinned_blend_pipelines_[4];  ///< as blend_pipelines_ (created with them)
+    rhi::PipelineHandle skin_shadow_pipeline_;
+    rhi::GraphicsPipelineDesc skin_pipeline_template_;
+    SkinPalette identity_palette_;  ///< the bind pose, for skinned primitives drawn without a palette
     bool blending_supported_ = false;
     bool alpha_blending_ = false;
     bool frustum_culling_ = false;

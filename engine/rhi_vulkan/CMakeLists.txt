@@ -124,11 +124,14 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
     if(NOT TARGET saige::gfx_assets)
         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../gfx_assets ${CMAKE_CURRENT_BINARY_DIR}/gfx_assets)
     endif()
-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp tests/test_ibl.cpp)
+    if(NOT TARGET saige::gfx_scene)
+        add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../gfx_scene ${CMAKE_CURRENT_BINARY_DIR}/gfx_scene)
+    endif()
+    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp tests/test_ibl.cpp tests/test_skinning.cpp)
     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)
-    target_link_libraries(saige_rhi_vulkan_tests PRIVATE saige::rhi_vulkan saige::render saige::gfx_assets)  # gfx_assets: the CPU environment precompute that feeds the IBL tests
+    target_link_libraries(saige_rhi_vulkan_tests PRIVATE saige::rhi_vulkan saige::render saige::gfx_assets saige::gfx_scene)  # gfx_assets: the CPU environment precompute that feeds the IBL tests
     if(SAIGE_VULKAN_HAS_XLIB)
         target_sources(saige_rhi_vulkan_tests PRIVATE tests/x11_window.cpp)
         target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_TEST_XLIB)

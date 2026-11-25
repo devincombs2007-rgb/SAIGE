@@ -1,0 +1,155 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K model - glossy white porcelain horse figurine rearing on a round wooden base, with detailed mane, musculature and an elegant sculptural finish.",
+ "files": [
+  {
+   "bytes": 5858,
+   "format": "gltf",
+   "path": "polyhaven/horse_statue_01/1k/horse_statue_01_1k.gltf",
+   "role": "model",
+   "sha256": "64e33e68ef427d0e7e401808d605b7d24208ae72b63f97ddf6716bc423b374ba"
+  },
+  {
+   "bytes": 143564,
+   "format": "jpg",
+   "path": "polyhaven/horse_statue_01/1k/textures/horse_statue_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "539eedfb40d73eaad8e719f928bf0af82622271bd58afd9f417e75fad4ebab82"
+  },
+  {
+   "bytes": 125167,
+   "format": "jpg",
+   "path": "polyhaven/horse_statue_01/1k/textures/horse_statue_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "868a7226c7b2e1e09dd0f49a40e6ceb62a45fc644f50988d566af5da34eb7a2f"
+  },
+  {
+   "bytes": 839480,
+   "format": "bin",
+   "path": "polyhaven/horse_statue_01/1k/horse_statue_01.bin",
+   "role": "dependency",
+   "sha256": "5099dc5709aa5935031c1e9121e590ba3b0c09f58eef64bcbe390bb46c1aa8f4"
+  },
+  {
+   "bytes": 169527,
+   "format": "jpg",
+   "path": "polyhaven/horse_statue_01/1k/textures/horse_statue_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "80703e3f6455374fde4ca83e8d813b09a83856068b538d2154f7d5caacb4109e"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.horse_statue_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Horse Statue 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven horse_statue_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:46Z",
+  "source_id": "horse_statue_01",
+  "url": "https://polyhaven.com/a/horse_statue_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "decorative",
+  "horse",
+  "statue",
+  "figurine",
+  "porcelain",
+  "animal",
+  "sculpture",
+  "white",
+  "fancy",
+  "props",
+  "decorative"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.07783335447311401,
+   0.21999721229076385,
+   0.053880687803030014
+  ],
+  "bounds_min": [
+   -0.08515907824039459,
+   1.830275505199097e-05,
+   -0.05391017720103264
+  ],
+  "dimensions_mm": [
+   163.80367428064346,
+   107.79086500406265,
+   219.97890953571186
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 2,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "horse_statue_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 22388,
+  "primitives": 2,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "horse_statue_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "horse_statue_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "horse_statue_01_arm",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 22388,
+  "vertices": 12592
+ },
+ "version": 1
+}

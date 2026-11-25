@@ -1,0 +1,90 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel"
+ ],
+ "description": "Free 8K bark texture with deep vertical grooves, rugged fibrous surface, warm brown weathered tones, visible knots and subtle mossy highlights.",
+ "files": [
+  {
+   "bytes": 729893,
+   "format": "jpg",
+   "path": "polyhaven/bark_brown_01/1k/bark_brown_01_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "4213441aebcb72b9911f5a860e9ce74a61a8f6ce3b9c23d1f204173e7e7f6066"
+  },
+  {
+   "bytes": 236289,
+   "format": "jpg",
+   "path": "polyhaven/bark_brown_01/1k/bark_brown_01_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "950282c0297c38161b4db28e1156692054ec1dc4a45a018d9ce90995e21510a0"
+  },
+  {
+   "bytes": 1226534,
+   "format": "jpg",
+   "path": "polyhaven/bark_brown_01/1k/bark_brown_01_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "9d1537b3429579436a62890bb7c5050a0172a15ce768787eacde81c5ccefc9cc"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.bark_brown_01",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Bark Brown 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven bark_brown_01 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:33Z",
+  "source_id": "bark_brown_01",
+  "url": "https://polyhaven.com/a/bark_brown_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "bark",
+  "tree",
+  "forest",
+  "knots",
+  "bark grooves",
+  "tree bark",
+  "tree trunk",
+  "wood",
+  "outdoor",
+  "natural",
+  "bark"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   999.9990463256836,
+   999.998927116394
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

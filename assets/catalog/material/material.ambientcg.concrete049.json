@@ -1,0 +1,136 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 495896,
+   "format": "png",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049.png",
+   "role": "other",
+   "sha256": "7d2c8a7b3e6289fdb78a9cd891188f5923246c932d47e850422425bde6df95f4"
+  },
+  {
+   "bytes": 2302,
+   "format": "mtlx",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "369242a67fa5223cc9823ee2d515ed213fd36ab072fa5dd9a1fed319a28e5ff4"
+  },
+  {
+   "bytes": 3020,
+   "format": "usdc",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "f954b0395841faab24ab44971ec17f8917b99cf71c5a6f339bc7fa3424064b53"
+  },
+  {
+   "bytes": 818237,
+   "format": "jpg",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "60527dff22e6ab90086d75189614cfd8517910c2fbea24d954508fc7178b24fe"
+  },
+  {
+   "bytes": 1984712,
+   "format": "jpg",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "23a477f55b07c12be10eac862a84b7287ad74133f3c3dc640e8e604dc9fde797"
+  },
+  {
+   "bytes": 704030,
+   "format": "jpg",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "c6f164022642aeb0466caa137702d8fa0ecffb3e76de0365f5d9b2d3ff813953"
+  },
+  {
+   "bytes": 2145305,
+   "format": "jpg",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "44b1bafd20eb4dc8cd3fac5306ba5ae77be73215429b94ec0816ea34e50bedf6"
+  },
+  {
+   "bytes": 2144102,
+   "format": "jpg",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "976b5475b8e25ff46095ad33206769f9329bdb91ba34e64e8308314c9d4a2e90"
+  },
+  {
+   "bytes": 755943,
+   "format": "jpg",
+   "path": "ambientcg/Concrete049/1K-JPG/files/Concrete049_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "3f1cf265727b768dab07f74089b58e4c639b6ce1d9c9b0dd60cb5eb403fef45e"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.concrete049",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Concrete 049",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Concrete049 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:16Z",
+  "source_id": "Concrete049",
+  "url": "https://ambientcg.com/a/Concrete049"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "049",
+  "49",
+  "asphalt",
+  "concrete",
+  "concrete049",
+  "pebbles",
+  "stones"
+ ],
+ "technical": {
+  "creation_method": "PBRPhotogrammetry",
+  "dimensions_mm": [
+   110,
+   110,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,64 @@
+diff --git a/engine/render/tests/test_scene_renderer.cpp b/engine/render/tests/test_scene_renderer.cpp
+index 5fdd419..cf727d9 100644
+--- a/engine/render/tests/test_scene_renderer.cpp
++++ b/engine/render/tests/test_scene_renderer.cpp
+@@ -9,13 +9,9 @@
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+-<<<<<<< ours
+ #include <limits>
+-||||||| base
+-=======
+ #include <memory>
+ #include <span>
+->>>>>>> theirs
+ #include <stdexcept>
+ #include <utility>
+ #include <vector>
+@@ -238,7 +234,6 @@ TEST_CASE("SceneRenderer: destruction releases every GPU resource it created")
+     CHECK(o.device.validation_error_count() == 0);
+ }
+ 
+-<<<<<<< ours
+ 
+ TEST_CASE("SceneRenderer: invalid lighting is rejected before any GPU object is created")
+ {
+@@ -364,8 +359,6 @@ TEST_CASE("ModelRenderer: a creation failure during construction releases everyt
+     }
+ }
+ 
+-||||||| base
+-=======
+ namespace {
+ 
+ /// One triangle whose bounding sphere is given (the local origin and radius 1 by default); radius 0 means "no bounds".
+@@ -520,7 +513,6 @@ TEST_CASE("Frustum culling never culls a sphere that any of its points projects
+     CHECK(culled_invisible * 100 >= invisible * 80);  // it is conservative, but it does cull most of what cannot be seen
+ }
+ 
+->>>>>>> theirs
+ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be retried")
+ {
+     Offscreen o;
+diff --git a/engine/rhi_vulkan/CMakeLists.txt b/engine/rhi_vulkan/CMakeLists.txt
+index 9306927..0ace9bc 100644
+--- a/engine/rhi_vulkan/CMakeLists.txt
++++ b/engine/rhi_vulkan/CMakeLists.txt
+@@ -119,15 +119,9 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
+     if(NOT TARGET saige::render)
+         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../render ${CMAKE_CURRENT_BINARY_DIR}/render)
+     endif()
+-<<<<<<< ours
+     # test_capabilities.cpp is last on purpose: its printed report (loader, instance and effective versions, and where each
+     # capability comes from) then sits at the end of the verbose ctest log, inside the part CI log viewers retain.
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp)
+-||||||| base
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp)
+-=======
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_frustum_culling.cpp)
+->>>>>>> theirs
++    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp)
+     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
+     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
+                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)

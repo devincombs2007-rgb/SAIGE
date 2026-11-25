@@ -1,0 +1,168 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rob Tuytel",
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K shrub featuring clusters of broad, glossy, ribbed heart-shaped leaves with deep green tones and subtle vein highlights.",
+ "files": [
+  {
+   "bytes": 9309,
+   "format": "gltf",
+   "path": "polyhaven/calathea_orbifolia_01/1k/calathea_orbifolia_01_1k.gltf",
+   "role": "model",
+   "sha256": "399130c01bfff6b493f885652112c3c841c3814b024a3d3c87773e0c5ab4f156"
+  },
+  {
+   "bytes": 421555,
+   "format": "jpg",
+   "path": "polyhaven/calathea_orbifolia_01/1k/textures/calathea_orbifolia_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "df4ea4dfc74a6965476200cffea69886ac26d3c089f356a7b69518149ef585e0"
+  },
+  {
+   "bytes": 455819,
+   "format": "jpg",
+   "path": "polyhaven/calathea_orbifolia_01/1k/textures/calathea_orbifolia_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "a105a093d74317a3853319a06fdc78cad2a13e353962298d2094195720b9b4a0"
+  },
+  {
+   "bytes": 407968,
+   "format": "bin",
+   "path": "polyhaven/calathea_orbifolia_01/1k/calathea_orbifolia_01.bin",
+   "role": "dependency",
+   "sha256": "df1668bcb44914abac046217bbdae9867a3702198f7c374135f2b4456df8b038"
+  },
+  {
+   "bytes": 581558,
+   "format": "jpg",
+   "path": "polyhaven/calathea_orbifolia_01/1k/textures/calathea_orbifolia_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "52aac88c18bf42c369aad9b2b5e41dbe58b015ca2fac7ff6ed4cb21147cb49c8"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.calathea_orbifolia_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Calathea Orbifolia 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven calathea_orbifolia_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:31Z",
+  "source_id": "calathea_orbifolia_01",
+  "url": "https://polyhaven.com/a/calathea_orbifolia_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "nature",
+  "bush",
+  "leaf",
+  "shrub",
+  "green",
+  "leaves",
+  "forest",
+  "plant",
+  "jungle",
+  "outdoor",
+  "botany",
+  "decorative",
+  "plants",
+  "nature",
+  "ground cover",
+  "collection: smugglers_cove"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.30688172578811646,
+   0.41586822271347046,
+   0.24281249940395355
+  ],
+  "bounds_min": [
+   -0.2937181890010834,
+   -0.008426041342318058,
+   -0.315498024225235
+  ],
+  "dimensions_mm": [
+   2491.507411003113,
+   1193.592220544815,
+   424.2942640557885
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_specular",
+   "KHR_materials_ior"
+  ],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.1.63",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 5,
+  "node_names_sample": [
+   "calathea_orbifolia_01_a",
+   "calathea_orbifolia_01_b",
+   "calathea_orbifolia_01_c",
+   "calathea_orbifolia_01_d",
+   "calathea_orbifolia_01_e"
+  ],
+  "nodes": 5,
+  "polycount_source": 16688,
+  "primitives": 5,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "calathea_orbifolia_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "calathea_orbifolia_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "calathea_orbifolia_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 16688,
+  "vertices": 9620
+ },
+ "version": 1
+}

@@ -1,0 +1,124 @@
+{
+ "category": "character.humanoid",
+ "creators": [
+  "modelmetadata",
+  "hand"
+ ],
+ "description": "Khronos glTF sample asset",
+ "files": [
+  {
+   "bytes": 438044,
+   "format": "glb",
+   "path": "khronos/CesiumMan/CesiumMan.glb",
+   "role": "model",
+   "sha256": "b7001eaeea8254bd44773bcd247e78696d94169388fbb2a1800fc69434e777d9"
+  },
+  {
+   "bytes": 858,
+   "format": "md",
+   "path": "khronos/CesiumMan/LICENSE.md",
+   "role": "license",
+   "sha256": "709e02749c7c904c480d98f883cae63046f589031b5f22249544b13c159eedf6"
+  }
+ ],
+ "history": [],
+ "id": "model.khronos.cesiumman",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "# LICENSE file for the model: Cesium Man",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed-with-attribution",
+  "spdx": "CC-BY-4.0",
+  "text_sha256": "709e02749c7c904c480d98f883cae63046f589031b5f22249544b13c159eedf6",
+  "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CesiumMan/LICENSE.md"
+ },
+ "name": "Cesium Man",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch khronos CesiumMan",
+  "name": "khronos",
+  "retrieved": "2026-11-24T13:20:51Z",
+  "source_id": "CesiumMan",
+  "url": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CesiumMan"
+ },
+ "status": "candidate",
+ "suitability": {
+  "checked_with": "khronos-gltf-validator, saige_asset_inspect",
+  "notes": [
+   "validator: no errors, 1 warning(s)",
+   "engine: loads, 4672 triangles, textures 5.3 MiB on the GPU"
+  ],
+  "runtime_ready": true
+ },
+ "tags": [
+  "core",
+  "issues",
+  "testing"
+ ],
+ "technical": {
+  "animations": [
+   {
+    "channels": 57,
+    "duration_s": 2.0,
+    "name": null
+   }
+  ],
+  "bounds_max": [
+   0.1809539943933487,
+   0.569136917591095,
+   1.5065499544143677
+  ],
+  "bounds_min": [
+   -0.13100001215934753,
+   -0.5691370964050293,
+   0
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "glb",
+  "generator": "COLLADA2GLTF",
+  "materials": 1,
+  "meshes": 1,
+  "node_names_sample": [
+   "Z_UP",
+   "Armature",
+   "Cesium_Man",
+   "Skeleton_torso_joint_1",
+   "leg_joint_R_1",
+   "leg_joint_R_2",
+   "leg_joint_R_3",
+   "leg_joint_R_5",
+   "leg_joint_L_1",
+   "leg_joint_L_2",
+   "leg_joint_L_3",
+   "leg_joint_L_5"
+  ],
+  "nodes": 22,
+  "primitives": 1,
+  "skinned_primitives": 1,
+  "skins": [
+   {
+    "joints": 19,
+    "name": "Armature"
+   }
+  ],
+  "texture_gpu_bytes": 5592405,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": null,
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 4672,
+  "vertices": 3273
+ },
+ "version": 1
+}

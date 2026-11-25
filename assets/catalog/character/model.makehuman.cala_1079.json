@@ -1,0 +1,68 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "sexo69"
+ ],
+ "description": "colada, jeans preto",
+ "files": [
+  {
+   "bytes": 162927,
+   "format": "mhclo",
+   "path": "makehuman/1079/tightjeans.mhclo",
+   "role": "mhclo",
+   "sha256": "2e3ef3b712d5058403b8831871e0a47b91c0fce620f1e649cd511cd40b08e24c"
+  },
+  {
+   "bytes": 480,
+   "format": "mhmat",
+   "path": "makehuman/1079/cutofft.mhmat",
+   "role": "mhmat",
+   "sha256": "7af08cca323bb80b10078770a59d048d265d45cb70ef2e8b0aa2287207d9f187"
+  },
+  {
+   "bytes": 130695,
+   "format": "obj",
+   "path": "makehuman/1079/vintagetop.obj",
+   "role": "obj",
+   "sha256": "25fce21514f2614e91f3217db83499edc642361a9e180e1d98c5cb5833e8f09d"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.cala_1079",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "cala",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 1079",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:54:27Z",
+  "source_id": "1079",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#1079"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Pants"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Pants",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

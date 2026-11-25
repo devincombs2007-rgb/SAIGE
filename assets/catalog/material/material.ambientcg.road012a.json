@@ -1,0 +1,145 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 280031,
+   "format": "png",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A.png",
+   "role": "other",
+   "sha256": "b673d5615dfc257aa8982051473d2fd3235d3bab39067b5ceffcaa8bc1307f1e"
+  },
+  {
+   "bytes": 2257,
+   "format": "mtlx",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "160c5edb35c3bcb24b798e7abea2c7858a1d95b860a96681f99d94f07dd46715"
+  },
+  {
+   "bytes": 3150,
+   "format": "usdc",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "ec43efce01df2cbcd2a241a9c8c1e754a59f8977e5b2f14bb9684cd923aca7ce"
+  },
+  {
+   "bytes": 761606,
+   "format": "jpg",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "7a119ce4efa5d6dfd7dffc2376a1829e26da9cdb3724146bcdc69631d8ee8131"
+  },
+  {
+   "bytes": 918658,
+   "format": "jpg",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "5863080e2190953ebb846f39c73a8dda1613fa544c76f80e92f47443b7bde3f4"
+  },
+  {
+   "bytes": 658917,
+   "format": "jpg",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "35aa81959fd376239189e8a48b6dca9362fcf66c60a5f56ab4255e4d4b3d653d"
+  },
+  {
+   "bytes": 1927337,
+   "format": "jpg",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "8a3c08fc5230db4c173bc942bcc1af8a273c75799df50b19ed85d3f2e6f69e94"
+  },
+  {
+   "bytes": 1930624,
+   "format": "jpg",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "f854f72d5cdefc869cccf5b234b1142ee4fae9b6a4a75cd797ff00f358e64986"
+  },
+  {
+   "bytes": 691675,
+   "format": "jpg",
+   "path": "ambientcg/Road012A/1K-JPG/files/Road012A_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "ec0ff52e474a0df3c7c70003fdc4875e1ede9a13bc7606200215076c5b73c6dc"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.road012a",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Road 012 A",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Road012A --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:14Z",
+  "source_id": "Road012A",
+  "url": "https://ambientcg.com/a/Road012A"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "012",
+  "12",
+  "asphalt",
+  "dark",
+  "durable",
+  "gray",
+  "industrial",
+  "modern",
+  "old",
+  "outdoor",
+  "pavement",
+  "road",
+  "rough",
+  "street",
+  "urban",
+  "worn"
+ ],
+ "technical": {
+  "creation_method": "PBRProcedural",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,411 @@
+{
+ "category": "audio.foley",
+ "creators": [
+  "qubodup"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 3340803,
+   "format": "7z",
+   "path": "opengameart/door_open_door_close_set/qubodup-DoorSet.7z",
+   "role": "content",
+   "sha256": "88502c82451a646fa4bc1b9021a26bbd3441b2850a613784a05336067b11a25d"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.door_open_door_close_set",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Door Open, Door Close Set by qubodup (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Door Open, Door Close Set",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/door-open-door-close-set --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:41:07Z",
+  "source_id": "door_open_door_close_set",
+  "url": "https://opengameart.org/content/door-open-door-close-set"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "7z",
+  "pack_contents": [
+   {
+    "bytes": 66399,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose01.flac",
+    "loop_seam_ratio": 0.13,
+    "lufs_integrated": -20.06,
+    "peak_dbfs": 0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 46416,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose02.flac",
+    "loop_seam_ratio": 0.07,
+    "lufs_integrated": -22.79,
+    "peak_dbfs": 0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 129347,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose03.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.47,
+    "peak_dbfs": -0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 105619,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose04.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.65,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 135179,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose05.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -13.85,
+    "peak_dbfs": -0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 300252,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose06.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -16.98,
+    "peak_dbfs": -0.01,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 214138,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose07.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -15.62,
+    "peak_dbfs": -0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 161503,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose08.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -18.12,
+    "peak_dbfs": -0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 252626,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose09.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -15.66,
+    "peak_dbfs": -0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 251980,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorClose10.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -19.01,
+    "peak_dbfs": -0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 143740,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen01.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -22.68,
+    "peak_dbfs": 0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 141307,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen02.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -18.51,
+    "peak_dbfs": -0.0,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 175508,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen03.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -11.7,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 150878,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen04.flac",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -9.99,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 223968,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen05.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.78,
+    "peak_dbfs": -0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 163826,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen06.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -18.37,
+    "peak_dbfs": -0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 314566,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen07.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -16.45,
+    "peak_dbfs": 0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 191405,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/flac/qubodup-DoorOpen08.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.06,
+    "peak_dbfs": 0.0,
+    "sample_rate": 96000
+   },
+   {
+    "bytes": 17252,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose01.ogg",
+    "loop_seam_ratio": 0.11,
+    "lufs_integrated": -20.21,
+    "peak_dbfs": -0.4,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16513,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose02.ogg",
+    "loop_seam_ratio": 0.03,
+    "lufs_integrated": -22.92,
+    "peak_dbfs": 0.06,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17138,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose03.ogg",
+    "loop_seam_ratio": 4.86,
+    "lufs_integrated": -21.62,
+    "peak_dbfs": -0.98,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16741,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose04.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.71,
+    "peak_dbfs": 0.1,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 18972,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose05.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -14.08,
+    "peak_dbfs": -0.53,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16970,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose06.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -17.1,
+    "peak_dbfs": 0.06,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16532,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose07.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -15.73,
+    "peak_dbfs": -0.13,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16110,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose08.ogg",
+    "loop_seam_ratio": 1.1,
+    "lufs_integrated": -18.23,
+    "peak_dbfs": -0.22,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17204,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose09.ogg",
+    "loop_seam_ratio": 1.43,
+    "lufs_integrated": -15.77,
+    "peak_dbfs": 0.22,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16880,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorClose10.ogg",
+    "loop_seam_ratio": 0.3,
+    "lufs_integrated": -19.19,
+    "peak_dbfs": -0.05,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17130,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen01.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -22.82,
+    "peak_dbfs": -0.38,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17611,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen02.ogg",
+    "loop_seam_ratio": 0.73,
+    "lufs_integrated": -18.95,
+    "peak_dbfs": -1.21,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 18039,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen03.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -12.03,
+    "peak_dbfs": 0.62,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17433,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen04.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -10.29,
+    "peak_dbfs": -0.4,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16416,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen05.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -21.96,
+    "peak_dbfs": -0.19,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16371,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen06.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -18.55,
+    "peak_dbfs": -0.32,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 17837,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen07.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -16.73,
+    "peak_dbfs": -0.55,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 16335,
+    "channels": 2,
+    "duration_s": 1.0,
+    "file": "qubodup-DoorSet/ogg/qubodup-DoorOpen08.ogg",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.25,
+    "peak_dbfs": 0.11,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 36,
+  "pack_seconds": 36.0
+ },
+ "version": 1
+}

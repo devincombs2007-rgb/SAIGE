@@ -1,0 +1,31 @@
+{
+ "version": 1,
+ "note": "The SAIGE asset taxonomy. `kind` is the file family; `category` is dotted and drawn from this list. Keywords drive the automatic classification of acquired assets (a human or agent may override).",
+ "categories": {
+  "character.humanoid": {"kind": "model", "keywords": ["human", "man", "woman", "character", "person", "avatar", "npc", "soldier", "civilian"]},
+  "character.face": {"kind": "model", "keywords": ["face", "head", "eyes", "teeth", "tongue", "beard", "eyebrow", "eyelash"]},
+  "character.hair": {"kind": "model", "keywords": ["hair", "hairstyle", "ponytail"]},
+  "character.clothing": {"kind": "model", "keywords": ["clothes", "clothing", "shirt", "jacket", "pants", "jeans", "dress", "shoes", "boots", "hat", "glasses", "gloves", "helmet", "backpack"]},
+  "vehicle.car": {"kind": "model", "keywords": ["car", "sedan", "suv", "truck", "van", "pickup", "bus", "taxi", "police", "ambulance", "motorcycle", "bike"]},
+  "vehicle.part": {"kind": "model", "keywords": ["wheel", "tire", "rim", "door", "hood", "bumper", "engine", "seat", "steering"]},
+  "building.exterior": {"kind": "model", "keywords": ["house", "building", "shop", "store", "garage", "barn", "shed", "skyscraper", "facade", "wall", "roof", "tower"]},
+  "building.interior": {"kind": "model", "keywords": ["interior", "room", "kitchen", "bathroom", "bedroom", "office", "hallway"]},
+  "infrastructure.road": {"kind": "model", "keywords": ["road", "street", "sidewalk", "curb", "bridge", "crosswalk", "traffic", "sign", "lamp", "street_lamp", "barrier", "fence", "pole", "powerline", "hydrant"]},
+  "furniture.household": {"kind": "model", "keywords": ["chair", "table", "sofa", "couch", "bed", "shelf", "cabinet", "desk", "lamp", "tv", "fridge", "stove", "sink", "toilet", "plate", "cup", "bottle", "book"]},
+  "vegetation": {"kind": "model", "keywords": ["tree", "bush", "shrub", "grass", "flower", "plant", "fern", "pine", "palm", "foliage", "leaf"]},
+  "terrain.landscape": {"kind": "model", "keywords": ["terrain", "landscape", "rock", "cliff", "mountain", "boulder", "stone", "mesa", "dune", "hill"]},
+  "prop.environment": {"kind": "model", "keywords": ["barrel", "crate", "box", "pallet", "tire_stack", "trash", "dumpster", "bench", "cone", "tools", "container"]},
+  "material.pbr": {"kind": "material", "keywords": ["asphalt", "concrete", "brick", "wood", "metal", "fabric", "leather", "gravel", "soil", "grass", "tiles", "plaster", "rock", "paint"]},
+  "hdri": {"kind": "hdri", "keywords": ["sky", "sunset", "sunrise", "overcast", "night", "studio", "indoor", "outdoor"]},
+  "animation.skeletal": {"kind": "animation", "keywords": ["walk", "run", "idle", "jump", "sit", "drive", "fall", "climb", "gesture", "pose"]},
+  "particle.texture": {"kind": "texture", "keywords": ["smoke", "fire", "spark", "dust", "debris", "rain", "splash", "flare", "explosion"]},
+  "ui.asset": {"kind": "ui", "keywords": ["ui", "button", "icon", "hud", "cursor", "font", "panel"]},
+  "audio.vehicle": {"kind": "audio", "keywords": ["engine", "exhaust", "gear", "transmission", "tire", "skid", "horn", "brake", "turbo"]},
+  "audio.impact": {"kind": "audio", "keywords": ["crash", "collision", "metal", "glass", "debris", "impact", "crunch", "smash"]},
+  "audio.foley": {"kind": "audio", "keywords": ["footstep", "cloth", "clothing", "door", "latch", "handle", "zipper", "foley"]},
+  "audio.ambience": {"kind": "audio", "keywords": ["rain", "thunder", "wind", "ocean", "water", "traffic", "city", "forest", "birds", "crickets", "interior", "room tone", "ambience", "ambient"]},
+  "audio.emergency": {"kind": "audio", "keywords": ["siren", "police", "ambulance", "fire truck", "alarm"]},
+  "audio.voice": {"kind": "audio", "keywords": ["voice", "dialogue", "narration", "speech"]},
+  "audio.music": {"kind": "audio", "keywords": ["music", "score", "loop", "theme"]}
+ }
+}

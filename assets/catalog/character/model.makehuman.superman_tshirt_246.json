@@ -1,0 +1,96 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "o4saken"
+ ],
+ "description": "Simple superman tshirt",
+ "files": [
+  {
+   "bytes": 87479,
+   "format": "obj",
+   "path": "makehuman/246/Supermanshirt.obj",
+   "role": "obj",
+   "sha256": "08c252b3ef07092f4d3a16aabec3d3c0933ce4aeceef82f47f6c56f39bc6be16"
+  },
+  {
+   "bytes": 239835,
+   "format": "png",
+   "path": "makehuman/246/shirtrender.png",
+   "role": "render",
+   "sha256": "439edb7520c75181f646425f6f6836e338e542cc941226f694d431c2cacc00d6"
+  },
+  {
+   "bytes": 557,
+   "format": "mhmat",
+   "path": "makehuman/246/Supermanshirt.mhmat",
+   "role": "mhmat",
+   "sha256": "369cbd45d7ca95b343d37869558f7f2a783f0a962367010176ebb3d15e070f12"
+  },
+  {
+   "bytes": 305661,
+   "format": "png",
+   "path": "makehuman/246/shirtAO.png",
+   "role": "glossy",
+   "sha256": "1c65f5e7755b2adb617c2de234795bf5f4ca83da885d1867917e01b656019034"
+  },
+  {
+   "bytes": 837300,
+   "format": "png",
+   "path": "makehuman/246/shirtnormal.png",
+   "role": "normals",
+   "sha256": "d24f88a342cb6a8334263a2758f29e8889ce27e5a2a41418e924e5bcd684b648"
+  },
+  {
+   "bytes": 76605,
+   "format": "mhclo",
+   "path": "makehuman/246/Supermanshirt.mhclo",
+   "role": "mhclo",
+   "sha256": "a840c61646121e7d31c4672b6a63511769339aceea8ac9589ba51b8aa9e76fe4"
+  },
+  {
+   "bytes": 2095668,
+   "format": "png",
+   "path": "makehuman/246/shirt.png",
+   "role": "diffuse",
+   "sha256": "d3483f8253cf4a8d3ff9d40f8b63803eb1c5711e385397079b86d1ac0d0397e6"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.superman_tshirt_246",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Superman Tshirt",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 246",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:50:38Z",
+  "source_id": "246",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#246"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

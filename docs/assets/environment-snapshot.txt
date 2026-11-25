@@ -1,0 +1,59 @@
+== tools
+  ok  ffmpeg             ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+  ok  sox                /usr/bin/sox:      SoX v14.4.2
+  ok  convert            Version: ImageMagick 6.9.12-98 Q16 x86_64 18038 https://legacy.imagemagick.org
+  ok  vips               vips-8.15.1
+  ok  blender            Blender 4.0.2
+  ok  gltf-transform     4.5.1
+  ok  gltfpack           gltfpack 1.3
+  ok  assimp             ------------------------------------------------------ 
+  ok  glslangValidator   Glslang Version: 11:15.1.0
+  ok  opusenc            opusenc opus-tools 0.2 (using libopus 1.4)
+  ok  oggenc             oggenc from vorbis-tools 1.4.2
+  ok  flac               flac 1.4.3
+  ok  lame               LAME 64bits version 3.100 (http://lame.sf.net)
+  ok  optipng            OptiPNG version 0.7.8
+  ok  pngquant           2.18.0 (January 2023)
+  ok  cwebp              1.3.2
+  ok  git-lfs            git-lfs/3.4.1 (GitHub; linux amd64; go 1.22.2)
+  ok  node               v22.23.5
+  ok  python3            Python 3.13.18
+  ok  cmake              cmake version 3.28.3
+  ok  ninja              1.11.1
+== python (/tmp/npmt-home/venv/bin/python)
+  numpy, scipy, PIL, cv2, imageio, trimesh, pygltflib, networkx, fast_simplification, xatlas, soundfile, librosa, pyloudnorm, mutagen, httpx, yaml, jsonschema, tqdm
+== node modules (/tmp/npmt-home/node/node_modules)
+  @gltf-transform/core, @gltf-transform/functions, @gltf-transform/extensions, meshoptimizer, gltfpack, ktx2-encoder, sharp, draco3dgltf, gltf-validator
+== secrets present (names only)
+  not set FREESOUND_API_KEY            Freesound
+  not set FREESOUND_CLIENT_ID          Freesound
+  not set ELEVENLABS_API_KEY           ElevenLabs
+  not set TRIPO_API_KEY                Tripo AI
+  not set MESHY_API_KEY                Meshy AI
+  not set SKETCHFAB_API_TOKEN          Sketchfab
+  not set HIGGSFIELD_API_KEY_ID        Higgsfield
+== network (HTTP status of the front page; BLOCKED = the agent proxy's policy does not allow the host)
+  200                    polyhaven.com                Poly Haven  [none (CC0)]
+  200                    api.polyhaven.com            Poly Haven API  [none]
+  521                    dl.polyhaven.org             Poly Haven files  [none]
+  200                    ambientcg.com                ambientCG  [none (CC0)]
+  200                    docs.ambientcg.com           ambientCG docs  [none]
+  400                    raw.githubusercontent.com    Khronos sample assets, raw files  [none]
+  200                    registry.npmjs.org           npm  [none]
+  200                    pypi.org                     PyPI  [none]
+  200                    archive.ubuntu.com           apt  [none]
+  200                    kenney.nl                    Kenney  [none (CC0)]
+  200                    quaternius.com               Quaternius  [none (CC0)]
+  200                    opengameart.org              OpenGameArt  [none (mixed licences)]
+  BLOCKED                freesound.org                Freesound  [API key / OAuth2]
+  BLOCKED                api.elevenlabs.io            ElevenLabs  [API key]
+  BLOCKED                api.tripo3d.ai               Tripo AI  [API key]
+  BLOCKED                api.meshy.ai                 Meshy  [API key (paid)]
+  BLOCKED                api.sketchfab.com            Sketchfab  [API token]
+  BLOCKED                www.mixamo.com               Mixamo  [Adobe login, browser only]
+  200                    sonniss.com                  Sonniss GameAudioGDC  [manual download]
+  BLOCKED                pixabay.com                  Pixabay audio  [manual / API key]
+  BLOCKED                www.cgtrader.com             CGTrader  [login, per-model licence]
+  BLOCKED                download.blender.org         Blender releases  [none]
+  BLOCKED                huggingface.co               Hugging Face (open 3D models)  [none / token]
+  400                    github.com                   GitHub releases (KTX-Software, MakeHuman)  [none]

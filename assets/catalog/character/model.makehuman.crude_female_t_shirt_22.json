@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "Joel Palmius"
+ ],
+ "description": "The crude series of clothes are intended as starting points for further development. They are mostly low-poly and intended for subdivision (and may therefore look a bit clunky inside MakeHuman). Each piece comes with a plain diffuse texture where the faces have been painted plain white.\n\nIf you modify or texture paint one of the pieces in this series and want to share, just upload it again here as if you were the original author of it.",
+ "files": [
+  {
+   "bytes": 80936,
+   "format": "obj",
+   "path": "makehuman/22/crudefemaletshirt.obj",
+   "role": "obj",
+   "sha256": "83d20bb41bd5335d020c7e8b6bf5f969dd6cd93a5d5e84bac63cb222a135e9b4"
+  },
+  {
+   "bytes": 132438,
+   "format": "png",
+   "path": "makehuman/22/crudefemaletshirt-screenshot.png",
+   "role": "render",
+   "sha256": "b7fb3dde934987c21ebc3ee755569f792f56f646e61462cc03833e14661c8b2b"
+  },
+  {
+   "bytes": 494,
+   "format": "mhmat",
+   "path": "makehuman/22/crudefemaletshirt.mhmat",
+   "role": "mhmat",
+   "sha256": "69749cb47afa4184ea3978153f34e1160a61675cf6ad7dce4f650a4bf1cacc1c"
+  },
+  {
+   "bytes": 74804,
+   "format": "mhclo",
+   "path": "makehuman/22/crudefemaletshirt.mhclo",
+   "role": "mhclo",
+   "sha256": "4feb91f93f9228d0ba3c030cf325f5896143583d81025311ae37b1c9c2dc04a7"
+  },
+  {
+   "bytes": 244290,
+   "format": "png",
+   "path": "makehuman/22/CrudeFemaleTshirtDiffuse.png",
+   "role": "diffuse",
+   "sha256": "a9783054a946e51f2fde74cda2e9dc313d04ad1ddde811fe67f7a1616da0fc94"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.crude_female_t_shirt_22",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Crude Female T-shirt",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 22",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:47:12Z",
+  "source_id": "22",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#22"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

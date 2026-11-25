@@ -1,0 +1,168 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rob Tuytel",
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K shrub showcasing glossy broad leaves, wet sheen, detailed veins and varied low-growing clumps.",
+ "files": [
+  {
+   "bytes": 10675,
+   "format": "gltf",
+   "path": "polyhaven/anthurium_botany_01/1k/anthurium_botany_01_1k.gltf",
+   "role": "model",
+   "sha256": "6b3f6b8eda6cc0edfefd6a58f6758ef6538c35b2ca2a76189383f23b246dd8c6"
+  },
+  {
+   "bytes": 494107,
+   "format": "jpg",
+   "path": "polyhaven/anthurium_botany_01/1k/textures/anthurium_botany_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "f0cf940590733a2a5a9b0db362bd093c39b28405c66b1d084aa203efe6f0d3fc"
+  },
+  {
+   "bytes": 542795,
+   "format": "jpg",
+   "path": "polyhaven/anthurium_botany_01/1k/textures/anthurium_botany_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "88d9ce05e4b301ae9cd5b479459262c4690a3ee2de80a8f5e18a288ff5e96bee"
+  },
+  {
+   "bytes": 1744256,
+   "format": "bin",
+   "path": "polyhaven/anthurium_botany_01/1k/anthurium_botany_01.bin",
+   "role": "dependency",
+   "sha256": "6a23daf128e297ad99e984bec11bdea3c6eab64e52d07cbdc948ace5a05b2e25"
+  },
+  {
+   "bytes": 448508,
+   "format": "jpg",
+   "path": "polyhaven/anthurium_botany_01/1k/textures/anthurium_botany_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "f759421f00e848d7d2915b409d98c6311cc601e4be17d4155e0852429fa4993e"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.anthurium_botany_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Anthurium Botany 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven anthurium_botany_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:25Z",
+  "source_id": "anthurium_botany_01",
+  "url": "https://polyhaven.com/a/anthurium_botany_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "nature",
+  "bush",
+  "leaf",
+  "shrub",
+  "leaves",
+  "forest",
+  "plant",
+  "green",
+  "jungle",
+  "outdoor",
+  "botany",
+  "plants",
+  "nature",
+  "collection: the_shed",
+  "collection: smugglers_cove"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.47622883319854736,
+   0.48934534192085266,
+   0.6517410278320312
+  ],
+  "bounds_min": [
+   -0.41998744010925293,
+   -0.010338996537029743,
+   -0.49014970660209656
+  ],
+  "dimensions_mm": [
+   2806.4264059066772,
+   1800.9886145591736,
+   506.7181019112468
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_specular",
+   "KHR_materials_ior"
+  ],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.1.63",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 6,
+  "node_names_sample": [
+   "anthurium_botany_01_a",
+   "anthurium_botany_01_b",
+   "anthurium_botany_04_d",
+   "anthurium_botany_01_c",
+   "anthurium_botany_05_e",
+   "anthurium_botany_06_f"
+  ],
+  "nodes": 6,
+  "polycount_source": 4134,
+  "primitives": 6,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "anthurium_botany_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "anthurium_botany_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "anthurium_botany_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 67152,
+  "vertices": 41917
+ },
+ "version": 1
+}

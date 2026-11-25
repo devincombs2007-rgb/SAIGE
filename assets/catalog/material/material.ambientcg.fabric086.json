@@ -1,0 +1,125 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 327144,
+   "format": "png",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086.png",
+   "role": "other",
+   "sha256": "79c5ce5f61c6e660319db4f867c7b84aee6c64b315275ed97024f08a73ba9a42"
+  },
+  {
+   "bytes": 2272,
+   "format": "mtlx",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "7678bf8fdd53124821ed9074e921af972a036b28439885a1a35fe7edf1d59b2f"
+  },
+  {
+   "bytes": 2877,
+   "format": "usdc",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "a0789751b13618f0558a31e92eb08b5daac8d08b36a0f8258ff871d5640e7d68"
+  },
+  {
+   "bytes": 1054450,
+   "format": "jpg",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "ef0213d21babbd6f9d7bfceb19859257c1071d54dbcf4be94ea6f7b2d1380158"
+  },
+  {
+   "bytes": 761375,
+   "format": "jpg",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "e5742e388479e915017c9abee6600358a7b4f0edc091959fced34e43fb6b606f"
+  },
+  {
+   "bytes": 1808445,
+   "format": "jpg",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "e56724e75f80ea601d2318b9f8bb096054d134409be8c8ca7ac63b4f4ce75504"
+  },
+  {
+   "bytes": 1805619,
+   "format": "jpg",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "88f949d88ec0158e9a13b80a406ca0dbc2f06e63bde7ccb2ea29753ff045ebde"
+  },
+  {
+   "bytes": 657002,
+   "format": "jpg",
+   "path": "ambientcg/Fabric086/1K-JPG/files/Fabric086_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "7854da49cf3b0505c9041a9efb08154a7fde396d559f7af68233c7181d86b46f"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.fabric086",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Fabric 086",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Fabric086 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:56Z",
+  "source_id": "Fabric086",
+  "url": "https://ambientcg.com/a/Fabric086"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "086",
+  "86",
+  "fabric",
+  "fabric086"
+ ],
+ "technical": {
+  "creation_method": "PBRMultiAngle",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

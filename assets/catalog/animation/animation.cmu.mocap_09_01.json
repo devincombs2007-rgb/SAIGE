@@ -1,0 +1,56 @@
+{
+ "category": "animation.skeletal",
+ "creators": [
+  "CMU Graphics Lab Motion Capture Database",
+  "BVH conversion: Bruce Hahne (cgspeed)"
+ ],
+ "description": "Optical motion capture, run; BVH conversion (T-pose first frame, 120 fps) by B. Hahne. A real human performance, 31-joint skeleton. Retargeted to the engine's humanoid by saige::animation (see docs/animation-character.md).",
+ "files": [
+  {
+   "bytes": 116013,
+   "format": "bvh",
+   "path": "cmu_mocap/09_01.bvh",
+   "role": "content",
+   "sha256": "90641ccca814b9d8d59f63576a548bb5612477364462d142a9f741268fbe3b78"
+  }
+ ],
+ "history": [],
+ "id": "animation.cmu.mocap_09_01",
+ "kind": "animation",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217.",
+  "commercial_use": true,
+  "notes": "CMU: 'This data is free for use in research and commercial projects worldwide.' The converter adds no restrictions (READMEFIRST.txt). Redistribution of the raw files is not stated explicitly, so they are fetched by script and not committed; the attribution sentence is requested for published results.",
+  "redistribution": "unknown",
+  "spdx": "LicenseRef-CMU-Mocap-Free-Use",
+  "url": "http://mocap.cs.cmu.edu/faqs.php"
+ },
+ "name": "CMU mocap 09_01 (run)",
+ "schema": 1,
+ "source": {
+  "acquire": "python3 tools/animation/fetch_humanoid_assets.py DIR",
+  "name": "cmu",
+  "retrieved": "2026-11-24T21:14:41Z",
+  "source_id": "09_01.bvh",
+  "url": "http://mocap.cs.cmu.edu/"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "frame 0 is a T-pose, not part of the performance",
+   "retarget with saige::animation (BVH importer, loop extraction, retarget_clip)"
+  ],
+  "runtime_ready": null
+ },
+ "tags": [
+  "mocap",
+  "locomotion",
+  "bvh",
+  "run"
+ ],
+ "technical": {
+  "format": "bvh"
+ },
+ "version": 1
+}

@@ -1,0 +1,561 @@
+diff --git a/engine/render/CMakeLists.txt b/engine/render/CMakeLists.txt
+index 96db8e8..7001ce8 100644
+--- a/engine/render/CMakeLists.txt
++++ b/engine/render/CMakeLists.txt
+@@ -29,13 +29,9 @@ if(NOT TARGET saige::rhi_null)
+ endif()
+ 
+ add_library(saige_render STATIC
+-<<<<<<< ours
+     src/bloom.cpp
+     src/bloom_pass.cpp
+-||||||| base
+-=======
+     src/ambient_occlusion.cpp
+->>>>>>> theirs
+     src/camera.cpp
+     src/env_brdf.cpp
+     src/fxaa.cpp
+@@ -76,12 +72,8 @@ if(SAIGE_RENDER_BUILD_TESTS)
+     enable_testing()
+     saige_gfx_add_test(saige_render_tests
+         SOURCES
+-<<<<<<< ours
+             tests/test_bloom.cpp
+-||||||| base
+-=======
+             tests/test_ambient_occlusion.cpp
+->>>>>>> theirs
+             tests/test_camera.cpp
+             tests/test_fxaa.cpp
+             tests/test_gpu_resources.cpp
+diff --git a/engine/render/include/saige/render/scene_renderer.hpp b/engine/render/include/saige/render/scene_renderer.hpp
+index 97cf67d..3868554 100644
+--- a/engine/render/include/saige/render/scene_renderer.hpp
++++ b/engine/render/include/saige/render/scene_renderer.hpp
+@@ -4,12 +4,8 @@
+ // sink adapter (engine/render_sink) feeds it from Core's FrameView.
+ #pragma once
+ 
+-<<<<<<< ours
+ #include "saige/render/bloom.hpp"
+-||||||| base
+-=======
+ #include "saige/render/ambient_occlusion.hpp"
+->>>>>>> theirs
+ #include "saige/render/camera.hpp"
+ #include "saige/render/fxaa.hpp"
+ #include "saige/render/gpu_resources.hpp"
+@@ -84,7 +80,6 @@ struct RendererSettings {
+     /// (docs/rendering/material-architecture.md section 4). Off by default: the 0.2 path draws straight into the output target.
+     bool hdr = false;
+     ToneMapSettings tone_map;                       ///< used when `hdr` is set
+-<<<<<<< ours
+     /// Bloom (render/bloom.hpp): a thresholded, blurred copy of the HDR scene is added back before tone mapping. **Off by default**, and it needs `hdr` (the constructor throws
+     /// std::invalid_argument for `bloom.enabled` without it): with it off nothing is created and every image is what it was before. Costs about two thirds of an HDR
+     /// target's memory (the half-size chain) and 2 x levels - 1 full-screen draws.
+@@ -92,12 +87,9 @@ struct RendererSettings {
+     /// FXAA (render/fxaa.hpp): smooths the finished image's aliased edges in one extra full-screen pass. **Off by default**: with it off nothing is created and every image is what
+     /// it was before. On, the scene (and the tone map, in HDR) renders into an intermediate target of the output's format and the pass writes the output; works with `hdr` on or off.
+     FxaaSettings fxaa;
+-||||||| base
+-=======
+     /// Screen-space ambient occlusion (render/ambient_occlusion.hpp): two extra full-screen passes that darken creases in the HDR scene color before the tone map. **Off by default**:
+     /// with it off nothing is created and every image is what it was before. Needs `hdr` (std::invalid_argument otherwise), and samples the scene depth.
+     AmbientOcclusionSettings ambient_occlusion;
+->>>>>>> theirs
+ };
+ 
+ struct SceneInstance {
+@@ -138,14 +130,10 @@ struct FrameStats {
+     uint32_t model_instances = 0;          ///< imported-model placements drawn
+     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
+     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
+-<<<<<<< ours
+     uint32_t model_primitives_culled = 0;  ///< imported-model primitives skipped by frustum culling (their bounding sphere is outside the view)
+     uint32_t bloom_draw_calls = 0;         ///< draws of the bloom chain (also counted in draw_calls)
+     uint32_t fxaa_draw_calls = 0;          ///< 1 when the FXAA pass ran (also counted in draw_calls)
+-||||||| base
+-=======
+     uint32_t ao_draw_calls = 0;            ///< 2 when the ambient occlusion passes ran (also counted in draw_calls)
+->>>>>>> theirs
+ };
+ 
+ class SceneRenderer {
+@@ -193,15 +181,12 @@ private:
+     rhi::TextureHandle hdr_;                   ///< HDR only: the scene's linear float target, sized like the output
+     rhi::BindGroupHandle hdr_input_;           ///< the tone mapper's view of hdr_
+     rhi::ResourceState hdr_state_;
+-<<<<<<< ours
+     std::unique_ptr<BloomPass> bloom_;         ///< bloom only; the destructor releases the chain before it goes
+     BloomChain bloom_chain_;                   ///< bloom only: the half-size chain for the current target size
+     std::unique_ptr<FxaaPass> fxaa_;  ///< FXAA only
+     rhi::TextureHandle aa_;           ///< FXAA only: the finished image before the pass, in the output's format and size
+     rhi::BindGroupHandle aa_input_;   ///< the pass's view of aa_
+     rhi::ResourceState aa_state_;
+-||||||| base
+-=======
+     std::unique_ptr<AmbientOcclusionPass> ao_;  ///< ambient occlusion only
+     rhi::TextureHandle ao_value_;               ///< AO only: the occlusion, one half float per pixel
+     rhi::TextureHandle hdr_ao_;                 ///< AO only: the scene color after the occlusion was applied (what the tone map reads)
+@@ -209,7 +194,6 @@ private:
+     rhi::BindGroupHandle ao_apply_input_;       ///< the apply pass's view of hdr_, ao_value_ and the depth
+     rhi::ResourceState ao_value_state_;
+     rhi::ResourceState hdr_ao_state_;
+->>>>>>> theirs
+     RenderGraph graph_;
+     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
+     std::unique_ptr<ModelRenderer> models_;
+diff --git a/engine/render/src/scene_renderer.cpp b/engine/render/src/scene_renderer.cpp
+index 7c70163..666b4bc 100644
+--- a/engine/render/src/scene_renderer.cpp
++++ b/engine/render/src/scene_renderer.cpp
+@@ -15,16 +15,8 @@ namespace {
+ 
+ constexpr rhi::Format depth_format = rhi::Format::D32_FLOAT;
+ 
+-<<<<<<< ours
+ const RendererSettings& validated_bloom(const RendererSettings& s)
+-||||||| base
+-void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
+-                     rhi::BindGroupHandle hdr_input)
+-=======
+-const RendererSettings& validated_ao(const RendererSettings& s)
+->>>>>>> theirs
+ {
+-<<<<<<< ours
+     if (s.bloom.enabled) {
+         validate_bloom(s.bloom);
+         if (!s.hdr) throw std::invalid_argument("RendererSettings: bloom needs hdr (the scene must be drawn in linear HDR to have anything above the threshold)");
+@@ -38,17 +30,8 @@ const RendererSettings& validated_fxaa(const RendererSettings& s)
+     return s;
+ }
+ 
+-void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
+-                     rhi::BindGroupHandle hdr_input, rhi::TextureHandle aa = {}, rhi::BindGroupHandle aa_input = {})
++const RendererSettings& validated_ao(const RendererSettings& s)
+ {
+-    if (aa_input.is_valid()) {
+-        device.destroy(aa_input);
+-    }
+-    if (aa.is_valid()) {
+-        device.destroy(aa);
+-    }
+-||||||| base
+-=======
+     if (s.ambient_occlusion.enabled) {
+         validate_ambient_occlusion(s.ambient_occlusion);
+         if (!s.hdr) throw std::invalid_argument("RendererSettings: ambient occlusion needs the HDR path (hdr = true)");
+@@ -62,7 +45,8 @@ struct AoTargets {
+ };
+ 
+ void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::TextureHandle hdr,
+-                     rhi::BindGroupHandle hdr_input, const AoTargets& ao = {})
++                     rhi::BindGroupHandle hdr_input, rhi::TextureHandle aa = {}, rhi::BindGroupHandle aa_input = {},
++                     const AoTargets& ao = {})
+ {
+     if (ao.apply_input.is_valid()) {
+         device.destroy(ao.apply_input);
+@@ -76,7 +60,12 @@ void release_targets(rhi::Device& device, rhi::TextureHandle depth, rhi::Texture
+     if (ao.value.is_valid()) {
+         device.destroy(ao.value);
+     }
+->>>>>>> theirs
++    if (aa_input.is_valid()) {
++        device.destroy(aa_input);
++    }
++    if (aa.is_valid()) {
++        device.destroy(aa);
++    }
+     if (hdr_input.is_valid()) {
+         device.destroy(hdr_input);
+     }
+@@ -140,13 +129,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
+     : device_(device),
+       color_format_(color_format),
+       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
+-<<<<<<< ours
+-      settings_((validate_lighting(settings.lighting), validated_bloom(validated_fxaa(settings)))),
+-||||||| base
+-      settings_(settings),
+-=======
+-      settings_(validated_ao(settings)),
+->>>>>>> theirs
++      settings_((validate_lighting(settings.lighting), validated_ao(validated_bloom(validated_fxaa(settings))))),
+       registry_(device)
+ {
+     // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that
+@@ -220,7 +203,6 @@ void SceneRenderer::acquire()
+ 
+ SceneRenderer::~SceneRenderer()
+ {
+-<<<<<<< ours
+     release();
+ }
+ 
+@@ -229,12 +211,16 @@ void SceneRenderer::release() noexcept
+     if (bloom_) {
+         bloom_->destroy_chain(bloom_chain_);  // noexcept, and a no-op on a chain that was never built (a constructor that failed part-way)
+     }
+-    release_targets(device_, depth_, hdr_, hdr_input_, aa_, aa_input_);
++    release_targets(device_, depth_, hdr_, hdr_input_, aa_, aa_input_, {ao_value_, hdr_ao_, ao_generate_input_, ao_apply_input_});
+     depth_ = {};
+     hdr_ = {};
+     hdr_input_ = {};
+     aa_ = {};
+     aa_input_ = {};
++    ao_value_ = {};
++    hdr_ao_ = {};
++    ao_generate_input_ = {};
++    ao_apply_input_ = {};
+     const auto destroy_if = [this](auto& handle) {
+         if (handle.is_valid()) {
+             device_.destroy(handle);
+@@ -249,27 +235,6 @@ void SceneRenderer::release() noexcept
+     destroy_if(ground_vs_);
+     destroy_if(cube_ps_);
+     destroy_if(cube_vs_);
+-||||||| base
+-    release_targets(device_, depth_, hdr_, hdr_input_);
+-    device_.destroy(cube_indices_);
+-    device_.destroy(cube_vertices_);
+-    device_.destroy(ground_pipeline_);
+-    device_.destroy(cube_pipeline_);
+-    device_.destroy(ground_ps_);
+-    device_.destroy(ground_vs_);
+-    device_.destroy(cube_ps_);
+-    device_.destroy(cube_vs_);
+-=======
+-    release_targets(device_, depth_, hdr_, hdr_input_, {ao_value_, hdr_ao_, ao_generate_input_, ao_apply_input_});
+-    device_.destroy(cube_indices_);
+-    device_.destroy(cube_vertices_);
+-    device_.destroy(ground_pipeline_);
+-    device_.destroy(cube_pipeline_);
+-    device_.destroy(ground_ps_);
+-    device_.destroy(ground_vs_);
+-    device_.destroy(cube_ps_);
+-    device_.destroy(cube_vs_);
+->>>>>>> theirs
+ }
+ 
+ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
+@@ -289,14 +254,10 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
+     rhi::TextureHandle next_depth;
+     rhi::TextureHandle next_hdr;
+     rhi::BindGroupHandle next_input;
+-<<<<<<< ours
+     BloomChain next_chain;
+     rhi::TextureHandle next_aa;
+     rhi::BindGroupHandle next_aa_input;
+-||||||| base
+-=======
+     AoTargets next_ao;
+->>>>>>> theirs
+     try {
+         next_depth = device_.create_texture(depth_desc);
+ 
+@@ -308,24 +269,6 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
+             hdr_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+             hdr_desc.debug_name = "SceneHdr";
+             next_hdr = device_.create_texture(hdr_desc);
+-<<<<<<< ours
+-            if (bloom_) {
+-                next_chain = bloom_->create_chain(next_hdr, width, height);
+-            }
+-            next_input = tone_mapper_->create_input(next_hdr, bloom_ ? next_chain.result() : rhi::TextureHandle{});
+-        }
+-        if (fxaa_) {
+-            rhi::TextureDesc aa_desc;
+-            aa_desc.format = color_format_;
+-            aa_desc.width = width;
+-            aa_desc.height = height;
+-            aa_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
+-            aa_desc.debug_name = "FxaaInput";
+-            next_aa = device_.create_texture(aa_desc);
+-            next_aa_input = fxaa_->create_input(next_aa);
+-||||||| base
+-            next_input = tone_mapper_->create_input(next_hdr);
+-=======
+             if (ao_) {
+                 rhi::TextureDesc value_desc;
+                 value_desc.format = AmbientOcclusionPass::ao_format;
+@@ -338,21 +281,26 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
+                 next_ao.color = device_.create_texture(hdr_desc);
+                 next_ao.generate_input = ao_->create_generate_input(next_depth);
+                 next_ao.apply_input = ao_->create_apply_input(next_hdr, next_ao.value, next_depth);
+-                next_input = tone_mapper_->create_input(next_ao.color);  // the tone map reads the occluded color
+-            } else {
+-                next_input = tone_mapper_->create_input(next_hdr);
+             }
+->>>>>>> theirs
++            const rhi::TextureHandle post_color = ao_ ? next_ao.color : next_hdr;  // bloom and the tone map read the occluded color when occlusion is on
++            if (bloom_) {
++                next_chain = bloom_->create_chain(post_color, width, height);
++            }
++            next_input = tone_mapper_->create_input(post_color, bloom_ ? next_chain.result() : rhi::TextureHandle{});
++        }
++        if (fxaa_) {
++            rhi::TextureDesc aa_desc;
++            aa_desc.format = color_format_;
++            aa_desc.width = width;
++            aa_desc.height = height;
++            aa_desc.usage = rhi::TextureUsage::ColorAttachment | rhi::TextureUsage::Sampled;
++            aa_desc.debug_name = "FxaaInput";
++            next_aa = device_.create_texture(aa_desc);
++            next_aa_input = fxaa_->create_input(next_aa);
+         }
+     } catch (...) {
+-<<<<<<< ours
+         if (bloom_) bloom_->destroy_chain(next_chain);
+-        release_targets(device_, next_depth, next_hdr, next_input, next_aa, next_aa_input);
+-||||||| base
+-        release_targets(device_, next_depth, next_hdr, next_input);
+-=======
+-        release_targets(device_, next_depth, next_hdr, next_input, next_ao);
+->>>>>>> theirs
++        release_targets(device_, next_depth, next_hdr, next_input, next_aa, next_aa_input, next_ao);
+         throw;
+     }
+ 
+@@ -360,32 +308,22 @@ void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
+     std::swap(depth_, next_depth);
+     std::swap(hdr_, next_hdr);
+     std::swap(hdr_input_, next_input);
+-<<<<<<< ours
+     std::swap(bloom_chain_, next_chain);
+     std::swap(aa_, next_aa);
+     std::swap(aa_input_, next_aa_input);
+-||||||| base
+-=======
+     std::swap(ao_value_, next_ao.value);
+     std::swap(hdr_ao_, next_ao.color);
+     std::swap(ao_generate_input_, next_ao.generate_input);
+     std::swap(ao_apply_input_, next_ao.apply_input);
+->>>>>>> theirs
+     target_width_ = width;
+     target_height_ = height;
+     depth_state_ = {};
+     hdr_state_ = {};
+-<<<<<<< ours
+     if (bloom_) bloom_->destroy_chain(next_chain);
+     aa_state_ = {};
+-    release_targets(device_, next_depth, next_hdr, next_input, next_aa, next_aa_input);
+-||||||| base
+-    release_targets(device_, next_depth, next_hdr, next_input);
+-=======
+     ao_value_state_ = {};
+     hdr_ao_state_ = {};
+-    release_targets(device_, next_depth, next_hdr, next_input, next_ao);
+->>>>>>> theirs
++    release_targets(device_, next_depth, next_hdr, next_input, next_aa, next_aa_input, next_ao);
+ }
+ 
+ Float3 SceneRenderer::camera_target(const SceneFrame& frame) const
+@@ -560,52 +498,6 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
+             c.end_debug_label();
+         });
+ 
+-<<<<<<< ours
+-    // Bloom: D_0 .. D_{n-1} (the first thresholds the scene), then U_{n-2} .. U_0; every texture is the chain's own (imported, and left sampled). Each is fully
+-    // overwritten every frame, so each starts the frame in the undefined state (its previous contents are never read).
+-    RGTexture bloom_result;
+-    if (bloom_) {
+-        const BloomChain& chain = bloom_chain_;
+-        const uint32_t n = chain.levels;
+-        std::vector<RGTexture> down(n), up(n > 0 ? n - 1 : 0);
+-        for (uint32_t i = 0; i < n; ++i) {
+-            down[i] = graph_.import_texture("BloomDown", BloomPass::level_desc(target.width, target.height, i), chain.down[i], rhi::ResourceState{}, rhi::sampled_texture_state);
+-        }
+-        for (uint32_t i = 0; i + 1 < n; ++i) {
+-            up[i] = graph_.import_texture("BloomUp", BloomPass::level_desc(target.width, target.height, i), chain.up[i], rhi::ResourceState{}, rhi::sampled_texture_state);
+-        }
+-        for (uint32_t i = 0; i < n; ++i) {
+-            graph_.add_pass(
+-                "BloomDown", rhi::QueueType::Graphics,
+-                [&, i](PassBuilder& b) {
+-                    b.sample(i == 0 ? scene_color : down[i - 1], rhi::PipelineStage::PixelShader);
+-                    b.write_color(down[i], LoadOp::DontCare);
+-                },
+-                [&, i](PassContext& ctx) {
+-                    bloom_->record_down(*ctx.command_list(), chain, i);
+-                    ++stats.draw_calls;
+-                    ++stats.bloom_draw_calls;
+-                });
+-        }
+-        for (uint32_t i = n - 1; i-- > 0;) {
+-            graph_.add_pass(
+-                "BloomUp", rhi::QueueType::Graphics,
+-                [&, i](PassBuilder& b) {
+-                    b.sample(down[i], rhi::PipelineStage::PixelShader);
+-                    b.sample(i + 2 < n ? up[i + 1] : down[n - 1], rhi::PipelineStage::PixelShader);
+-                    b.write_color(up[i], LoadOp::DontCare);
+-                },
+-                [&, i](PassContext& ctx) {
+-                    bloom_->record_up(*ctx.command_list(), chain, i);
+-                    ++stats.draw_calls;
+-                    ++stats.bloom_draw_calls;
+-                });
+-        }
+-        bloom_result = n > 1 ? up[0] : down[0];
+-    }
+-
+-||||||| base
+-=======
+     if (ao_) {
+         rhi::TextureDesc value_desc;
+         value_desc.format = AmbientOcclusionPass::ao_format;
+@@ -676,13 +568,54 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
+         tonemap_input = occluded;
+     }
+ 
+->>>>>>> theirs
++    // Bloom (after occlusion, so it blooms what the tone map will show): D_0 .. D_{n-1} (the first thresholds the scene), then U_{n-2} .. U_0; every texture is the chain's own (imported, and left sampled). Each is fully
++    // overwritten every frame, so each starts the frame in the undefined state (its previous contents are never read).
++    RGTexture bloom_result;
++    if (bloom_) {
++        const BloomChain& chain = bloom_chain_;
++        const uint32_t n = chain.levels;
++        std::vector<RGTexture> down(n), up(n > 0 ? n - 1 : 0);
++        for (uint32_t i = 0; i < n; ++i) {
++            down[i] = graph_.import_texture("BloomDown", BloomPass::level_desc(target.width, target.height, i), chain.down[i], rhi::ResourceState{}, rhi::sampled_texture_state);
++        }
++        for (uint32_t i = 0; i + 1 < n; ++i) {
++            up[i] = graph_.import_texture("BloomUp", BloomPass::level_desc(target.width, target.height, i), chain.up[i], rhi::ResourceState{}, rhi::sampled_texture_state);
++        }
++        for (uint32_t i = 0; i < n; ++i) {
++            graph_.add_pass(
++                "BloomDown", rhi::QueueType::Graphics,
++                [&, i](PassBuilder& b) {
++                    b.sample(i == 0 ? tonemap_input : down[i - 1], rhi::PipelineStage::PixelShader);
++                    b.write_color(down[i], LoadOp::DontCare);
++                },
++                [&, i](PassContext& ctx) {
++                    bloom_->record_down(*ctx.command_list(), chain, i);
++                    ++stats.draw_calls;
++                    ++stats.bloom_draw_calls;
++                });
++        }
++        for (uint32_t i = n - 1; i-- > 0;) {
++            graph_.add_pass(
++                "BloomUp", rhi::QueueType::Graphics,
++                [&, i](PassBuilder& b) {
++                    b.sample(down[i], rhi::PipelineStage::PixelShader);
++                    b.sample(i + 2 < n ? up[i + 1] : down[n - 1], rhi::PipelineStage::PixelShader);
++                    b.write_color(up[i], LoadOp::DontCare);
++                },
++                [&, i](PassContext& ctx) {
++                    bloom_->record_up(*ctx.command_list(), chain, i);
++                    ++stats.draw_calls;
++                    ++stats.bloom_draw_calls;
++                });
++        }
++        bloom_result = n > 1 ? up[0] : down[0];
++    }
++
+     if (settings_.hdr) {
+         graph_.add_pass(
+             "ToneMap", rhi::QueueType::Graphics,
+             [&](PassBuilder& b) {
+-<<<<<<< ours
+-                b.sample(scene_color, rhi::PipelineStage::PixelShader);
++                b.sample(tonemap_input, rhi::PipelineStage::PixelShader);
+                 if (bloom_) b.sample(bloom_result, rhi::PipelineStage::PixelShader);
+                 b.write_color(final_color, LoadOp::DontCare);  // the full-screen triangle covers every pixel
+             },
+@@ -711,11 +644,6 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
+             "Fxaa", rhi::QueueType::Graphics,
+             [&](PassBuilder& b) {
+                 b.sample(final_color, rhi::PipelineStage::PixelShader);
+-||||||| base
+-                b.sample(scene_color, rhi::PipelineStage::PixelShader);
+-=======
+-                b.sample(tonemap_input, rhi::PipelineStage::PixelShader);
+->>>>>>> theirs
+                 b.write_color(color, LoadOp::DontCare);  // the full-screen triangle covers every pixel
+             },
+             [&](PassContext& ctx) {
+@@ -771,17 +699,13 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
+     if (settings_.hdr) {
+         hdr_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
+     }
+-<<<<<<< ours
+     if (fxaa_) {
+         aa_state_ = rhi::sampled_texture_state;
+     }
+-||||||| base
+-=======
+     if (ao_) {
+         ao_value_state_ = rhi::sampled_texture_state;
+         hdr_ao_state_ = rhi::sampled_texture_state;
+     }
+->>>>>>> theirs
+     return stats;
+ }
+ 
+diff --git a/engine/render/tests/test_scene_renderer.cpp b/engine/render/tests/test_scene_renderer.cpp
+index fe0706a..0265dee 100644
+--- a/engine/render/tests/test_scene_renderer.cpp
++++ b/engine/render/tests/test_scene_renderer.cpp
+@@ -571,7 +571,6 @@ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be
+     CHECK(o.device.live_resource_count() == baseline);
+     CHECK(o.device.validation_error_count() == 0);
+ }
+-<<<<<<< ours
+ 
+ // ---- Bloom (RendererSettings::bloom) -------------------------------------------------------------------------------------------------------
+ 
+@@ -842,8 +841,6 @@ TEST_CASE("FXAA (null device): a resize rebuilds the intermediate target without
+     (void)o.device.end_frame();
+     CHECK(o.device.validation_error_count() == 0);
+ }
+-||||||| base
+-=======
+ 
+ // ---- Ambient occlusion (RendererSettings::ambient_occlusion) -------------------------------------------------------------------------------
+ 
+@@ -947,4 +944,3 @@ TEST_CASE("Ambient occlusion (null device): a resize rebuilds the occlusion targ
+     (void)o.device.end_frame();
+     CHECK(o.device.validation_error_count() == 0);
+ }
+->>>>>>> theirs
+diff --git a/engine/rhi_vulkan/CMakeLists.txt b/engine/rhi_vulkan/CMakeLists.txt
+index d24d7d8..2f898fb 100644
+--- a/engine/rhi_vulkan/CMakeLists.txt
++++ b/engine/rhi_vulkan/CMakeLists.txt
+@@ -119,15 +119,9 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
+     if(NOT TARGET saige::render)
+         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../render ${CMAKE_CURRENT_BINARY_DIR}/render)
+     endif()
+-<<<<<<< ours
+     # test_capabilities.cpp is last on purpose: its printed report (loader, instance and effective versions, and where each
+     # capability comes from) then sits at the end of the verbose ctest log, inside the part CI log viewers retain.
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp)
+-||||||| base
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp)
+-=======
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_ambient_occlusion.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp)
+->>>>>>> theirs
++    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp)
+     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
+     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
+                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)
+diff --git a/shaders/CMakeLists.txt b/shaders/CMakeLists.txt
+index c7b426c..c59b167 100644
+--- a/shaders/CMakeLists.txt
++++ b/shaders/CMakeLists.txt
+@@ -7,15 +7,11 @@
+ # available, that every shader still compiles and passes spirv-val.
+ 
+ set(SAIGE_SHADER_SOURCES
+-<<<<<<< ours
+     scene/bloom_down.hlsl
+     scene/bloom_prefilter.hlsl
+     scene/bloom_up.hlsl
+-||||||| base
+-=======
+     scene/ao_apply.hlsl
+     scene/ao_generate.hlsl
+->>>>>>> theirs
+     scene/cube.hlsl
+     scene/fxaa.hlsl
+     scene/ground.hlsl

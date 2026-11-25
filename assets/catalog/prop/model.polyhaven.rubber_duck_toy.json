@@ -1,0 +1,162 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Plat251"
+ ],
+ "description": "Free 4K model: cute yellow rubber duck with glossy plastic, bright red beak, simple cartoon eyes and light scuffs/grime for a slightly worn, playful look.",
+ "files": [
+  {
+   "bytes": 3180,
+   "format": "gltf",
+   "path": "polyhaven/rubber_duck_toy/1k/rubber_duck_toy_1k.gltf",
+   "role": "model",
+   "sha256": "dcf036297843dad2775841fc41208fae8c776066848d3f6e26efa42eb98d5016"
+  },
+  {
+   "bytes": 231027,
+   "format": "jpg",
+   "path": "polyhaven/rubber_duck_toy/1k/textures/rubber_duck_toy_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "c968d6185c3ec57a430818e6af85c2ba2880c7ee19ccb1a0171730926175cfd6"
+  },
+  {
+   "bytes": 105376,
+   "format": "bin",
+   "path": "polyhaven/rubber_duck_toy/1k/rubber_duck_toy.bin",
+   "role": "dependency",
+   "sha256": "381e1373b99a4ff23d5ee02cb66bfb5e7d897eaa280581f19b652c38ffd83314"
+  },
+  {
+   "bytes": 346707,
+   "format": "jpg",
+   "path": "polyhaven/rubber_duck_toy/1k/textures/rubber_duck_toy_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "07df1a805350811e8522dafce6133b98ce2f191326e7256315a15dfaaa4193a0"
+  },
+  {
+   "bytes": 48768,
+   "format": "jpg",
+   "path": "polyhaven/rubber_duck_toy/1k/textures/rubber_duck_toy_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "fc00541d9708328f383498914a5ed9935231a87f15ec002d5675af3f2347b544"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.rubber_duck_toy",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Plat251",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Rubber Duck Toy",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven rubber_duck_toy --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:49Z",
+  "source_id": "rubber_duck_toy",
+  "url": "https://polyhaven.com/a/rubber_duck_toy"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "shed",
+  "toy",
+  "bathroom",
+  "child",
+  "home",
+  "fun",
+  "kids",
+  "play",
+  "float",
+  "plastic",
+  "cute",
+  "animal",
+  "props",
+  "decorative",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.1067524179816246,
+   0.2854783236980438,
+   0.15390841662883759
+  ],
+  "bounds_min": [
+   -0.106752410531044,
+   -4.4539570808410645e-05,
+   -0.14609377086162567
+  ],
+  "dimensions_mm": [
+   213.5048285126686,
+   300.00218749046326,
+   285.52286326885223
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_specular",
+   "KHR_materials_ior"
+  ],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.3.32",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "rubber_duck_toy"
+  ],
+  "nodes": 1,
+  "polycount_source": 4288,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "rubber_duck_toy_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "rubber_duck_toy_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "rubber_duck_toy_metal-rubber_duck_toy_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 4288,
+  "vertices": 2489
+ },
+ "version": 1
+}

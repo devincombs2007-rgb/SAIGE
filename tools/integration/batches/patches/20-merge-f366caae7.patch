@@ -1,0 +1,96 @@
+diff --git a/engine/render/include/saige/render/scene_renderer.hpp b/engine/render/include/saige/render/scene_renderer.hpp
+index 7d30cff..bfbb8dd 100644
+--- a/engine/render/include/saige/render/scene_renderer.hpp
++++ b/engine/render/include/saige/render/scene_renderer.hpp
+@@ -122,12 +122,8 @@ struct FrameStats {
+     uint32_t model_instances = 0;          ///< imported-model placements drawn
+     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
+     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
+-<<<<<<< ours
+     uint32_t model_primitives_culled = 0;  ///< imported-model primitives skipped by frustum culling (their bounding sphere is outside the view)
+-||||||| base
+-=======
+     uint32_t bloom_draw_calls = 0;         ///< draws of the bloom chain (also counted in draw_calls)
+->>>>>>> theirs
+ };
+ 
+ class SceneRenderer {
+diff --git a/engine/render/src/scene_renderer.cpp b/engine/render/src/scene_renderer.cpp
+index 383f971..d93d03fe 100644
+--- a/engine/render/src/scene_renderer.cpp
++++ b/engine/render/src/scene_renderer.cpp
+@@ -90,13 +90,7 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
+     : device_(device),
+       color_format_(color_format),
+       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
+-<<<<<<< ours
+-      settings_((validate_lighting(settings.lighting), settings)),
+-||||||| base
+-      settings_(settings),
+-=======
+-      settings_(validated_bloom(settings)),
+->>>>>>> theirs
++      settings_((validate_lighting(settings.lighting), validated_bloom(settings))),
+       registry_(device)
+ {
+     // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that
+@@ -163,18 +157,14 @@ void SceneRenderer::acquire()
+ 
+ SceneRenderer::~SceneRenderer()
+ {
+-<<<<<<< ours
+     release();
+ }
+ 
+ void SceneRenderer::release() noexcept
+ {
+-||||||| base
+-=======
+     if (bloom_) {
+-        bloom_->destroy_chain(bloom_chain_);
++        bloom_->destroy_chain(bloom_chain_);  // noexcept, and a no-op on a chain that was never built (a constructor that failed part-way)
+     }
+->>>>>>> theirs
+     release_targets(device_, depth_, hdr_, hdr_input_);
+     depth_ = {};
+     hdr_ = {};
+diff --git a/engine/render/tests/test_scene_renderer.cpp b/engine/render/tests/test_scene_renderer.cpp
+index 06525f9..e8b2116 100644
+--- a/engine/render/tests/test_scene_renderer.cpp
++++ b/engine/render/tests/test_scene_renderer.cpp
+@@ -9,14 +9,10 @@
+ #include <cmath>
+ #include <cstdio>
+ #include <cstring>
+-<<<<<<< ours
+ #include <limits>
+ #include <memory>
+ #include <span>
+-||||||| base
+-=======
+ #include <limits>
+->>>>>>> theirs
+ #include <stdexcept>
+ #include <utility>
+ #include <vector>
+diff --git a/engine/rhi_vulkan/CMakeLists.txt b/engine/rhi_vulkan/CMakeLists.txt
+index 7d54e4c..9f8d034 100644
+--- a/engine/rhi_vulkan/CMakeLists.txt
++++ b/engine/rhi_vulkan/CMakeLists.txt
+@@ -119,15 +119,9 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
+     if(NOT TARGET saige::render)
+         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../render ${CMAKE_CURRENT_BINARY_DIR}/render)
+     endif()
+-<<<<<<< ours
+     # test_capabilities.cpp is last on purpose: its printed report (loader, instance and effective versions, and where each
+     # capability comes from) then sits at the end of the verbose ctest log, inside the part CI log viewers retain.
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp)
+-||||||| base
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp)
+-=======
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_bloom.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp)
+->>>>>>> theirs
++    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp)
+     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
+     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
+                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)

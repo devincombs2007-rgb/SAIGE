@@ -1,0 +1,145 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 314455,
+   "format": "png",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063.png",
+   "role": "other",
+   "sha256": "654a65a825f2cb442530daf0b819084f8794cf92c2d0b4f20c49b2e456dc2d18"
+  },
+  {
+   "bytes": 2595,
+   "format": "mtlx",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "77b4b78719d70102fb933e902de88fa2da0d0b8e4b645445320a416c1daa161c"
+  },
+  {
+   "bytes": 3150,
+   "format": "usdc",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "2ee41d98f2f9b24e7c7b68769fb7b4a11a6b714ea5a433fde4f8d0aefce6bc64"
+  },
+  {
+   "bytes": 1259638,
+   "format": "jpg",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "d4122954971c26b529614f39fb12310de00005d44ce103430c35132f61fca077"
+  },
+  {
+   "bytes": 770082,
+   "format": "jpg",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "81e1cb4c96d23890c7626d44b705656c54c095a44fd1c8d72242d5d2265ac817"
+  },
+  {
+   "bytes": 737142,
+   "format": "jpg",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG_Metalness.jpg",
+   "role": "metalness",
+   "sha256": "1bd888a9fa307197fd5eaaa883561cfd8350ae634fce0d378e83b8e05632daf8"
+  },
+  {
+   "bytes": 343435,
+   "format": "jpg",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "f8047e9357a2a02be152f81e30dd5290e19f3ecc33b9dadfed9835d707a56c84"
+  },
+  {
+   "bytes": 343987,
+   "format": "jpg",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "51e521e2fafd01387216b52fce315e2f094a1fa6efab77a92e2c79870bb2df01"
+  },
+  {
+   "bytes": 731180,
+   "format": "jpg",
+   "path": "ambientcg/Metal063/1K-JPG/files/Metal063_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "e83993283739d0a5d350ecd15cf82969aa59ec6e2293bcc6a14aea8a92ba283d"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.metal063",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Metal 063",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Metal063 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:43Z",
+  "source_id": "Metal063",
+  "url": "https://ambientcg.com/a/Metal063"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "063",
+  "63",
+  "aged",
+  "black",
+  "brown",
+  "dark",
+  "fine",
+  "glossy",
+  "industrial",
+  "metal",
+  "oxidized",
+  "polished",
+  "rust",
+  "rusty",
+  "smooth",
+  "steel"
+ ],
+ "technical": {
+  "creation_method": "PBRApproximated",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "base_color",
+   "displacement",
+   "metalness",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

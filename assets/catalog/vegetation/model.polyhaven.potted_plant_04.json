@@ -1,0 +1,160 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "James Ray Cock"
+ ],
+ "description": "Free 8K potted succulent model - small zebra haworthia in a weathered ceramic pot. Realistic textures and natural detail; ideal for interior decor scenes.",
+ "files": [
+  {
+   "bytes": 7081,
+   "format": "gltf",
+   "path": "polyhaven/potted_plant_04/1k/potted_plant_04_1k.gltf",
+   "role": "model",
+   "sha256": "b3a3bc3e97da75844999c4da07b7104b6c023f729a7c045979929b9504184339"
+  },
+  {
+   "bytes": 241800,
+   "format": "bin",
+   "path": "polyhaven/potted_plant_04/1k/potted_plant_04.bin",
+   "role": "dependency",
+   "sha256": "158c1d27503d4845eb3573f00c01ae3f4f77f1d6ca8754c67bf1762745946f7f"
+  },
+  {
+   "bytes": 817786,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_04/1k/textures/potted_plant_04_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "66e4627f6691a2d8104a6c53a39b41daddbd5bad8103e73f372c39166a3dcb07"
+  },
+  {
+   "bytes": 478413,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_04/1k/textures/potted_plant_04_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "7f3288345570ef700c851ea382ed267490ffc8c901ccc31f2ec5507e4d098e48"
+  },
+  {
+   "bytes": 577545,
+   "format": "jpg",
+   "path": "polyhaven/potted_plant_04/1k/textures/potted_plant_04_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "8693a971557fbafb12a24a2e23c1a04ab6b04ecdc4d26808c5ad3516a4971f24"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.potted_plant_04",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Potted Plant 04",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven potted_plant_04 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:14Z",
+  "source_id": "potted_plant_04",
+  "url": "https://polyhaven.com/a/potted_plant_04"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "cactus",
+  "aloe",
+  "succulent",
+  "potplant",
+  "small",
+  "pot",
+  "plant",
+  "decor",
+  "decorative",
+  "plants",
+  "potted plants",
+  "succulent",
+  "nature"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.08394316583871841,
+   0.26783305406570435,
+   0.1008082702755928
+  ],
+  "bounds_min": [
+   -0.08394315838813782,
+   0.0003753884811885655,
+   -0.08394315838813782
+  ],
+  "dimensions_mm": [
+   170.27407884597778,
+   185.9453096985817,
+   267.5964875961654
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.1.63",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 4,
+  "node_names_sample": [
+   "potted_plant_04_ground",
+   "potted_plant_04_dirt",
+   "potted_plant_04_plant",
+   "potted_plant_04_pot"
+  ],
+  "nodes": 4,
+  "polycount_source": 6097,
+  "primitives": 4,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "potted_plant_04_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "potted_plant_04_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "potted_plant_04_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 8929,
+  "vertices": 5882
+ },
+ "version": 1
+}

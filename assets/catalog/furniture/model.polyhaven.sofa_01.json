@@ -1,0 +1,155 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Kirill Sannikov"
+ ],
+ "description": "Free 4K vintage Victorian wooden sofa - decorative gothic-style upholstered couch with carved frame, elegant seating prop for period interiors.",
+ "files": [
+  {
+   "bytes": 2636,
+   "format": "gltf",
+   "path": "polyhaven/Sofa_01/1k/Sofa_01_1k.gltf",
+   "role": "model",
+   "sha256": "dc9d331a24fc8994606ae5a283826cb28feb3166782f59d006d0f10cc92cc830"
+  },
+  {
+   "bytes": 134925,
+   "format": "jpg",
+   "path": "polyhaven/Sofa_01/1k/textures/Sofa_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "1772047e7887a9ec44878e0720eda0829abfa744dec6ca03b492a31c4dc51cab"
+  },
+  {
+   "bytes": 154517,
+   "format": "jpg",
+   "path": "polyhaven/Sofa_01/1k/textures/Sofa_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "1d89009f9fba3b6967d63cb718606b3049d2423bc031da12ee228718a0571e84"
+  },
+  {
+   "bytes": 111264,
+   "format": "bin",
+   "path": "polyhaven/Sofa_01/1k/Sofa_01.bin",
+   "role": "dependency",
+   "sha256": "c8af86de6db09a6d49703e0e51cf8acafa23fb2ee945e66a48225dced3a154e1"
+  },
+  {
+   "bytes": 114593,
+   "format": "jpg",
+   "path": "polyhaven/Sofa_01/1k/textures/Sofa_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "fc5db69e4cf5cf9f881b2d134fae69c4e3b1a96378f131752ef48060bf0c5e39"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.sofa_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Kirill Sannikov",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Sofa 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven Sofa_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:00Z",
+  "source_id": "Sofa_01",
+  "url": "https://polyhaven.com/a/Sofa_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wood",
+  "prop",
+  "furniture",
+  "vintage",
+  "gothic",
+  "chair",
+  "couch",
+  "victorian",
+  "decorative",
+  "furniture",
+  "seating"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.7933560013771057,
+   0.7959280610084534,
+   0.29681089520454407
+  ],
+  "bounds_min": [
+   -0.7781115770339966,
+   -0.0005869903834536672,
+   -0.3612036406993866
+  ],
+  "dimensions_mm": [
+   1571.4675784111023,
+   658.0145359039307,
+   796.515051391907
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "Sofa_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 4101,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "Sofa_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "Sofa_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "Sofa_01_metallic-Sofa_01_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 4101,
+  "vertices": 2708
+ },
+ "version": 1
+}

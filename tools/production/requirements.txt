@@ -1,0 +1,19 @@
+# Python side of the SAIGE asset pipeline (Python 3.11+; tested on 3.13). pydub is deliberately absent: it needs the audioop module removed in 3.13, and ffmpeg/sox cover it.
+numpy
+scipy
+pillow
+opencv-python-headless
+imageio
+trimesh
+pygltflib
+networkx
+fast-simplification
+xatlas
+soundfile
+librosa
+pyloudnorm
+mutagen
+httpx
+pyyaml
+jsonschema
+tqdm

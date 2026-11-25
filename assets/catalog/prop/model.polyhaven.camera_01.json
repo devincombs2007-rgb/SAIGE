@@ -1,0 +1,262 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Rajil Jose Macatangay"
+ ],
+ "description": "Free vintage rangefinder camera model with ornate wear, leather strap and detailed lens - high-res prop for retro scenes, stills, animations, and product shots.",
+ "files": [
+  {
+   "bytes": 9886,
+   "format": "gltf",
+   "path": "polyhaven/Camera_01/1k/Camera_01_1k.gltf",
+   "role": "model",
+   "sha256": "9c5ca3104579c84ffcebdee5c6e5e09821fe8d4a5cd9ce95ed32d81507450ee3"
+  },
+  {
+   "bytes": 163109,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_lens_body_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "6fef8a44334428a8f095315fa8043678994abcc671473cf43f7ca63ec10eb98f"
+  },
+  {
+   "bytes": 175778,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_body_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "89b77ec525e933f9f2702e2ccb0c8ba32ecef31dac241bc034e3eddc9481f4f7"
+  },
+  {
+   "bytes": 159433,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_strap_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "17beca6e0542a1a28146b52cff06aad2e404541359e452deca83b74d01505c50"
+  },
+  {
+   "bytes": 147816,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_lens_body_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "3d5e695a57ce38f0e35558f43f30497fff2f8cc844c903c95462d105b58cb333"
+  },
+  {
+   "bytes": 845028,
+   "format": "bin",
+   "path": "polyhaven/Camera_01/1k/Camera_01.bin",
+   "role": "dependency",
+   "sha256": "d3d2c78458a4823bc9821c2ba3994c95d15b044c7a1444ba089b163f74c3fcf2"
+  },
+  {
+   "bytes": 106198,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_lens_body_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "aafa05c5b106b960b21547ef9d4662083dfc7138261cbab1f10e143afe046b68"
+  },
+  {
+   "bytes": 271892,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_body_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "c7ec0d96ae9b5f16559069f1a4c9a006f3ec1d49a7707269a280fe23786db144"
+  },
+  {
+   "bytes": 228449,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_body_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "a3b1928d258fdb23687fb005a3d764b008475abb13b47a2bb87ed81200274635"
+  },
+  {
+   "bytes": 132449,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_strap_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "3d4c9cb463b330b7ea4fc713f6dc90a0c5e6d9d3ba707b6921fe0a2d1f9ab146"
+  },
+  {
+   "bytes": 199844,
+   "format": "jpg",
+   "path": "polyhaven/Camera_01/1k/textures/Camera_01_strap_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "5d4d99d5b1640d5a4d3c2227c264c232279773b5c92e4a6c50d2f34217880202"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.camera_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rajil Jose Macatangay",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Camera 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven Camera_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:39Z",
+  "source_id": "Camera_01",
+  "url": "https://polyhaven.com/a/Camera_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "camera",
+  "antique",
+  "ornate",
+  "photography",
+  "photography",
+  "retro",
+  "lens",
+  "classic",
+  "classic",
+  "analog",
+  "props",
+  "electronics"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.07835790514945984,
+   0.07810214161872864,
+   0.20226606726646423
+  ],
+  "bounds_min": [
+   -0.13554362952709198,
+   0.00025549158453941345,
+   -0.06055775657296181
+  ],
+  "dimensions_mm": [
+   213.90153467655182,
+   262.82382383942604,
+   77.84665003418922
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_transmission"
+  ],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 4,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 2,
+  "node_names_sample": [
+   "Camera_01_strap",
+   "Camera_01"
+  ],
+  "nodes": 2,
+  "polycount_source": 26987,
+  "primitives": 5,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 50331645,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "Camera_01_strap_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "Camera_01_strap_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "Camera_01_strap_metallic-Camera_01_strap_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "Camera_01_lens_body_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "Camera_01_lens_body_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "Camera_01_lens_body_metallic-Camera_01_lens_body_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 6,
+    "mime": "image/jpeg",
+    "name": "Camera_01_body_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 7,
+    "mime": "image/jpeg",
+    "name": "Camera_01_body_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 8,
+    "mime": "image/jpeg",
+    "name": "Camera_01_body_metallic-Camera_01_body_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 26987,
+  "vertices": 21347
+ },
+ "version": 1
+}

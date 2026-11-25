@@ -1,0 +1,206 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Vibrant Nordic"
+ ],
+ "description": "Free 8K model, modern wooden armchair with warm oak frame and plush black leather cushions - contemporary lounge styling with clean lines and wear detailing.",
+ "files": [
+  {
+   "bytes": 5121,
+   "format": "gltf",
+   "path": "polyhaven/modern_arm_chair_01/1k/modern_arm_chair_01_1k.gltf",
+   "role": "model",
+   "sha256": "d31be520add2603447b43acedbdacf9516866f7c89e9ea9230c9edbac9cc6e6a"
+  },
+  {
+   "bytes": 302377,
+   "format": "jpg",
+   "path": "polyhaven/modern_arm_chair_01/1k/textures/modern_arm_chair_01_pillow_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "2717b9d22e1d3533e3c7436a0230b00b1d25bf396246679825c8db08edaba0a8"
+  },
+  {
+   "bytes": 560864,
+   "format": "jpg",
+   "path": "polyhaven/modern_arm_chair_01/1k/textures/modern_arm_chair_01_legs_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "af328e8530884907cf0d38a675338bb4e2b03c56ed2d21eb5abf505bb67c11de"
+  },
+  {
+   "bytes": 321223,
+   "format": "jpg",
+   "path": "polyhaven/modern_arm_chair_01/1k/textures/modern_arm_chair_01_pillow_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "fec333290ddfd70e78428251874d30d5410d6d0a956dd84922b0d3f3596e4b7a"
+  },
+  {
+   "bytes": 460937,
+   "format": "jpg",
+   "path": "polyhaven/modern_arm_chair_01/1k/textures/modern_arm_chair_01_legs_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "6291421a8db6cd9bbbc8c141aa087465d698427249f813d24c6e5ccdbf0bf536"
+  },
+  {
+   "bytes": 577931,
+   "format": "jpg",
+   "path": "polyhaven/modern_arm_chair_01/1k/textures/modern_arm_chair_01_legs_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "c76b65200a52cf649a865baf7f879dc34277b923edaac7ec8164eaf7c51c935d"
+  },
+  {
+   "bytes": 240728,
+   "format": "bin",
+   "path": "polyhaven/modern_arm_chair_01/1k/modern_arm_chair_01.bin",
+   "role": "dependency",
+   "sha256": "8755f2f498c0bb165660379d1b045465751c16bbeaf553c8dd76bb14c16d1ff6"
+  },
+  {
+   "bytes": 228851,
+   "format": "jpg",
+   "path": "polyhaven/modern_arm_chair_01/1k/textures/modern_arm_chair_01_pillow_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "f1935436b460ad5c03ac7ff9d1e1b4aaedcdc9a503d79c257beb8cdac2e9e1f7"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.modern_arm_chair_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Vibrant Nordic",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Modern Arm Chair 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven modern_arm_chair_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:43:57Z",
+  "source_id": "modern_arm_chair_01",
+  "url": "https://polyhaven.com/a/modern_arm_chair_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "wood",
+  "leather",
+  "fancy",
+  "modern",
+  "chair",
+  "contemporary",
+  "wooden",
+  "lounge",
+  "furniture",
+  "seating",
+  "office"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.4135356843471527,
+   1.0232336521148682,
+   0.41110995411872864
+  ],
+  "bounds_min": [
+   -0.4068087339401245,
+   0.0003815953677985817,
+   -0.5754517316818237
+  ],
+  "dimensions_mm": [
+   820.3444182872772,
+   986.5616858005524,
+   1022.8520567470696
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.3.32",
+  "materials": 2,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "modern_arm_chair_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 8916,
+  "primitives": 2,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 33554430,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "modern_arm_chair_01_legs_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "modern_arm_chair_01_legs_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "modern_arm_chair_01_legs_metal-modern_arm_chair_01_legs_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "modern_arm_chair_01_pillow_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "modern_arm_chair_01_pillow_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "modern_arm_chair_01_pillow_metal-modern_arm_chair_01_pillow_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 8916,
+  "vertices": 5851
+ },
+ "version": 1
+}

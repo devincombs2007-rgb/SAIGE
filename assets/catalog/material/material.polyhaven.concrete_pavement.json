@@ -1,0 +1,96 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Charlotte Baglioni"
+ ],
+ "description": "Free 8K concrete texture of rough, coarse rectangular pavement pavers with sandy aggregate, subtle wear and flat matte finish in warm gray-beige tones.",
+ "files": [
+  {
+   "bytes": 926197,
+   "format": "jpg",
+   "path": "polyhaven/concrete_pavement/1k/concrete_pavement_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "70d3ff969a7421c7ae057b5d16386d11f5e59c6740db643352e1039413f419c4"
+  },
+  {
+   "bytes": 802384,
+   "format": "jpg",
+   "path": "polyhaven/concrete_pavement/1k/concrete_pavement_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "2895506708adad25d64c3d7c3d0f922a6df0468af4a9afe3d5d3a0fb35bb3afd"
+  },
+  {
+   "bytes": 1184345,
+   "format": "jpg",
+   "path": "polyhaven/concrete_pavement/1k/concrete_pavement_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "a5009e409ff0f7b2d19e1316fe5e2b2b4f28e4a6b79990a664be69d4e8a0e690"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.concrete_pavement",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Charlotte Baglioni",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Concrete Pavement",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven concrete_pavement --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:10Z",
+  "source_id": "concrete_pavement",
+  "url": "https://polyhaven.com/a/concrete_pavement"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "urban",
+  "concrete",
+  "floor",
+  "rough  ",
+  "exterior",
+  "pavers",
+  "outdoor flooring",
+  "cement",
+  "flat",
+  "coarse",
+  "pavement",
+  "sidewalk",
+  "floor",
+  "man made",
+  "concrete",
+  "plaster-concrete"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   1800.0000715255737,
+   1800.0000715255737
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,138 @@
+{
+ "category": "audio.ambience",
+ "creators": [
+  "ylmir"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 3175809,
+   "format": "zip",
+   "path": "opengameart/rain_loopable/Rain MP3.zip",
+   "role": "content",
+   "sha256": "89c275fda7759584b471985af370386eff25a87ee7babfccd4e9d0ac2210c6df"
+  },
+  {
+   "bytes": 2736596,
+   "format": "zip",
+   "path": "opengameart/rain_loopable/Rain OGG.zip",
+   "role": "content",
+   "sha256": "e68f3e1c77493cf43bec84cebff5043bff6be9ce16d59b24caa988cd460aa75b"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.rain_loopable",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Rain (loopable) by ylmir (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Rain (loopable)",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/rain-loopable --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:40:14Z",
+  "source_id": "rain_loopable",
+  "url": "https://opengameart.org/content/rain-loopable"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "zip",
+  "pack_contents": [
+   {
+    "bytes": 649507,
+    "channels": 2,
+    "duration_s": 27.0,
+    "file": "1.mp3",
+    "loop_seam_ratio": 0.79,
+    "lufs_integrated": -17.61,
+    "peak_dbfs": -4.92,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 550049,
+    "channels": 2,
+    "duration_s": 27.0,
+    "file": "1.ogg",
+    "loop_seam_ratio": 0.88,
+    "lufs_integrated": -17.65,
+    "peak_dbfs": -4.88,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 625684,
+    "channels": 2,
+    "duration_s": 26.0,
+    "file": "2.mp3",
+    "loop_seam_ratio": 1.43,
+    "lufs_integrated": -13.25,
+    "peak_dbfs": -2.12,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 529890,
+    "channels": 2,
+    "duration_s": 26.0,
+    "file": "2.ogg",
+    "loop_seam_ratio": 1.23,
+    "lufs_integrated": -13.24,
+    "peak_dbfs": -2.44,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 1081468,
+    "channels": 2,
+    "duration_s": 45.0,
+    "file": "3.mp3",
+    "loop_seam_ratio": 0.15,
+    "lufs_integrated": -22.07,
+    "peak_dbfs": -7.92,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 913769,
+    "channels": 2,
+    "duration_s": 45.0,
+    "file": "3.ogg",
+    "loop_seam_ratio": 0.41,
+    "lufs_integrated": -22.13,
+    "peak_dbfs": -7.45,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 901537,
+    "channels": 2,
+    "duration_s": 37.5,
+    "file": "4.mp3",
+    "loop_seam_ratio": 2.49,
+    "lufs_integrated": -30.47,
+    "peak_dbfs": -10.35,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 762663,
+    "channels": 2,
+    "duration_s": 37.5,
+    "file": "4.ogg",
+    "loop_seam_ratio": 2.16,
+    "lufs_integrated": -30.52,
+    "peak_dbfs": -9.73,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 8,
+  "pack_seconds": 271.0
+ },
+ "version": 1
+}

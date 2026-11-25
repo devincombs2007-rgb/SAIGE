@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "vitalemarco"
+ ],
+ "description": "This is a bootcut Jeans for men.",
+ "files": [
+  {
+   "bytes": 369515,
+   "format": "obj",
+   "path": "makehuman/807/jeans.obj",
+   "role": "obj",
+   "sha256": "97801b79a85001f8a87074e8232693fb9f108614cd8f3f93be081b7c0585fee5"
+  },
+  {
+   "bytes": 471505,
+   "format": "png",
+   "path": "makehuman/807/Bootcut_jeans.png",
+   "role": "render",
+   "sha256": "2d5bb5fe3828fbba206a23375b0874b625aac32563f251135ec1079e747aea11"
+  },
+  {
+   "bytes": 741,
+   "format": "mhmat",
+   "path": "makehuman/807/jeans.mhmat",
+   "role": "mhmat",
+   "sha256": "5944f62dda87bf9176b645a4f5d7d1c31e6b61e20b40c42f9b7585f85bfda695"
+  },
+  {
+   "bytes": 299595,
+   "format": "mhclo",
+   "path": "makehuman/807/jeans.mhclo",
+   "role": "mhclo",
+   "sha256": "403227a58eccf842d85fc1a9435a6c24a9173b7a23eb525b7b7d81a1c618b1be"
+  },
+  {
+   "bytes": 2428353,
+   "format": "png",
+   "path": "makehuman/807/Jeans_diffuse.png",
+   "role": "diffuse",
+   "sha256": "d171faa0f8bace96fd7d65eb3967d1d4cbb526d5ea08ab591a0bcb18fe31110c"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.bootcut_jeans_807",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Bootcut Jeans",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 807",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:53:39Z",
+  "source_id": "807",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#807"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Pants"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Pants",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

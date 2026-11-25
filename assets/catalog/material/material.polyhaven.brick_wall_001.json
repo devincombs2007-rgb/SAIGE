@@ -1,0 +1,91 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Rob Tuytel",
+  "Dimitrios Savva"
+ ],
+ "description": "Free 8K texture of a red, rough industrial brick wall with baked-in grime, chipped edges, varied mortar tones and pronounced surface relief.",
+ "files": [
+  {
+   "bytes": 574381,
+   "format": "jpg",
+   "path": "polyhaven/brick_wall_001/1k/brick_wall_001_diffuse_1k.jpg",
+   "role": "base_color",
+   "sha256": "6a1233ec0186703de830354d89f122991e61e67fb67e0846c7eaf6c5aefea902"
+  },
+  {
+   "bytes": 123384,
+   "format": "jpg",
+   "path": "polyhaven/brick_wall_001/1k/brick_wall_001_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "8e6ab4cecd82c4305c9511065b0795bd579df89df8364a76a7359c1278bed38d"
+  },
+  {
+   "bytes": 295279,
+   "format": "jpg",
+   "path": "polyhaven/brick_wall_001/1k/brick_wall_001_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "8afbe3919308b168a6b7235fe7b930f670cfffa1a34de39ee790d55c9d7bda09"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.brick_wall_001",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel; Dimitrios Savva",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Brick Wall 001",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven brick_wall_001 --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:19Z",
+  "source_id": "brick_wall_001",
+  "url": "https://polyhaven.com/a/brick_wall_001"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "red",
+  "rough",
+  "industrial",
+  "plain",
+  "baked",
+  "brick",
+  "man made",
+  "outdoor",
+  "indoor",
+  "clean",
+  "wall"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   3000,
+   3000
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

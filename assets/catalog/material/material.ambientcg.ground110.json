@@ -1,0 +1,141 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 521398,
+   "format": "png",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110.png",
+   "role": "other",
+   "sha256": "0e5f84d537a790c4de23756b687c56a2bea157a1cd02d32ae1ed51d7e4e9f3fc"
+  },
+  {
+   "bytes": 2272,
+   "format": "mtlx",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "e08e6a58c17bb44f1f9ea757219816483337f99243b43cf0c0234cfbffd4f39d"
+  },
+  {
+   "bytes": 3098,
+   "format": "usdc",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "1485d4164cbb6d63326cd874cd66de23aad99b8b0c70d07d0ec8382eb3fb2ee6"
+  },
+  {
+   "bytes": 908903,
+   "format": "jpg",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "e30db06c49536a33d0f582e933128054afcffa82c68c79565aa1d8d6edfe61fe"
+  },
+  {
+   "bytes": 1662642,
+   "format": "jpg",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "377e4d1888290558d5c21ac027f885581daa556fe37b63dcf2748b9647e35055"
+  },
+  {
+   "bytes": 616661,
+   "format": "jpg",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "45ff6f3028af157f989b0be88a8c29761a9372b9e0cc356158fcd6b37d9d9538"
+  },
+  {
+   "bytes": 2280507,
+   "format": "jpg",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "627f7abafe0cb04ade1cfff2e7dd64dcca2ee768398e8eacc76040bd69296b28"
+  },
+  {
+   "bytes": 2280851,
+   "format": "jpg",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "e3fbc6ed71f6ca1687e6e295596b0f581a40cf3b5730af7a970b1302ced664f4"
+  },
+  {
+   "bytes": 811653,
+   "format": "jpg",
+   "path": "ambientcg/Ground110/1K-JPG/files/Ground110_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "41a5852ed5e78b88ab5698f20eb419eeefc8223605283f63688b1608ad1632f7"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.ground110",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Ground 110",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Ground110 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:37Z",
+  "source_id": "Ground110",
+  "url": "https://ambientcg.com/a/Ground110"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "110",
+  "brown",
+  "dirt",
+  "dry",
+  "gravel",
+  "gray",
+  "ground",
+  "ground110",
+  "rocky",
+  "rough",
+  "scattered",
+  "uneven"
+ ],
+ "technical": {
+  "creation_method": "PBRPhotogrammetry",
+  "dimensions_mm": [
+   210,
+   210,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

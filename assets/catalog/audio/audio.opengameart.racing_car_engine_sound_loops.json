@@ -1,0 +1,155 @@
+{
+ "category": "audio.vehicle",
+ "creators": [
+  "domasx2"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 76332,
+   "format": "wav",
+   "path": "opengameart/racing_car_engine_sound_loops/loop_0.wav",
+   "role": "content",
+   "sha256": "69d74b106509037ce547429e4c3f9ae906b0fffe88d0bb8b3b5a8b0cfc239048"
+  },
+  {
+   "bytes": 58920,
+   "format": "wav",
+   "path": "opengameart/racing_car_engine_sound_loops/loop_1_0.wav",
+   "role": "content",
+   "sha256": "0bc6bf7e1ad33d347ed805b4f2b55d1f79e38f892006f98acbe85a3177ff77a2"
+  },
+  {
+   "bytes": 60322,
+   "format": "wav",
+   "path": "opengameart/racing_car_engine_sound_loops/loop_2_0.wav",
+   "role": "content",
+   "sha256": "e26bef6f1804670aba02b6b9a8c5485cf05a6a1e902a5a50c098230ace49967f"
+  },
+  {
+   "bytes": 54454,
+   "format": "wav",
+   "path": "opengameart/racing_car_engine_sound_loops/loop_3_0.wav",
+   "role": "content",
+   "sha256": "015aee5cd2dec394b28ff0994360c780cfbe29c3cddfb16dba8df81b4a68eea2"
+  },
+  {
+   "bytes": 55760,
+   "format": "wav",
+   "path": "opengameart/racing_car_engine_sound_loops/loop_4_0.wav",
+   "role": "content",
+   "sha256": "fadf4420104d9273e6cc0a1c4583d863937af382382866251fc2b8dc005f9369"
+  },
+  {
+   "bytes": 55648,
+   "format": "wav",
+   "path": "opengameart/racing_car_engine_sound_loops/loop_5_0.wav",
+   "role": "content",
+   "sha256": "e0c65476764931770e46308dec744a196d8ecf996f8c7675f125805d28609b34"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.racing_car_engine_sound_loops",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "racing car engine sound loops by domasx2 (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "racing car engine sound loops",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/racing-car-engine-sound-loops --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:40:57Z",
+  "source_id": "racing_car_engine_sound_loops",
+  "url": "https://opengameart.org/content/racing-car-engine-sound-loops"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "bytes_pcm16": 76212,
+  "channels": 1,
+  "duration_s": 0.864,
+  "loop_edge_rms_ratio": 0.916,
+  "loop_seam_discontinuity": 0.0089,
+  "loop_seam_ratio": 3.4,
+  "lufs_integrated": -13.71,
+  "pack_contents": [
+   {
+    "bytes": 76332,
+    "channels": 1,
+    "duration_s": 0.864,
+    "file": "loop_0.wav",
+    "loop_seam_ratio": 3.4,
+    "lufs_integrated": -13.71,
+    "peak_dbfs": -2.87,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 58920,
+    "channels": 1,
+    "duration_s": 0.667,
+    "file": "loop_1_0.wav",
+    "loop_seam_ratio": 2.61,
+    "lufs_integrated": -11.81,
+    "peak_dbfs": -2.98,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 60322,
+    "channels": 1,
+    "duration_s": 0.683,
+    "file": "loop_2_0.wav",
+    "loop_seam_ratio": 2.15,
+    "lufs_integrated": -11.38,
+    "peak_dbfs": -2.98,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 54454,
+    "channels": 1,
+    "duration_s": 0.616,
+    "file": "loop_3_0.wav",
+    "loop_seam_ratio": 1.25,
+    "lufs_integrated": -11.02,
+    "peak_dbfs": -3.07,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 55760,
+    "channels": 1,
+    "duration_s": 0.631,
+    "file": "loop_4_0.wav",
+    "loop_seam_ratio": 1.06,
+    "lufs_integrated": -10.92,
+    "peak_dbfs": -2.99,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 55648,
+    "channels": 1,
+    "duration_s": 0.63,
+    "file": "loop_5_0.wav",
+    "loop_seam_ratio": 4.01,
+    "lufs_integrated": -10.75,
+    "peak_dbfs": -2.98,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 6,
+  "pack_seconds": 4.1,
+  "peak_dbfs": -2.87,
+  "sample_rate": 44100,
+  "silence_ratio": 0.003
+ },
+ "version": 1
+}

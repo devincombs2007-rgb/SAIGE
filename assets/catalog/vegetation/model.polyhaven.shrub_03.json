@@ -1,0 +1,172 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rico Cilliers"
+ ],
+ "description": "Free 4K shrub with slender stems, paired oval leaves and vertical seed spikes - detailed green low‑growth foliage with a natural meadow character.",
+ "files": [
+  {
+   "bytes": 7296,
+   "format": "gltf",
+   "path": "polyhaven/shrub_03/1k/shrub_03_1k.gltf",
+   "role": "model",
+   "sha256": "b76d7c14bc027e834e82d3f984c32b5d060e62908aa90ff9420a637ca253a8ea"
+  },
+  {
+   "bytes": 238684,
+   "format": "bin",
+   "path": "polyhaven/shrub_03/1k/shrub_03.bin",
+   "role": "dependency",
+   "sha256": "bf4df21e6d2a2bc5f00b4c9142f776171fe7da00cf960001825748067af542b6"
+  },
+  {
+   "bytes": 396238,
+   "format": "jpg",
+   "path": "polyhaven/shrub_03/1k/textures/shrub_03_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "3e2b16812a623037138eedace958210c5f3443a827bbe69663045bba5612f815"
+  },
+  {
+   "bytes": 481841,
+   "format": "jpg",
+   "path": "polyhaven/shrub_03/1k/textures/shrub_03_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "3cadc7aba46d3aabbd7d6d2b1d04aa32e2a7da0bc87c2d38ef3cb1ee42cb03ec"
+  },
+  {
+   "bytes": 504734,
+   "format": "jpg",
+   "path": "polyhaven/shrub_03/1k/textures/shrub_03_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "ff856bacfce859b8a7555dd9a3b92fbd36b2e775d486be71df485afb4235d6c9"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.shrub_03",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Shrub 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven shrub_03 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:57Z",
+  "source_id": "shrub_03",
+  "url": "https://polyhaven.com/a/shrub_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "checked_with": "khronos-gltf-validator, saige_asset_inspect",
+  "notes": [
+   "validator: no errors, 4 warning(s)",
+   "engine: loads, 8287 triangles, textures 16.0 MiB on the GPU"
+  ],
+  "runtime_ready": true
+ },
+ "tags": [
+  "meadow",
+  "field",
+  "shrub",
+  "botany",
+  "green",
+  "nature",
+  "plant",
+  "leaf",
+  "bush",
+  "foliage",
+  "small",
+  "ground cover",
+  "undergrowth",
+  "garden",
+  "flora",
+  "environment",
+  "vegetation",
+  "nature",
+  "plants",
+  "ground cover",
+  "collection: verdant_trail"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.1270800232887268,
+   0.4009580910205841,
+   0.07849743962287903
+  ],
+  "bounds_min": [
+   -0.09265579283237457,
+   -0.0018257149495184422,
+   -0.07270558923482895
+  ],
+  "dimensions_mm": [
+   1366.9319450855255,
+   151.20302885770798,
+   402.78380597010255
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.5.30",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 4,
+  "node_names_sample": [
+   "shrub_03_a",
+   "shrub_03_b",
+   "shrub_03_c",
+   "shrub_03_d"
+  ],
+  "nodes": 4,
+  "polycount_source": 16955,
+  "primitives": 4,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "shrub_03_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "shrub_03_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "shrub_03_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 8287,
+  "vertices": 5905
+ },
+ "version": 1
+}

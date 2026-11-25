@@ -1,0 +1,70 @@
+{
+ "category": "audio.ambience",
+ "creators": [
+  "dokashiteru"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 4515884,
+   "format": "wav",
+   "path": "opengameart/rain_and_thunder_loop/rain_thunder_loop.wav",
+   "role": "content",
+   "sha256": "a4246483a6f17a63042374212e670cda4ab1f7d7c7fbe6820c520673d99ccbc7"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.rain_and_thunder_loop",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Rain and Thunder Loop by dokashiteru (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed-with-attribution",
+  "spdx": "CC-BY-3.0",
+  "url": "http://creativecommons.org/licenses/by/3.0/"
+ },
+ "name": "Rain and Thunder Loop",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/rain-and-thunder-loop --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T14:02:12Z",
+  "source_id": "rain_and_thunder_loop",
+  "url": "https://opengameart.org/content/rain-and-thunder-loop"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "bytes_pcm16": 4515840,
+  "channels": 2,
+  "duration_s": 25.6,
+  "loop_edge_rms_ratio": 0.955,
+  "loop_seam_discontinuity": 0.0,
+  "loop_seam_ratio": 0.01,
+  "lufs_integrated": -29.4,
+  "pack_contents": [
+   {
+    "bytes": 4515884,
+    "channels": 2,
+    "duration_s": 25.6,
+    "file": "rain_thunder_loop.wav",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -29.4,
+    "peak_dbfs": -13.28,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 1,
+  "pack_seconds": 25.6,
+  "peak_dbfs": -13.28,
+  "sample_rate": 44100,
+  "silence_ratio": 0.128
+ },
+ "version": 1
+}

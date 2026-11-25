@@ -1,0 +1,169 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rob Tuytel",
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K model of small weed clusters with glossy green leaves, reddish stems and yellowing edges - photoreal low-growing groundcover with natural detail.",
+ "files": [
+  {
+   "bytes": 9128,
+   "format": "gltf",
+   "path": "polyhaven/weed_plant_02/1k/weed_plant_02_1k.gltf",
+   "role": "model",
+   "sha256": "20fe9aa14ec8160de54d8027422ce6db93bcc6211299509067ee3edbceff218b"
+  },
+  {
+   "bytes": 679362,
+   "format": "jpg",
+   "path": "polyhaven/weed_plant_02/1k/textures/weed_plant_02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "53e277362656eaea87a59bc7c5b551e73d2cdb5b852b21d0ffb84becfc7b941d"
+  },
+  {
+   "bytes": 457595,
+   "format": "jpg",
+   "path": "polyhaven/weed_plant_02/1k/textures/weed_plant_02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "6bcbf7f0b8eaf5156b9021f998dd9233ba4b095aa590f3621b94f47550e21eb9"
+  },
+  {
+   "bytes": 571490,
+   "format": "jpg",
+   "path": "polyhaven/weed_plant_02/1k/textures/weed_plant_02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "82dd00b135a605aecf09d46bdaa6e71cdfc221d7b53e20e6f446da6e9e5bf942"
+  },
+  {
+   "bytes": 330884,
+   "format": "bin",
+   "path": "polyhaven/weed_plant_02/1k/weed_plant_02.bin",
+   "role": "dependency",
+   "sha256": "2b77b91a881055365a56156e8a131277187f72b82c1d55806bb5b0a5053e5e9d"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.weed_plant_02",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rob Tuytel; Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Weed Plant 02",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven weed_plant_02 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:28Z",
+  "source_id": "weed_plant_02",
+  "url": "https://polyhaven.com/a/weed_plant_02"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "nature",
+  "natural",
+  "bush",
+  "shrub",
+  "green",
+  "plant",
+  "outdoor",
+  "leaf",
+  "botany",
+  "leaves",
+  "forest",
+  "jungle",
+  "foliage",
+  "small",
+  "field",
+  "meadow",
+  "nature",
+  "plants",
+  "ground cover",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.13378866016864777,
+   0.06651004403829575,
+   0.17979809641838074
+  ],
+  "bounds_min": [
+   -0.08561167120933533,
+   -0.00856288243085146,
+   -0.11112131178379059
+  ],
+  "dimensions_mm": [
+   2125.253051519394,
+   290.9194082021713,
+   75.0729264691472
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v4.0.44",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 5,
+  "node_names_sample": [
+   "weed_plant_02_a_LOD0",
+   "weed_plant_02_b_LOD0",
+   "weed_plant_02_c_LOD0",
+   "weed_plant_02_d_LOD0",
+   "weed_plant_02_e_LOD0"
+  ],
+  "nodes": 5,
+  "polycount_source": 17062,
+  "primitives": 5,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "weed_plant_02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "weed_plant_02_diff-weed_plant_02_alpha",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "weed_plant_02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 11116,
+  "vertices": 7956
+ },
+ "version": 1
+}

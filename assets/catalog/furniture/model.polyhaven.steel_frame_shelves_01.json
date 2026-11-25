@@ -1,0 +1,154 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "James Ray Cock"
+ ],
+ "description": "Free 8K model of a modern industrial steel-frame shelf with five wooden planks, sturdy metal frame and clean lines, ideal for commercial or home interiors.",
+ "files": [
+  {
+   "bytes": 2766,
+   "format": "gltf",
+   "path": "polyhaven/steel_frame_shelves_01/1k/steel_frame_shelves_01_1k.gltf",
+   "role": "model",
+   "sha256": "4eff8994825d654e337f8dc425e959ed6add7f4773188c87ba64402d9edd9842"
+  },
+  {
+   "bytes": 477882,
+   "format": "jpg",
+   "path": "polyhaven/steel_frame_shelves_01/1k/textures/steel_frame_shelves_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "85e205b334e15e05bec9b02be1258da6ab949ae908aa57e0bee6b94ba45b4415"
+  },
+  {
+   "bytes": 318836,
+   "format": "jpg",
+   "path": "polyhaven/steel_frame_shelves_01/1k/textures/steel_frame_shelves_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "2a67ed7dd4f53c3e225396e6381992b768fe58b5261be703d540678e366e46ed"
+  },
+  {
+   "bytes": 655560,
+   "format": "jpg",
+   "path": "polyhaven/steel_frame_shelves_01/1k/textures/steel_frame_shelves_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "858629eeaa8f68ddb4fc1a813afe6ed988ded3d6d49184ec45a14611760f0bb3"
+  },
+  {
+   "bytes": 142312,
+   "format": "bin",
+   "path": "polyhaven/steel_frame_shelves_01/1k/steel_frame_shelves_01.bin",
+   "role": "dependency",
+   "sha256": "306d7e72d12a5d3047b8a189f8d0add51075eaf7f51f935286fda4e1c16dd066"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.steel_frame_shelves_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Steel Frame Shelves 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven steel_frame_shelves_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:10Z",
+  "source_id": "steel_frame_shelves_01",
+  "url": "https://polyhaven.com/a/steel_frame_shelves_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "commercial",
+  "modern",
+  "shelf",
+  "bookshelf",
+  "metal",
+  "wood",
+  "furniture",
+  "shelves",
+  "industrial",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   5.487281322479248,
+   21.39432716369629,
+   2.510587692260742
+  ],
+  "bounds_min": [
+   -5.48686408996582,
+   -0.010678904131054878,
+   -2.510587692260742
+  ],
+  "dimensions_mm": [
+   1097.4148511886597,
+   502.1176338195801,
+   2140.5010361922905
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.7.33",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "steel_frame_shelves_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 4348,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "steel_frame_shelves_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "steel_frame_shelves_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "steel_frame_shelves_01_metal-steel_frame_shelves_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 4348,
+  "vertices": 3632
+ },
+ "version": 1
+}

@@ -1,0 +1,62 @@
+{
+ "category": "animation.skeletal",
+ "creators": [
+  "quaternius"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 2424027,
+   "format": "png",
+   "path": "opengameart/universal_animation_library/preview_1323.png",
+   "role": "content",
+   "sha256": "4491742a3ffe68c571a04fdf8fdf9bf761a3cba690b60d96e87c858df92159ab"
+  },
+  {
+   "bytes": 14541205,
+   "format": "zip",
+   "path": "opengameart/universal_animation_library/universal_animation_librarystandard.zip",
+   "role": "content",
+   "sha256": "18ff1a7215f4852b320203e8aaf02a1578b5c8eef9027fbaedfcedc7b85a3ac2"
+  }
+ ],
+ "history": [],
+ "id": "animation.opengameart.universal_animation_library",
+ "kind": "animation",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Universal Animation Library by quaternius (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Universal Animation Library",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/universal-animation-library --kind animation",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:56:02Z",
+  "source_id": "universal_animation_library",
+  "url": "https://opengameart.org/content/universal-animation-library"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "PNG",
+  "gpu_bytes_rgba8_mips": 11075205,
+  "has_alpha": true,
+  "mode": "RGBA",
+  "pot": false,
+  "size": [
+   1921,
+   1081
+  ]
+ },
+ "version": 1
+}

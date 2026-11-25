@@ -1,0 +1,211 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Jorge Camacho"
+ ],
+ "description": "Free 8K modular industrial pipe set, aged blue-gray metal with rusted flanges, elbows, tees, crosses, straight runs and a red-handled valve with gauge.",
+ "files": [
+  {
+   "bytes": 15014,
+   "format": "gltf",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/modular_industrial_pipes_01_1k.gltf",
+   "role": "model",
+   "sha256": "455d3a0fe95b7900a08cbebb23cfb2c341672fcb67ae7355d776e53cfa3d0688"
+  },
+  {
+   "bytes": 898932,
+   "format": "jpg",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/textures/modular_industrial_pipes_01_group02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "4c65dcb651a3d345517fa93ad7c6e48f2388f4e8bb347446f70317c16049867b"
+  },
+  {
+   "bytes": 553576,
+   "format": "jpg",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/textures/modular_industrial_pipes_01_group01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "c0233f66b18e3374dfbbb8c8078a41f6571a0809d3eb14dd9d3c332265cfde7b"
+  },
+  {
+   "bytes": 725187,
+   "format": "jpg",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/textures/modular_industrial_pipes_01_group02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "84a43ca11a4f1ac84f7fc8336a4e9b7b333d30c13e540f3ff42e662dc6f91b53"
+  },
+  {
+   "bytes": 515160,
+   "format": "bin",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/modular_industrial_pipes_01.bin",
+   "role": "dependency",
+   "sha256": "2e11e1a7dabd56b1e158364f48b0b388bf316fcab61a01274740db75dbafa448"
+  },
+  {
+   "bytes": 674568,
+   "format": "jpg",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/textures/modular_industrial_pipes_01_group01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "ed4728fde567efe420e3a6e1bdc4238b26c2782218737c7e2de88eeca1e91fb2"
+  },
+  {
+   "bytes": 860825,
+   "format": "jpg",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/textures/modular_industrial_pipes_01_group01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "7fff7d4604491eeb7531ad5f7520517015c72ec7316d1e865d62f23f976dfed6"
+  },
+  {
+   "bytes": 580676,
+   "format": "jpg",
+   "path": "polyhaven/modular_industrial_pipes_01/1k/textures/modular_industrial_pipes_01_group02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "ef8a75c402a8871903dcaa147b023d57c640d0de4c7a8acdfdee822861656a92"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.modular_industrial_pipes_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jorge Camacho",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Modular Industrial Pipes 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven modular_industrial_pipes_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:15Z",
+  "source_id": "modular_industrial_pipes_01",
+  "url": "https://polyhaven.com/a/modular_industrial_pipes_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "pipes",
+  "factory",
+  "steam",
+  "modular",
+  "industrial",
+  "utility",
+  "infrastructure",
+  "industrial",
+  "structures"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.2992496192455292,
+   0.9773200154304504,
+   0.20443136990070343
+  ],
+  "bounds_min": [
+   -0.30743715167045593,
+   -0.977319598197937,
+   -0.10316428542137146
+  ],
+  "dimensions_mm": [
+   1402.8016328811646,
+   307.5956106185913,
+   1954.6396136283875
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.6.27",
+  "materials": 2,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 8,
+  "node_names_sample": [
+   "modular_industrial_pipes_01_pipe01",
+   "modular_industrial_pipes_01_pipe02",
+   "modular_industrial_pipes_01_pipe03",
+   "modular_industrial_pipes_01_pipe05",
+   "modular_industrial_pipes_01_pipe06",
+   "modular_industrial_pipes_01_pipe07",
+   "modular_industrial_pipes_01_pipe08",
+   "modular_industrial_pipes_01_pipe04"
+  ],
+  "nodes": 8,
+  "polycount_source": 12340,
+  "primitives": 8,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 33554430,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "modular_industrial_pipes_01_group01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "modular_industrial_pipes_01_group01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "modular_industrial_pipes_01_group01_metal-modular_industrial_pipes_01_group01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "modular_industrial_pipes_01_group02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "modular_industrial_pipes_01_group02_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "modular_industrial_pipes_01_group02_metal-modular_industrial_pipes_01_group02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 12340,
+  "vertices": 13785
+ },
+ "version": 1
+}

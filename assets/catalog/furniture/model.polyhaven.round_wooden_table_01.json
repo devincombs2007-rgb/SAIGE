@@ -1,0 +1,154 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Ulan Cabanilla"
+ ],
+ "description": "Free 8K model of a vintage round wooden table with a turned pedestal, splayed legs, dark polished finish and subtle surface wear.",
+ "files": [
+  {
+   "bytes": 4089,
+   "format": "gltf",
+   "path": "polyhaven/round_wooden_table_01/1k/round_wooden_table_01_1k.gltf",
+   "role": "model",
+   "sha256": "dd09c1663b10d15a1fda12ba4f53743e8b8379b17254a78be22100d584738b48"
+  },
+  {
+   "bytes": 50832,
+   "format": "jpg",
+   "path": "polyhaven/round_wooden_table_01/1k/textures/round_wooden_table_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "5f80ed76e2eccaea8ab7c0cc9c85d29cc9b164aabfa2403304e1ec79dc47150c"
+  },
+  {
+   "bytes": 134854,
+   "format": "jpg",
+   "path": "polyhaven/round_wooden_table_01/1k/textures/round_wooden_table_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "32b5056dc36e3081987c20cd03f15e73298266c1aff3e573b832e9dd0f8145b9"
+  },
+  {
+   "bytes": 117911,
+   "format": "jpg",
+   "path": "polyhaven/round_wooden_table_01/1k/textures/round_wooden_table_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "d83659d8d584bbadf160760b825f990c6264901e33051643d19fcd389b0d19ae"
+  },
+  {
+   "bytes": 242688,
+   "format": "bin",
+   "path": "polyhaven/round_wooden_table_01/1k/round_wooden_table_01.bin",
+   "role": "dependency",
+   "sha256": "c2635368bc86239a73fafdd8bce20b4261155ce7241e95e809a753ed4693f157"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.round_wooden_table_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Ulan Cabanilla",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Round Wooden Table 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven round_wooden_table_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:03Z",
+  "source_id": "round_wooden_table_01",
+  "url": "https://polyhaven.com/a/round_wooden_table_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "wooden",
+  "wood",
+  "polish",
+  "circle",
+  "dark",
+  "old",
+  "furniture",
+  "table"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.6996744871139526,
+   1.003702998161316,
+   0.6996744871139526
+  ],
+  "bounds_min": [
+   -0.6996744871139526,
+   -0.0013183951377868652,
+   -0.6996744275093079
+  ],
+  "dimensions_mm": [
+   1399.3489742279053,
+   1399.3489146232605,
+   1005.0213932991028
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 2,
+  "node_names_sample": [
+   "round_wooden_table_01",
+   "round_wooden_table_01_bolts"
+  ],
+  "nodes": 2,
+  "polycount_source": 8640,
+  "primitives": 2,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "round_wooden_table_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "round_wooden_table_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "round_wooden_table_01_metal-round_wooden_table_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 8640,
+  "vertices": 5964
+ },
+ "version": 1
+}

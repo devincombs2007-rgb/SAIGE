@@ -330,3 +330,214 @@ TEST_CASE("Hand IK: out of reach the arm extends toward the target, the weight f
     try { (void)reach_hand(b.skin, no_arm, b.rig, pg, root, true, target, 1.0f); } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
 }
+
+namespace {
+
+// The arm's geometry after a solve, for the constraint tests: elbow flexion (pi minus the interior angle) and the upper arm's direction.
+struct ArmGeometry {
+    float flexion;
+    Float3 upper_dir;
+    float shoulder_hand;
+    Float3 elbow, hand, shoulder;
+};
+ArmGeometry arm_geometry(const fixtures::Biped& b, const gfx::Pose& pose, bool left) {
+    const std::vector<JointWorld> w = joint_world(b.skin, pose);
+    const std::size_t up = static_cast<std::size_t>(b.map[left ? Bone::LeftUpperArm : Bone::RightUpperArm]), lo = static_cast<std::size_t>(b.map[left ? Bone::LeftLowerArm : Bone::RightLowerArm]),
+                      hd = static_cast<std::size_t>(b.map[left ? Bone::LeftHand : Bone::RightHand]);
+    const Float3 u = render::normalize(w[up].position - w[lo].position), v = render::normalize(w[hd].position - w[lo].position);
+    const float interior = std::acos(std::clamp(render::dot(u, v), -1.0f, 1.0f));
+    return {3.14159265f - interior, render::normalize(w[lo].position - w[up].position), dist(w[up].position, w[hd].position), w[lo].position, w[hd].position, w[up].position};
+}
+
+// Where the upper arm points, as an angle from hanging straight down.
+float angle_from_down(Float3 dir) { return std::acos(std::clamp(-dir.z, -1.0f, 1.0f)); }
+
+} // namespace
+
+TEST_CASE("Arm constraints: the elbow's range of flexion bounds how close and how far the hand can be, and the unconstrained solve is unchanged") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const std::size_t up = static_cast<std::size_t>(b.map[Bone::LeftUpperArm]);
+    const Float3 shoulder = w0[up].position;
+    const ArmConstraints limits;  // the defaults: elbow 3 to 150 degrees
+    // A target almost at the shoulder: unconstrained, the arm folds almost double; constrained, the elbow stops at 150 degrees and the hand stays where that allows.
+    const Float3 near_target = shoulder + Float3{0.06f, 0.0f, 0.0f};
+    gfx::Pose free_pose = rest, held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, free_pose, root, true, near_target, 1.0f);
+    const HandIkResult rl = reach_hand(b.skin, b.map, b.rig, held, root, true, near_target, 1.0f, nullptr, &limits);
+    const ArmGeometry gf = arm_geometry(b, free_pose, true), gl = arm_geometry(b, held, true);
+    std::printf("hand 6 cm from the shoulder: free elbow flexion %.1f deg, limited %.1f deg (hand %.3f m from the shoulder, error %.3f m)\n", static_cast<double>(gf.flexion * 57.2958f), static_cast<double>(gl.flexion * 57.2958f), static_cast<double>(gl.shoulder_hand), static_cast<double>(rl.end_error));
+    CHECK(gf.flexion > 2.9f);
+    CHECK(gl.flexion < 2.6f + 0.01f && gl.flexion > 2.6f - 0.05f);
+    CHECK(rl.limited);
+    CHECK(!rl.reached);
+    CHECK(gl.shoulder_hand > gf.shoulder_hand + 0.03f);
+    // Almost fully out: the elbow keeps a few degrees of bend.
+    const float reach = dist(w0[up].position, w0[static_cast<std::size_t>(b.map[Bone::LeftLowerArm])].position) + dist(w0[static_cast<std::size_t>(b.map[Bone::LeftLowerArm])].position, w0[static_cast<std::size_t>(b.map[Bone::LeftHand])].position);
+    const Float3 far_target = shoulder + Float3{0.0f, reach * 1.05f, 0.0f};
+    gfx::Pose straight = rest, bent = rest;
+    ArmConstraints soft = limits;
+    soft.elbow_flex_min = 0.3f;  // a clearly bent minimum, to see it
+    (void)reach_hand(b.skin, b.map, b.rig, straight, root, true, far_target, 1.0f);
+    const HandIkResult rb = reach_hand(b.skin, b.map, b.rig, bent, root, true, far_target, 1.0f, nullptr, &soft);
+    std::printf("hand out of reach: free elbow flexion %.1f deg, with a 17 degree minimum %.1f deg\n", static_cast<double>(arm_geometry(b, straight, true).flexion * 57.2958f), static_cast<double>(arm_geometry(b, bent, true).flexion * 57.2958f));
+    CHECK(arm_geometry(b, straight, true).flexion < 0.06f);
+    CHECK(arm_geometry(b, bent, true).flexion > 0.29f);
+    CHECK(rb.limited);
+    // Within the range the constraints change nothing: the same pose as the unconstrained solve, bit for bit (the swivel search is not entered when nothing is constrained).
+    ArmConstraints none;
+    none.joint_limits = false;
+    const Float3 comfortable = shoulder + Float3{0.3f, 0.2f, 0.1f};
+    gfx::Pose a = rest, c = rest, d = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, a, root, true, comfortable, 1.0f);
+    (void)reach_hand(b.skin, b.map, b.rig, c, root, true, comfortable, 1.0f, nullptr, &none);
+    (void)reach_hand(b.skin, b.map, b.rig, d, root, true, comfortable, 1.0f, nullptr, &limits);
+    CHECK(pose_distance(a, c) == 0.0f);
+    CHECK(pose_distance(a, d) < 1e-4f);
+    const HandIkResult ok = reach_hand(b.skin, b.map, b.rig, d, root, true, comfortable, 1.0f, nullptr, &limits);
+    CHECK(ok.reached);
+    CHECK(!ok.limited);
+    CHECK(ok.end_error < 2e-3f);
+}
+
+TEST_CASE("Arm constraints: the shoulder's envelope: up and forward all the way, back and across the body only so far") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const Float3 shoulder = w0[static_cast<std::size_t>(b.map[Bone::LeftUpperArm])].position;
+    const ArmConstraints limits;
+    // Straight up overhead and straight forward: inside the envelope (180 degrees forward, 90 degrees is fine), reached.
+    for (const Float3 off : {Float3{0.0f, 0.0f, 0.5f}, Float3{0.5f, 0.1f, 0.0f}, Float3{0.0f, 0.5f, 0.0f}}) {
+        gfx::Pose p = rest;
+        const HandIkResult r = reach_hand(b.skin, b.map, b.rig, p, root, true, shoulder + off, 1.0f, nullptr, &limits);
+        CHECK(r.reached);
+        CHECK(!r.limited);
+        CHECK(r.end_error < 2e-3f);
+    }
+    // The envelope as the test states it: an upper-arm direction, its angle from hanging straight down against the limit toward its azimuth (forward 0, outward 90, back 180, inward 270 degrees; the limits
+    // linear between).
+    const auto inside = [&](const ArmConstraints& c, Float3 dir, bool left) {
+        const Float3 outward = b.rig.left * (left ? 1.0f : -1.0f);
+        const float theta = angle_from_down(dir);
+        float phi = std::atan2(render::dot(dir, outward), render::dot(dir, b.rig.forward));
+        if (phi < 0.0f) phi += 6.2831853f;
+        const float knots[5] = {c.shoulder_forward, c.shoulder_outward, c.shoulder_back, c.shoulder_inward, c.shoulder_forward};
+        const float scaled = phi / 1.5707963f;
+        const int i = std::min(3, static_cast<int>(scaled));
+        return theta <= knots[i] + (knots[i + 1] - knots[i]) * (scaled - static_cast<float>(i)) + 1e-3f;
+    };
+    // Reaching straight back behind the body: the unconstrained upper arm points back (90 degrees from down, past the 60 degrees the shoulder allows), the constrained solve swivels the elbow out so the upper
+    // arm stays inside the envelope and the forearm still brings the hand to the target.
+    const Float3 behind = shoulder + Float3{-0.5f, 0.0f, 0.0f};
+    gfx::Pose free_pose = rest, held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, free_pose, root, true, behind, 1.0f);
+    const HandIkResult rb = reach_hand(b.skin, b.map, b.rig, held, root, true, behind, 1.0f, nullptr, &limits);
+    const ArmGeometry gf = arm_geometry(b, free_pose, true), gl = arm_geometry(b, held, true);
+    std::printf("hand behind the back: free upper arm %.1f deg from down (inside the envelope: %d), constrained %.1f deg (inside: %d), hand error %.4f m\n", static_cast<double>(angle_from_down(gf.upper_dir) * 57.2958f),
+                inside(limits, gf.upper_dir, true) ? 1 : 0, static_cast<double>(angle_from_down(gl.upper_dir) * 57.2958f), inside(limits, gl.upper_dir, true) ? 1 : 0, static_cast<double>(rb.end_error));
+    CHECK(!inside(limits, gf.upper_dir, true));
+    CHECK(inside(limits, gl.upper_dir, true));
+    CHECK(rb.end_error < 2e-3f);
+    CHECK(!rb.limited);
+    // Across the chest with the left hand toward the far side, and the right arm's mirror image: the same.
+    const Float3 across = shoulder + Float3{0.05f, -0.5f, 0.0f};
+    gfx::Pose across_free = rest, across_held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, across_free, root, true, across, 1.0f);
+    const HandIkResult ra = reach_hand(b.skin, b.map, b.rig, across_held, root, true, across, 1.0f, nullptr, &limits);
+    CHECK(!inside(limits, arm_geometry(b, across_free, true).upper_dir, true));
+    CHECK(inside(limits, arm_geometry(b, across_held, true).upper_dir, true));
+    std::printf("hand across the body, hand error %.4f m (the arm's envelope leaves the swivel little room at nearly full reach), limited %d\n", static_cast<double>(ra.end_error), ra.limited ? 1 : 0);
+    CHECK(ra.end_error < 0.08f);  // the nearest allowed pose is close, not at the target
+    CHECK(ra.limited == (ra.end_error > 2e-3f));
+    const Float3 right_shoulder = w0[static_cast<std::size_t>(b.map[Bone::RightUpperArm])].position;
+    gfx::Pose right_free = rest, right_held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, right_free, root, false, right_shoulder + Float3{0.05f, 0.5f, 0.0f}, 1.0f);
+    const HandIkResult rr = reach_hand(b.skin, b.map, b.rig, right_held, root, false, right_shoulder + Float3{0.05f, 0.5f, 0.0f}, 1.0f, nullptr, &limits);
+    CHECK(!inside(limits, arm_geometry(b, right_free, false).upper_dir, false));
+    CHECK(inside(limits, arm_geometry(b, right_held, false).upper_dir, false));
+    CHECK(rr.end_error < 0.08f);
+    CHECK(std::fabs(rr.end_error - ra.end_error) < 5e-3f);  // the right arm is the left one's mirror image
+    // When no pose inside the envelope reaches (tight limits all round), the upper arm is brought to the limit and the forearm aims at the target from there: the hand falls short and `limited` says so.
+    ArmConstraints tight = limits;
+    tight.shoulder_forward = tight.shoulder_outward = 1.0f;
+    tight.shoulder_back = tight.shoulder_inward = 0.35f;
+    for (const Float3 off : {Float3{0.5f, 0.0f, 0.0f}, Float3{-0.5f, 0.0f, 0.0f}, Float3{0.0f, 0.5f, 0.0f}, Float3{0.0f, -0.5f, 0.0f}}) {
+        gfx::Pose p = rest;
+        const HandIkResult rt = reach_hand(b.skin, b.map, b.rig, p, root, true, shoulder + off, 1.0f, nullptr, &tight);
+        const ArmGeometry gt = arm_geometry(b, p, true);
+        CHECK(inside(tight, gt.upper_dir, true));
+        CHECK(rt.limited);
+        CHECK(rt.end_error > 0.03f);
+        CHECK(!rt.reached);
+    }
+    // Wider limits let the arm there.
+    ArmConstraints wide = limits;
+    wide.shoulder_inward = 3.1f;
+    wide.shoulder_back = 3.1f;
+    gfx::Pose free_across = rest;
+    const HandIkResult rw = reach_hand(b.skin, b.map, b.rig, free_across, root, true, across, 1.0f, nullptr, &wide);
+    CHECK(rw.end_error < 2e-3f);
+    // Bad limits throw.
+    ArmConstraints bad = limits;
+    bad.elbow_flex_max = 0.01f;
+    bool threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, held, root, true, behind, 1.0f, nullptr, &bad); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST_CASE("Arm constraints: the hand and elbow stay out of the body: a target inside the torso is moved to its surface and the elbow swivels clear") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const Float3 shoulder = w0[static_cast<std::size_t>(b.map[Bone::LeftUpperArm])].position;
+    ArmConstraints c;
+    c.body = default_body_capsules(b.skin, b.map, rest);
+    REQUIRE(c.body.size() == 2);
+    const BodyCapsule torso = c.body[0];
+    // The hand wants a point in the middle of the chest: without volumes it goes there; with them it stops at the surface.
+    const Float3 inside = (torso.a + torso.b) * 0.5f;
+    gfx::Pose free_pose = rest, held = rest;
+    const HandIkResult rf = reach_hand(b.skin, b.map, b.rig, free_pose, root, true, inside, 1.0f);
+    const HandIkResult rc = reach_hand(b.skin, b.map, b.rig, held, root, true, inside, 1.0f, nullptr, &c);
+    CHECK(rf.end_error < 2e-3f);
+    const ArmGeometry gf = arm_geometry(b, free_pose, true), gc = arm_geometry(b, held, true);
+    const auto torso_distance = [&](Float3 p) {
+        const Float3 ab = torso.b - torso.a;
+        const float t = std::clamp(render::dot(p - torso.a, ab) / render::dot(ab, ab), 0.0f, 1.0f);
+        return dist(p, torso.a + ab * t);
+    };
+    std::printf("hand to the middle of the chest: free hand %.3f m from the torso axis (radius %.2f), constrained %.3f m; elbow clearance %.3f m\n", static_cast<double>(torso_distance(gf.hand)), static_cast<double>(torso.radius), static_cast<double>(torso_distance(gc.hand)), static_cast<double>(rc.elbow_clearance));
+    CHECK(torso_distance(gf.hand) < torso.radius - 0.05f);
+    CHECK(rc.target_adjusted);
+    CHECK(torso_distance(gc.hand) > torso.radius + c.body_margin - 5e-3f);
+    // The elbow clears the body by its own size and the margin.
+    CHECK(rc.elbow_clearance >= c.body_margin + c.elbow_radius - 5e-3f);
+    // A target in front of the body, outside the volume: not adjusted.
+    gfx::Pose outside_pose = rest;
+    const HandIkResult ro = reach_hand(b.skin, b.map, b.rig, outside_pose, root, true, shoulder + Float3{0.35f, 0.15f, -0.1f}, 1.0f, nullptr, &c);
+    CHECK(!ro.target_adjusted);
+    CHECK(ro.end_error < 2e-3f);
+    // An arm reaching across the chest at a low point: the elbow would pass through the torso; it ends up clear, and the hand is where it was asked.
+    gfx::Pose crossing = rest;
+    const Float3 low_across = Float3{0.28f, -0.2f, w0[static_cast<std::size_t>(b.map[Bone::LeftHand])].position.z};
+    ArmConstraints wide = c;
+    wide.shoulder_inward = 3.1f;
+    const HandIkResult rx = reach_hand(b.skin, b.map, b.rig, crossing, root, true, low_across, 1.0f, nullptr, &wide);
+    std::printf("hand across the front: error %.4f m, elbow clearance %.3f m, limited %d\n", static_cast<double>(rx.end_error), static_cast<double>(rx.elbow_clearance), rx.limited ? 1 : 0);
+    CHECK(rx.elbow_clearance >= wide.body_margin + wide.elbow_radius - 5e-3f);
+    // Bad volumes throw.
+    ArmConstraints bad = c;
+    bad.body.push_back({{0, 0, 0}, {std::nanf(""), 0, 0}, 0.1f});
+    bool threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, held, root, true, inside, 1.0f, nullptr, &bad); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+    bad = c;
+    bad.body[0].radius = 0.0f;
+    threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, held, root, true, inside, 1.0f, nullptr, &bad); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}

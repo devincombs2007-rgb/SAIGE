@@ -27,7 +27,41 @@ TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t
 struct HandIkResult {
     bool reached = false;
     float end_error = 0.0f;  // meters between the hand and the target (or the nearest reachable point) after the solve
+    // With ArmConstraints only (false otherwise):
+    bool limited = false;          // a joint limit or the body kept the hand from the target (the nearest allowed pose is used)
+    bool target_adjusted = false;  // the target was inside the body and was moved to its surface
+    float elbow_clearance = 0.0f;  // meters from the elbow joint to the nearest body volume, minus its radius (a large number when there are none)
 };
+
+// A volume of the character's own body, in the rig's model space: a capsule from `a` to `b` with `radius`.
+struct BodyCapsule {
+    render::Float3 a, b;
+    float radius = 0.1f;
+};
+
+// What an arm may do, and what it may not go through. Elbow: it flexes from `elbow_flex_min` (a little short of straight: it does not hyperextend) to `elbow_flex_max` (the forearm folded against the upper arm
+// with a hand's thickness to spare), which as reach limits means the hand cannot be pulled closer to the shoulder than the folded arm allows nor pushed further than the nearly straight one. Shoulder: the
+// upper arm's direction is measured from hanging straight down and may go forward and outward all the way up (180 degrees) and back only `shoulder_back`, across the body only `shoulder_inward`, in
+// between smoothly (the envelope of the shoulder's range of motion). `body` volumes: a target inside one is moved to its surface plus `body_margin`, and the elbow is swiveled about the shoulder-to-hand
+// axis (in steps of 10 degrees, the smallest turn first) until it clears them and the shoulder envelope. When nothing allowed reaches the target the nearest allowed pose is used and `limited` is set.
+struct ArmConstraints {
+    bool joint_limits = true;
+    float elbow_flex_max = 2.6f;      // rad (about 150 degrees)
+    float elbow_flex_min = 0.05f;     // rad (about 3 degrees)
+    float shoulder_forward = 3.1415927f;
+    float shoulder_outward = 3.1415927f;
+    float shoulder_back = 1.0471976f; // 60 degrees
+    float shoulder_inward = 0.6981317f; // 40 degrees
+    std::vector<BodyCapsule> body;
+    float body_margin = 0.02f;
+    float elbow_radius = 0.04f;       // the elbow's own size: it keeps this much beyond body_margin from a body volume
+};
+// A torso capsule (hips to neck) and a head capsule for the rig, sized to its proportions, to use as ArmConstraints::body.
+[[nodiscard]] std::vector<BodyCapsule> default_body_capsules(const gfx::Skin& skin, const HumanoidMap& map, const gfx::Pose& pose);
+
+// The same, constrained. A null `constraints` is exactly the call above. Throws std::invalid_argument for out-of-range limits or a body volume that is not finite or has a radius at or below 0.
+HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, render::Float3 world_target, float weight,
+                        const render::Quat* world_grip, const ArmConstraints* constraints);
 HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, render::Float3 world_target, float weight,
                         const render::Quat* world_grip = nullptr);
 

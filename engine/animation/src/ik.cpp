@@ -40,7 +40,9 @@ void set_world_rotation(const gfx::Skin& skin, gfx::Pose& pose, const std::vecto
 
 } // namespace
 
-TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t upper, std::size_t lower, std::size_t end, Float3 target, Float3 pole, float weight) {
+namespace {
+// The solver proper. `min_reach` and `max_reach` (when positive) narrow the distance the end joint may be from the upper joint (an elbow's range of flexion): the target is brought within them.
+TwoBoneResult solve_two_bone_range(const gfx::Skin& skin, gfx::Pose& pose, std::size_t upper, std::size_t lower, std::size_t end, Float3 target, Float3 pole, float weight, float min_reach, float max_reach) {
     TwoBoneResult result;
     if (upper >= skin.joint_count() || lower >= skin.joint_count() || end >= skin.joint_count() || pose.local.size() != skin.joint_count()) throw std::invalid_argument("solve_two_bone: joint out of range");
     if (static_cast<std::size_t>(skin.parent[lower]) != upper || static_cast<std::size_t>(skin.parent[end]) != lower) throw std::invalid_argument("solve_two_bone: the joints are not a chain upper -> lower -> end");
@@ -59,7 +61,10 @@ TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t
         d = std::max(length(to_target), 1e-6f);
     }
     const Float3 u = to_target * (1.0f / d);
-    const float reach_min = std::fabs(a - b) + 1e-4f, reach_max = a + b - 1e-4f;
+    float reach_min = std::fabs(a - b) + 1e-4f, reach_max = a + b - 1e-4f;
+    if (min_reach > 0.0f) reach_min = std::max(reach_min, min_reach);
+    if (max_reach > 0.0f) reach_max = std::min(reach_max, max_reach);
+    if (reach_max < reach_min) reach_max = reach_min;
     const float dc = std::clamp(d, reach_min, reach_max);
     result.reached = d <= reach_max && d >= reach_min;
     // The middle joint: at distance a from A and b from the (reachable) target, on the side of the pole.
@@ -83,6 +88,11 @@ TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t
     w = joint_world(skin, pose);
     result.end_error = length(w[end].position - T);
     return result;
+}
+} // namespace
+
+TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t upper, std::size_t lower, std::size_t end, Float3 target, Float3 pole, float weight) {
+    return solve_two_bone_range(skin, pose, upper, lower, end, target, pole, weight, 0.0f, 0.0f);
 }
 
 void adapt_feet_to_ground(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery& ground, const FootIkConfig& cfg,
@@ -258,25 +268,177 @@ void lock_planted_feet(const gfx::Skin& skin, const HumanoidMap& map, const RigI
 
 namespace saige::anim {
 
+namespace {
+
+constexpr float kPi = 3.14159265358979323846f;
+
+// The distance of a point from a capsule's axis segment, and the closest point on it.
+float distance_to_segment(Float3 p, Float3 a, Float3 b, Float3& closest) {
+    const Float3 ab = b - a;
+    const float l2 = dot(ab, ab);
+    const float t = l2 > 1e-12f ? std::clamp(dot(p - a, ab) / l2, 0.0f, 1.0f) : 0.0f;
+    closest = a + ab * t;
+    return length(p - closest);
+}
+
+// The largest angle from hanging straight down that the upper arm may have toward azimuth `phi` (0 forward, +pi/2 outward, pi back, -pi/2 inward): linear between the four limits.
+float shoulder_limit(const ArmConstraints& c, float phi) {
+    const float knots[5] = {c.shoulder_forward, c.shoulder_outward, c.shoulder_back, c.shoulder_inward, c.shoulder_forward};  // at 0, 90, 180, 270, 360 degrees
+    float t = std::fmod(phi, 2.0f * kPi);
+    if (t < 0.0f) t += 2.0f * kPi;
+    const float scaled = t / (0.5f * kPi);
+    const int i = std::min(3, static_cast<int>(scaled));
+    const float f = scaled - static_cast<float>(i);
+    return knots[i] + (knots[i + 1] - knots[i]) * f;
+}
+
+struct ShoulderFrame {
+    Float3 forward, outward;
+};
+
+// How far outside the shoulder envelope an upper-arm direction is (radians, 0 when inside).
+float shoulder_excess(const ArmConstraints& c, const ShoulderFrame& f, Float3 dir) {
+    const float z = std::clamp(dir.z, -1.0f, 1.0f);
+    const float theta = std::acos(-z);
+    const float phi = std::atan2(dot(dir, f.outward), dot(dir, f.forward));
+    return std::max(0.0f, theta - shoulder_limit(c, phi));
+}
+
+// The upper-arm direction brought into the envelope (same azimuth, the limiting angle from down).
+Float3 shoulder_clamped(const ArmConstraints& c, const ShoulderFrame& f, Float3 dir) {
+    const float z = std::clamp(dir.z, -1.0f, 1.0f);
+    const float phi = std::atan2(dot(dir, f.outward), dot(dir, f.forward));
+    const float theta = std::min(std::acos(-z), shoulder_limit(c, phi));
+    const float horizontal = std::sin(theta);
+    return f.forward * (horizontal * std::cos(phi)) + f.outward * (horizontal * std::sin(phi)) + Float3{0, 0, -std::cos(theta)};
+}
+
+float body_clearance(const std::vector<BodyCapsule>& body, Float3 p) {
+    float best = 1e9f;
+    for (const BodyCapsule& c : body) {
+        Float3 closest;
+        best = std::min(best, distance_to_segment(p, c.a, c.b, closest) - c.radius);
+    }
+    return best;
+}
+
+void validate_constraints(const ArmConstraints& c) {
+    const auto in = [](float x, float lo, float hi) { return std::isfinite(x) && x >= lo && x <= hi; };
+    if (!(in(c.elbow_flex_min, 0.0f, 1.5f) && in(c.elbow_flex_max, 0.5f, 3.1f) && c.elbow_flex_min < c.elbow_flex_max && in(c.shoulder_forward, 0.1f, kPi) && in(c.shoulder_outward, 0.1f, kPi) &&
+          in(c.shoulder_back, 0.1f, kPi) && in(c.shoulder_inward, 0.1f, kPi) && in(c.body_margin, 0.0f, 0.5f) && in(c.elbow_radius, 0.0f, 0.5f))) {
+        throw std::invalid_argument("ArmConstraints: a limit is out of range");
+    }
+    for (const BodyCapsule& v : c.body) {
+        const auto fin = [](Float3 p) { return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z); };
+        if (!fin(v.a) || !fin(v.b) || !(v.radius > 0.0f) || !std::isfinite(v.radius)) throw std::invalid_argument("ArmConstraints: a body volume must be finite with a positive radius");
+    }
+}
+
+} // namespace
+
+std::vector<BodyCapsule> default_body_capsules(const gfx::Skin& skin, const HumanoidMap& map, const gfx::Pose& pose) {
+    std::vector<BodyCapsule> out;
+    const std::vector<JointWorld> w = joint_world(skin, pose);
+    if (map.has(Bone::Hips) && map.has(Bone::Neck)) {
+        const Float3 hips = w[static_cast<std::size_t>(map[Bone::Hips])].position, neck = w[static_cast<std::size_t>(map[Bone::Neck])].position;
+        out.push_back({hips, neck, 0.16f});
+    }
+    if (map.has(Bone::Head) && map.has(Bone::Neck)) {
+        const Float3 neck = w[static_cast<std::size_t>(map[Bone::Neck])].position, head = w[static_cast<std::size_t>(map[Bone::Head])].position;
+        out.push_back({neck, head + Float3{0, 0, 0.08f}, 0.10f});
+    }
+    return out;
+}
+
 HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, Float3 world_target, float weight,
-                        const render::Quat* world_grip) {
+                        const render::Quat* world_grip, const ArmConstraints* constraints) {
     const Bone upper_bone = left_hand ? Bone::LeftUpperArm : Bone::RightUpperArm, lower_bone = left_hand ? Bone::LeftLowerArm : Bone::RightLowerArm, hand_bone = left_hand ? Bone::LeftHand : Bone::RightHand;
     if (!map.has(upper_bone) || !map.has(lower_bone) || !map.has(hand_bone)) throw std::invalid_argument("reach_hand: the rig has no such arm");
     if (!std::isfinite(world_target.x) || !std::isfinite(world_target.y) || !std::isfinite(world_target.z)) throw std::invalid_argument("reach_hand: non-finite target");
+    if (constraints != nullptr) validate_constraints(*constraints);
     HandIkResult result;
+    result.elbow_clearance = 1e9f;
     const float w = std::clamp(weight, 0.0f, 1.0f);
     if (!(w > 0.0f)) {
         result.reached = true;
         return result;
     }
     const std::size_t upper = static_cast<std::size_t>(map[upper_bone]), lower = static_cast<std::size_t>(map[lower_bone]), hand = static_cast<std::size_t>(map[hand_bone]);
-    const Float3 target = render::rotate(render::conjugate(root.rotation), world_target - root.position);
+    Float3 target = render::rotate(render::conjugate(root.rotation), world_target - root.position);
     // The elbow bends backward and a little away from the body.
     const Float3 outward = rig.left * (left_hand ? 1.0f : -1.0f);
     const Float3 pole = rig.forward * -1.0f + outward * 0.5f;
     const std::vector<JointWorld> before = joint_world(skin, pose);
-    const TwoBoneResult r = solve_two_bone(skin, pose, upper, lower, hand, target, pole, w);
-    result.reached = r.reached;
+    if (constraints == nullptr) {
+        const TwoBoneResult r = solve_two_bone(skin, pose, upper, lower, hand, target, pole, w);
+        result.reached = r.reached;
+    } else {
+        const ArmConstraints& c = *constraints;
+        // A target inside the body is moved to the surface of the volume it is in.
+        for (const BodyCapsule& v : c.body) {
+            Float3 closest;
+            const float d = distance_to_segment(target, v.a, v.b, closest);
+            const float limit = v.radius + c.body_margin;
+            if (d < limit) {
+                const Float3 away = d > 1e-5f ? (target - closest) * (1.0f / d) : rig.forward;
+                target = closest + away * limit;
+                result.target_adjusted = true;
+            }
+        }
+        const Float3 A = before[upper].position, B = before[lower].position, C = before[hand].position;
+        const float a = length(B - A), b = length(C - B);
+        float min_reach = 0.0f, max_reach = 0.0f;
+        if (c.joint_limits && a > 1e-5f && b > 1e-5f) {
+            // The elbow's interior angle is pi minus its flexion: the distance across it follows from the law of cosines.
+            min_reach = std::sqrt(std::max(0.0f, a * a + b * b - 2.0f * a * b * std::cos(kPi - c.elbow_flex_max)));
+            max_reach = std::sqrt(std::max(0.0f, a * a + b * b - 2.0f * a * b * std::cos(kPi - c.elbow_flex_min)));
+        }
+        const ShoulderFrame frame{rig.forward, outward};
+        const gfx::Pose original = pose;
+        const Float3 axis = length(target - A) > 1e-5f ? render::normalize(target - A) : rig.forward;
+        gfx::Pose best = original;
+        float best_score = -1e30f;
+        TwoBoneResult best_result;
+        bool found = false;
+        // Swivel the elbow about the shoulder-to-hand axis, the smallest turn first, until the arm is inside its envelope and clear of the body.
+        const int steps = (c.body.empty() && !c.joint_limits) ? 0 : 18;
+        for (int k = 0; k <= 2 * steps && !found; ++k) {
+            const int turn = (k + 1) / 2 * ((k % 2) ? 1 : -1);
+            const float angle = static_cast<float>(turn) * (10.0f * kPi / 180.0f);
+            const Float3 pole_k = render::rotate(render::from_axis_angle(axis, angle), pole);
+            gfx::Pose trial = original;
+            const TwoBoneResult r = solve_two_bone_range(skin, trial, upper, lower, hand, target, pole_k, w, min_reach, max_reach);
+            const std::vector<JointWorld> tw = joint_world(skin, trial);
+            const Float3 upper_dir = render::normalize(tw[lower].position - tw[upper].position);
+            const float excess = c.joint_limits ? shoulder_excess(c, frame, upper_dir) : 0.0f;
+            const float clearance = body_clearance(c.body, tw[lower].position) - c.body_margin - c.elbow_radius;
+            const float hand_clearance = body_clearance(c.body, tw[hand].position) - c.body_margin * 0.5f;
+            const float score = std::min({clearance, hand_clearance + 0.02f, 0.0f}) - excess * 0.5f;  // 0 = fine; more negative = worse
+            if (score > best_score) {
+                best_score = score;
+                best = trial;
+                best_result = r;
+            }
+            if (excess <= 1e-4f && clearance >= 0.0f && hand_clearance >= -1e-3f) found = true;
+        }
+        pose = best;
+        // No swivel is inside the envelope: bring the upper arm to its limit and aim the forearm at the target from there.
+        if (c.joint_limits) {
+            std::vector<JointWorld> pw = joint_world(skin, pose);
+            const Float3 upper_dir = render::normalize(pw[lower].position - pw[upper].position);
+            if (shoulder_excess(c, frame, upper_dir) > 1e-4f) {
+                const Float3 clamped = shoulder_clamped(c, frame, upper_dir);
+                const Float3 mid = pw[upper].position + clamped * length(pw[lower].position - pw[upper].position);
+                set_world_rotation(skin, pose, pw, upper, render::normalize(from_to(pw[lower].position - pw[upper].position, mid - pw[upper].position) * pw[upper].rotation));
+                pw = joint_world(skin, pose);
+                set_world_rotation(skin, pose, pw, lower, render::normalize(from_to(pw[hand].position - pw[lower].position, target - pw[lower].position) * pw[lower].rotation));
+                result.limited = true;
+            }
+        }
+        result.reached = best_result.reached && !result.limited;
+        const std::vector<JointWorld> fin = joint_world(skin, pose);
+        result.elbow_clearance = body_clearance(c.body, fin[lower].position);
+    }
     if (world_grip != nullptr) {
         const std::vector<JointWorld> after = joint_world(skin, pose);
         const render::Quat wanted = render::normalize(render::conjugate(root.rotation) * *world_grip);
@@ -284,7 +446,13 @@ HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const Rig
     }
     const std::vector<JointWorld> done = joint_world(skin, pose);
     result.end_error = length(done[hand].position - target);
+    if (constraints != nullptr && w >= 1.0f && result.end_error > 2e-3f) result.limited = true;  // a limit, the body or the arm's length kept the hand off the (adjusted) target
     return result;
+}
+
+HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, Float3 world_target, float weight,
+                        const render::Quat* world_grip) {
+    return reach_hand(skin, map, rig, pose, root, left_hand, world_target, weight, world_grip, nullptr);
 }
 
 } // namespace saige::anim

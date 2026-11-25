@@ -110,6 +110,12 @@ struct RendererSettings {
     /// horizon color of that sky, so distant things fade into the sky they are seen against. In an LDR scene the radiance goes through 1 - exp(-x); in HDR it is left
     /// to the tone map. Fixed at construction; the sun direction and the atmosphere do not change while the renderer lives (see docs/rendering/atmosphere.md).
     AtmosphereSettings atmosphere;
+    /// Per-frame lighting (time of day). **Off by default**: `lighting` and the atmosphere's sun are fixed at construction, exactly as before. On: `SceneFrame::lighting`
+    /// replaces the sun direction, sun color and ground ambient of that frame, and everything that depends on the sun follows it, from one validated value: the sky pass,
+    /// the fog and clear color (the horizon of that sky when the atmosphere is on), the models' lighting and ambient sky color, and the shadow cascades' fit. A frame
+    /// that supplies nothing uses `lighting`. Costs one small uniform buffer and bind group per frame in flight in the model renderer. Composes with shadows, IBL, skinning and HDR.
+    /// With the sun at or below the horizon (`z <= 0`) no cascades are fitted that frame: nothing is shadowed by a sun that is not up. See docs/rendering/dynamic-lighting.md.
+    bool dynamic_lighting = false;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     /// Frustum-cull imported-model primitives by their bounding spheres. On by default: it never changes the image (the test is conservative and
@@ -150,7 +156,20 @@ struct SceneFrame {
     const Camera* camera = nullptr;
     /// Imported models to draw this frame (not retained after render()); they share the depth buffer with everything else.
     std::span<const ModelDraw> models;
+    /// One effective lighting per device frame: the first `render` of a frame fixes it, whether or not it draws models, and another `render` in the same device frame (a second
+    /// view) must supply the same lighting (the same normalized sun, sun color and ground ambient) or it is refused with std::logic_error before anything is created, recorded
+    /// or written. The next frame starts fresh.
+    /// This frame's sun and ambient (needs `RendererSettings::dynamic_lighting`; not retained after render()). `nullptr`: the construction-time `lighting`. Validated,
+    /// like the settings' lighting, before anything is recorded or written: `render` throws std::invalid_argument for a bad value and std::logic_error if the renderer
+    /// was not built with dynamic lighting, and nothing has changed when it does.
+    const SceneLighting* lighting = nullptr;
 };
+
+/// The lighting for a sun at `to_sun` (any non-zero direction; normalized), derived from the daytime look `day` and the atmosphere: the sun's color is `day.sun_color`
+/// times the fraction of sunlight the air lets through (reddening toward the horizon, zero once the sun is below it), and the ground ambient fades from `day` at high
+/// sun down to `night_ambient` (a fraction, default 0.08) as the sun sets, smoothly over sin(elevation) from -0.1 to 0.35. Pure and deterministic: what a host passes
+/// as `SceneFrame::lighting` while it advances a clock, with `solar_position` supplying `to_sun`. Throws std::invalid_argument for a bad direction or fraction.
+[[nodiscard]] SceneLighting time_of_day_lighting(const AtmosphereSettings& atmosphere, Float3 to_sun, const SceneLighting& day, float night_ambient = 0.08f);
 
 /// Where a frame is rendered. The renderer leaves `texture` in `final_state` (or its last-use state).
 struct RenderTarget {
@@ -222,8 +241,17 @@ private:
     rhi::ShaderHandle sky_vs_, sky_ps_;
     rhi::PipelineHandle sky_pipeline_;
     void ensure_sky();
+    // Dynamic lighting: the one effective lighting of the current device frame (set by its first render; a later render of the same frame must supply the same lighting).
+    struct LightingSnapshot {
+        Float3 sun{};
+        Float3 sun_color{};
+        Float3 ambient_ground{};
+    };
+    uint64_t lighting_snapshot_frame_ = ~uint64_t{0};
+    LightingSnapshot lighting_snapshot_;
+    uint64_t lighting_published_frame_ = ~uint64_t{0};  ///< the device frame for which this renderer published the models' lighting
     [[nodiscard]] Camera sky_camera(const SceneFrame& frame) const;  ///< the camera the frame is drawn with (the explicit one, or the follow/fixed camera's)
-    [[nodiscard]] Float3 atmosphere_fog() const;  ///< the horizon color the fog fades to when the atmosphere is on, display-referred in an LDR scene
+    [[nodiscard]] Float3 atmosphere_fog(Float3 to_sun) const;  ///< the horizon color the fog fades to when the atmosphere is on, display-referred in an LDR scene
     rhi::BufferHandle cube_vertices_, cube_indices_;
     rhi::TextureHandle depth_;
     uint32_t target_width_ = 0;

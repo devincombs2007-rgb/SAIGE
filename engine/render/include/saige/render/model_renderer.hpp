@@ -137,6 +137,12 @@ struct ModelShadowFrame {
 /// The unit vector along a sun direction, computed without squaring the components (so any finite non-zero direction, however large or small, normalizes): the one
 /// normalization the lighting, the sky, the fog and the shadow fit all use. Returns false, leaving `out` alone, for a zero or non-finite direction.
 [[nodiscard]] bool unit_sun_direction(Float3 v, Float3& out) noexcept;
+/// One frame's lighting for the models (`ModelRenderer::set_lighting_frame`): the sun, the ground ambient and the sky color, which is the fog color and the sky half
+/// of the ambient. The fog density stays the renderer's. Validated before anything is written.
+struct ModelLightingFrame {
+    SceneLighting lighting;
+    Float3 sky_color{0.30f, 0.50f, 0.82f};  ///< linear, finite and not negative
+};
 
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
@@ -146,6 +152,10 @@ struct ModelRenderSettings {
     /// would ignore the environment silently, so the constructor throws std::invalid_argument). The data is validated and uploaded at construction.
     std::shared_ptr<const EnvironmentLighting> environment;
     SceneLighting lighting;
+    /// Per-frame lighting (time of day). **Off by default**: the sun, ambient and fog are immutable constants, as always. On: the scene constants live in a ring of
+    /// `DeviceInfo::frames_in_flight` buffers (with their bind groups), one per frame slot, and `set_lighting_frame` publishes a frame's lighting. A frame that
+    /// publishes nothing draws with the construction-time lighting. Costs one small uniform buffer and one bind group per slot.
+    bool dynamic_lighting = false;
     ModelShadowSettings shadows;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
@@ -203,7 +213,21 @@ public:
 
     /// The unit vector toward the sun: the one value the lighting constants are built from and the shadow fit reads, so the two cannot
     /// disagree (SceneLighting::sun_direction normalized).
-    [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }
+    [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }  ///< the construction-time sun
+    [[nodiscard]] bool dynamic_lighting() const noexcept { return dynamic_lighting_; }
+    /// Publishes this frame's lighting: validated first (std::invalid_argument for a non-finite or zero sun direction, a negative or non-finite color, a non-finite
+    /// or negative sky), then written once into the frame slot's constants. `nullptr` publishes the construction-time lighting explicitly. One publication per
+    /// renderer per device frame, and it must come before the frame's first `draw` (which reads the slot): a second publication, or one after a draw, throws
+    /// std::logic_error before anything is written, because it would change data the recorded draws reference. A frame that publishes nothing is drawn with
+    /// the construction-time lighting. Throws std::logic_error if dynamic lighting is off.
+    void set_lighting_frame(const ModelLightingFrame* frame);
+    /// The normalized sun direction of the current frame: the published one, or the construction-time one. What the sky, the shadow fit and the lighting all read.
+    [[nodiscard]] Float3 frame_sun_direction() const noexcept;
+    /// Whether this device frame's slot has been written (by `set_lighting_frame`, or by a draw completing it).
+    [[nodiscard]] bool lighting_written_this_frame() const noexcept;
+    /// The scene-constants buffer of frame slot `slot` (80 bytes: fog color and density, sun direction, sun color, ground ambient, flags), for tests and diagnostics;
+    /// an invalid handle when dynamic lighting is off or `slot` is out of range. Read it only when the device has finished the slot's frames.
+    [[nodiscard]] rhi::BufferHandle lighting_block(uint32_t slot) const noexcept { return slot < scene_blocks_.size() ? scene_blocks_[slot].handle() : rhi::BufferHandle{}; }
     [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
     [[nodiscard]] bool ibl_enabled() const noexcept { return ibl_enabled_; }
     [[nodiscard]] bool skinning_enabled() const noexcept { return skinning_enabled_; }
@@ -301,6 +325,14 @@ private:
     bool shadow_frame_written_ = false;
     uint64_t shadow_frame_number_ = 0;
     Float3 sun_direction_{};
+    // Per-frame lighting (empty when off).
+    bool dynamic_lighting_ = false;
+    std::vector<BufferRef> scene_blocks_;     ///< the scene constants per frame slot
+    std::array<float, 20> scene_default_{};   ///< the construction-time scene constants, what an unpublished frame uses
+    uint64_t lighting_frame_number_ = 0;      ///< the device frame the slot was last written for
+    bool lighting_written_ = false;
+    Float3 frame_sun_{};
+    void write_scene_block(const float* constants, Float3 sun);
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading
     SamplerRef default_sampler_, env_brdf_sampler_;

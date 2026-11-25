@@ -1,7 +1,10 @@
 #include "saige/win32_platform.hpp"
+#include "desktop_game.hpp"
 
 #include <windows.h>
 
+#include <chrono>
+#include <cmath>
 #include <exception>
 #include <iostream>
 #include <stdexcept>
@@ -16,6 +19,74 @@ void require(bool result, const char* message) {
 
 void post(HWND window, UINT message, WPARAM key = 0) {
     require(PostMessageW(window, message, key, 0) != FALSE, "Posting a window message failed");
+}
+
+void test_course_input(saige::Win32Platform& platform, HWND window) {
+    using namespace std::chrono_literals;
+    constexpr auto step = 16'666'667ns;
+    saige::World world;
+    saige::sample::DesktopGame game(world, platform, true);
+    const auto player_pose = [&] {
+        const auto snapshot = world.snapshot();
+        require(snapshot.size() == 4, "Course must expose the player and three obstacles");
+        return snapshot.front().position;
+    };
+    const auto advance = [&] {
+        require(platform.poll_events(), "Course window exited during input replay");
+        game.fixed_update(world, step);
+    };
+
+    advance();
+    const auto spawn = player_pose();
+    const auto initial_camera = game.camera_view().value();
+    const auto at_spawn = [&] {
+        const auto pose = player_pose();
+        return std::abs(pose.x - spawn.x) < 0.001f && std::abs(pose.y - spawn.y) < 0.001f &&
+               std::abs(pose.z - spawn.z) < 0.001f; // The capsule may rest up to one contact skin above spawn.
+    };
+    post(window, WM_KEYDOWN, 'W');
+    post(window, WM_KEYDOWN, VK_SHIFT);
+    advance();
+    for (int tick = 0; tick < 90; ++tick) game.fixed_update(world, step);
+    const auto wall = player_pose();
+    require(wall.x > 2.1f && wall.x < 2.201f && std::abs(wall.z - spawn.z) < 0.001f,
+            "W and Shift must move the capsule to the wall without penetrating");
+
+    post(window, WM_KEYUP, 'W');
+    post(window, WM_KEYUP, VK_SHIFT);
+    post(window, WM_KEYDOWN, VK_SPACE);
+    advance();
+    require(player_pose().z > wall.z + 0.02f, "Space must lift the capsule off the course floor");
+
+    post(window, WM_KEYUP, VK_SPACE);
+    post(window, WM_KEYDOWN, 'R');
+    advance();
+    require(at_spawn(), "R must restore the course spawn");
+    post(window, WM_KEYUP, 'R');
+    post(window, WM_KEYDOWN, 'W');
+    post(window, WM_KILLFOCUS);
+    advance();
+    require(at_spawn(), "A pending key must not move the course player after focus loss");
+
+    require(PostMessageW(window, WM_RBUTTONDOWN, MK_RBUTTON, MAKELPARAM(20, 20)) != FALSE &&
+                PostMessageW(window, WM_MOUSEMOVE, MK_RBUTTON, MAKELPARAM(180, 60)) != FALSE &&
+                PostMessageW(window, WM_RBUTTONUP, 0, MAKELPARAM(180, 60)) != FALSE,
+            "Could not queue a course camera drag");
+    advance();
+    require(game.camera_view().value().position.y > initial_camera.position.y + 1.0f,
+            "The Win32 right drag must reach the course camera");
+    post(window, WM_KEYDOWN, 'W');
+    advance();
+    for (int tick = 0; tick < 15; ++tick) game.fixed_update(world, step);
+    require(player_pose().x > 0.2f && player_pose().y < -0.1f,
+            "Win32 walking follows the turned view");
+    post(window, WM_KEYUP, 'W');
+    post(window, WM_KEYDOWN, 'R');
+    advance();
+    require(at_spawn() && std::abs(game.camera_view().value().position.y - initial_camera.position.y) < 0.001f,
+            "Course reset must also restore the camera");
+    post(window, WM_KEYUP, 'R');
+    require(platform.poll_events(), "Course window exited during reset");
 }
 
 } // namespace
@@ -84,12 +155,25 @@ int main() {
             require(platform.poll_events() && !platform.key_down(saige::Key::w),
                     "A queued key release left movement active");
 
+            post(handle, WM_KEYDOWN, VK_SPACE);
+            post(handle, WM_KEYDOWN, VK_SHIFT);
+            post(handle, WM_KEYDOWN, 'R');
+            require(platform.poll_events() && platform.key_down(saige::Key::space) &&
+                        platform.key_down(saige::Key::shift) && platform.key_down(saige::Key::r),
+                    "Course controls did not reach the input state");
+            post(handle, WM_KEYUP, VK_SPACE);
+            require(platform.poll_events() && !platform.key_down(saige::Key::space),
+                    "The jump key stayed active after release");
+
             post(handle, WM_KEYDOWN, VK_LEFT);
             require(platform.poll_events() && platform.key_down(saige::Key::left),
                     "A queued arrow key did not reach the input state");
             post(handle, WM_KILLFOCUS);
-            require(platform.poll_events() && !platform.key_down(saige::Key::left),
+            require(platform.poll_events() && !platform.key_down(saige::Key::left) &&
+                        !platform.key_down(saige::Key::shift) && !platform.key_down(saige::Key::r),
                     "A held movement key survived focus loss");
+
+            test_course_input(platform, handle);
 
             post(handle, WM_CLOSE);
             require(!platform.poll_events() && !platform.poll_events(), "Close did not latch quit");

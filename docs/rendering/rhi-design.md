@@ -179,7 +179,7 @@ descriptions and never reports timestamps.
 - Pipelines are created from compiled SPIR-V blobs produced offline by `saige-shaderc`
   ([shader-pipeline.md](shader-pipeline.md)).
 - Graphics pipelines use dynamic rendering: attachment formats are specified at creation, with no
-  render pass object. Viewport, scissor and depth bias are always dynamic state.
+  render pass object. Viewport and scissor are always dynamic state. Depth bias is **static pipeline state** in the current implementation (`GraphicsPipelineDesc::depth_bias`, constant and slope factors, no clamp because `depthBiasClamp` is optional): a shadow pass needs only a handful of bias settings, and a pipeline per setting is cheap; dynamic bias can be added behind the same description if a use appears. A pipeline with no pixel shader, no color formats and a depth format is a depth-only pipeline (the shadow-map pass). Depth textures are sampled in `ShaderReadOnly`, like any sampled texture (see `tests/test_shadow_map.cpp`).
 - **Pipeline cache:** `VkPipelineCache` persisted to disk per device UUID and driver version.
   Pipelines can be precompiled in the background from a recorded PSO list to avoid hitches.
 - Pipeline creation is thread-safe and can run on job-system workers.

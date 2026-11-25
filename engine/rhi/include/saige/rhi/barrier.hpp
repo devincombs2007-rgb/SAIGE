@@ -67,7 +67,7 @@ enum class TextureLayout : uint8_t {
     General,    ///< Storage access, or mixed access within a pass.
     ColorAttachment,
     DepthStencilAttachment,
-    DepthStencilReadOnly,  ///< Depth test without writes; also allows sampling.
+    DepthStencilReadOnly,  ///< Depth test without writes. Not for sampling through a bind group: descriptors are written for ShaderReadOnly, so a depth texture (a shadow map) is transitioned to ShaderReadOnly before it is sampled.
     ShaderReadOnly,
     TransferSrc,
     TransferDst,

@@ -118,3 +118,13 @@ What stays SAIGE-owned and does not move into the library: `StaticCollision` (th
 2. Float with chunk-local frames (current rule, sufficient to about 5 km) or the double-precision build for a single continuous world frame.
 3. Whether cross-platform determinism is a requirement (it costs a Jolt flag and a second-platform test).
 4. A Windows CI job that builds the prototype, to resolve the one unknown (MSVC) before Phase 1.
+
+## Re-run on Jolt v5.7.0 (2026-11-25)
+
+The harness (`tools/physics_eval`, single precision, Release, GCC 13.3, `-ffp-contract=off`, this container's CPU) was re-run against the pinned release, v5.7.0 (`results_jolt_v5.7.0_float.json`; Jolt only, Bullet was not re-run: its numbers above stand). 153 Jolt measurements are comparable with the v5.3.0 run; 126 are not timings.
+
+* **Identical to within 5% (102 of 126):** every materials result (bounce apex and slide distance on all four surfaces, with and without SAIGE's combination rule), continuous collision detection (off tunnels, on does not), determinism (same build and thread count identical, one against four threads identical in this build), the vehicle-into-crates momentum (1.00) and speeds, the force semantics (angular and linear acceleration exact), and every large-world result from 0 to 100,000 m (resting box height error under 2e-7 m, no jitter).
+* **Different (24 of 126):** all in the stack workloads' single-substep rows, which were already collapsing or chaotic (a stack of 20 at one substep and ten iterations drifts 24.7 m on 5.3.0 and 33.4 m on 5.7.0: both fall over), and the chain's last-link speed (3.85 to 4.96 m/s). The one that matters: a 20-box stack at **one substep and 30 iterations** was stable on 5.3.0 (drift 0.014 m, all asleep at 20 s) and is not on 5.7.0 (2.2 m drift, 8 degrees of tilt, none asleep, 0.055 ms against 0.005 ms per frame). The recommendation stands and is the one the dynamics gates use: more than one substep for tall stacks (the 5- and 10-box stacks and a 15-box pyramid are stable at the default one substep in `dynamics_test`; the ragdolls run four substeps).
+* **Cost:** per-frame stack costs are mostly lower on 5.7.0 (20-box stack at four substeps and ten iterations 0.162 to 0.105 ms), measured on a shared machine: indicative only.
+
+The harness label said "Jolt 5.3.0" whatever it was built against; it now reads the version from the library header.

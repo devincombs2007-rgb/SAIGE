@@ -21,6 +21,10 @@
 
 JPH_SUPPRESS_WARNINGS
 
+#define JPH_STR2(x) #x
+#define JPH_STR(x) JPH_STR2(x)
+#define JPH_VERSION_STRING_LOCAL JPH_STR(JPH_VERSION_MAJOR) "." JPH_STR(JPH_VERSION_MINOR) "." JPH_STR(JPH_VERSION_PATCH)
+
 namespace eval {
 namespace {
 
@@ -90,9 +94,9 @@ public:
     }
     std::string name() const override {
 #ifdef JPH_DOUBLE_PRECISION
-        return "Jolt 5.3.0 (double)";
+        return "Jolt " JPH_VERSION_STRING_LOCAL " (double)";
 #else
-        return "Jolt 5.3.0";
+        return "Jolt " JPH_VERSION_STRING_LOCAL;
 #endif
     }
     int add_box(const BoxDesc& d) override {

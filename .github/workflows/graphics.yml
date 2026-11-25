@@ -31,6 +31,23 @@ jobs:
           sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan-dev vulkan-validationlayers \
             vulkan-tools glslang-tools spirv-tools xvfb libx11-dev
           vulkaninfo --summary | grep -E "apiVersion|deviceName" || true
+      # The production tools' Python tests need the pipeline's Python packages (tools/production/requirements.txt); without them the test reports "skipped".
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tools/production/requirements.txt
+      - name: Install the production tools' Python packages
+        run: python -m pip install -r tools/production/requirements.txt
+      # The humanoid animation tests and the animation viewer smoke test use real, licensed assets that are not committed: the UAL libraries (CC0) and six CMU captures. They are downloaded here,
+      # every file checked against the SHA-256 in tools/animation/assets.json (the archives against the hashes in the asset catalog), so the tests run instead of skipping. Cached by the manifest's hash;
+      # the cached files are re-verified each time. `--no-cache` means never an unverified copy from a tools cache.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/anim_assets
+          key: anim-assets-${{ hashFiles('tools/animation/assets.json') }}
+      - name: Restore animation assets (downloaded and hash-verified)
+        run: python tools/animation/fetch_humanoid_assets.py "$RUNNER_TEMP/anim_assets" --no-cache
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
@@ -38,6 +55,8 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
       - name: Test (Xvfb)
+        env:
+          SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
         run: |
           mkdir -p captures
           SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure
@@ -55,24 +74,40 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/anim_assets
+          key: anim-assets-${{ hashFiles('tools/animation/assets.json') }}
+      - name: Restore animation assets (downloaded and hash-verified)
+        run: python3 tools/animation/fetch_humanoid_assets.py "$RUNNER_TEMP/anim_assets" --no-cache
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
           -DSAIGE_GFX_SANITIZERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build --parallel
-      - name: Test
+      - name: Test (the real-asset animation tests run under ASan and UBSan)
+        env:
+          SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
         run: ctest --test-dir build --output-on-failure
 
   windows-msvc-vulkan:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/anim_assets
+          key: anim-assets-${{ hashFiles('tools/animation/assets.json') }}
+      - name: Restore animation assets (downloaded and hash-verified)
+        run: python tools/animation/fetch_humanoid_assets.py "$env:RUNNER_TEMP/anim_assets" --no-cache
       - name: Configure
         run: >
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
           -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
       - name: Build
         run: cmake --build build --config Release --parallel
-      - name: Test
+      - name: Test (the real-asset animation tests run with MSVC's floating point)
+        env:
+          SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
         run: ctest --test-dir build -C Release --output-on-failure

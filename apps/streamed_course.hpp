@@ -32,7 +32,7 @@ class StreamedCourse final : public IGame {
 public:
     StreamedCourse(World& world, IDesktopPlatform& platform, const std::filesystem::path& manifest,
                    CourseSceneOutput* output = nullptr, CapsuleCharacterConfig config = {}, bool enable_vehicle = false, bool background = false,
-                   const std::filesystem::path& checkpoint_file = {})
+                   const std::filesystem::path& checkpoint_file = {}, bool terrain_vehicle = false)
         : platform_(platform), output_(output), checkpoint_file_(checkpoint_file), checkpoint_radius_(config.radius),
           background_(background) {
         auto world_manifest = read_chunk_manifest(manifest);
@@ -85,7 +85,7 @@ public:
         const auto geometry = candidate_geometry(initial);
         CapsuleCharacter controller(checkpoint.feet, geometry.boxes, geometry.triangles, config);
         if (!controller.state().grounded) throw std::invalid_argument("Course reset point must have walkable ground");
-        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles, enable_vehicle && !persist_vehicle);
+        game_.emplace(world, platform_, std::move(controller), geometry.boxes, geometry.triangles, enable_vehicle && !persist_vehicle, terrain_vehicle);
         if (persist_vehicle) {
             const auto pose = parked_vehicle_->cell == checkpoint_cell_
                 ? std::optional(CourseVehiclePose{parked_vehicle_->position, parked_vehicle_->heading}) : std::nullopt;

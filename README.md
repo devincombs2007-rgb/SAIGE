@@ -75,6 +75,9 @@ and away from a cell edge to save. R returns to the latest saved point, and rela
 Saving in a new cell releases the previous checkpoint's residency pin. A new file starts at the authored checkpoint.
 
 Add `--course-vehicle` for the flat driving prototype. Walk near the parked vehicle marker and press E to enter.
+On the terrain integration branch, add `--terrain-vehicle` to try the four-contact suspension prototype. It uses the
+same controls and controller and sweeps an oriented chassis. The terrain mode keeps its chassis upright and requires
+support from at least three wheels. A missing edge or unsuitable surface halts movement.
 Use W/S to accelerate or reverse, A/D to steer, and Space to brake. Press E while stopped to exit when a supported side
 is clear. R restores the player and vehicle. This prototype uses a kinematic body and flat box collision.
 

@@ -1,0 +1,543 @@
+// Two-bone IK and foot placement on uneven ground.
+#include "saige/gfx_test/saige_test.hpp"
+
+#include "fixtures.hpp"
+
+using namespace saige;
+using namespace saige::anim;
+using render::Float3;
+
+namespace {
+
+float dist(Float3 a, Float3 b) { return render::length(a - b); }
+
+} // namespace
+
+TEST_CASE("IK: a two-bone chain reaches any point in range, keeps its bone lengths and bends toward the pole") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const std::size_t up = static_cast<std::size_t>(b.map[Bone::LeftUpperLeg]), lo = static_cast<std::size_t>(b.map[Bone::LeftLowerLeg]), ft = static_cast<std::size_t>(b.map[Bone::LeftFoot]);
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const float len_a = dist(w0[up].position, w0[lo].position), len_b = dist(w0[lo].position, w0[ft].position);
+    const Float3 hip = w0[up].position;
+    int count = 0;
+    for (const Float3 offset : {Float3{0.3f, 0.1f, -0.6f}, Float3{-0.4f, 0.0f, -0.5f}, Float3{0.0f, 0.3f, -0.7f}, Float3{0.5f, -0.1f, -0.4f}, Float3{0.1f, 0.0f, -0.8f}, Float3{0.45f, 0.2f, -0.3f}}) {
+        gfx::Pose pose = rest;
+        const Float3 target = hip + offset;
+        const TwoBoneResult r = solve_two_bone(b.skin, pose, up, lo, ft, target, Float3{1, 0, 0});
+        REQUIRE(r.solved);
+        const std::vector<JointWorld> w = joint_world(b.skin, pose);
+        CHECK(dist(w[ft].position, target) < 2e-3f);
+        CHECK(std::fabs(dist(w[up].position, w[lo].position) - len_a) < 1e-4f);
+        CHECK(std::fabs(dist(w[lo].position, w[ft].position) - len_b) < 1e-4f);
+        CHECK(r.reached);
+        // The knee is in front of the line from hip to foot (bends toward +X, the pole).
+        const Float3 axis = render::normalize(w[ft].position - w[up].position);
+        const Float3 knee_off = (w[lo].position - w[up].position) - axis * render::dot(w[lo].position - w[up].position, axis);
+        CHECK(knee_off.x > 0.0f);
+        ++count;
+    }
+    CHECK(count == 6);
+    // Out of reach: the chain extends straight toward the target and reports it.
+    gfx::Pose pose = rest;
+    const Float3 far = hip + Float3{0.0f, 0.0f, -3.0f};
+    const TwoBoneResult r = solve_two_bone(b.skin, pose, up, lo, ft, far, Float3{1, 0, 0});
+    CHECK(r.solved && !r.reached);
+    const std::vector<JointWorld> w = joint_world(b.skin, pose);
+    CHECK(std::fabs(dist(w[up].position, w[ft].position) - (len_a + len_b)) < 2e-3f);
+    // Weight 0 leaves the pose, weight 1 solves it, 0.5 is between.
+    gfx::Pose p0 = rest, p5 = rest, p1 = rest;
+    const Float3 t = hip + Float3{0.3f, 0.0f, -0.6f};
+    solve_two_bone(b.skin, p0, up, lo, ft, t, Float3{1, 0, 0}, 0.0f);
+    solve_two_bone(b.skin, p5, up, lo, ft, t, Float3{1, 0, 0}, 0.5f);
+    solve_two_bone(b.skin, p1, up, lo, ft, t, Float3{1, 0, 0}, 1.0f);
+    CHECK(pose_distance(p0, rest) < 1e-6f);
+    CHECK(pose_distance(p5, rest) > 0.0f && pose_distance(p5, rest) < pose_distance(p1, rest));
+    // Bad inputs.
+    bool threw = false;
+    try { solve_two_bone(b.skin, pose, up, ft, lo, t, Float3{1, 0, 0}); } catch (const std::invalid_argument&) { threw = true; }  // not a chain
+    CHECK(threw);
+    threw = false;
+    try { solve_two_bone(b.skin, pose, up, lo, ft, Float3{std::nanf(""), 0, 0}, Float3{1, 0, 0}); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
+namespace {
+
+struct Ramp {
+    float slope = 0.0f;        // dz/dx
+    float offset = 0.0f;       // base height
+    bool operator()(float x, float, float, GroundSample& g) const {
+        g.height = offset + slope * x;
+        const float n = 1.0f / std::sqrt(1.0f + slope * slope);
+        g.normal = {-slope * n, 0.0f, n};
+        return true;
+    }
+};
+
+// Plants the feet of one gait pose on `ground` and returns the lowest and highest height of a planted contact point above the ground.
+struct Planted {
+    float worst_gap = 0.0f;  // largest |contact height above the ground| among the planted feet
+    float pelvis = 0.0f;
+    int feet = 0;
+};
+
+Planted plant(const fixtures::Biped& b, const gfx::AnimationClip& clip, float t, const GroundQuery& ground, FootIkState& state, int ticks = 1) {
+    gfx::Pose pose = gfx::rest_pose(b.skin);
+    gfx::evaluate_clip(clip, gfx::bind_clip(clip, b.skin), t, true, pose);
+    FootIkConfig cfg;
+    cfg.pelvis_smoothing = 0.0f;
+    for (int i = 0; i < ticks; ++i) adapt_feet_to_ground(b.skin, b.map, b.rig, pose, {{0, 0, 0}, {0, 0, 0, 1}}, ground, cfg, state, 1.0f / 60.0f);
+    const std::vector<JointWorld> w = joint_world(b.skin, pose);
+    Planted out;
+    out.pelvis = state.pelvis_offset;
+    for (const Bone toe : {Bone::LeftToes, Bone::RightToes}) {
+        const Float3 p = w[static_cast<std::size_t>(b.map[toe])].position;
+        GroundSample g;
+        ground(p.x, p.y, 0.0f, g);
+        const float h = p.z - g.height;
+        // Planted by the animation's intent: the contact point was on the floor.
+        gfx::Pose raw = gfx::rest_pose(b.skin);
+        gfx::evaluate_clip(clip, gfx::bind_clip(clip, b.skin), t, true, raw);
+        const Float3 q = joint_world(b.skin, raw)[static_cast<std::size_t>(b.map[toe])].position;
+        if (q.z < 0.005f) {  // fully planted by the animation (a foot just lifting is only partly corrected)
+            out.worst_gap = std::max(out.worst_gap, std::fabs(h));
+            ++out.feet;
+        }
+    }
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("Foot IK: planted feet sit on slopes and steps, the pelvis follows, and a flying foot is left alone") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::AnimationClip gait = fixtures::make_gait(b, 1.4f, 1.1f, 0.6f, 0.10f);
+    for (const float slope : {0.0f, 0.15f, 0.27f, -0.2f}) {
+        for (const float t : {0.0f, 0.2f, 0.45f, 0.7f, 0.95f}) {
+            FootIkState state;
+            const Planted p = plant(b, gait, t, Ramp{slope, 0.0f}, state);
+            CHECK(p.feet >= 1);
+            CHECK(p.worst_gap < 0.012f);  // within 12 mm of the surface
+        }
+    }
+    // A step down of 0.2 m under both feet: the pelvis drops by that much.
+    FootIkState down;
+    const Planted d = plant(b, gait, 0.1f, Ramp{0.0f, -0.2f}, down);
+    CHECK(std::fabs(d.pelvis + 0.2f) < 0.01f);
+    CHECK(d.worst_gap < 0.012f);
+    // A flat floor changes nothing: the pose stays the animation's.
+    gfx::Pose raw = gfx::rest_pose(b.skin), adapted = gfx::rest_pose(b.skin);
+    const gfx::ClipBinding bind = gfx::bind_clip(gait, b.skin);
+    gfx::evaluate_clip(gait, bind, 0.3f, true, raw);
+    adapted = raw;
+    FootIkState flat;
+    FootIkConfig cfg;
+    cfg.pelvis_smoothing = 0.0f;
+    adapt_feet_to_ground(b.skin, b.map, b.rig, adapted, {{0, 0, 0}, {0, 0, 0, 1}}, Ramp{}, cfg, flat, 1.0f / 60.0f);
+    CHECK(pose_distance(raw, adapted) < 0.02f);
+    // Where there is no ground the pose is untouched.
+    gfx::Pose none = raw;
+    FootIkState s2;
+    adapt_feet_to_ground(b.skin, b.map, b.rig, none, {{0, 0, 0}, {0, 0, 0, 1}}, [](float, float, float, GroundSample&) { return false; }, cfg, s2, 1.0f / 60.0f);
+    CHECK(pose_distance(raw, none) < 1e-6f);
+    // A foot in the swing (well above the floor) is not pulled down onto a ramp.
+    {
+        FootIkState s3;
+        gfx::Pose swing = gfx::rest_pose(b.skin);
+        gfx::evaluate_clip(gait, bind, 0.8f, true, swing);  // left foot swings (phase 0.73): high point of the arc
+        const Float3 before = joint_world(b.skin, swing)[static_cast<std::size_t>(b.map[Bone::LeftToes])].position;
+        CHECK(before.z > 0.05f);
+        adapt_feet_to_ground(b.skin, b.map, b.rig, swing, {{0, 0, 0}, {0, 0, 0, 1}}, Ramp{0.0f, 0.04f}, cfg, s3, 1.0f / 60.0f);
+        // The pelvis rose for the planted foot, so everything moved up by about 0.04; the swing foot kept its animation relative to the pelvis, i.e. it was not forced to the floor.
+        const Float3 after = joint_world(b.skin, swing)[static_cast<std::size_t>(b.map[Bone::LeftToes])].position;
+        CHECK(after.z > 0.05f);
+    }
+}
+
+TEST_CASE("Foot IK: the pelvis offset is smoothed and bounded") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::AnimationClip gait = fixtures::make_gait(b, 1.4f, 1.1f);
+    gfx::Pose pose = gfx::rest_pose(b.skin);
+    gfx::evaluate_clip(gait, gfx::bind_clip(gait, b.skin), 0.1f, true, pose);
+    FootIkState state;
+    FootIkConfig cfg;  // default smoothing 0.08 s
+    float prev = 0.0f, step_max = 0.0f;
+    for (int i = 0; i < 90; ++i) {
+        gfx::Pose p = pose;
+        adapt_feet_to_ground(b.skin, b.map, b.rig, p, {{0, 0, 0}, {0, 0, 0, 1}}, Ramp{0.0f, -0.5f}, cfg, state, 1.0f / 60.0f);  // a big drop: bounded by max_pelvis_drop
+        step_max = std::max(step_max, std::fabs(state.pelvis_offset - prev));
+        prev = state.pelvis_offset;
+    }
+    CHECK(std::fabs(state.pelvis_offset + cfg.max_pelvis_drop) < 0.01f);
+    CHECK(step_max < 0.12f);  // it arrives over many ticks, not in one
+}
+
+namespace {
+
+// Moves a character at `speed` while a single cycle plays at its authored rate (so its feet move at the cycle's own speed, not the character's), optionally locking the planted feet, and returns the
+// mean horizontal world speed of the planted contact points (planted by the animation's own intent, three ticks running).
+double planted_world_speed(const fixtures::Biped& b, const gfx::AnimationClip& gait, float speed, bool lock, bool ground_flat_y = true) {
+    (void)ground_flat_y;
+    LocomotionSet set(b.skin, b.map);
+    REQUIRE(set.add_cycle(gait));
+    LocomotionConfig cfg;
+    cfg.stride_matching = false;  // authored rate, whatever the speed
+    LocomotionController c(set, cfg);
+    FootLockState state;
+    const float dt = 1.0f / 60.0f;
+    const Float3 fwd = b.rig.forward;
+    float x = 0.0f;
+    Float3 prev[2];
+    // Per tick and foot: the animation's own contact height and the world speed of the (locked) contact point. A tick counts as planted when the animation had the foot on the floor from two ticks before
+    // to six ticks after it, which leaves out the landing and the toe-off, where the foot is still arriving or already leaving.
+    std::vector<float> raw_height[2];
+    std::vector<double> speed_of[2];
+    bool have = false;
+    for (int i = 0; i < 60 * 8; ++i) {
+        c.update(dt, {speed, true, 0.0f});
+        x += speed * dt;
+        gfx::Pose pose = c.pose();
+        const render::Transform root{fwd * x, {0, 0, 0, 1}, {1, 1, 1}};
+        const std::vector<JointWorld> raw = joint_world(b.skin, pose);
+        if (lock) lock_planted_feet(b.skin, b.map, b.rig, pose, root, {}, state, dt);
+        const std::vector<JointWorld> w = joint_world(b.skin, pose);
+        Float3 now[2];
+        float raw_z[2];
+        for (int f = 0; f < 2; ++f) {
+            const std::size_t j = static_cast<std::size_t>(b.map[f == 0 ? Bone::LeftToes : Bone::RightToes]);
+            now[f] = root.position + w[j].position;
+            raw_z[f] = raw[j].position.z;
+        }
+        for (int f = 0; f < 2; ++f) {
+            raw_height[f].push_back(raw_z[f]);
+            speed_of[f].push_back(have ? std::hypot(static_cast<double>(now[f].x - prev[f].x), static_cast<double>(now[f].y - prev[f].y)) / static_cast<double>(dt) : 0.0);
+            prev[f] = now[f];
+        }
+        have = true;
+    }
+    double sum = 0.0;
+    int count = 0;
+    for (std::size_t i = 100; i + 6 < raw_height[0].size(); ++i) {
+        for (int f = 0; f < 2; ++f) {
+            bool planted = true;
+            for (std::size_t k = i - 2; k <= i + 6 && planted; ++k) planted = raw_height[f][k] < 0.003f;
+            if (planted) {
+                sum += speed_of[f][i];
+                ++count;
+            }
+        }
+    }
+    return count > 0 ? sum / count : 0.0;
+}
+
+} // namespace
+
+TEST_CASE("Foot locking: a planted foot stays where it landed when the stride does not match the speed") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::AnimationClip gait = fixtures::make_gait(b, 1.2f, 1.10f, 0.60f, 0.08f);
+    // The character is 10% faster than the cycle's own speed: the feet skate at 0.12 m/s without a lock.
+    const double free_10 = planted_world_speed(b, gait, 1.32f, false), locked_10 = planted_world_speed(b, gait, 1.32f, true);
+    CHECK(free_10 > 0.09);
+    CHECK(locked_10 < 0.03);
+    // 50% faster: the drift outgrows the lock's reach (0.15 m), so it gives way and the foot is free for the rest of the stance: it is then no worse than without a lock.
+    const double free_50 = planted_world_speed(b, gait, 1.8f, false), locked_50 = planted_world_speed(b, gait, 1.8f, true);
+    CHECK(free_50 > 0.4);
+    CHECK(locked_50 <= free_50 * 1.05);
+    // At the cycle's own speed there is nothing to correct and the lock changes nothing noticeable.
+    CHECK(planted_world_speed(b, gait, 1.2f, true) < 0.03);
+    // Bad dt throws.
+    gfx::Pose pose = gfx::rest_pose(b.skin);
+    FootLockState state;
+    bool threw = false;
+    try { lock_planted_feet(b.skin, b.map, b.rig, pose, {{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}}, {}, state, 0.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST_CASE("Hand IK: each hand reaches a world point from any heading, bones keep their length, the elbow bends backward, and only the arm's rotations change") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    for (const bool left : {true, false}) {
+        const Bone ub = left ? Bone::LeftUpperArm : Bone::RightUpperArm, lb = left ? Bone::LeftLowerArm : Bone::RightLowerArm, hb = left ? Bone::LeftHand : Bone::RightHand;
+        const std::size_t up = static_cast<std::size_t>(b.map[ub]), lo = static_cast<std::size_t>(b.map[lb]), hd = static_cast<std::size_t>(b.map[hb]);
+        const float len_a = dist(w0[up].position, w0[lo].position), len_b = dist(w0[lo].position, w0[hd].position);
+        const Float3 shoulder = w0[up].position;
+        for (const render::Transform& root : {render::Transform{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}}, render::Transform{{4, -3, 0}, render::from_axis_angle({0, 0, 1}, -0.9f), {1, 1, 1}}}) {
+            for (const Float3 offset : {Float3{0.35f, 0.0f, 0.0f}, Float3{0.3f, left ? 0.25f : -0.25f, 0.2f}, Float3{0.2f, 0.0f, -0.25f}, Float3{0.25f, left ? -0.2f : 0.2f, 0.1f}}) {
+                gfx::Pose pose = rest;
+                const Float3 world_target = root.position + render::rotate(root.rotation, shoulder + offset);
+                const HandIkResult r = reach_hand(b.skin, b.map, b.rig, pose, root, left, world_target, 1.0f);
+                REQUIRE(r.reached);
+                const std::vector<JointWorld> w = joint_world(b.skin, pose);
+                CHECK(dist(w[hd].position, shoulder + offset) < 2e-3f);
+                CHECK(r.end_error < 2e-3f);
+                CHECK(std::fabs(dist(w[up].position, w[lo].position) - len_a) < 1e-4f);
+                CHECK(std::fabs(dist(w[lo].position, w[hd].position) - len_b) < 1e-4f);
+                // The elbow bends toward the pole (backward and a little outward), away from the line from shoulder to hand.
+                const Float3 axis = render::normalize(w[hd].position - w[up].position);
+                const Float3 elbow_off = (w[lo].position - w[up].position) - axis * render::dot(w[lo].position - w[up].position, axis);
+                const Float3 pole = b.rig.forward * -1.0f + b.rig.left * (left ? 0.5f : -0.5f);
+                CHECK(render::dot(elbow_off, pole) > 0.01f);
+                if (offset.z < -0.2f) CHECK(render::dot(elbow_off, b.rig.forward) < -0.01f);  // a hand low in front: the elbow is behind the line
+                // Only the three joints' rotations changed.
+                for (std::size_t j = 0; j < pose.local.size(); ++j) {
+                    CHECK(pose.local[j].position == rest.local[j].position);
+                    if (j != up && j != lo && j != hd) CHECK(pose.local[j].rotation == rest.local[j].rotation);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Hand IK: out of reach the arm extends toward the target, the weight fades the effect, a grip turns the hand, and bad input throws") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const std::size_t up = static_cast<std::size_t>(b.map[Bone::LeftUpperArm]), hd = static_cast<std::size_t>(b.map[Bone::LeftHand]), lo = static_cast<std::size_t>(b.map[Bone::LeftLowerArm]);
+    const float reach = dist(w0[up].position, w0[lo].position) + dist(w0[lo].position, w0[hd].position);
+    // Far away: fully extended, pointing at the target, not reached.
+    gfx::Pose far = rest;
+    const Float3 far_target = w0[up].position + Float3{3.0f, 1.0f, 0.5f};
+    const HandIkResult rf = reach_hand(b.skin, b.map, b.rig, far, root, true, far_target, 1.0f);
+    CHECK(!rf.reached);
+    const std::vector<JointWorld> wf = joint_world(b.skin, far);
+    CHECK(std::fabs(dist(wf[up].position, wf[hd].position) - reach) < 5e-3f);
+    CHECK(render::dot(render::normalize(wf[hd].position - wf[up].position), render::normalize(far_target - wf[up].position)) > 0.999f);
+    // Weight 0 is bit-identical; weight 0.5 ends between the rest position and the target.
+    const Float3 target = w0[up].position + Float3{0.3f, 0.2f, 0.15f};
+    gfx::Pose p0 = rest, ph = rest, p1 = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, p0, root, true, target, 0.0f);
+    (void)reach_hand(b.skin, b.map, b.rig, ph, root, true, target, 0.5f);
+    (void)reach_hand(b.skin, b.map, b.rig, p1, root, true, target, 1.0f);
+    CHECK(pose_distance(p0, rest) == 0.0f);
+    const float full = dist(joint_world(b.skin, p1)[hd].position, w0[hd].position), half = dist(joint_world(b.skin, ph)[hd].position, w0[hd].position);
+    CHECK(half > 0.2f * full && half < 0.8f * full);
+    // A grip: the hand's world rotation becomes the requested one.
+    const render::Quat grip = render::from_axis_angle({1, 0, 0}, 1.1f);
+    gfx::Pose pg = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, pg, root, true, target, 1.0f, &grip);
+    CHECK(rotation_angle_between(joint_world(b.skin, pg)[hd].rotation, grip) < 1e-3f);
+    CHECK(dist(joint_world(b.skin, pg)[hd].position, target) < 2e-3f);
+    // Bad input.
+    bool threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, pg, root, true, {std::nanf(""), 0, 0}, 1.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+    HumanoidMap no_arm = b.map;
+    no_arm.joint[static_cast<std::size_t>(Bone::LeftHand)] = -1;
+    threw = false;
+    try { (void)reach_hand(b.skin, no_arm, b.rig, pg, root, true, target, 1.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
+namespace {
+
+// The arm's geometry after a solve, for the constraint tests: elbow flexion (pi minus the interior angle) and the upper arm's direction.
+struct ArmGeometry {
+    float flexion;
+    Float3 upper_dir;
+    float shoulder_hand;
+    Float3 elbow, hand, shoulder;
+};
+ArmGeometry arm_geometry(const fixtures::Biped& b, const gfx::Pose& pose, bool left) {
+    const std::vector<JointWorld> w = joint_world(b.skin, pose);
+    const std::size_t up = static_cast<std::size_t>(b.map[left ? Bone::LeftUpperArm : Bone::RightUpperArm]), lo = static_cast<std::size_t>(b.map[left ? Bone::LeftLowerArm : Bone::RightLowerArm]),
+                      hd = static_cast<std::size_t>(b.map[left ? Bone::LeftHand : Bone::RightHand]);
+    const Float3 u = render::normalize(w[up].position - w[lo].position), v = render::normalize(w[hd].position - w[lo].position);
+    const float interior = std::acos(std::clamp(render::dot(u, v), -1.0f, 1.0f));
+    return {3.14159265f - interior, render::normalize(w[lo].position - w[up].position), dist(w[up].position, w[hd].position), w[lo].position, w[hd].position, w[up].position};
+}
+
+// Where the upper arm points, as an angle from hanging straight down.
+float angle_from_down(Float3 dir) { return std::acos(std::clamp(-dir.z, -1.0f, 1.0f)); }
+
+} // namespace
+
+TEST_CASE("Arm constraints: the elbow's range of flexion bounds how close and how far the hand can be, and the unconstrained solve is unchanged") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const std::size_t up = static_cast<std::size_t>(b.map[Bone::LeftUpperArm]);
+    const Float3 shoulder = w0[up].position;
+    const ArmConstraints limits;  // the defaults: elbow 3 to 150 degrees
+    // A target almost at the shoulder: unconstrained, the arm folds almost double; constrained, the elbow stops at 150 degrees and the hand stays where that allows.
+    const Float3 near_target = shoulder + Float3{0.06f, 0.0f, 0.0f};
+    gfx::Pose free_pose = rest, held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, free_pose, root, true, near_target, 1.0f);
+    const HandIkResult rl = reach_hand(b.skin, b.map, b.rig, held, root, true, near_target, 1.0f, nullptr, &limits);
+    const ArmGeometry gf = arm_geometry(b, free_pose, true), gl = arm_geometry(b, held, true);
+    std::printf("hand 6 cm from the shoulder: free elbow flexion %.1f deg, limited %.1f deg (hand %.3f m from the shoulder, error %.3f m)\n", static_cast<double>(gf.flexion * 57.2958f), static_cast<double>(gl.flexion * 57.2958f), static_cast<double>(gl.shoulder_hand), static_cast<double>(rl.end_error));
+    CHECK(gf.flexion > 2.9f);
+    CHECK(gl.flexion < 2.6f + 0.01f && gl.flexion > 2.6f - 0.05f);
+    CHECK(rl.limited);
+    CHECK(!rl.reached);
+    CHECK(gl.shoulder_hand > gf.shoulder_hand + 0.03f);
+    // Almost fully out: the elbow keeps a few degrees of bend.
+    const float reach = dist(w0[up].position, w0[static_cast<std::size_t>(b.map[Bone::LeftLowerArm])].position) + dist(w0[static_cast<std::size_t>(b.map[Bone::LeftLowerArm])].position, w0[static_cast<std::size_t>(b.map[Bone::LeftHand])].position);
+    const Float3 far_target = shoulder + Float3{0.0f, reach * 1.05f, 0.0f};
+    gfx::Pose straight = rest, bent = rest;
+    ArmConstraints soft = limits;
+    soft.elbow_flex_min = 0.3f;  // a clearly bent minimum, to see it
+    (void)reach_hand(b.skin, b.map, b.rig, straight, root, true, far_target, 1.0f);
+    const HandIkResult rb = reach_hand(b.skin, b.map, b.rig, bent, root, true, far_target, 1.0f, nullptr, &soft);
+    std::printf("hand out of reach: free elbow flexion %.1f deg, with a 17 degree minimum %.1f deg\n", static_cast<double>(arm_geometry(b, straight, true).flexion * 57.2958f), static_cast<double>(arm_geometry(b, bent, true).flexion * 57.2958f));
+    CHECK(arm_geometry(b, straight, true).flexion < 0.06f);
+    CHECK(arm_geometry(b, bent, true).flexion > 0.29f);
+    CHECK(rb.limited);
+    // Within the range the constraints change nothing: the same pose as the unconstrained solve, bit for bit (the swivel search is not entered when nothing is constrained).
+    ArmConstraints none;
+    none.joint_limits = false;
+    const Float3 comfortable = shoulder + Float3{0.3f, 0.2f, 0.1f};
+    gfx::Pose a = rest, c = rest, d = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, a, root, true, comfortable, 1.0f);
+    (void)reach_hand(b.skin, b.map, b.rig, c, root, true, comfortable, 1.0f, nullptr, &none);
+    (void)reach_hand(b.skin, b.map, b.rig, d, root, true, comfortable, 1.0f, nullptr, &limits);
+    CHECK(pose_distance(a, c) == 0.0f);
+    CHECK(pose_distance(a, d) < 1e-4f);
+    const HandIkResult ok = reach_hand(b.skin, b.map, b.rig, d, root, true, comfortable, 1.0f, nullptr, &limits);
+    CHECK(ok.reached);
+    CHECK(!ok.limited);
+    CHECK(ok.end_error < 2e-3f);
+}
+
+TEST_CASE("Arm constraints: the shoulder's envelope: up and forward all the way, back and across the body only so far") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const Float3 shoulder = w0[static_cast<std::size_t>(b.map[Bone::LeftUpperArm])].position;
+    const ArmConstraints limits;
+    // Straight up overhead and straight forward: inside the envelope (180 degrees forward, 90 degrees is fine), reached.
+    for (const Float3 off : {Float3{0.0f, 0.0f, 0.5f}, Float3{0.5f, 0.1f, 0.0f}, Float3{0.0f, 0.5f, 0.0f}}) {
+        gfx::Pose p = rest;
+        const HandIkResult r = reach_hand(b.skin, b.map, b.rig, p, root, true, shoulder + off, 1.0f, nullptr, &limits);
+        CHECK(r.reached);
+        CHECK(!r.limited);
+        CHECK(r.end_error < 2e-3f);
+    }
+    // The envelope as the test states it: an upper-arm direction, its angle from hanging straight down against the limit toward its azimuth (forward 0, outward 90, back 180, inward 270 degrees; the limits
+    // linear between).
+    const auto inside = [&](const ArmConstraints& c, Float3 dir, bool left) {
+        const Float3 outward = b.rig.left * (left ? 1.0f : -1.0f);
+        const float theta = angle_from_down(dir);
+        float phi = std::atan2(render::dot(dir, outward), render::dot(dir, b.rig.forward));
+        if (phi < 0.0f) phi += 6.2831853f;
+        const float knots[5] = {c.shoulder_forward, c.shoulder_outward, c.shoulder_back, c.shoulder_inward, c.shoulder_forward};
+        const float scaled = phi / 1.5707963f;
+        const int i = std::min(3, static_cast<int>(scaled));
+        return theta <= knots[i] + (knots[i + 1] - knots[i]) * (scaled - static_cast<float>(i)) + 1e-3f;
+    };
+    // Reaching straight back behind the body: the unconstrained upper arm points back (90 degrees from down, past the 60 degrees the shoulder allows), the constrained solve swivels the elbow out so the upper
+    // arm stays inside the envelope and the forearm still brings the hand to the target.
+    const Float3 behind = shoulder + Float3{-0.5f, 0.0f, 0.0f};
+    gfx::Pose free_pose = rest, held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, free_pose, root, true, behind, 1.0f);
+    const HandIkResult rb = reach_hand(b.skin, b.map, b.rig, held, root, true, behind, 1.0f, nullptr, &limits);
+    const ArmGeometry gf = arm_geometry(b, free_pose, true), gl = arm_geometry(b, held, true);
+    std::printf("hand behind the back: free upper arm %.1f deg from down (inside the envelope: %d), constrained %.1f deg (inside: %d), hand error %.4f m\n", static_cast<double>(angle_from_down(gf.upper_dir) * 57.2958f),
+                inside(limits, gf.upper_dir, true) ? 1 : 0, static_cast<double>(angle_from_down(gl.upper_dir) * 57.2958f), inside(limits, gl.upper_dir, true) ? 1 : 0, static_cast<double>(rb.end_error));
+    CHECK(!inside(limits, gf.upper_dir, true));
+    CHECK(inside(limits, gl.upper_dir, true));
+    CHECK(rb.end_error < 2e-3f);
+    CHECK(!rb.limited);
+    // Across the chest with the left hand toward the far side, and the right arm's mirror image: the same.
+    const Float3 across = shoulder + Float3{0.05f, -0.5f, 0.0f};
+    gfx::Pose across_free = rest, across_held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, across_free, root, true, across, 1.0f);
+    const HandIkResult ra = reach_hand(b.skin, b.map, b.rig, across_held, root, true, across, 1.0f, nullptr, &limits);
+    CHECK(!inside(limits, arm_geometry(b, across_free, true).upper_dir, true));
+    CHECK(inside(limits, arm_geometry(b, across_held, true).upper_dir, true));
+    std::printf("hand across the body, hand error %.4f m (the arm's envelope leaves the swivel little room at nearly full reach), limited %d\n", static_cast<double>(ra.end_error), ra.limited ? 1 : 0);
+    CHECK(ra.end_error < 0.08f);  // the nearest allowed pose is close, not at the target
+    CHECK(ra.limited == (ra.end_error > 2e-3f));
+    const Float3 right_shoulder = w0[static_cast<std::size_t>(b.map[Bone::RightUpperArm])].position;
+    gfx::Pose right_free = rest, right_held = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, right_free, root, false, right_shoulder + Float3{0.05f, 0.5f, 0.0f}, 1.0f);
+    const HandIkResult rr = reach_hand(b.skin, b.map, b.rig, right_held, root, false, right_shoulder + Float3{0.05f, 0.5f, 0.0f}, 1.0f, nullptr, &limits);
+    CHECK(!inside(limits, arm_geometry(b, right_free, false).upper_dir, false));
+    CHECK(inside(limits, arm_geometry(b, right_held, false).upper_dir, false));
+    CHECK(rr.end_error < 0.08f);
+    CHECK(std::fabs(rr.end_error - ra.end_error) < 5e-3f);  // the right arm is the left one's mirror image
+    // When no pose inside the envelope reaches (tight limits all round), the upper arm is brought to the limit and the forearm aims at the target from there: the hand falls short and `limited` says so.
+    ArmConstraints tight = limits;
+    tight.shoulder_forward = tight.shoulder_outward = 1.0f;
+    tight.shoulder_back = tight.shoulder_inward = 0.35f;
+    for (const Float3 off : {Float3{0.5f, 0.0f, 0.0f}, Float3{-0.5f, 0.0f, 0.0f}, Float3{0.0f, 0.5f, 0.0f}, Float3{0.0f, -0.5f, 0.0f}}) {
+        gfx::Pose p = rest;
+        const HandIkResult rt = reach_hand(b.skin, b.map, b.rig, p, root, true, shoulder + off, 1.0f, nullptr, &tight);
+        const ArmGeometry gt = arm_geometry(b, p, true);
+        CHECK(inside(tight, gt.upper_dir, true));
+        CHECK(rt.limited);
+        CHECK(rt.end_error > 0.03f);
+        CHECK(!rt.reached);
+    }
+    // Wider limits let the arm there.
+    ArmConstraints wide = limits;
+    wide.shoulder_inward = 3.1f;
+    wide.shoulder_back = 3.1f;
+    gfx::Pose free_across = rest;
+    const HandIkResult rw = reach_hand(b.skin, b.map, b.rig, free_across, root, true, across, 1.0f, nullptr, &wide);
+    CHECK(rw.end_error < 2e-3f);
+    // Bad limits throw.
+    ArmConstraints bad = limits;
+    bad.elbow_flex_max = 0.01f;
+    bool threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, held, root, true, behind, 1.0f, nullptr, &bad); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
+TEST_CASE("Arm constraints: the hand and elbow stay out of the body: a target inside the torso is moved to its surface and the elbow swivels clear") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const Float3 shoulder = w0[static_cast<std::size_t>(b.map[Bone::LeftUpperArm])].position;
+    ArmConstraints c;
+    c.body = default_body_capsules(b.skin, b.map, rest);
+    REQUIRE(c.body.size() == 2);
+    const BodyCapsule torso = c.body[0];
+    // The hand wants a point in the middle of the chest: without volumes it goes there; with them it stops at the surface.
+    const Float3 inside = (torso.a + torso.b) * 0.5f;
+    gfx::Pose free_pose = rest, held = rest;
+    const HandIkResult rf = reach_hand(b.skin, b.map, b.rig, free_pose, root, true, inside, 1.0f);
+    const HandIkResult rc = reach_hand(b.skin, b.map, b.rig, held, root, true, inside, 1.0f, nullptr, &c);
+    CHECK(rf.end_error < 2e-3f);
+    const ArmGeometry gf = arm_geometry(b, free_pose, true), gc = arm_geometry(b, held, true);
+    const auto torso_distance = [&](Float3 p) {
+        const Float3 ab = torso.b - torso.a;
+        const float t = std::clamp(render::dot(p - torso.a, ab) / render::dot(ab, ab), 0.0f, 1.0f);
+        return dist(p, torso.a + ab * t);
+    };
+    std::printf("hand to the middle of the chest: free hand %.3f m from the torso axis (radius %.2f), constrained %.3f m; elbow clearance %.3f m\n", static_cast<double>(torso_distance(gf.hand)), static_cast<double>(torso.radius), static_cast<double>(torso_distance(gc.hand)), static_cast<double>(rc.elbow_clearance));
+    CHECK(torso_distance(gf.hand) < torso.radius - 0.05f);
+    CHECK(rc.target_adjusted);
+    CHECK(torso_distance(gc.hand) > torso.radius + c.body_margin - 5e-3f);
+    // The elbow clears the body by its own size and the margin.
+    CHECK(rc.elbow_clearance >= c.body_margin + c.elbow_radius - 5e-3f);
+    // A target in front of the body, outside the volume: not adjusted.
+    gfx::Pose outside_pose = rest;
+    const HandIkResult ro = reach_hand(b.skin, b.map, b.rig, outside_pose, root, true, shoulder + Float3{0.35f, 0.15f, -0.1f}, 1.0f, nullptr, &c);
+    CHECK(!ro.target_adjusted);
+    CHECK(ro.end_error < 2e-3f);
+    // An arm reaching across the chest at a low point: the elbow would pass through the torso; it ends up clear, and the hand is where it was asked.
+    gfx::Pose crossing = rest;
+    const Float3 low_across = Float3{0.28f, -0.2f, w0[static_cast<std::size_t>(b.map[Bone::LeftHand])].position.z};
+    ArmConstraints wide = c;
+    wide.shoulder_inward = 3.1f;
+    const HandIkResult rx = reach_hand(b.skin, b.map, b.rig, crossing, root, true, low_across, 1.0f, nullptr, &wide);
+    std::printf("hand across the front: error %.4f m, elbow clearance %.3f m, limited %d\n", static_cast<double>(rx.end_error), static_cast<double>(rx.elbow_clearance), rx.limited ? 1 : 0);
+    CHECK(rx.elbow_clearance >= wide.body_margin + wide.elbow_radius - 5e-3f);
+    // Bad volumes throw.
+    ArmConstraints bad = c;
+    bad.body.push_back({{0, 0, 0}, {std::nanf(""), 0, 0}, 0.1f});
+    bool threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, held, root, true, inside, 1.0f, nullptr, &bad); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+    bad = c;
+    bad.body[0].radius = 0.0f;
+    threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, held, root, true, inside, 1.0f, nullptr, &bad); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}

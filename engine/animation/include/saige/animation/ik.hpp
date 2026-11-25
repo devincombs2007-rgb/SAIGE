@@ -1,0 +1,158 @@
+// SAIGE animation: inverse kinematics foundations. Analytic two-bone IK (a leg or an arm), and foot placement on uneven ground built on it.
+//
+// Both operate on a Pose in place and touch only the rotations of the joints they solve (plus the pelvis height for ground adaptation), so IK layers on top of whatever the blend produced.
+// They are stateless and deterministic.
+#pragma once
+
+#include "saige/animation/clip_analysis.hpp"
+
+#include <functional>
+
+namespace saige::anim {
+
+struct TwoBoneResult {
+    bool solved = false;         // false for a degenerate chain (zero-length bone)
+    bool reached = false;        // the target was within reach (otherwise the chain is fully extended toward it)
+    float end_error = 0.0f;      // meters between the end joint and the (reachable part of the) target after solving
+};
+
+// Solves the chain upper -> lower -> end (joint indices of the skin, `lower` a child of `upper`, `end` a child of `lower`) so that `end` moves to `target` (model space), with the middle joint bending
+// toward `pole` (a model-space direction: forward for a knee, backward for an elbow). Only the rotations of `upper` and `lower` change. `weight` in [0, 1] blends the solution with the input pose.
+TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t upper, std::size_t lower, std::size_t end, render::Float3 target, render::Float3 pole, float weight = 1.0f);
+
+// Hand IK: puts a hand (the wrist joint) on a world point: a door handle, a steering wheel, a rail. The arm is solved with `solve_two_bone`, the elbow bending backward and a little outward, and the hand
+// can also be turned to a world rotation (a grip) instead of keeping the animation's own. `root` is the character's world transform with the rig's model space inside it. `weight` in [0, 1] fades the
+// whole effect (0 leaves the pose untouched, bit for bit); a target out of reach extends the arm toward it and `reached` says so. Only the rotations of upper arm, lower arm and hand change. Throws
+// std::invalid_argument for a rig without that arm or a non-finite target.
+struct HandIkResult {
+    bool reached = false;
+    float end_error = 0.0f;  // meters between the hand and the target (or the nearest reachable point) after the solve
+    // With ArmConstraints only (false otherwise):
+    bool limited = false;          // a joint limit or the body kept the hand from the target (the nearest allowed pose is used)
+    bool target_adjusted = false;  // the target was inside the body and was moved to its surface
+    float elbow_clearance = 0.0f;  // meters from the elbow joint to the nearest body volume, minus its radius (a large number when there are none)
+};
+
+// A volume of the character's own body, in the rig's model space: a capsule from `a` to `b` with `radius`.
+struct BodyCapsule {
+    render::Float3 a, b;
+    float radius = 0.1f;
+};
+
+// What an arm may do, and what it may not go through. Elbow: it flexes from `elbow_flex_min` (a little short of straight: it does not hyperextend) to `elbow_flex_max` (the forearm folded against the upper arm
+// with a hand's thickness to spare), which as reach limits means the hand cannot be pulled closer to the shoulder than the folded arm allows nor pushed further than the nearly straight one. Shoulder: the
+// upper arm's direction is measured from hanging straight down and may go forward and outward all the way up (180 degrees) and back only `shoulder_back`, across the body only `shoulder_inward`, in
+// between smoothly (the envelope of the shoulder's range of motion). `body` volumes: a target inside one is moved to its surface plus `body_margin`, and the elbow is swiveled about the shoulder-to-hand
+// axis (in steps of 10 degrees, the smallest turn first) until it clears them and the shoulder envelope. When nothing allowed reaches the target the nearest allowed pose is used and `limited` is set.
+struct ArmConstraints {
+    bool joint_limits = true;
+    float elbow_flex_max = 2.6f;      // rad (about 150 degrees)
+    float elbow_flex_min = 0.05f;     // rad (about 3 degrees)
+    float shoulder_forward = 3.1415927f;
+    float shoulder_outward = 3.1415927f;
+    float shoulder_back = 1.0471976f; // 60 degrees
+    float shoulder_inward = 0.6981317f; // 40 degrees
+    std::vector<BodyCapsule> body;
+    float body_margin = 0.02f;
+    float elbow_radius = 0.04f;       // the elbow's own size: it keeps this much beyond body_margin from a body volume
+};
+// A torso capsule (hips to neck) and a head capsule for the rig, sized to its proportions, to use as ArmConstraints::body.
+[[nodiscard]] std::vector<BodyCapsule> default_body_capsules(const gfx::Skin& skin, const HumanoidMap& map, const gfx::Pose& pose);
+
+// The same, constrained. A null `constraints` is exactly the call above. Throws std::invalid_argument for out-of-range limits or a body volume that is not finite or has a radius at or below 0.
+HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, render::Float3 world_target, float weight,
+                        const render::Quat* world_grip, const ArmConstraints* constraints);
+HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, render::Float3 world_target, float weight,
+                        const render::Quat* world_grip = nullptr);
+
+// What the ground is under a point: the height of the surface and its unit normal at a horizontal position near `reference_z` (the query should look for ground around that height, so a floor above or
+// below the character is not picked). Returns false when there is none.
+struct GroundSample {
+    float height = 0.0f;
+    render::Float3 normal{0, 0, 1};
+};
+using GroundQuery = std::function<bool(float x, float y, float reference_z, GroundSample& out)>;
+
+struct FootIkConfig {
+    float max_pelvis_drop = 0.35f;    // the pelvis lowers by up to this to let the lower foot reach
+    float max_pelvis_rise = 0.10f;
+    float plant_height = 0.03f;       // a foot whose contact point is within this above the ground is treated as planted and pinned to the surface
+    float blend_height = 0.12f;       // above plant_height + this the foot is left to the animation; in between the correction fades out
+    float max_slope_tilt = 0.6f;      // radians the foot may tilt to follow the surface normal
+    float pelvis_smoothing = 0.04f;   // seconds (a longer one lags the ground under a walking foot: the error is about smoothing x the slope x the foot speed)
+};
+
+struct FootIkState {
+    float pelvis_offset = 0.0f;  // the smoothed vertical offset applied to the pelvis last update
+};
+
+// Plants the feet of `pose` on uneven ground. `root` is the character's transform in the world (position of its feet origin and heading); `ground` answers in world coordinates. The pose is in the model
+// space of the skin: the model origin sits at `root`. Steps: find where each foot's contact point (toes, else the ankle) is in the world, the ground under it, lower the pelvis by the larger deficit
+// (clamped, smoothed), then place each planted foot on its surface with two-bone IK and tilt it toward the surface normal. A foot in the air is not touched, so the swing of a gait is preserved. Call it only while the character is on the ground: in a jump the animation's own pose is the intent, and pulling its feet to a floor far below would fight it.
+void adapt_feet_to_ground(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery& ground, const FootIkConfig& config,
+                          FootIkState& state, float dt);
+
+struct FootLockConfig {
+    float plant_height = 0.03f;    // a foot whose contact point is within this above the character's floor is planted (the animation's intent)
+    float release_height = 0.06f;  // a locked foot stays locked until it rises above this (a hysteresis, so the toe-off roll does not flicker the lock)
+    float max_pull = 0.15f;        // meters: the farthest the pinned spot may be from where the animation puts the foot; beyond it the anchor is dragged along (the foot then skates at the excess speed, without a pop)
+    float blend_in = 0.04f;        // seconds the lock takes to reach full strength
+    float release_time = 0.10f;    // seconds the correction takes to fade once the foot lifts
+};
+
+struct FootLockState {
+    bool locked[2] = {false, false};
+    render::Float3 anchor[2]{};   // the world position (horizontal) a locked foot is pinned to
+    float weight[2] = {0.0f, 0.0f};
+    bool limited[2] = {false, false};      // the last call could not put the foot on its anchor: the leg was fully extended (a diagnostic: the foot skates by `shortfall`)
+    float shortfall[2] = {0.0f, 0.0f};     // meters the contact missed its anchor by after the last solve
+};
+
+// Foot locking: pins a planted foot to the spot of the ground where it landed for as long as it is planted, so that a stride that does not quite match the speed (retargeted motion capture, a
+// speed between two cycles) does not skate. `root` is the character's transform in the world. The correction is applied with the two-bone IK to the ankle horizontally; the foot keeps its animated
+// orientation. Run it after `adapt_feet_to_ground` and call it every tick (the state carries the anchors).
+void lock_planted_feet(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const FootLockConfig& config, FootLockState& state, float dt);
+
+// Whether the segment from `from` to `to` (world space) is blocked by solid geometry, and where (the first hit along it). Returns false when the way is clear.
+using ObstacleQuery = std::function<bool(render::Float3 from, render::Float3 to, render::Float3& hit)>;
+
+struct ObstacleIkConfig {
+    float margin = 0.04f;       // meters kept between a foot and a wall
+    float min_height = 0.10f;   // the segment is cast at the foot's own height, but not lower than this above the character's floor, so that a foot on the ground is tested against a wall at the height of a shin
+};
+
+// Keeps the feet out of walls. The capsule that collides is narrower than a stride is long, so at the moment a character runs into a wall a foot can be ahead of the capsule and inside the wall. For
+// each foot, a segment is cast from the character's vertical axis (at the foot's height) to its contact point; if the geometry is in the way, the leg is solved by IK so that the foot stops short
+// of the hit by `margin`. The character itself is untouched. Returns how many feet were moved.
+int keep_feet_outside_obstacles(const gfx::Skin& skin, const HumanoidMap& map, gfx::Pose& pose, const render::Transform& root, const ObstacleQuery& obstacle, const ObstacleIkConfig& config);
+
+// The whole foot-placement chain behind one call, in the order that works: while the character is on the ground, ground adaptation (pelvis, per-leg IK, foot tilt), then foot locking, then (always)
+// the wall check. A host calls `apply` once per tick after it has blended the pose, instead of wiring the three functions and their states itself. Leaving the ground resets the locks and the pelvis
+// offset, so a landing starts clean (a lock from before a jump would pin a foot to where it was). The ground and obstacle queries are optional: without one that step is skipped.
+struct FootPlacementConfig {
+    FootIkConfig ground;
+    FootLockConfig lock;
+    ObstacleIkConfig obstacle;
+    bool use_lock = true;
+};
+
+class FootPlacement {
+public:
+    explicit FootPlacement(FootPlacementConfig config = {}) : cfg_(config) {}
+    // Returns how many feet the wall check moved. `grounded` is the capsule's flag. Throws std::invalid_argument for a non-finite or non-positive dt.
+    int apply(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, const GroundQuery* ground, const ObstacleQuery* obstacle, bool grounded,
+              float dt);
+    void reset() noexcept {
+        ik_ = {};
+        lock_ = {};
+    }
+    [[nodiscard]] const FootIkState& ik_state() const noexcept { return ik_; }
+    [[nodiscard]] const FootLockState& lock_state() const noexcept { return lock_; }
+
+private:
+    FootPlacementConfig cfg_;
+    FootIkState ik_;
+    FootLockState lock_;
+};
+
+} // namespace saige::anim

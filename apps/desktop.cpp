@@ -119,6 +119,7 @@ int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
     bool course = false;
     bool course_vehicle = false;
+    bool terrain_vehicle = false;
     bool custom_speed = false;
     saige::CapsuleCharacterConfig course_config;
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
@@ -153,6 +154,10 @@ int main(int argc, char** argv) {
             continue;
         }
 #endif
+        if (argument == "--terrain-vehicle" && !terrain_vehicle) {
+            terrain_vehicle = true;
+            continue;
+        }
         if (argument == "--course-vehicle" && !course_vehicle) {
             course_vehicle = true;
             continue;
@@ -187,7 +192,7 @@ int main(int argc, char** argv) {
         }
 #endif
         if (argument != "--frames" || frames || ++i == argc) {
-            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--course-vehicle] [--walk-speed MPS] [--sprint-speed MPS]"
+            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--course-vehicle] [--terrain-vehicle] [--walk-speed MPS] [--sprint-speed MPS]"
 #if defined(SAIGE_DESKTOP_COURSE_FILES)
                       << " [--course-collision FILE.json | --course-world FILE.json] [--course-checkpoint FILE.json]"
 #endif
@@ -212,6 +217,11 @@ int main(int argc, char** argv) {
 
     if (course_vehicle && !course) {
         std::cerr << "--course-vehicle requires --character-course\n";
+        return 2;
+    }
+
+    if (terrain_vehicle && !course_vehicle) {
+        std::cerr << "--terrain-vehicle requires --course-vehicle\n";
         return 2;
     }
 
@@ -279,9 +289,9 @@ int main(int argc, char** argv) {
 #endif
         std::optional<saige::sample::StreamedCourse> streamed_game;
         if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output, course_config, course_vehicle, true,
-                                                       course_checkpoint.value_or(std::filesystem::path{}));
+                                                       course_checkpoint.value_or(std::filesystem::path{}), terrain_vehicle);
 #endif
-        if (!game) game = &local_game.emplace(world, platform, course, course_boxes, course_config, course_vehicle);
+        if (!game) game = &local_game.emplace(world, platform, course, course_boxes, course_config, course_vehicle, terrain_vehicle);
 #if defined(SAIGE_DESKTOP_VULKAN)
 #if defined(SAIGE_DESKTOP_SCENE)
         if (prepared) {

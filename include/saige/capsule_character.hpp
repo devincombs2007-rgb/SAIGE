@@ -29,6 +29,7 @@
 #include "saige/capsule_sweep.hpp"
 #include "saige/capsule_triangle.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <span>
 #include <vector>
@@ -48,6 +49,27 @@ struct CapsuleCharacterConfig {
     float max_slope_radians = 0.87266463f;  // 50 degrees
     float step_height = 0.35f;          // the tallest ledge walked up without jumping
     float ground_snap = 0.12f;          // how far below the feet the ground is still "underfoot" (small drops, step edges)
+    // Crouching (CapsuleInput::crouch). 0 means the default: 60% of `height`, but never less than the capsule's diameter, and half the walking speed. Otherwise the crouched height must be between the
+    // diameter and `height`, and the crouched speed positive.
+    float crouch_height = 0.0f;
+    float crouch_speed = 0.0f;
+};
+
+// A velocity the host drives the character at while it stands on the ground, in the same world axes as the state's velocity (+X, +Y horizontal, meters per second). An action that carries the character (a
+// roll, a lunge: the root motion of an animation clip) uses it: the horizontal velocity is set to the drive instead of accelerating toward the input's target, and the character still collides, slides,
+// steps up and keeps to the ground exactly as it does when walking, so an action can never carry it through geometry. In the air it is ignored (the air keeps its own rules); a non-finite drive is an
+// invalid input and its magnitude is limited to the terminal speed. Inactive (the default) changes nothing: the step is bit-identical to one with no drive field.
+//
+// `vertical` makes the drive a scripted 3D move (a climb, a vault, a ledge hang): the velocity is (x, y, z) wherever the character is, in the air too, with no gravity and no ground acceleration for
+// that tick; it still collides and slides in 3D (a ceiling stops a rise, a wall stops the forward part and the rest slides) but does not step up. A rising drive leaves the ground; one that is not rising
+// puts the character back on the ground when there is ground underfoot. The host owns the action for its whole length: when the drive ends in the air, gravity takes over from the last velocity, so
+// an action should end on a surface. `z` without `vertical` is ignored.
+struct CapsuleDrive {
+    bool active{};
+    float x{};
+    float y{};
+    float z{};
+    bool vertical{};
 };
 
 struct CapsuleInput {
@@ -55,6 +77,14 @@ struct CapsuleInput {
     float left{};
     bool jump{};
     bool sprint{};
+    // How well the feet grip what the character stands on, in (0, 1]: 1 (the default) is the configured ground acceleration; less is a slipperier surface (ice) on which the character takes longer to get
+    // up to speed and longer to stop. The host derives it from the surface under the feet (see physics_material.hpp: `ground_traction`); the controller does not know about materials. Clamped to
+    // [0.02, 1]; it only affects the ground, never the air. A non-finite value is an invalid input.
+    float traction = 1.0f;
+    CapsuleDrive drive{};
+    // Crouch: the capsule is lowered to the crouch height (the feet stay where they are) and the character moves at the crouch speed; sprinting and jumping are not possible while crouched. Letting go
+    // stands up only if the standing capsule fits (there is room above): under a low ceiling the character stays crouched until it is clear. False (the default) never changes a step.
+    bool crouch{};
 };
 
 struct CapsuleCharacterState {
@@ -62,6 +92,7 @@ struct CapsuleCharacterState {
     Vec3 velocity;
     bool grounded{};
     Vec3 ground_normal{0, 0, 1};     // meaningful while grounded
+    bool crouched{};                 // the capsule is at the crouch height (it stays so under a low ceiling after the input is released)
     bool operator==(const CapsuleCharacterState&) const = default;
 };
 
@@ -107,7 +138,10 @@ public:
     [[nodiscard]] Capsule capsule() const noexcept { return capsule_at(state_.feet); }
 
 private:
-    [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, config_.height}; }
+    [[nodiscard]] float crouch_height() const noexcept { return config_.crouch_height > 0.0f ? config_.crouch_height : std::max(2.0f * config_.radius, 0.6f * config_.height); }
+    [[nodiscard]] float current_height() const noexcept { return state_.crouched ? crouch_height() : config_.height; }
+    [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, current_height()}; }
+    [[nodiscard]] bool overlaps_standing(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
     [[nodiscard]] std::optional<CapsuleHit> sweep(Vec3 feet, Vec3 displacement) const;
     [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
     bool recover_from_overlap();  // false (and the feet restored to where they were) if the capsule is still overlapping after the bounded passes

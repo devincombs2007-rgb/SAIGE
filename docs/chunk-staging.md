@@ -101,6 +101,19 @@ Disk completion timing may change the tick that opens a streaming boundary. The 
 deterministic replay and focused tests. Shutdown joins any outstanding import.
 
 
+## Terrain vehicle integration
+
+The opt-in desktop vehicle consumes the same immutable local collision snapshot used for other host collision queries.
+The character controller receives the corresponding geometry at the same fixed-step publication. The host stages all
+geometry and validates the new vehicle placement before replacing either. Worker imports still prepare CPU files only.
+Snapshot construction and GPU upload remain on the host thread.
+
+The vehicle casts four bounded wheel rays. A support normal and wheel count control traction and downhill acceleration.
+Ride height follows the highest wheel support with bounded rise and rebound rates. The upright chassis uses a fixed-orientation oriented-box sweep
+per tick, with an overlap check at the proposed yaw and explicit rejection of a non-clear stop. Three contacts on a
+walkable surface are required. Unsupported poses keep the last good pose. Terrain exit uses the same capsule and
+snapshot to check a raised side path and walkable landing before transferring control. Continuous rotation, airborne dynamics,
+wheel shapes, pitch/roll and physically validated tire forces remain future work. The flat course remains the default.
 Desktop shutdown diagnostics report accepted CPU preparations, fresh project imports, failures, discarded background
 results, accepted preparation wall time, and retained CPU asset bytes. The phase includes boot and file import, and
 excludes polling delays, GPU submission, and failed or discarded job time. The retained count excludes scratch and

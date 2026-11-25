@@ -21,11 +21,12 @@ struct CourseActions {
     bool jump{};
     bool sprint{};
     bool reset{};
+    bool interact{};
 };
 
 [[nodiscard]] inline CourseActions read_course_actions(IDesktopPlatform& platform) noexcept {
     return {read_movement(platform), platform.consume_look_delta(), platform.key_down(Key::space),
-            platform.key_down(Key::shift), platform.key_down(Key::r)};
+            platform.key_down(Key::shift), platform.key_down(Key::r), platform.key_down(Key::e)};
 }
 
 } // namespace saige::sample

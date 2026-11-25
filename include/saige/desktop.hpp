@@ -24,7 +24,7 @@ struct SurfaceState {
     std::uint64_t revision{};
 };
 
-enum class Key { up, down, left, right, w, a, s, d, escape, space, shift, r };
+enum class Key { up, down, left, right, w, a, s, d, escape, space, shift, r, e, c };
 
 struct LookDelta { float x_pixels{}, y_pixels{}; };
 

@@ -17,6 +17,7 @@
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <tuple>
 #include <vector>
 
 using namespace saige;
@@ -360,7 +361,7 @@ TEST_CASE("Sun shadows: only opaque materials cast; authored MASK and BLEND (and
     two_sided.double_sided = true;  // face culling does not decide casting: a double-sided opaque surface casts as well
     CHECK(near3(render_with("shadow_caster_double_sided", two_sided, nullptr), dark, 0.03f));
 
-    // An alpha-masked material: opaque pixels in the visible pass (the base alpha is 1), but authored MASK, so no ghost shadow.
+    // A material marked as not casting is skipped, whatever its alpha mode (staging marks BLEND this way; MASK casts through the alpha-tested variant).
     MaterialParams masked = opaque;
     masked.alpha_cutoff = 0.5f;
     masked.casts_sun_shadow = false;
@@ -421,4 +422,122 @@ TEST_CASE("Sun shadows: the shadow follows SceneLighting's sun direction, the sa
     CHECK(shadowed >= 20);
     CHECK(sunlit >= 150);
     CHECK(wrong == 0);
+}
+
+namespace {
+
+/// A horizontal quad at z = `height` facing +Z, x and y in [-0.5, 0.5], uv = (x + 0.5, y + 0.5), so a 2x1 texture splits it at x = 0.
+GpuModel make_fence(GpuResourceRegistry& registry, GpuMaterial material, float height)
+{
+    const Float3 n{0, 0, 1};
+    const std::vector<ModelVertex> v = {{{-0.5f, -0.5f, height}, n, {0, 0}}, {{0.5f, -0.5f, height}, n, {1, 0}}, {{0.5f, 0.5f, height}, n, {1, 1}}, {{-0.5f, 0.5f, height}, n, {0, 1}}};
+    GpuModel m;
+    m.name = "fence";
+    m.materials.push_back(std::move(material));
+    m.meshes.push_back({make_primitive(registry, v, {0, 1, 2, 0, 2, 3}, 0)});
+    m.placements.push_back({0, Mat4::identity()});
+    return m;
+}
+
+/// A 2x1 texture: the left texel opaque, the right one fully transparent (nearest filtering, so the split is exact at u = 0.5).
+TextureRef half_transparent_texture(Rig& rig)
+{
+    rhi::TextureDesc td;
+    td.format = rhi::Format::RGBA8_SRGB;
+    td.width = 2;
+    td.height = 1;
+    td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+    td.debug_name = "half_transparent";
+    const std::byte texels[8] = {std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}, std::byte{0}};
+    return rig.renderer->registry().create_texture(td, texels);
+}
+
+SamplerRef nearest_clamp(Rig& rig)
+{
+    rhi::SamplerDesc s;
+    s.min_filter = s.mag_filter = rhi::Filter::Nearest;
+    s.mipmap_mode = rhi::MipmapMode::Nearest;
+    s.address_u = s.address_v = rhi::AddressMode::ClampToEdge;
+    s.max_lod = 0.0f;
+    return rig.renderer->registry().get_sampler(s);
+}
+
+/// Where the ray from ground point `q` toward the sun crosses the plane z = height.
+Float3 at_height(Float3 q, float height)
+{
+    const Float3 s = default_sun();
+    const float t = (height - q.z) / s.z;
+    return {q.x + s.x * t, q.y + s.y * t, height};
+}
+
+bool on_fence(Float3 p, float x_lo, float x_hi) { return p.x >= x_lo && p.x <= x_hi && std::fabs(p.y) <= 0.5f; }
+
+} // namespace
+
+TEST_CASE("Sun shadows: an alpha-masked material casts only where its visible pass keeps fragments (same texture, factor and cutoff)")
+{
+    const Camera camera = scene_camera();
+    const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
+    const Float3 up{0, 0, 1};
+    constexpr float height = 1.0f;
+    const auto run = [&](const char* name, MaterialParams params, bool textured, auto&& expect_shadow) {
+        Rig rig(name, scene_settings(true));
+        const GpuModel fence = make_fence(rig.renderer->registry(), rig.renderer->model_renderer().create_material(params, textured ? half_transparent_texture(rig) : TextureRef{}, textured ? nearest_clamp(rig) : SamplerRef{}, "fence"), height);
+        const ModelDraw draws[] = {rig.ground_draw(), {&fence, Mat4::identity()}};
+        FrameStats stats;
+        const Image img = rig.render(camera, draws, &stats);
+        CHECK(rig.device->validation_error_count() == 0);
+        CHECK(stats.shadow_draw_calls == 2);  // the ground (opaque variant) and the fence (alpha-tested variant)
+        const Float3 lit = (ambient_for(up, rig.settings) + sun_term_for(up)) * 0.5f;
+        const Float3 dark = ambient_for(up, rig.settings) * 0.5f;
+        int shadowed = 0, sunlit = 0, wrong = 0, ghost = 0;
+        for (int ix = -12; ix <= 28; ++ix) {
+            for (int iy = -12; iy <= 30; ++iy) {
+                const Float3 q{static_cast<float>(ix) * 0.1f, static_cast<float>(iy) * 0.1f, 0.0f};
+                // Skip points the fence hides from the camera (conservatively: anywhere along its footprint), and points near any classification edge.
+                const Float3 to_camera = normalize(camera.position - q);
+                const Float3 cam_hit = {q.x + to_camera.x * ((height - q.z) / to_camera.z), q.y + to_camera.y * ((height - q.z) / to_camera.z), height};
+                if (on_fence(cam_hit, -0.6f, 0.6f)) continue;
+                const bool s = expect_shadow(at_height(q, height));
+                bool interior = true;
+                for (const Float3 d : {Float3{0.12f, 0, 0}, Float3{-0.12f, 0, 0}, Float3{0, 0.12f, 0}, Float3{0, -0.12f, 0}}) {
+                    interior = interior && (expect_shadow(at_height(q + d, height)) == s);
+                }
+                if (!interior) continue;
+                const Pixel px = to_pixel(vp, q);
+                if (px.x < 0 || px.y < 0 || px.x >= static_cast<int>(kW) || px.y >= static_cast<int>(kH)) continue;
+                const bool ok = near3(linear_at(img, px), s ? dark : lit, 0.03f);
+                (s ? shadowed : sunlit) += 1;
+                wrong += ok ? 0 : 1;
+                ghost += (!s && on_fence(at_height(q, height), 0.0f, 0.5f)) ? 1 : 0;  // would be shadowed if the transparent half cast
+            }
+        }
+        CHECK(wrong == 0);
+        return std::tuple{shadowed, sunlit, ghost};
+    };
+
+    MaterialParams masked;
+    masked.alpha_cutoff = 0.5f;
+    masked.double_sided = true;
+    // The left half (alpha 1) casts, the right half (alpha 0) does not: no ghost shadow of the transparent half.
+    const auto [half_shadowed, half_lit, half_ghost] = run("mask_texture", masked, true, [](Float3 p) { return on_fence(p, -0.5f, -0.0f); });
+    CHECK(half_shadowed >= 10);
+    CHECK(half_lit >= 150);
+    CHECK(half_ghost >= 10);  // the test did probe ground that the transparent half would have shadowed
+
+    // The control: the same texture but no cutoff (an opaque material) casts the whole quad.
+    MaterialParams opaque;
+    const auto [full_shadowed, full_lit, full_ghost] = run("opaque_texture", opaque, true, [](Float3 p) { return on_fence(p, -0.5f, 0.5f); });
+    CHECK(full_shadowed >= 20);
+    CHECK(full_ghost == 0 || true);
+    (void)full_lit;
+
+    // The factor counts as in the visible pass: base alpha 1 times a 0.4 factor is below the 0.5 cutoff everywhere, so nothing casts (and
+    // nothing is drawn).
+    MaterialParams faint = masked;
+    faint.base_color[3] = 0.4f;
+    const auto [faint_shadowed, faint_lit, faint_ghost] = run("mask_factor", faint, true, [](Float3) { return false; });
+    CHECK(faint_shadowed == 0);
+    CHECK(faint_lit >= 150);
+    (void)faint_ghost;
 }

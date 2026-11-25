@@ -447,3 +447,39 @@ TEST_CASE("Vertical action on the capsule: UAL 2's ClimbUp_1m_RM climbs a 1 m le
     // The pose is in place in all three axes: the capsule did all the travel.
     CHECK(worst_swim < 0.005f);
 }
+
+TEST_CASE("Ledge query: finds the face distance, the height and the headroom of a climbable ledge, from any heading, and rejects what a climb cannot take") {
+    const auto make = [](float height, bool low_ceiling) {
+        std::vector<Aabb> boxes{{{-50, -50, -1}, {50, 50, 0}}, {{2.0f, -50, 0}, {50, 50, height}}};  // a ledge whose face is at x = 2
+        if (low_ceiling) boxes.push_back({{2.0f, -50, height + 1.0f}, {50, 50, height + 2.0f}});    // a ceiling 1.0 m above the top
+        return StaticCollision(boxes, {});
+    };
+    const Vec3 feet{0.0f, 0.0f, 0.0f};
+    const LedgeInfo ok = find_ledge(make(1.0f, false), feet, 0.0f);
+    std::printf("  ledge ahead: found %d, face %.3f m away, top %.3f m high, headroom %.2f\n", ok.found ? 1 : 0, static_cast<double>(ok.distance), static_cast<double>(ok.height), static_cast<double>(ok.headroom));
+    REQUIRE(ok.found);
+    CHECK(std::fabs(ok.distance - 2.0f) < 0.02f);
+    CHECK(std::fabs(ok.height - 1.0f) < 0.02f);
+    CHECK(ok.headroom >= 1.8f - 1e-3f);
+    // Standing higher (on a platform), the heights are relative to the feet.
+    std::vector<Aabb> stepped{{{-50, -50, -1}, {50, 50, 0.5f}}, {{2.0f, -50, 0}, {50, 50, 1.5f}}};
+    const LedgeInfo up = find_ledge(StaticCollision(stepped, {}), {0.0f, 0.0f, 0.5f}, 0.0f);
+    REQUIRE(up.found);
+    CHECK(std::fabs(up.height - 1.0f) < 0.02f);
+    // Another heading: a ledge whose face is at y = -2 (heading -pi/2).
+    std::vector<Aabb> sideways{{{-50, -50, -1}, {50, 50, 0}}, {{-50, -50, 0}, {50, -2.0f, 1.0f}}};
+    const LedgeInfo side = find_ledge(StaticCollision(sideways, {}), feet, -1.5707963f);
+    REQUIRE(side.found);
+    CHECK(std::fabs(side.distance - 2.0f) < 0.02f);
+    CHECK(std::fabs(side.height - 1.0f) < 0.02f);
+    // What a climb cannot take: a wall too high, a step too low (it is walked), too little headroom, nothing ahead, a face out of reach, and looking away.
+    CHECK(!find_ledge(make(1.6f, false), feet, 0.0f).found);
+    CHECK(!find_ledge(make(0.2f, false), feet, 0.0f).found);
+    CHECK(!find_ledge(make(1.0f, true), feet, 0.0f).found);
+    CHECK(!find_ledge(make(1.0f, false), {-5.0f, 0.0f, 0.0f}, 0.0f).found);
+    CHECK(!find_ledge(make(1.0f, false), feet, 3.14159265f).found);
+    // A ramp (45 degrees) is not a face: the slope is walked.
+    std::vector<Aabb> floor{{{-50, -50, -1}, {50, 50, 0}}};
+    std::vector<Triangle> ramp{{{2, -50, 0}, {2, 50, 0}, {3, 50, 1.0f}}, {{2, -50, 0}, {3, 50, 1.0f}, {3, -50, 1.0f}}};
+    CHECK(!find_ledge(StaticCollision(floor, ramp), feet, 0.0f).found);
+}

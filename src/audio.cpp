@@ -471,4 +471,45 @@ const AudioMixerConfig& AudioMixer::config() const { return impl_->cfg; }
 float AudioMixer::bus_level(AudioBus bus) const { return impl_->bus_level[static_cast<std::size_t>(bus)]; }
 float AudioMixer::duck_gain(AudioBus bus) const { return impl_->bus_duck[static_cast<std::size_t>(bus)]; }
 
+AudioRuntime::AudioRuntime(std::unique_ptr<AudioOutput> output, const AudioMixerConfig& config) : output_(std::move(output)), mixer_(config) {
+    if (!output_) throw std::invalid_argument("AudioRuntime: the output is null");
+}
+AudioRuntime::~AudioRuntime() { stop(); }
+
+bool AudioRuntime::start() {
+    if (running_) return true;
+    error_.clear();
+    if (!output_->start(mixer_.config().sample_rate, &AudioRuntime::callback, this)) {
+        error_ = output_->error();
+        return false;
+    }
+    if (output_->sample_rate() != mixer_.config().sample_rate) {
+        error_ = "the device runs at " + std::to_string(output_->sample_rate()) + " Hz, not the mixer's " + std::to_string(mixer_.config().sample_rate) + " Hz";
+        output_->stop();
+        return false;
+    }
+    running_ = true;
+    return true;
+}
+
+void AudioRuntime::stop() {
+    if (!running_) return;
+    output_->stop();  // returns once the device thread is done: no callback runs after this
+    running_ = false;
+}
+
+AudioRuntime::Access AudioRuntime::access() { return Access{std::unique_lock<std::mutex>(mutex_), mixer_}; }
+
+void AudioRuntime::callback(void* self, float* out, std::uint32_t frames) {
+    auto* rt = static_cast<AudioRuntime*>(self);
+    std::unique_lock<std::mutex> lock(rt->mutex_, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        std::fill(out, out + 2 * static_cast<std::size_t>(frames), 0.0f);
+        rt->skipped_.fetch_add(1);
+        return;
+    }
+    rt->mixer_.render(out, frames);
+    rt->rendered_.fetch_add(1);
+}
+
 } // namespace saige

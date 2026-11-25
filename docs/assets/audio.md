@@ -27,7 +27,7 @@ played, and a 20 J scrape is silent. Seven mutations of the mapping (pitch, gain
 **The sounds in it are procedural stand-ins** (harmonic stacks, decaying partials, noise grains): they exist so the mapping can be measured. No recording was acquired: the brief prefers professionally recorded, appropriately licensed
 assets, and acquiring them is an owner action (a licence and, for anything paid, a budget). Candidates to evaluate when that is decided, none verified or fetched: CC0 engine and impact material on OpenGameArt and Freesound (licence per asset, attribution
 records in `docs/assets/licenses.md`), royalty-free professional libraries (Sonniss GameAudioGDC bundles, whose licence text must be read before use) and a commissioned recording session for the vehicle loops (4 to 6 fixed-rpm loops, on and off throttle).
-**Dependency status:** miniaudio 0.11.26 (public domain / MIT-0, one header) stays isolated in this prototype and tool; making it a permanent dependency of the runtime is the owner's decision, which this evidence is meant to support
+**Dependency status (updated 2026-11-25):** miniaudio 0.11.26 (public domain / MIT-0, one header) is approved as the production audio backend behind SAIGE's own `AudioOutput`; see `docs/audio.md` for the runtime, licences and evidence. This page keeps the original evaluation
 (device I/O and decoders are not exercised here: only the device-less engine).
 
 ## What the runtime has to do, and how the mixer covers it

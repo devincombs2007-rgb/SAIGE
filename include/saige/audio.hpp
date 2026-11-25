@@ -10,15 +10,18 @@
 //
 // Coordinates follow the renderer: +X right, +Y up, -Z forward for an unrotated listener. Units are metres and seconds.
 //
-// Threading: an AudioMixer is not thread-safe. Control calls and render() must be serialized by the owner (the device adapter holds a mutex around both; the critical sections are short and
-// allocate nothing after the clips are loaded).
+// Threading: an AudioMixer is not thread-safe. Control calls and render() must be serialized by the owner; AudioRuntime does it for a device (a mutex around both: game-thread control sections are short
+// and allocate only when a clip is added, and the device thread never waits for them: if it cannot take the lock it plays a block of silence and counts it).
 
 #include "saige/world.hpp"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
+#include <string>
 #include <vector>
 
 namespace saige {
@@ -170,6 +173,41 @@ public:
     [[nodiscard]] virtual std::uint32_t sample_rate() const = 0;
     [[nodiscard]] virtual const char* name() const = 0;
     [[nodiscard]] virtual const char* error() const = 0;
+};
+
+// A mixer driven by a device on the device's thread. Game code takes `access()` for as long as it needs to call the mixer (add clips at load time, play, move voices, change buses): the device thread
+// uses try_lock, so a control section can never stall the audio callback; a block it could not render is silence and is counted in `skipped_blocks()`.
+class AudioRuntime {
+public:
+    struct Access {
+        std::unique_lock<std::mutex> lock;
+        AudioMixer& mixer;
+    };
+
+    // Throws std::invalid_argument for a null output (and whatever AudioMixer's constructor throws for the configuration).
+    AudioRuntime(std::unique_ptr<AudioOutput> output, const AudioMixerConfig& config = {});
+    ~AudioRuntime();
+    AudioRuntime(const AudioRuntime&) = delete;
+    AudioRuntime& operator=(const AudioRuntime&) = delete;
+
+    bool start();  // false: error() says why (no device, wrong rate); the runtime stays usable and can be started again
+    void stop();
+    [[nodiscard]] bool running() const { return running_; }
+    [[nodiscard]] Access access();
+    [[nodiscard]] std::uint64_t skipped_blocks() const { return skipped_.load(); }
+    [[nodiscard]] std::uint64_t rendered_blocks() const { return rendered_.load(); }
+    [[nodiscard]] const std::string& error() const { return error_; }
+    [[nodiscard]] const AudioOutput& output() const { return *output_; }
+
+private:
+    static void callback(void* self, float* out, std::uint32_t frames);
+    std::unique_ptr<AudioOutput> output_;
+    AudioMixer mixer_;
+    std::mutex mutex_;
+    std::atomic<std::uint64_t> skipped_{0};
+    std::atomic<std::uint64_t> rendered_{0};
+    std::string error_;
+    bool running_ = false;
 };
 
 } // namespace saige

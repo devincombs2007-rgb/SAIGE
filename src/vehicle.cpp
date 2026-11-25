@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <stdexcept>
 
 namespace saige {
@@ -82,6 +83,15 @@ void validate_vehicle_config(const VehicleConfig& c) {
     if (!(c.drag_area_cd >= 0.0f) || !std::isfinite(c.drag_area_cd) || !(c.rolling_resistance >= 0.0f) || !std::isfinite(c.rolling_resistance)) {
         throw std::invalid_argument("VehicleConfig: drag and rolling resistance must be finite and not negative");
     }
+    {
+        const VehicleDamageConfig& d = c.damage;
+        const auto in = [](float x, float lo, float hi) { return std::isfinite(x) && x >= lo && x <= hi; };
+        if (!(in(d.energy_capacity, 1000.0f, 1e8f) && in(d.min_event_energy, 0.0f, 1e7f) && in(d.restitution_loss, 0.0f, 1.0f) && in(d.wheel_reach, 0.05f, 3.0f) && in(d.wheel_factor, 0.0f, 20.0f) &&
+              in(d.suspension_factor, 0.0f, 20.0f) && in(d.engine_factor, 0.0f, 20.0f) && in(d.wheel_grip_loss, 0.0f, 0.9f) && in(d.suspension_loss, 0.0f, 0.9f) && in(d.alignment_pull, 0.0f, 0.3f) &&
+              in(d.engine_power_loss, 0.0f, 0.95f))) {
+            throw std::invalid_argument("VehicleConfig: a damage setting is non-finite or out of range");
+        }
+    }
     if (static_cast<std::uint8_t>(c.differential) > static_cast<std::uint8_t>(VehicleDifferential::LimitedSlip)) throw std::invalid_argument("VehicleConfig: unknown differential");
     if (!(c.lsd_bias >= 1.0f && c.lsd_bias <= 20.0f) || !(c.lsd_preload >= 0.0f && std::isfinite(c.lsd_preload))) throw std::invalid_argument("VehicleConfig: lsd_bias must be in [1, 20] and lsd_preload finite and not negative");
     if (!(c.lateral_stiffness >= 2.0f && c.lateral_stiffness <= 60.0f) || !(c.lateral_slide_ratio >= 0.3f && c.lateral_slide_ratio <= 1.0f)) {
@@ -129,6 +139,91 @@ double tire_lateral_ratio(double slip_angle, double stiffness, double slide_rati
     const double pi = 3.14159265358979323846;
     const double shape_c = 2.0 / pi * (pi - std::asin(slide_ratio));
     return std::sin(shape_c * std::atan(stiffness * std::fabs(slip_angle)));
+}
+
+namespace {
+constexpr std::uint32_t damage_magic = 0x4d445653u;  // "SVDM" read as little-endian bytes
+void put32(std::vector<std::uint8_t>& out, std::uint32_t v) {
+    for (int i = 0; i < 4; ++i) out.push_back(static_cast<std::uint8_t>((v >> (8 * i)) & 0xffu));
+}
+void put_float(std::vector<std::uint8_t>& out, float f) {
+    std::uint32_t bits;
+    std::memcpy(&bits, &f, 4);
+    put32(out, bits);
+}
+void put_double(std::vector<std::uint8_t>& out, double d) {
+    std::uint64_t bits;
+    std::memcpy(&bits, &d, 8);
+    put32(out, static_cast<std::uint32_t>(bits & 0xffffffffu));
+    put32(out, static_cast<std::uint32_t>(bits >> 32));
+}
+std::uint32_t get32(const std::uint8_t* p) { return static_cast<std::uint32_t>(p[0]) | (static_cast<std::uint32_t>(p[1]) << 8) | (static_cast<std::uint32_t>(p[2]) << 16) | (static_cast<std::uint32_t>(p[3]) << 24); }
+float get_float(const std::uint8_t* p) {
+    const std::uint32_t bits = get32(p);
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return f;
+}
+double get_double(const std::uint8_t* p) {
+    const std::uint64_t bits = static_cast<std::uint64_t>(get32(p)) | (static_cast<std::uint64_t>(get32(p + 4)) << 32);
+    double d;
+    std::memcpy(&d, &bits, 8);
+    return d;
+}
+std::uint32_t fnv1a(const std::uint8_t* p, std::size_t n) {
+    std::uint32_t h = 2166136261u;
+    for (std::size_t i = 0; i < n; ++i) h = (h ^ p[i]) * 16777619u;
+    return h;
+}
+bool valid_unit(float x) { return std::isfinite(x) && x >= 0.0f && x <= 1.0f; }
+bool valid_damage(const VehicleDamageState& d) {
+    for (float x : d.zone) if (!valid_unit(x)) return false;
+    for (float x : d.wheel) if (!valid_unit(x)) return false;
+    for (float x : d.suspension) if (!valid_unit(x)) return false;
+    return valid_unit(d.engine) && std::isfinite(d.absorbed_energy) && d.absorbed_energy >= 0.0;
+}
+constexpr std::size_t damage_bytes = 4 + 4 + 4 + 4 + 15 * 4 + 4 + 8 + 4;  // magic, version, zone count, wheel count, 15 floats, impacts, energy, checksum
+}
+
+std::vector<std::uint8_t> serialize_damage(const VehicleDamageState& state) {
+    if (!valid_damage(state)) throw std::invalid_argument("serialize_damage: the state has a value outside [0, 1] or not finite");
+    std::vector<std::uint8_t> out;
+    out.reserve(damage_bytes);
+    put32(out, damage_magic);
+    put32(out, vehicle_damage_format_version);
+    put32(out, 6);
+    put32(out, 4);
+    for (float x : state.zone) put_float(out, x);
+    for (float x : state.wheel) put_float(out, x);
+    for (float x : state.suspension) put_float(out, x);
+    put_float(out, state.engine);
+    put32(out, state.impacts);
+    put_double(out, state.absorbed_energy);
+    put32(out, fnv1a(out.data(), out.size()));
+    return out;
+}
+
+VehicleDamageState deserialize_damage(std::span<const std::uint8_t> bytes) {
+    if (bytes.size() < 8 || get32(bytes.data()) != damage_magic) throw std::invalid_argument("deserialize_damage: not a vehicle damage record");
+    if (get32(bytes.data() + 4) != vehicle_damage_format_version) throw std::invalid_argument("deserialize_damage: an unknown format version (this build reads version 1)");
+    if (bytes.size() != damage_bytes) throw std::invalid_argument("deserialize_damage: the record has the wrong length");
+    if (get32(bytes.data() + 8) != 6 || get32(bytes.data() + 12) != 4) throw std::invalid_argument("deserialize_damage: the zone or wheel count is not this build's");
+    if (fnv1a(bytes.data(), bytes.size() - 4) != get32(bytes.data() + bytes.size() - 4)) throw std::invalid_argument("deserialize_damage: checksum mismatch");
+    VehicleDamageState d;
+    const std::uint8_t* p = bytes.data() + 16;
+    for (float& x : d.zone) x = get_float(p), p += 4;
+    for (float& x : d.wheel) x = get_float(p), p += 4;
+    for (float& x : d.suspension) x = get_float(p), p += 4;
+    d.engine = get_float(p), p += 4;
+    d.impacts = get32(p), p += 4;
+    d.absorbed_energy = get_double(p);
+    if (!valid_damage(d)) throw std::invalid_argument("deserialize_damage: a value is not finite or outside its range");
+    return d;
+}
+
+void Vehicle::set_damage(const VehicleDamageState& state) {
+    if (!valid_damage(state)) throw std::invalid_argument("Vehicle::set_damage: a value is outside [0, 1] or not finite");
+    damage_ = state;
 }
 
 Vehicle::Vehicle(const VehicleConfig& config, Vec3 position, float yaw_radians) : config_(config) {
@@ -232,6 +327,9 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
     const double speed_along = dot(v, fwd);
     const double steer_limit = static_cast<double>(config_.max_steer) / (1.0 + std::pow(std::fabs(speed_along) / static_cast<double>(config_.steer_speed_scale), 2.0));
     const double corner_mass = mass / 4.0;
+    const VehicleDamageConfig& dmg = config_.damage;
+    const bool damaged = dmg.enabled;
+    const double engine_scale = damaged ? 1.0 - static_cast<double>(dmg.engine_power_loss) * static_cast<double>(damage_.engine) : 1.0;
 
     // The powertrain (when enabled): the total drive force at the wheels for this substep, from the engine speed the wheels and the gear give.
     const VehiclePowertrain& pt = config_.powertrain;
@@ -275,7 +373,7 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
                 }
             }
         }
-        powertrain_force = torque * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * std::fabs(throttle);
+        powertrain_force = torque * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * std::fabs(throttle) * engine_scale;
         if (g == -1) powertrain_force = -powertrain_force;
         if (pt.engine_brake > 0.0f && throttle == 0.0 && shift_timer_ <= 0.0) {
             // The engine drags the driven wheels back against the way the car rolls, fading out below a walking pace (the clutch disengages).
@@ -303,7 +401,8 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
 
     for (std::size_t i = 0; i < 4; ++i) {
         const VehicleWheelConfig& wc = config_.wheels[i];
-        const double steer = wc.steered ? static_cast<double>(input.steer) * steer_limit : 0.0;
+        double steer = wc.steered ? static_cast<double>(input.steer) * steer_limit : 0.0;
+        if (damaged && wc.steered) steer += static_cast<double>(dmg.alignment_pull) * static_cast<double>(damage_.wheel[i]) * (wc.mount.y > 0.0f ? 1.0 : -1.0);  // a bent wheel toes outward
         const D3 mount = box_center + qrotate(q, to_d3(wc.mount));
         WheelProbe probe;
         probe.origin = to_vec3(mount);
@@ -330,7 +429,8 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
         compression_[i] = compression;
         contact_point_[i] = contact.point;
         contact_normal_[i] = contact.normal;
-        const double spring_force = std::max(0.0, static_cast<double>(config_.spring) * compression + static_cast<double>(config_.damper) * rate);
+        const double soft = damaged ? 1.0 - static_cast<double>(dmg.suspension_loss) * static_cast<double>(damage_.suspension[i]) : 1.0;
+        const double spring_force = std::max(0.0, (static_cast<double>(config_.spring) * compression + static_cast<double>(config_.damper) * rate) * soft);
         apply(up * spring_force, mount);
 
         // The tire: forces in the contact plane, bounded by the friction circle of the load.
@@ -347,7 +447,7 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
             const double throttle = static_cast<double>(input.throttle);
             const double per_wheel = static_cast<double>(config_.engine_force) / driven;
             const double power_cap = static_cast<double>(config_.engine_power) / (std::max(std::fabs(v_long), 2.0) * driven);
-            double drive = std::min(per_wheel, power_cap) * throttle;
+            double drive = std::min(per_wheel, power_cap) * throttle * engine_scale;
             if (throttle < 0.0) drive *= 0.55;  // reverse is weaker
             fx += shared(i, drive);
         }
@@ -365,6 +465,7 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
             mu *= clamp(1.0 - static_cast<double>(config_.tire_load_sensitivity) * (spring_force / static_load - 1.0), 0.5, 1.5);
         }
         double grip = mu * static_cast<double>(surface.tire_grip);
+        if (damaged) grip *= 1.0 - static_cast<double>(dmg.wheel_grip_loss) * static_cast<double>(damage_.wheel[i]);
         if (handbrake > 0.0) grip *= 1.0 - handbrake * (1.0 - static_cast<double>(config_.handbrake_grip));
         const double limit = grip * spring_force;
         grip_limit_[i] = limit;
@@ -464,12 +565,25 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
                 return qrotate(q, D3{b.x / inertia_[0], b.y / inertia_[1], b.z / inertia_[2]});
             };
             // What the body hits: with a surface map its restitution and friction combine with the primitive's (friction by the geometric mean, restitution by the larger); without one, the body's own.
+            // Where on the body the contact is, in the chassis' frame over its half extents: the zone is the face the point lies toward.
+            const Q qinv{-q.x, -q.y, -q.z, q.w};
+            const D3 point_body = qrotate(qinv, point - box_c);
+            VehicleZone zone;
+            {
+                const double rx = point_body.x / static_cast<double>(config_.half_extents.x), ry = point_body.y / static_cast<double>(config_.half_extents.y), rz = point_body.z / static_cast<double>(config_.half_extents.z);
+                const double ax_ = std::fabs(rx), ay_ = std::fabs(ry), az_ = std::fabs(rz);
+                if (ax_ >= ay_ && ax_ >= az_) zone = rx >= 0.0 ? VehicleZone::Front : VehicleZone::Rear;
+                else if (ay_ >= az_) zone = ry >= 0.0 ? VehicleZone::Left : VehicleZone::Right;
+                else zone = rz >= 0.0 ? VehicleZone::Roof : VehicleZone::Underbody;
+            }
             double e = static_cast<double>(config_.body_restitution), mu_body = static_cast<double>(config_.body_friction);
             if (surfaces != nullptr) {
                 const PhysicsMaterial& hit_material = surfaces->material_at(prim);
                 e = static_cast<double>(combine_restitution(config_.body_restitution, hit_material.restitution));
                 mu_body = static_cast<double>(combine_friction(config_.body_friction, hit_material.friction));
             }
+            // A damaged zone has already crumpled: it gives back less of the impact.
+            if (damaged) e *= 1.0 - static_cast<double>(dmg.restitution_loss) * static_cast<double>(damage_.zone[static_cast<std::size_t>(zone)]);
             const D3 rn = cross(r, n);
             const double denom = 1.0 / mass + dot(cross(inv_inertia(rn), r), n);
             const double jn = -(1.0 + e) * vn / denom;
@@ -496,6 +610,22 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
                 event.primitive = overlaps_[k].primitive;
                 event.energy = static_cast<float>(std::max(0.0, ke_before - 0.5 * mass * dot(v, v)));
                 impacts_.push_back(event);
+                if (damaged && event.energy >= dmg.min_event_energy) {
+                    const double share = static_cast<double>(event.energy) / static_cast<double>(dmg.energy_capacity);
+                    const auto add = [](float& x, double amount) { x = static_cast<float>(std::min(1.0, static_cast<double>(x) + amount)); };
+                    add(damage_.zone[static_cast<std::size_t>(zone)], share);
+                    if (zone == VehicleZone::Front) add(damage_.engine, share * static_cast<double>(dmg.engine_factor));
+                    for (std::size_t wi = 0; wi < 4; ++wi) {
+                        const Vec3& m = config_.wheels[wi].mount;
+                        const double dx = point_body.x - static_cast<double>(m.x), dy = point_body.y - static_cast<double>(m.y);
+                        const double near = 1.0 - std::hypot(dx, dy) / static_cast<double>(dmg.wheel_reach);
+                        if (near <= 0.0) continue;
+                        add(damage_.wheel[wi], share * near * static_cast<double>(dmg.wheel_factor));
+                        add(damage_.suspension[wi], share * near * static_cast<double>(dmg.suspension_factor));
+                    }
+                    ++damage_.impacts;
+                    damage_.absorbed_energy += static_cast<double>(event.energy);
+                }
             }
         }
     }

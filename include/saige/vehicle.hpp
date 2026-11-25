@@ -22,6 +22,7 @@
 
 #include <array>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace saige {
@@ -71,6 +72,49 @@ enum class VehicleDifferential : std::uint8_t { Legacy, Open, Locked, LimitedSli
 // peaks at 1 where atan(B |a|) = pi / (2 C), and falls to `slide_ratio` as the angle grows. Even in the angle (the sign of the force opposes the sliding, applied by the caller).
 [[nodiscard]] double tire_lateral_ratio(double slip_angle, double stiffness, double slide_ratio) noexcept;
 
+// Persistent physical damage (off by default: with `enabled` false nothing here is read and the simulation is bit-identical to before it existed).
+//
+// This is a state, not a mesh: a handful of numbers in [0, 1] per zone, wheel and the engine, accumulated from the energy the chassis lost in collisions (the impact events' `energy`, divided by
+// `energy_capacity`: the energy that destroys a zone or a wheel outright, about what a 1450 kg car carries at 14 m/s, 50 km/h) and attributed by where the contact is on the body (the zone the contact point lies
+// toward, and the wheels whose mounts are within `wheel_reach` of it). It has physical consequences, and nothing else: a damaged zone rebounds less (its restitution falls by up to `restitution_loss`: it crumples
+// instead of bouncing), a damaged wheel grips less (`wheel_grip_loss`) and toes out (`alignment_pull`, rad: the car pulls to one side), a damaged suspension is softer (`suspension_loss` of the spring and damper:
+// the corner sags), and a damaged engine delivers less (`engine_power_loss` of the drive force). It does not deform any geometry: a host that draws damage must say it is a visual driven by this state and must
+// not present it as the chassis' shape changing; the chassis remains the same box for collision.
+struct VehicleDamageConfig {
+    bool enabled = false;
+    float energy_capacity = 150000.0f;  // J that destroys a zone, a wheel or the engine outright
+    float min_event_energy = 800.0f;    // J of collision loss below which an impact does no damage (a bump)
+    float restitution_loss = 0.7f;      // a fully damaged zone keeps (1 - this) of its restitution
+    float wheel_reach = 1.2f;           // m: an impact this close to a wheel mount (in the chassis' plane) hurts the wheel, linearly less with distance
+    float wheel_factor = 1.5f;          // wheel damage per unit of the energy share at the mount
+    float suspension_factor = 1.0f;     // suspension damage per unit of the energy share at the mount
+    float engine_factor = 0.8f;         // engine damage per unit of the energy share of a front impact
+    float wheel_grip_loss = 0.5f;       // a fully damaged wheel's friction circle shrinks by this fraction
+    float suspension_loss = 0.5f;       // a fully damaged suspension keeps (1 - this) of its spring and damper
+    float alignment_pull = 0.08f;       // rad of toe on a fully damaged steered wheel (outward: the left wheel steers left, the right wheel right)
+    float engine_power_loss = 0.6f;     // a fully damaged engine delivers (1 - this) of its force
+};
+
+enum class VehicleZone : std::uint8_t { Front, Rear, Left, Right, Roof, Underbody, Count };
+
+// What has happened to a vehicle, each in [0, 1] (0 as new, 1 destroyed).
+struct VehicleDamageState {
+    std::array<float, 6> zone{};        // by VehicleZone
+    std::array<float, 4> wheel{};       // by wheel index (VehicleConfig::wheels)
+    std::array<float, 4> suspension{};
+    float engine = 0.0f;
+    std::uint32_t impacts = 0;          // how many impacts did damage
+    double absorbed_energy = 0.0;       // J of collision loss counted (including what saturated a zone)
+    bool operator==(const VehicleDamageState&) const = default;
+};
+
+// A versioned byte format for a damage state (to keep in a save): "SVDM", a version (1), the sizes, the numbers as little-endian IEEE-754, and a 32-bit FNV-1a checksum of everything before it. The reader
+// throws std::invalid_argument for a wrong magic, an unknown version (a newer file is refused, not misread), a size that is not this build's, a length that is not exact, a checksum mismatch, or a value that is not
+// finite and in range.
+[[nodiscard]] std::vector<std::uint8_t> serialize_damage(const VehicleDamageState& state);
+[[nodiscard]] VehicleDamageState deserialize_damage(std::span<const std::uint8_t> bytes);
+inline constexpr std::uint32_t vehicle_damage_format_version = 1;
+
 struct VehicleConfig {
     float mass = 1450.0f;                       // kg
     Vec3 half_extents{2.15f, 0.92f, 0.48f};     // the chassis box, meters
@@ -99,6 +143,7 @@ struct VehicleConfig {
     float handbrake_force = 9000.0f;
     float handbrake_grip = 0.45f;
     VehiclePowertrain powertrain;
+    VehicleDamageConfig damage;
     VehicleDifferential differential = VehicleDifferential::Legacy;
     float lsd_bias = 2.5f;       // LimitedSlip: the most a wheel may carry as a multiple of the weakest driven wheel's grip (1 is an open differential)
     float lsd_preload = 300.0f;  // LimitedSlip: N of extra force a wheel may take over the bias, per driven wheel
@@ -178,6 +223,10 @@ public:
 
     [[nodiscard]] const VehicleState& state() const noexcept { return state_; }
     [[nodiscard]] const VehicleConfig& config() const noexcept { return config_; }
+    // The persistent damage (all zero unless `config().damage.enabled`). set_damage throws std::invalid_argument for a value outside [0, 1] or non-finite; repair() restores a new vehicle.
+    [[nodiscard]] const VehicleDamageState& damage() const noexcept { return damage_; }
+    void set_damage(const VehicleDamageState& state);
+    void repair() noexcept { damage_ = {}; }
     // Recorded impacts since the last call.
     [[nodiscard]] std::vector<VehicleImpact> take_impacts();
     // The chassis box at the current pose.
@@ -199,6 +248,7 @@ private:
     void publish() noexcept;
 
     VehicleConfig config_;
+    VehicleDamageState damage_;
     Body body_{};
     VehicleState state_;
     double inertia_[3]{};   // principal moments about the center of mass, body frame

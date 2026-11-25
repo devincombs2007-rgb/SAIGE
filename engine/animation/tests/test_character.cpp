@@ -553,3 +553,97 @@ TEST_CASE("Foot placement: the single call is the ground IK, the foot lock and t
     try { (void)fp.apply(w.biped.skin, w.biped.map, w.biped.rig, pose, on_ramp, nullptr, nullptr, true, 0.0f); } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
 }
+
+TEST_CASE("Ledge alignment: a character is turned square to an oblique ledge face and brought to the stand distance, from any side, without touching the face") {
+    // A ledge 1 m high whose face is turned 25 degrees from the character's way, built from triangles (a box rotated about +Z).
+    const auto rotated_ledge = [](float turn) {
+        const float c = std::cos(turn), s = std::sin(turn);
+        const auto at = [&](float u, float v, float z) { return Vec3{2.0f + u * c - v * s, u * s + v * c, z}; };  // u along the face's normal (into the ledge), v along the face
+        const float depth = 30.0f, half = 40.0f, h = 1.0f;
+        std::vector<Triangle> t;
+        const auto quad = [&](Vec3 a, Vec3 b, Vec3 cc, Vec3 d) {
+            t.push_back({a, b, cc});
+            t.push_back({a, cc, d});
+        };
+        quad(at(0, -half, 0), at(0, half, 0), at(0, half, h), at(0, -half, h));        // the face
+        quad(at(0, -half, h), at(0, half, h), at(depth, half, h), at(depth, -half, h));  // the top
+        quad(at(depth, -half, 0), at(depth, half, 0), at(depth, half, h), at(depth, -half, h));
+        return t;
+    };
+    const float stand = 0.65f;
+    for (const float turn : {0.0f, 0.4363f, -0.5f}) {
+        const std::vector<Aabb> floor{{{-60, -60, -1}, {60, 60, 0}}};
+        const StaticCollision world(floor, rotated_ledge(turn));
+        for (const float start_yaw : {0.0f, 0.35f, -0.35f, 1.0f}) {
+            Vec3 pos{-0.2f, 0.3f, 0.0f};
+            float yaw = start_yaw;
+            const float dt = 1.0f / 60.0f;
+            const Vec3 face_point{2.0f, 0.0f, 0.0f};
+            const Vec3 normal{-std::cos(turn), -std::sin(turn), 0.0f};  // toward the character
+            float min_gap = 1e9f;
+            bool aligned = false;
+            int ticks = 0;
+            for (; ticks < 60 * 8 && !aligned; ++ticks) {
+                LedgeInfo ledge = find_ledge(world, pos, yaw);
+                if (!ledge.found) {
+                    float seen_yaw = yaw;
+                    ledge = find_ledge_scan(world, pos, yaw, 1.2f, 9, seen_yaw);  // not facing it: look around
+                    if (!ledge.found) continue;
+                }
+                const LedgeAlignment a = ledge_alignment(ledge, yaw, stand);
+                yaw += a.turn_rate * dt;
+                pos.x += std::cos(yaw) * a.speed * dt;
+                pos.y += std::sin(yaw) * a.speed * dt;
+                min_gap = std::min(min_gap, (pos.x - face_point.x) * normal.x + (pos.y - face_point.y) * normal.y);
+                aligned = a.aligned;
+            }
+            const float gap = (pos.x - face_point.x) * normal.x + (pos.y - face_point.y) * normal.y;  // perpendicular distance to the face's plane (positive on the character's side)
+            const LedgeInfo end = find_ledge(world, pos, yaw);
+            const LedgeAlignment a = ledge_alignment(end, yaw, stand);
+            std::printf("  face turned %.0f deg, start heading %.0f deg: aligned %d after %d ticks, perpendicular distance %.3f m, heading error %.2f deg\n", static_cast<double>(turn) * 57.2958, static_cast<double>(start_yaw) * 57.2958,
+                        aligned ? 1 : 0, ticks, static_cast<double>(gap), static_cast<double>(a.yaw_error) * 57.2958);
+            CHECK(aligned);
+            CHECK(std::fabs(gap - stand) < 0.05f);
+            CHECK(std::fabs(a.yaw_error) < 0.04f);
+            CHECK(min_gap > stand - 0.08f);  // never closer than a few centimeters inside the stand distance on the way (no overshoot into the face)
+        }
+    }
+    // No ledge: no command, never aligned.
+    const std::vector<Aabb> flat{{{-60, -60, -1}, {60, 60, 0}}};
+    const StaticCollision empty(flat, {});
+    const LedgeAlignment none = ledge_alignment(find_ledge(empty, {0, 0, 0}, 0.0f), 0.0f, 0.65f);
+    CHECK(!none.aligned);
+    CHECK(none.turn_rate == 0.0f);
+    CHECK(none.speed == 0.0f);
+    // Commands are bounded and ease out: a big error does not exceed the limits, and at the target they are zero.
+    LedgeInfo far;
+    far.found = true;
+    far.distance = 5.0f;
+    far.face_normal = {-1.0f, 0.0f, 0.0f};
+    const LedgeAlignment big = ledge_alignment(far, 2.0f, 0.65f);
+    CHECK(std::fabs(big.turn_rate) <= 4.0f + 1e-5f && std::fabs(big.speed) <= 1.2f + 1e-5f);
+    far.distance = 0.65f;
+    const LedgeAlignment zero = ledge_alignment(far, 0.0f, 0.65f);
+    CHECK(zero.aligned && std::fabs(zero.turn_rate) < 1e-6f && std::fabs(zero.speed) < 1e-6f);
+    // Square on in distance but facing the wrong way: not aligned (and a big turn is asked for).
+    far.distance = 0.65f;
+    const LedgeAlignment wrong_way = ledge_alignment(far, 3.0f, 0.65f);
+    CHECK(!wrong_way.aligned && std::fabs(wrong_way.yaw_error) > 0.5f);
+    // The scan: from a heading that sees nothing, the nearest face within the arc wins and its heading is reported.
+    {
+        const std::vector<Aabb> boxes{{{-50, -50, -1}, {50, 50, 0}}, {{2.0f, -50, 0}, {50, 50, 1.0f}}};
+        const StaticCollision w(boxes, {});
+        float seen = 9.0f;
+        const LedgeInfo blind = find_ledge(w, {0, 0, 0}, 1.5707963f);
+        const LedgeInfo l = find_ledge_scan(w, {0, 0, 0}, 1.5707963f, 1.5707963f, 9, seen);
+        CHECK(!blind.found);
+        CHECK(l.found);
+        CHECK(std::fabs(l.distance - 2.0f) < 0.01f);
+        CHECK(std::fabs(seen) < 0.01f);  // the straight-on heading is the nearest
+        float unused = 0.0f;
+        CHECK(!find_ledge_scan(w, {0, 0, 0}, 1.5707963f, 0.3f, 9, unused).found);  // a narrow arc sees nothing
+    }
+    LedgeInfo close = far;
+    close.distance = 0.3f;
+    CHECK(ledge_alignment(close, 0.0f, 0.65f).speed < 0.0f);  // too close: back off
+}

@@ -70,6 +70,7 @@ struct LedgeInfo {
     float height = 0.0f;     // of the top above the feet
     float headroom = 0.0f;   // clear height above the top (capped at the query's headroom)
     Vec3 top{};              // a point on the top, just behind the face
+    Vec3 face_normal{};      // the face's unit normal in the horizontal plane (pointing out of the ledge toward the character; z is 0)
 };
 
 // Looks along `yaw` (radians counter-clockwise about +Z from +X) from the feet: the lowest forward ray above the step height that hits an upright face gives the distance, a ray straight down behind
@@ -103,7 +104,62 @@ struct LedgeInfo {
     info.height = height;
     info.headroom = clear;
     info.top = top->point;
+    {
+        const float nx = face->normal.x, ny = face->normal.y, nl = std::sqrt(nx * nx + ny * ny);
+        info.face_normal = nl > 1e-5f ? Vec3{nx / nl, ny / nl, 0.0f} : Vec3{-cx, -cy, 0.0f};
+    }
     return info;
+}
+
+// What it takes to stand a character right for a climb: facing the ledge's face square on, `stand_distance` from it. `ledge_alignment` gives, for the current heading and distance, the turn to command (radians per
+// second, bounded by `max_turn_rate`) and the speed toward the face (positive forward, negative backing off, bounded by `max_speed`), both easing to zero as the error does, and says when the character is aligned
+// (within `yaw_tolerance` and `distance_tolerance`). It needs the ledge from `find_ledge` (looked for along the heading, so a face that is oblique is found and then squared up to). Pure and deterministic.
+struct LedgeAlignment {
+    float turn_rate = 0.0f;   // rad/s, positive counter-clockwise
+    float speed = 0.0f;       // m/s along the heading (the distance to the face is measured along the heading, which squares up as the turn completes)
+    bool aligned = false;
+    float yaw_error = 0.0f;   // rad, the turn still needed
+    float distance_error = 0.0f;  // m, the distance still to cover (positive: too far)
+};
+struct LedgeAlignConfig {
+    float max_turn_rate = 4.0f;
+    float max_speed = 1.2f;
+    float turn_gain = 6.0f;      // 1/s
+    float speed_gain = 3.0f;     // 1/s
+    float yaw_tolerance = 0.03f;       // rad
+    float distance_tolerance = 0.03f;  // m
+};
+[[nodiscard]] inline LedgeAlignment ledge_alignment(const LedgeInfo& ledge, float yaw, float stand_distance, const LedgeAlignConfig& c = {}) {
+    LedgeAlignment a;
+    if (!ledge.found) return a;
+    const float want = std::atan2(-ledge.face_normal.y, -ledge.face_normal.x);  // facing into the face
+    float err = want - yaw;
+    while (err > 3.14159265f) err -= 6.2831853f;
+    while (err < -3.14159265f) err += 6.2831853f;
+    a.yaw_error = err;
+    // The distance along the heading is what find_ledge measured; square on, it is the perpendicular distance times 1/cos(error).
+    a.distance_error = ledge.distance - stand_distance;
+    a.turn_rate = std::clamp(err * c.turn_gain, -c.max_turn_rate, c.max_turn_rate);
+    a.speed = std::clamp(a.distance_error * c.speed_gain, -c.max_speed, c.max_speed);
+    a.aligned = std::fabs(err) <= c.yaw_tolerance && std::fabs(a.distance_error) <= c.distance_tolerance;
+    return a;
+}
+
+// find_ledge along several headings: `steps` headings spread over +-`arc` radians about `yaw` (the centre one first, then alternating sides outward), the nearest face wins; `found_yaw` is the heading it was found on. For a
+// character that is near a ledge but not facing it, so the alignment can turn it toward the ledge.
+[[nodiscard]] inline LedgeInfo find_ledge_scan(const StaticCollision& world, Vec3 feet, float yaw, float arc, int steps, float& found_yaw, const LedgeQuery& q = {}) {
+    LedgeInfo best;
+    found_yaw = yaw;
+    for (int k = 0; k < steps; ++k) {
+        const int turn = (k + 1) / 2 * ((k % 2) ? 1 : -1);
+        const float h = yaw + arc * static_cast<float>(turn) / static_cast<float>(std::max(1, steps / 2));
+        const LedgeInfo l = find_ledge(world, feet, h, q);
+        if (l.found && (!best.found || l.distance < best.distance - 1e-4f)) {
+            best = l;
+            found_yaw = h;
+        }
+    }
+    return best;
 }
 
 // The ground under a point: a ray straight down from `up` meters above the reference height, for `up + down` meters. Positions are the collision's (chunk-local) meters. The collision must outlive the query.

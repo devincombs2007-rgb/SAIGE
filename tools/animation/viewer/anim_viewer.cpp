@@ -1,4 +1,4 @@
-// saige_anim_viewer: the humanoid animation module on the real renderer. A scripted run of the UAL character on a small course (a floor and a 1 m ledge): it idles, walks, sprints, rolls (root-motion
+// saige_anim_viewer: the humanoid animation module on the real renderer. A scripted run of the UAL character on a small course (a floor, a hill and a 1 m ledge): it idles, walks, sprints, rolls (root-motion
 // action), crouch-walks (capsule crouch, UAL crouch set, stance blend), finds the ledge with find_ledge and climbs it (UAL 2's vertical root-motion action), all driven by Core's capsule character with
 // the animation following the physics (locomotion from the capsule's real speed, FootPlacement on the ground, actions asking the capsule for their travel and reading back how far it got).
 //
@@ -96,6 +96,38 @@ std::string base64(const std::vector<uint8_t>& d) {
     return s;
 }
 
+// A mesh given in engine axes (+X forward, +Y left, +Z up) as an in-memory glTF (flat colour). glTF is +Y up with its front along +Z: engine (x, y, z) is glTF (y, z, x).
+std::string mesh_gltf(const std::vector<float>& pos, const std::vector<float>& nor, const std::vector<uint16_t>& idx, float r, float g, float b) {
+    const size_t n = pos.size() / 3;
+    std::vector<float> gp(pos.size()), gn(nor.size());
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (size_t i = 0; i < n; ++i) {
+        const float p[3] = {pos[i * 3 + 1], pos[i * 3 + 2], pos[i * 3]};
+        const float q[3] = {nor[i * 3 + 1], nor[i * 3 + 2], nor[i * 3]};
+        for (size_t c = 0; c < 3; ++c) {
+            gp[i * 3 + c] = p[c];
+            gn[i * 3 + c] = q[c];
+            lo[c] = std::min(lo[c], p[c]);
+            hi[c] = std::max(hi[c], p[c]);
+        }
+    }
+    const size_t vb = n * 12, ib = idx.size() * 2;
+    std::vector<uint8_t> bytes(vb * 2 + ib + (ib % 4 != 0 ? 4 - ib % 4 : 0));
+    std::memcpy(bytes.data(), gp.data(), vb);
+    std::memcpy(bytes.data() + vb, gn.data(), vb);
+    std::memcpy(bytes.data() + vb * 2, idx.data(), ib);
+    std::ostringstream j;
+    j << R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],)"
+      << R"("meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1},"indices":2,"material":0}]}],)"
+      << R"("materials":[{"pbrMetallicRoughness":{"baseColorFactor":[)" << r << "," << g << "," << b << R"(,1],"metallicFactor":0.0,"roughnessFactor":0.85}}],)"
+      << R"("accessors":[{"bufferView":0,"componentType":5126,"count":)" << n << R"(,"type":"VEC3","min":[)" << lo[0] << "," << lo[1] << "," << lo[2] << R"(],"max":[)" << hi[0] << "," << hi[1] << "," << hi[2] << R"(]},)"
+      << R"({"bufferView":1,"componentType":5126,"count":)" << n << R"(,"type":"VEC3"},{"bufferView":2,"componentType":5123,"count":)" << idx.size() << R"(,"type":"SCALAR"}],)"
+      << R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":)" << vb << R"(},{"buffer":0,"byteOffset":)" << vb << R"(,"byteLength":)" << vb << R"(},{"buffer":0,"byteOffset":)" << vb * 2 << R"(,"byteLength":)" << ib << R"(}],)"
+      << R"("buffers":[{"byteLength":)" << bytes.size() << R"(,"uri":"data:application/octet-stream;base64,)" << base64(bytes) << R"("}]})";
+    return j.str();
+}
+
+// A unit cube centered at the origin.
 std::string box_gltf(float r, float g, float b) {
     struct Face {
         float n[3], u[3], v[3];
@@ -115,27 +147,54 @@ std::string box_gltf(float r, float g, float b) {
         }
         for (const int i : {0, 1, 2, 0, 2, 3}) idx.push_back(static_cast<uint16_t>(base + i));
     }
-    std::vector<uint8_t> bytes(pos.size() * 4 + nor.size() * 4 + idx.size() * 2);
-    std::memcpy(bytes.data(), pos.data(), pos.size() * 4);
-    std::memcpy(bytes.data() + pos.size() * 4, nor.data(), nor.size() * 4);
-    std::memcpy(bytes.data() + pos.size() * 4 + nor.size() * 4, idx.data(), idx.size() * 2);
-    std::ostringstream j;
-    j << R"({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],)"
-      << R"("meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1},"indices":2,"material":0}]}],)"
-      << R"("materials":[{"pbrMetallicRoughness":{"baseColorFactor":[)" << r << "," << g << "," << b << R"(,1],"metallicFactor":0.0,"roughnessFactor":0.85}}],)"
-      << R"("accessors":[{"bufferView":0,"componentType":5126,"count":24,"type":"VEC3","min":[-0.5,-0.5,-0.5],"max":[0.5,0.5,0.5]},)"
-      << R"({"bufferView":1,"componentType":5126,"count":24,"type":"VEC3"},{"bufferView":2,"componentType":5123,"count":36,"type":"SCALAR"}],)"
-      << R"("bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":288},{"buffer":0,"byteOffset":288,"byteLength":288},{"buffer":0,"byteOffset":576,"byteLength":72}],)"
-      << R"("buffers":[{"byteLength":648,"uri":"data:application/octet-stream;base64,)" << base64(bytes) << R"("}]})";
-    return j.str();
+    return mesh_gltf(pos, nor, idx, r, g, b);
 }
 
-render::GpuModel stage_box(render::SceneRenderer& renderer, const char* name, float r, float g, float b) {
-    const std::string text = box_gltf(r, g, b);
+// A wedge: x in [0, 1], y in [-0.5, 0.5], the top rising from z = 0 at x = 0 to z = 1 at x = 1 (scaled to a ramp by the draw's transform).
+std::string wedge_gltf(float r, float g, float b) {
+    std::vector<float> pos, nor;
+    std::vector<uint16_t> idx;
+    const auto quad = [&](const float p[4][3], const float n[3]) {
+        const uint16_t base = static_cast<uint16_t>(pos.size() / 3);
+        for (int k = 0; k < 4; ++k) {
+            for (int c = 0; c < 3; ++c) {
+                pos.push_back(p[k][c]);
+                nor.push_back(n[c]);
+            }
+        }
+        for (const int i : {0, 1, 2, 0, 2, 3}) idx.push_back(static_cast<uint16_t>(base + i));
+    };
+    const float inv = 0.70710678f;
+    const float slope[4][3] = {{0, -0.5f, 0}, {1, -0.5f, 1}, {1, 0.5f, 1}, {0, 0.5f, 0}};  // counter-clockwise seen from above
+    const float slope_n[3] = {-inv, 0, inv};
+    quad(slope, slope_n);
+    const float back[4][3] = {{1, -0.5f, 0}, {1, 0.5f, 0}, {1, 0.5f, 1}, {1, -0.5f, 1}};
+    const float back_n[3] = {1, 0, 0};
+    quad(back, back_n);
+    for (const float side : {-1.0f, 1.0f}) {  // the two triangular ends, as degenerate quads (the last two vertices coincide)
+        const float tri[4][3] = {{0, 0.5f * side, 0}, {1, 0.5f * side, 0}, {1, 0.5f * side, 1}, {1, 0.5f * side, 1}};
+        const float n[3] = {0, side, 0};
+        const uint16_t base = static_cast<uint16_t>(pos.size() / 3);
+        for (int k = 0; k < 3; ++k) {
+            for (int c = 0; c < 3; ++c) {
+                pos.push_back(tri[k][c]);
+                nor.push_back(n[c]);
+            }
+        }
+        if (side > 0) for (const int i : {0, 1, 2}) idx.push_back(static_cast<uint16_t>(base + i));
+        else for (const int i : {0, 2, 1}) idx.push_back(static_cast<uint16_t>(base + i));
+    }
+    return mesh_gltf(pos, nor, idx, r, g, b);
+}
+
+render::GpuModel stage_text(render::SceneRenderer& renderer, const char* name, const std::string& text) {
     const gfx::GltfLoadResult loaded = gfx::load_gltf(std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(text.data()), text.size()), {});
     if (!loaded.ok()) throw std::runtime_error(std::string("box ") + name + ": " + loaded.error);
     return gfx::stage_model(renderer, *loaded.asset, name);
 }
+
+render::GpuModel stage_box(render::SceneRenderer& renderer, const char* name, float r, float g, float b) { return stage_text(renderer, name, box_gltf(r, g, b)); }
+render::GpuModel stage_wedge(render::SceneRenderer& renderer, const char* name, float r, float g, float b) { return stage_text(renderer, name, wedge_gltf(r, g, b)); }
 
 struct Rgba {
     uint32_t width = 0, height = 0;
@@ -374,15 +433,22 @@ int main(int argc, char** argv) {
             const render::GpuModel floor_model = stage_box(renderer, "floor", 0.20f, 0.27f, 0.18f);
             const render::GpuModel ledge_model = stage_box(renderer, "ledge", 0.42f, 0.30f, 0.22f);
             const render::GpuModel marker_model = stage_box(renderer, "marker", 0.85f, 0.80f, 0.70f);
+            const render::GpuModel hill_model = stage_wedge(renderer, "hill", 0.34f, 0.40f, 0.26f);
 
             // The course: a floor, a ledge 1 m high whose face is at x = 46, and a row of posts every 5 m to read the speed from.
             const float ledge_x = 46.0f;
             std::vector<Aabb> boxes{{{-60, -20, -1}, {120, 20, 0}}, {{ledge_x, -20, 0}, {120, 20, 1.0f}}};
-            const StaticCollision world(boxes, {});
+            // A hill of two 12 degree slopes between x = 31 and 43 (walked over before the ledge): the ground IK has something to do.
+            const float hill_x0 = 31.0f, hill_len = 6.0f, hill_rise = hill_len * std::tan(12.0f * 3.14159265f / 180.0f);
+            std::vector<Triangle> tris{{{hill_x0, -20, 0}, {hill_x0, 20, 0}, {hill_x0 + hill_len, 20, hill_rise}},
+                                       {{hill_x0, -20, 0}, {hill_x0 + hill_len, 20, hill_rise}, {hill_x0 + hill_len, -20, hill_rise}},
+                                       {{hill_x0 + hill_len, -20, hill_rise}, {hill_x0 + hill_len, 20, hill_rise}, {hill_x0 + 2 * hill_len, 20, 0}},
+                                       {{hill_x0 + hill_len, -20, hill_rise}, {hill_x0 + 2 * hill_len, 20, 0}, {hill_x0 + 2 * hill_len, -20, 0}}};
+            const StaticCollision world(boxes, tris);
             CapsuleCharacterConfig cfg;
             cfg.crouch_height = crouch_capsule_height(1.0f, 1.5f, cfg.height, 2.0f * cfg.radius);  // from the crouch pose's head (about 0.94 m) and the standing head (1.52 m)
             cfg.crouch_speed = 1.4f;
-            CapsuleCharacter capsule({0.0f, 0.0f, 0.0f}, boxes, cfg);
+            CapsuleCharacter capsule({0.0f, 0.0f, 0.0f}, boxes, tris, cfg);
             LocomotionController stand_ctl(*ch.stand, {});
             std::optional<LocomotionController> crouch_ctl;
             if (ch.crouch->usable()) crouch_ctl.emplace(*ch.crouch, LocomotionConfig{});
@@ -407,6 +473,16 @@ int main(int argc, char** argv) {
                 };
                 box(floor_model, {30, 0, -0.5f}, {180, 40, 1.0f});
                 box(ledge_model, {ledge_x + 45.0f, 0, 0.5f}, {90, 40, 1.0f});
+                {
+                    render::Transform up;  // the rising half: x from hill_x0 to hill_x0 + hill_len (the wedge's origin is its base start), 40 m wide
+                    up.position = {hill_x0, 0, 0};
+                    up.scale = {hill_len, 40.0f, hill_rise};
+                    draws.push_back({&hill_model, render::to_matrix(up)});
+                    render::Transform down = up;  // the falling half: the same wedge turned half a turn about the vertical
+                    down.position = {hill_x0 + 2.0f * hill_len, 0, 0};
+                    down.rotation = render::from_axis_angle({0, 0, 1}, 3.14159265f);
+                    draws.push_back({&hill_model, render::to_matrix(down)});
+                }
                 for (int p = -10; p <= 24; ++p) box(marker_model, {static_cast<float>(p) * 5.0f, 3.2f, 0.35f}, {0.25f, 0.25f, 0.7f});
             };
 

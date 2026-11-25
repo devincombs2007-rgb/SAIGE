@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "origin": [
+    2147483646,
+    -2147483648
+  ],
+  "checkpoint": [
+    3,
+    4,
+    0
+  ],
+  "chunks": [
+    {
+      "coord": [
+        2147483646,
+        -2147483648
+      ],
+      "project": "saige.scene.json",
+      "collision": "course-origin.collision.json"
+    },
+    {
+      "coord": [
+        2147483647,
+        -2147483648
+      ],
+      "project": "ramp.scene.json",
+      "collision": "ramp.collision.json"
+    }
+  ]
+}

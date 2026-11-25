@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "chunks": [
+    {"coord": [0, 0], "project": "saige.scene.json", "collision": "course-origin.collision.json"},
+    {"coord": [1, 0], "project": "saige.scene.json", "collision": "course-east.collision.json"}
+  ]
+}

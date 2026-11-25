@@ -10,7 +10,18 @@
 #if defined(SAIGE_DESKTOP_SCENE)
 #include "saige/prepared_scene.hpp"
 #include "saige/render_sink/prepared_scene.hpp"
+#endif
 
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+#include "streamed_course.hpp"
+#if defined(SAIGE_DESKTOP_SCENE)
+#include "streamed_course_renderer.hpp"
+#endif
+
+#include <vector>
+#endif
+
+#if defined(SAIGE_DESKTOP_SCENE) || defined(SAIGE_DESKTOP_COURSE_FILES)
 #include <filesystem>
 #endif
 
@@ -21,6 +32,7 @@
 #include <exception>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -76,6 +88,8 @@ public:
         renderer_->activate_scene(saige::render::stage_prepared_scene(*renderer_, scene));
     }
 
+    [[nodiscard]] saige::render::RendererFrameSink* renderer() noexcept { return renderer_.get(); }
+
     [[nodiscard]] std::string diagnostics_json() const {
         return renderer_ ? saige::render::to_json(renderer_->diagnostics()) : std::string{};
     }
@@ -104,8 +118,14 @@ private:
 int main(int argc, char** argv) {
     std::optional<std::uint64_t> frames;
     bool course = false;
+    bool course_vehicle = false;
     bool custom_speed = false;
     saige::CapsuleCharacterConfig course_config;
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+    std::optional<std::filesystem::path> course_path;
+    std::optional<std::filesystem::path> course_world;
+    std::optional<std::filesystem::path> course_checkpoint;
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
     bool require_rendered = false;
     bool validate = false;
@@ -117,6 +137,24 @@ int main(int argc, char** argv) {
         const std::string_view argument(argv[i]);
         if (argument == "--character-course" && !course) {
             course = true;
+            continue;
+        }
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (argument == "--course-world" && !course_world && i + 1 < argc) {
+            course_world = std::filesystem::path(argv[++i]);
+            continue;
+        }
+        if (argument == "--course-checkpoint" && !course_checkpoint && i + 1 < argc) {
+            course_checkpoint = std::filesystem::path(argv[++i]);
+            continue;
+        }
+        if (argument == "--course-collision" && !course_path && i + 1 < argc) {
+            course_path = std::filesystem::path(argv[++i]);
+            continue;
+        }
+#endif
+        if (argument == "--course-vehicle" && !course_vehicle) {
+            course_vehicle = true;
             continue;
         }
         if ((argument == "--walk-speed" || argument == "--sprint-speed") && i + 1 < argc) {
@@ -149,7 +187,10 @@ int main(int argc, char** argv) {
         }
 #endif
         if (argument != "--frames" || frames || ++i == argc) {
-            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--walk-speed MPS] [--sprint-speed MPS]"
+            std::cerr << "Usage: saige_desktop [--frames COUNT] [--character-course] [--course-vehicle] [--walk-speed MPS] [--sprint-speed MPS]"
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+                      << " [--course-collision FILE.json | --course-world FILE.json] [--course-checkpoint FILE.json]"
+#endif
 #if defined(SAIGE_DESKTOP_VULKAN)
                       << " [--require-rendered] [--validate]"
 #endif
@@ -169,12 +210,37 @@ int main(int argc, char** argv) {
         frames = count;
     }
 
+    if (course_vehicle && !course) {
+        std::cerr << "--course-vehicle requires --character-course\n";
+        return 2;
+    }
+
     if (custom_speed && (!course || course_config.walk_speed > course_config.sprint_speed)) {
         std::cerr << "Movement speeds require the character course and sprint speed at least walk speed\n";
         return 2;
     }
 
     try {
+        std::optional<std::span<const saige::Aabb>> course_boxes;
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (course_world && (!course || course_path)) {
+            std::cerr << "--course-world requires --character-course and is exclusive with --course-collision\n";
+            return 2;
+        }
+        if (course_checkpoint && (!course_world || course_checkpoint->empty())) {
+            std::cerr << "--course-checkpoint requires a world manifest\n";
+            return 2;
+        }
+        std::vector<saige::Aabb> collision;
+        if (course_path) {
+            if (!course) {
+                std::cerr << "--course-collision requires --character-course\n";
+                return 2;
+            }
+            collision = saige::load_chunk_collision(*course_path);
+            course_boxes = std::span<const saige::Aabb>(collision);
+        }
+#endif
 #if defined(SAIGE_DESKTOP_SCENE)
         // Validate the saved project and its CPU assets before opening a window.
         std::optional<saige::PreparedScene> prepared;
@@ -188,7 +254,8 @@ int main(int argc, char** argv) {
         }
 #endif
 #if defined(SAIGE_DESKTOP_VULKAN)
-        const auto title = course ? L"SAIGE course | WASD | Shift sprint | Space jump | Right drag camera | R reset"
+        const auto title = course_vehicle ? L"SAIGE vehicle | WASD | Space brake | E enter / exit | R reset"
+                                  : course ? L"SAIGE course | WASD | Shift sprint | Space jump | Right drag camera | R reset"
                                   : L"SAIGE | WASD to move | Right drag to look | Esc to quit";
         const bool strict = require_rendered || validate;
         saige::Win32Platform platform(title, 960, 540, strict ? saige::DesktopPresentation::renderer_paced
@@ -197,21 +264,35 @@ int main(int argc, char** argv) {
         saige::Win32Platform platform(L"SAIGE | WASD to move | Esc to quit");
 #endif
         saige::World world;
-        saige::sample::DesktopGame game(world, platform, course, course_config);
         DesktopFrameProbe probe;
 #if defined(SAIGE_DESKTOP_VULKAN)
-        // The sink releases its swapchain and surface before the HWND goes away.
+        // Games and staged resources are destroyed before the sink, which owns the GPU.
         DesktopFrameSink sink(probe, platform, strict, validate, course);
+#endif
+        std::optional<saige::sample::DesktopGame> local_game;
+        saige::IGame* game = nullptr;
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        saige::sample::CourseSceneOutput* output = nullptr;
+#if defined(SAIGE_DESKTOP_SCENE)
+        std::optional<saige::sample::StreamedCourseRenderer> composition;
+        if (course_world && sink.renderer()) output = &composition.emplace(*sink.renderer());
+#endif
+        std::optional<saige::sample::StreamedCourse> streamed_game;
+        if (course_world) game = &streamed_game.emplace(world, platform, *course_world, output, course_config, course_vehicle, true,
+                                                       course_checkpoint.value_or(std::filesystem::path{}));
+#endif
+        if (!game) game = &local_game.emplace(world, platform, course, course_boxes, course_config, course_vehicle);
+#if defined(SAIGE_DESKTOP_VULKAN)
 #if defined(SAIGE_DESKTOP_SCENE)
         if (prepared) {
             sink.show(*prepared);
         }
-        const auto stats = prepared ? prepared->run(platform, sink, frames) : saige::run(world, platform, game, sink, frames);
+        const auto stats = prepared ? prepared->run(platform, sink, frames) : saige::run(world, platform, *game, sink, frames);
         if (prepared) {
             std::cout << "SAIGE scene diagnostics " << sink.diagnostics_json() << '\n';
         }
 #else
-        const auto stats = saige::run(world, platform, game, sink, frames);
+        const auto stats = saige::run(world, platform, *game, sink, frames);
 #endif
         std::cout << "SAIGE Vulkan rendered=" << sink.rendered() << '\n';
         if (sink.validation_errors() != 0) {
@@ -223,7 +304,30 @@ int main(int argc, char** argv) {
             return 1;
         }
 #else
-        const auto stats = saige::run(world, platform, game, probe, frames);
+        const auto stats = saige::run(world, platform, *game, probe, frames);
+#endif
+#if defined(SAIGE_DESKTOP_COURSE_FILES)
+        if (streamed_game) {
+            std::cout << "SAIGE course resident_chunks=" << streamed_game->resident_count();
+#if defined(SAIGE_DESKTOP_SCENE)
+            if (auto* renderer = sink.renderer()) {
+                std::cout << " gpu_models=" << renderer->active_model_count()
+                          << " model_draws=" << renderer->stats().model_instances_drawn
+                          << " unresolved=" << renderer->stats().unresolved_instances << " gpu_uploads=" << composition->uploads()
+                          << " upload_cpu_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                                 composition->upload_time()).count()
+                          << " upload_deferrals=" << composition->deferred_uploads();
+            }
+#endif
+            const auto [x, y] = streamed_game->absolute_cell();
+            std::cout << " world_cell=" << x << ',' << y << " origin_epoch=" << streamed_game->origin_epoch() << '\n';
+            const auto preparation = streamed_game->preparation_stats();
+            std::cout << "SAIGE stream accepted=" << preparation.accepted << " project_imports=" << preparation.project_imports
+                      << " failed=" << preparation.failed << " discarded=" << preparation.discarded
+                      << " accepted_prepare_wall_us=" << std::chrono::duration_cast<std::chrono::microseconds>(
+                             preparation.accepted_wall_time).count()
+                      << " retained_cpu_asset_bytes=" << streamed_game->retained_asset_bytes() << '\n';
+        }
 #endif
         std::cout << "SAIGE desktop frames=" << stats.frames << " ticks=" << stats.ticks
                   << " instances=" << probe.instances << " marker_x=" << probe.position.x

@@ -13,6 +13,7 @@ add_library(saige_core STATIC
     src/static_collision.cpp
     src/oriented_box.cpp
     src/wheel_contact.cpp
+    src/water.cpp
     src/vehicle.cpp
     src/runtime.cpp
     src/scene_hierarchy.cpp
@@ -37,7 +38,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course static_collision oriented_box wheel_contact vehicle vehicle_surface character_surface character_drive contact_response character_crouch vehicle_handling vehicle_powertrain vehicle_drivetrain vehicle_damage)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course static_collision oriented_box wheel_contact vehicle vehicle_surface character_surface character_drive contact_response character_crouch vehicle_handling vehicle_powertrain vehicle_drivetrain vehicle_damage water)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)

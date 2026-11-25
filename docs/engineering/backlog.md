@@ -5,15 +5,14 @@
 * Barrel stack prop is non-solid (multi-piece model); give it a compound hull.
 * The unlit window material is a flat dark glass; lit windows have no interior and light nothing around them.
 * Wheel-of-a-wagon aliasing at 30 fps; add temporal supersampling (average sub-frames) to the offline capture path before any further film.
-* Brake pads are drawn rigidly with the wheel and so spin with it; mount them on the hub.
 * `production_tools_python` skips when the tools venv is not at `$SAIGE_TOOLS_HOME` or `~/.saige-tools`; make CI create it with `tools/production/setup.sh` so the test runs rather than skips.
 
 ## Physics (22%)
 
 1. Physical materials: table, vehicle tires and vehicle body contacts done (`docs/physics-materials.md`); character traction is done (`CapsuleInput::traction`, derived by the host from the surface under the feet: no change to what the controller reports); object restitution and friction are done as a reusable response (`contact_velocity`, not wired into Showcase 03); next is a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
-2. Vehicle: tire load sensitivity and a handbrake are done (opt-in, `docs/physics-materials.md`). The powertrain (torque curve, automatic gearbox, rpm and gear published) is done too. Next: a differential, damage state, a controlled-drift test, engine braking.
+2. Vehicle: done and opt-in (`docs/vehicle-dynamics.md`): brake pads and calipers stay on the hub in the Showcase 03 code (not re-rendered), differential, engine braking, slip-angle lateral tire with a controlled drift, persistent damage state with physical consequences and a versioned save format. Not done: tire slip-ratio and wheel-speed state, mesh deformation (not claimed), vehicle-vehicle contact. Earlier: tire load sensitivity and a handbrake are done (opt-in, `docs/physics-materials.md`). The powertrain (torque curve, automatic gearbox, rpm and gear published) is done too. Next: a differential, damage state, a controlled-drift test, engine braking.
 3. Rigid-body stacking and joints; evaluate Jolt and Bullet (license, determinism, maintenance) behind a backend interface; owner approval to adopt.
-4. Water (buoyancy, drag), destruction (fracture of authored meshes).
+4. Water: done as a module (`docs/water.md`: Gerstner surface, dispersion by depth, buoyancy, drag, currents, stability). Next: a host that spawns wakes and foam from `FloatingBody::wetted()`, swimming, a depth map for coastal shoaling, a time-varying wind. Destruction (fracture of authored meshes) is not started.
 
 ## Characters and animation (20%)
 

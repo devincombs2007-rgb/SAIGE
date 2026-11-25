@@ -321,6 +321,29 @@
    "conflicted": true,
    "patch": "42-merge-1e211a5d9.patch",
    "pr": 86
+  },
+  {
+   "kind": "patch",
+   "tree": "6f22b63ba61167204689e1f71bd1efae6157641e",
+   "subject": "render: the renderer changes that were made on the production branch after its merges (continuous SceneLighting::emissive_gain for lit windows, render sink frame changes, glTF skin one-liners), ported onto the stack",
+   "patch": "43-patch-df84d4d1a.patch",
+   "pr": null
+  },
+  {
+   "kind": "patch",
+   "tree": "fe221ee6149d6ab4f1e12e040f0baf728a10f85e",
+   "subject": "shaders: regenerate the model permutations for the emissive gain",
+   "patch": "44-patch-3fe716d9b.patch",
+   "pr": null
+  },
+  {
+   "kind": "merge",
+   "ref": "3f9d4ae4618e23e1d75d71661839ee16060bac9c",
+   "tree": "c913e655e416f9bece3f41b863cda0e1d057ccf4",
+   "conflicted": true,
+   "patch": "45-merge-3f9d4ae46.patch",
+   "pr": null,
+   "branch": "claude/production-infrastructure"
   }
  ],
  "batches": [
@@ -385,10 +408,42 @@
    "tip": "5218b5da976f62b59adf48115c3fe2435c8162fa"
   },
   {
-   "branch": "integ/all",
-   "title": "Core follow-up: live world origin (#86); the whole stack",
+   "branch": "batch/2b-core-live-origin",
+   "title": "Core follow-up: live world origin (#86); the whole stack of pull requests",
    "after_step": 42,
    "tip": "af795b47fcc2916fe9c51b5ef0eb2710a3faf4c4"
+  },
+  {
+   "branch": "batch/5f-production-render-extras",
+   "title": "Rendering changes made on the production branch (emissive gain, render sink), ported onto the stack",
+   "after_step": 44,
+   "tip": "3fe716d9b6bbd64b8827ad99974daacae8b109a2"
+  },
+  {
+   "branch": "batch/7-engine-systems",
+   "title": "Newly developed engine systems (the production branch merged: dynamics, ragdoll, water, navigation, audio, vehicle, animation, showcase)",
+   "after_step": 45,
+   "tip": "fd49bc393c86c8b07ee862e8128ffea6696b11a6"
+  }
+ ],
+ "overlays": [
+  {
+   "branch": "batch/6-production-infrastructure",
+   "base_branch": "batch/5f-production-render-extras",
+   "source_step": 45,
+   "after_step": 45,
+   "paths": [
+    "assets",
+    "tools/production",
+    "tools/animation",
+    "tools/audit",
+    "tools/windows",
+    "tools/integration",
+    "docs/assets",
+    "docs/engineering"
+   ],
+   "title": "Production infrastructure: asset catalog and licences, asset preparation and validation tools, audit scripts, the Windows workstation bootstrap, animation asset tools, engineering memory documents",
+   "tree": "a156d7de6938158183ea27801971e2d97cd6969b"
   }
  ]
 }

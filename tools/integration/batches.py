@@ -121,6 +121,22 @@ def record(src, main):
     print(f"recorded {len(steps)} steps")
 
 
+def overlay_tree(base_tree, source_tree, paths):
+    """`base_tree` with every path (a directory or a file) replaced by its content in `source_tree`: how the production-infrastructure batch is cut out of the final tree."""
+    with tempfile.TemporaryDirectory() as d:
+        env = {**ENV, "GIT_INDEX_FILE": str(Path(d) / "index")}
+        git("read-tree", base_tree, env=env)
+        for path in paths:
+            listing = git("ls-files", "-s", "--", path, env=env).stdout.decode().splitlines()
+            for line in listing:
+                git("update-index", "--force-remove", line.split("\t", 1)[1], env=env)
+            for line in git("ls-tree", "-r", source_tree, "--", path).stdout.decode().splitlines():
+                meta, name = line.split("\t", 1)
+                mode, _, sha = meta.split()
+                git("update-index", "--add", "--cacheinfo", f"{mode},{sha},{name}", env=env)
+        return out("write-tree", env=env)
+
+
 def replay(manifest, only=None, verify_only=False):
     main = manifest["main"]
     head = None
@@ -144,6 +160,16 @@ def replay(manifest, only=None, verify_only=False):
             raise SystemExit(f"step {i} ({s['kind']} {s.get('ref', '')}): tree {tree} differs from the recorded {s['tree']}")
         if i in batch_ends:
             tips[batch_ends[i]["branch"]] = head
+        for o in manifest.get("overlays", []):
+            if o["after_step"] == i:
+                base = out("rev-parse", tips[o["base_branch"]] + "^{tree}")
+                src = s["tree"] if o["source_step"] == i else None
+                if src is None:
+                    raise SystemExit("an overlay's source must be the step it follows")
+                tree = overlay_tree(base, src, o["paths"])
+                if tree != o["tree"]:
+                    raise SystemExit(f"overlay {o['branch']}: tree {tree} differs from the recorded {o['tree']}")
+                tips[o["branch"]] = commit(tree, [tips[o["base_branch"]]], o["title"])
     return tips
 
 

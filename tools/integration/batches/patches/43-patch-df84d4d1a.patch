@@ -1,0 +1,257 @@
+diff --git a/engine/gfx_assets/include/saige/gfx_assets/gltf.hpp b/engine/gfx_assets/include/saige/gfx_assets/gltf.hpp
+index 7ddfb83..87ef9ed 100644
+--- a/engine/gfx_assets/include/saige/gfx_assets/gltf.hpp
++++ b/engine/gfx_assets/include/saige/gfx_assets/gltf.hpp
+@@ -123,6 +123,7 @@ struct MeshInstance {
+ struct Skin {
+     std::string name;
+     std::vector<int32_t> joint_nodes;           ///< the glTF node of each joint, in joint order (what JOINTS_0 indexes)
++    std::vector<std::string> joint_names;       ///< per joint: the node's name (possibly empty), for mapping a skeleton onto another by bone name
+     std::vector<int32_t> parent;                ///< per joint: the index of its parent joint, or -1 for a top joint
+     std::vector<render::Transform> rest;        ///< per joint: the local rest transform (translation, rotation, scale)
+     std::vector<render::Mat4> base;             ///< per joint: where the joint's parent node stands at rest (identity when the joint has no parent); used only for top joints
+diff --git a/engine/gfx_assets/src/gltf.cpp b/engine/gfx_assets/src/gltf.cpp
+index e2ce0d2..2b4207f 100644
+--- a/engine/gfx_assets/src/gltf.cpp
++++ b/engine/gfx_assets/src/gltf.cpp
+@@ -1156,6 +1156,7 @@ private:
+                     }
+                 }
+                 if (parent_joint < 0 && parent[node] >= 0) base = c * world[static_cast<std::size_t>(parent[node])] * c_inverse;
++                skin.joint_names.push_back(info.name);
+                 skin.parent.push_back(parent_joint);
+                 skin.base.push_back(base);
+                 render::Transform rest;
+diff --git a/engine/gfx_assets/tests/test_gltf_skin.cpp b/engine/gfx_assets/tests/test_gltf_skin.cpp
+index ee33503..3f4aa61 100644
+--- a/engine/gfx_assets/tests/test_gltf_skin.cpp
++++ b/engine/gfx_assets/tests/test_gltf_skin.cpp
+@@ -205,6 +205,7 @@ TEST_CASE("glTF skin: joints, hierarchy, rest transforms and inverse bind matric
+     CHECK(s.name == "armature");
+     REQUIRE(s.joint_count() == 3);
+     CHECK(s.joint_nodes == std::vector<int32_t>{0, 1, 2});
++    CHECK(s.joint_names == std::vector<std::string>{"root", "mid", "tip"});  // the node names, in joint order, for mapping a skeleton by bone name
+     CHECK(s.parent == std::vector<int32_t>{-1, 0, 1});
+     CHECK(near(s.rest[1].position, engine(0, 1, 0)));  // glTF +Y 1 m up is engine +Z
+     CHECK(near(s.rest[0].scale, {1, 1, 1}) && std::fabs(s.rest[0].rotation.w - 1.0f) < 1e-6f);
+@@ -312,6 +313,7 @@ TEST_CASE("glTF animation: joint order in the file does not change the result, a
+     const GltfAsset forward = load(arm_gltf());
+     const GltfAsset backward = load(arm_gltf(reversed));
+     CHECK(backward.skins[0].joint_nodes == std::vector<int32_t>{2, 1, 0});
++    CHECK(backward.skins[0].joint_names == std::vector<std::string>{"tip", "mid", "root"});
+     CHECK(backward.skins[0].parent == std::vector<int32_t>{1, 2, -1});  // tip -> mid (slot 1) -> root (slot 2), the root has none
+     for (const std::size_t clip : {std::size_t{0}, std::size_t{1}}) {
+         for (const float t : {0.0f, 0.2f, 0.5f, 0.75f, 1.0f}) {
+diff --git a/engine/render/include/saige/render/model_renderer.hpp b/engine/render/include/saige/render/model_renderer.hpp
+index 53b5fd3..6e60e98 100644
+--- a/engine/render/include/saige/render/model_renderer.hpp
++++ b/engine/render/include/saige/render/model_renderer.hpp
+@@ -100,6 +100,12 @@ struct SceneLighting {
+     Float3 sun_direction{-0.40f, -0.55f, 0.73f};  ///< points toward the sun; not required to be unit length, must not be zero
+     Float3 sun_color{1.00f, 0.95f, 0.85f};        ///< linear; may exceed 1 for an HDR output
+     Float3 ambient_ground{0.20f, 0.18f, 0.16f};   ///< ambient light arriving from below
++    /// A floor for the sky half of the hemispherical ambient: the sky ambient is max(fog color * 0.6, ambient_ground * ambient_sky_floor). 0 (the default) changes nothing; a host
++    /// raises it at night, when the atmosphere's horizon radiance (and with it the sky ambient) falls to nothing, to keep a faint moonlit fill. Finite and non-negative.
++    float ambient_sky_floor = 0.0f;
++    /// A global multiplier of the emission of every imported material (emissive factor times texture), applied in the shader. 1 (the default) is the emission as authored and changes nothing; a host
++    /// that lights windows and lamps as the sun sets ramps it continuously from 0 to 1 instead of swapping material sets (which pops). Finite and non-negative.
++    float emissive_gain = 1.0f;
+ };
+ 
+ /// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.
+diff --git a/engine/render/include/saige/render/scene_renderer.hpp b/engine/render/include/saige/render/scene_renderer.hpp
+index c58835f..3a9a295 100644
+--- a/engine/render/include/saige/render/scene_renderer.hpp
++++ b/engine/render/include/saige/render/scene_renderer.hpp
+@@ -163,6 +163,9 @@ struct SceneFrame {
+     /// like the settings' lighting, before anything is recorded or written: `render` throws std::invalid_argument for a bad value and std::logic_error if the renderer
+     /// was not built with dynamic lighting, and nothing has changed when it does.
+     const SceneLighting* lighting = nullptr;
++    /// This frame's exposure in stops (HDR only; not retained): replaces `RendererSettings::tone_map.exposure_ev` for this frame's tone map, so a host can adapt the exposure over time
++    /// (day to night). Unset: the construction-time value. Clamped by the tone mapper like the setting.
++    std::optional<float> exposure_ev;
+ };
+ 
+ /// The lighting for a sun at `to_sun` (any non-zero direction; normalized), derived from the daytime look `day` and the atmosphere: the sun's color is `day.sun_color`
+diff --git a/engine/render/src/model_renderer.cpp b/engine/render/src/model_renderer.cpp
+index 2ce6a25..239b35f 100644
+--- a/engine/render/src/model_renderer.cpp
++++ b/engine/render/src/model_renderer.cpp
+@@ -43,7 +43,7 @@ struct SceneConstants {
+     float sun_direction[4];
+     float sun_color[4];
+     float ambient_ground[4];
+-    float flags[4];  ///< x: shading mode
++    float flags[4];  ///< x: shading mode, y: emissive gain
+ };
+ 
+ /// Shadow block (set 1, binding 5 of the shadowed permutation), matching `ShadowConstants` in the shader. Rewritten every frame.
+@@ -184,7 +184,8 @@ void validate_lighting(const SceneLighting& lighting)
+     const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+     const auto non_negative = [](Float3 v) { return v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f; };
+     if (!finite(lighting.sun_direction) || !finite(lighting.sun_color) || !finite(lighting.ambient_ground) ||
+-        !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground)) {
++        !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground) || !std::isfinite(lighting.ambient_sky_floor) || lighting.ambient_sky_floor < 0.0f ||
++        !std::isfinite(lighting.emissive_gain) || lighting.emissive_gain < 0.0f) {
+         throw std::invalid_argument("SceneLighting must be finite, with non-negative colors");
+     }
+     Float3 unit;
+@@ -395,7 +396,9 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format,
+     sc.ambient_ground[0] = light.ambient_ground.x;
+     sc.ambient_ground[1] = light.ambient_ground.y;
+     sc.ambient_ground[2] = light.ambient_ground.z;
++    sc.ambient_ground[3] = light.ambient_sky_floor;
+     sc.flags[0] = static_cast<float>(shading_);
++    sc.flags[1] = light.emissive_gain;
+     static_assert(sizeof(SceneConstants) == 80);
+     std::memcpy(scene_default_.data(), &sc, sizeof(sc));
+     frame_sun_ = sun_unit;
+@@ -1118,6 +1121,8 @@ void ModelRenderer::set_lighting_frame(const ModelLightingFrame* frame)
+     sc.ambient_ground[0] = frame->lighting.ambient_ground.x;
+     sc.ambient_ground[1] = frame->lighting.ambient_ground.y;
+     sc.ambient_ground[2] = frame->lighting.ambient_ground.z;
++    sc.ambient_ground[3] = frame->lighting.ambient_sky_floor;
++    sc.flags[1] = frame->lighting.emissive_gain;
+     write_scene_block(reinterpret_cast<const float*>(&sc), sun);
+ }
+ 
+diff --git a/engine/render/src/scene_renderer.cpp b/engine/render/src/scene_renderer.cpp
+index f0b34c7..f7c6b9f 100644
+--- a/engine/render/src/scene_renderer.cpp
++++ b/engine/render/src/scene_renderer.cpp
+@@ -276,6 +276,8 @@ SceneLighting time_of_day_lighting(const AtmosphereSettings& atmosphere, Float3
+     s = s * s * (3.0f - 2.0f * s);
+     const float k = night_ambient + (1.0f - night_ambient) * s;
+     out.ambient_ground = {day.ambient_ground.x * k, day.ambient_ground.y * k, day.ambient_ground.z * k};
++    out.ambient_sky_floor = day.ambient_sky_floor;
++    out.emissive_gain = day.emissive_gain;
+     return out;
+ }
+ 
+@@ -953,7 +955,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
+                 c.begin_rendering(rd);
+                 c.set_viewport({0.0f, 0.0f, static_cast<float>(target.width), static_cast<float>(target.height), 0.0f, 1.0f});
+                 c.set_scissor({0, 0, target.width, target.height});
+-                tone_mapper_->draw(c, hdr_input_, settings_.tone_map, settings_.bloom.intensity);
++                ToneMapSettings frame_tone_map = settings_.tone_map;
++                if (frame.exposure_ev.has_value()) frame_tone_map.exposure_ev = *frame.exposure_ev;
++                tone_mapper_->draw(c, hdr_input_, frame_tone_map, settings_.bloom.intensity);
+                 ++stats.draw_calls;
+                 c.end_rendering();
+                 c.end_debug_label();
+diff --git a/engine/render/tests/test_scene_renderer.cpp b/engine/render/tests/test_scene_renderer.cpp
+index 9e0fbab..e130afd 100644
+--- a/engine/render/tests/test_scene_renderer.cpp
++++ b/engine/render/tests/test_scene_renderer.cpp
+@@ -272,6 +272,15 @@ TEST_CASE("SceneRenderer: invalid lighting is rejected before any GPU object is
+     bad = {};
+     bad.sun_direction = {-0.0f, 0.0f, -0.0f};
+     CHECK(rejected(bad));  // negative zero is still no direction
++    bad = {};
++    bad.emissive_gain = -0.5f;
++    CHECK(rejected(bad));  // negative emission
++    bad = {};
++    bad.emissive_gain = nan;
++    CHECK(rejected(bad));
++    bad = {};
++    bad.emissive_gain = std::numeric_limits<float>::infinity();
++    CHECK(rejected(bad));
+     CHECK(o.device.live_resource_count() == baseline);  // nothing was acquired by the failed constructions
+     CHECK(o.device.validation_error_count() == 0);
+ 
+@@ -2014,6 +2023,12 @@ TEST_CASE("time_of_day_lighting: the sun reddens and dims as it sets, the ambien
+     CHECK(noon.sun_color.x > 0.7f * day.sun_color.x);
+     CHECK(noon.sun_color.x <= day.sun_color.x);
+     CHECK(near(noon.ambient_ground.x, day.ambient_ground.x, 1e-5f));
++    CHECK(noon.emissive_gain == day.emissive_gain);
++    {
++        SceneLighting lit = day;
++        lit.emissive_gain = 0.37f;
++        CHECK(time_of_day_lighting(atmosphere, {0.0f, 0.0f, 1.0f}, lit).emissive_gain == 0.37f);  // passed through
++    }
+     // Near the horizon the blue is scattered out first: the ratios change and the sun is dimmer.
+     CHECK(low.sun_color.z / low.sun_color.x < noon.sun_color.z / noon.sun_color.x);
+     CHECK(low.sun_color.x < noon.sun_color.x);
+diff --git a/engine/rhi_vulkan/tests/test_models.cpp b/engine/rhi_vulkan/tests/test_models.cpp
+index 03f540c..5e3516e 100644
+--- a/engine/rhi_vulkan/tests/test_models.cpp
++++ b/engine/rhi_vulkan/tests/test_models.cpp
+@@ -552,6 +552,37 @@ TEST_CASE("Models: the emissive slot reads its own texture as sRGB through its o
+     CHECK(rig.device->validation_error_count() == 0);
+ }
+ 
++TEST_CASE("Models: SceneLighting::emissive_gain scales emission continuously and leaves everything else alone")
++{
++    // A black material with an emissive factor: the pixel is the emission times the gain and nothing else, in both shading modes. Gain 1 (the default) is the emission as authored.
++    for (const ModelShading shading : {ModelShading::Legacy, ModelShading::Extended}) {
++        float previous = -1.0f;
++        for (const float gain : {0.0f, 0.25f, 0.5f, 1.0f, 2.0f}) {
++            SceneLighting light;
++            light.emissive_gain = gain;
++            Rig rig("model_emissive_gain", shading, light);
++            {
++                const Camera camera = look_at_camera({-4, 0, 1.5f}, {0, 0, 1.5f});
++                const Mat4 vp = view_projection_matrix(camera, static_cast<float>(kW) / static_cast<float>(kH));
++                MaterialData data;
++                data.base_color[0] = data.base_color[1] = data.base_color[2] = 0.0f;
++                data.emissive[0] = 0.4f;
++                data.emissive[1] = 0.2f;
++                data.emissive[2] = 0.1f;
++                const GpuModel quad = make_quad(rig.renderer->registry(), rig.material(data), 0.0f, 1.5f);
++                const ModelDraw draw{&quad, Mat4::identity()};
++                const Float3 got = linear_at(rig.render(camera, std::span(&draw, 1)), to_pixel(vp, {0, 0, 1.5f}));
++                CHECK(std::fabs(got.x - 0.4f * gain) < 0.02f);
++                CHECK(std::fabs(got.y - 0.2f * gain) < 0.02f);
++                CHECK(std::fabs(got.z - 0.1f * gain) < 0.02f);
++                CHECK(got.x > previous);  // strictly increasing with the gain: no steps, no plateaus
++                previous = got.x;
++            }
++            CHECK(rig.device->validation_error_count() == 0);
++        }
++    }
++}
++
+ TEST_CASE("Models: the occlusion slot scales only the ambient term, read as linear data")
+ {
+     Rig rig("model_slot_occlusion", ModelShading::Extended);
+diff --git a/shaders/scene/model.hlsl b/shaders/scene/model.hlsl
+index e3bd4df..297eeb2 100644
+--- a/shaders/scene/model.hlsl
++++ b/shaders/scene/model.hlsl
+@@ -70,7 +70,7 @@ struct ModelPush {
+     float4 sc_sun_direction;  // unit vector toward the sun
+     float4 sc_sun_color;
+     float4 sc_ambient_ground; // ambient light from below (+Z up is the sky color)
+-    float4 sc_flags;          // x: shading mode (0 legacy, 1 extended, 2 metallic-roughness)
++    float4 sc_flags;          // x: shading mode (0 legacy, 1 extended, 2 metallic-roughness); y: emissive gain (a global multiplier of every material's emission, 1 = as authored)
+ };
+ [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
+ [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
+@@ -181,7 +181,8 @@ float sun_visibility(float3 world_pos, float3 geometric_normal)
+ 
+ float3 ambient_radiance(float3 direction)
+ {
+-    return lerp(sc_ambient_ground.rgb, sc_fog_color.rgb * 0.6, direction.z * 0.5 + 0.5);
++    const float3 sky = max(sc_fog_color.rgb * 0.6, sc_ambient_ground.rgb * sc_ambient_ground.w);  // w: the host's floor for the sky half (0: none)
++    return lerp(sc_ambient_ground.rgb, sky, direction.z * 0.5 + 0.5);
+ }
+ 
+ /// The material contract made concrete at one pixel: factors times textures, in the color space each slot is stored in. `n`, `t`
+@@ -210,7 +211,7 @@ SurfaceData evaluate_surface(float2 uv, float2 uv_dx, float2 uv_dy, float4 base,
+     s.metallic = mat_mr_normal_occ.x * mr.b;
+     s.occlusion = lerp(1.0, g_occlusion.SampleGrad(g_occlusion_sampler, uv, uv_dx, uv_dy).r, mat_mr_normal_occ.w);
+     s.normal = normal;
+-    s.emissive = g_emissive.SampleGrad(g_emissive_sampler, uv, uv_dx, uv_dy).rgb * mat_emissive_cutoff.rgb;
++    s.emissive = g_emissive.SampleGrad(g_emissive_sampler, uv, uv_dx, uv_dy).rgb * mat_emissive_cutoff.rgb * sc_flags.y;
+     return s;
+ }
+ 
+@@ -363,7 +364,7 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
+     float3 lit;
+     if (sc_flags.x < 0.5) {
+         // Legacy, the 0.2 look exactly: base color texture and factor, the emissive *factor*, hemispherical ambient plus sun.
+-        lit = base.rgb * (ambient_radiance(n) + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb;
++        lit = base.rgb * (ambient_radiance(n) + sc_sun_color.rgb * n_dot_l) + mat_emissive_cutoff.rgb * sc_flags.y;
+     } else {
+         const bool pbr = sc_flags.x >= 1.5;
+         const SurfaceData surface = evaluate_surface(input.uv, uv_dx, uv_dy, base, n, t, b, pbr);

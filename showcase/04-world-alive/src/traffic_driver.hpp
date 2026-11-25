@@ -37,6 +37,7 @@ struct VehicleView {
     bool siren = false;
     bool disabled = false;                 // wrecked at the roadside, waiting for the response
     float damage = 0.0f;                   // the worst zone, 0..1
+    std::array<float, 6> zones{};          // damage by zone: front, rear, left, right, roof, underbody (0..1)
     int palette = 0;
     int engine_rpm = 0;
 };

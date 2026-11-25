@@ -2,7 +2,9 @@
 // Every pixel is read back from the renderer's output target; report.json records the device, the resolution, the cadence and the build.
 #include "actors.hpp"
 #include "city.hpp"
+#include "director.hpp"
 #include "gfx.hpp"
+#include "scout.hpp"
 #include "world.hpp"
 
 #include "saige/render/atmosphere.hpp"
@@ -14,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -33,13 +36,23 @@ struct Options {
     double sim_seconds = 0.0;
     bool accidents = true;
     int residents = 60, vehicles = 14;
+    bool film = false;
+    std::uint32_t seed = 8;
+    double film_seconds = 180.0, preroll = 25.0, fps = 30.0, time_scale = 47.0;
+    int start_frame = 0, end_frame = -1;
+    fs::path video;
+    fs::path scout_file;
+    fs::path audio_log;
+    bool no_render = false;
+    std::vector<int> only_frames;
+    int crf = 14;
     fs::path out = "alive-out";
     std::uint32_t width = 1280, height = 720, ssaa = 1;
     std::uint32_t shadow_map = 2048;
     float shadow_distance = 220.0f;
     float far_distance = 260.0f;
     double hour = 17.5;
-    float exposure_bias = 0.0f;
+    float exposure_bias = 0.45f;
     bool validate = false;
     std::vector<std::array<double, 7>> stills;
 };
@@ -60,6 +73,24 @@ Options parse(int argc, char** argv) {
         try {
             if (a == "--assets") o.assets = value();
             else if (a == "--anim") o.anim = value();
+            else if (a == "--film") o.film = true;
+            else if (a == "--seed") o.seed = static_cast<std::uint32_t>(std::stoul(value()));
+            else if (a == "--film-seconds") o.film_seconds = std::stod(value());
+            else if (a == "--preroll") o.preroll = std::stod(value());
+            else if (a == "--fps") o.fps = std::stod(value());
+            else if (a == "--time-scale") o.time_scale = std::stod(value());
+            else if (a == "--start-frame") o.start_frame = std::stoi(value());
+            else if (a == "--end-frame") o.end_frame = std::stoi(value());
+            else if (a == "--video") o.video = value();
+            else if (a == "--scout-file") o.scout_file = value();
+            else if (a == "--audio-log") o.audio_log = value();
+            else if (a == "--no-render") o.no_render = true;
+            else if (a == "--frames") {
+                std::stringstream ss(value());
+                std::string tok;
+                while (std::getline(ss, tok, ',')) o.only_frames.push_back(std::stoi(tok));
+            }
+            else if (a == "--crf") o.crf = std::stoi(value());
             else if (a == "--sim-seconds") o.sim_seconds = std::stod(value());
             else if (a == "--no-accidents") o.accidents = false;
             else if (a == "--residents") o.residents = std::stoi(value());
@@ -133,7 +164,7 @@ int main(int argc, char** argv) {
         rs.dynamic_lighting = true;
         rs.ground_half_size = 0.001f;
         rs.sky = {0.30f, 0.46f, 0.78f, 1.0f};
-        rs.fog_density = 0.00035f;
+        rs.fog_density = 0.00045f;
         rs.lighting.sun_direction = {0.5f, 0.1f, 0.6f};
         rs.lighting.sun_color = {2.4f, 2.0f, 1.65f};
         rs.lighting.ambient_ground = {0.17f, 0.15f, 0.125f};
@@ -162,6 +193,8 @@ int main(int argc, char** argv) {
         wc.vehicles = opt.vehicles;
         wc.accidents = opt.accidents;
         wc.start_minute = opt.hour * 60.0;
+        wc.seed = opt.seed;
+        wc.time_scale = opt.film ? opt.time_scale : 20.0;
         alive::World world(wc);
         const District& district = world.district();
         CityScene city(renderer, materials, district, opt.assets / "polyhaven", warnings);
@@ -175,6 +208,144 @@ int main(int argc, char** argv) {
         }
         actors.animate(world.pedestrians(), 1.0 / 30.0);
         if (opt.sim_seconds > 0.0) std::printf("simulated %.0f s in %.1f s\n", opt.sim_seconds, std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count());
+
+        if (opt.film) {
+            ScoutReport rep;
+            if (!opt.scout_file.empty() && fs::exists(opt.scout_file)) {
+                std::ifstream in(opt.scout_file);
+                std::string tag;
+                while (in >> tag) {
+                    if (tag == "accident") in >> rep.accident_t >> rep.accident_x >> rep.accident_y >> rep.accident_vehicle >> rep.onscene_t >> rep.cleared_t;
+                    else if (tag == "event") {
+                        ScoutEvent e;
+                        int type = 0;
+                        in >> e.t >> type >> e.vehicle >> e.x >> e.y;
+                        e.type = static_cast<TrafficEvent::Type>(type);
+                        rep.events.push_back(e);
+                    }
+                }
+            } else {
+                rep = scout_world(wc, opt.preroll + opt.film_seconds + 1.0);
+                if (!opt.scout_file.empty()) {
+                    std::ofstream out(opt.scout_file);
+                    out.precision(17);
+                    out << "accident " << rep.accident_t << " " << rep.accident_x << " " << rep.accident_y << " " << rep.accident_vehicle << " " << rep.onscene_t << " " << rep.cleared_t << "\n";
+                    for (const ScoutEvent& e : rep.events) out << "event " << e.t << " " << static_cast<int>(e.type) << " " << e.vehicle << " " << e.x << " " << e.y << "\n";
+                }
+            }
+            std::printf("scout (seed %u): accident at %.1f s sim (film %.1f), response on scene at %.1f, cleared %.1f\n", opt.seed, rep.accident_t, rep.accident_t - opt.preroll, rep.onscene_t, rep.cleared_t);
+            Director director(district, rep, opt.film_seconds, opt.preroll);
+            for (const auto& sh : director.list()) std::printf("  shot at %6.1f s: %s\n", sh.first, sh.second.c_str());
+            const double dt = 1.0 / opt.fps;
+            const int total = static_cast<int>(opt.film_seconds * opt.fps);
+            const int last = opt.end_frame < 0 ? total : std::min(opt.end_frame, total);
+            FILE* pipe = nullptr;
+            if (!opt.video.empty()) {
+                fs::create_directories(opt.video.has_parent_path() ? opt.video.parent_path() : fs::path("."));
+                char cmd[1024];
+                std::snprintf(cmd, sizeof cmd, "ffmpeg -loglevel error -y -f rawvideo -pix_fmt rgba -s %ux%u -r %g -i - -c:v libx264 -preset veryfast -crf %d -pix_fmt yuv420p \"%s\"", opt.width, opt.height, opt.fps, opt.crf, opt.video.string().c_str());
+                pipe = popen(cmd, "w");
+                if (pipe == nullptr) throw std::runtime_error("cannot start ffmpeg");
+            }
+            // The world runs from its start: the pre-roll first (the streets fill up), then one step per frame; frames before the requested range are simulated but not drawn, so that any range is exactly what
+            // a continuous render would show.
+            for (double t = 0.0; t < opt.preroll; t += dt) {
+                world.step(dt);
+                actors.animate(world.pedestrians(), dt);
+            }
+            FILE* audio = opt.audio_log.empty() ? nullptr : std::fopen(opt.audio_log.string().c_str(), "w");
+            double frame_ms = 0.0;
+            int drawn = 0;
+            for (int f = 0; f < last; ++f) {
+                const double tf = static_cast<double>(f) * dt;
+                world.step(dt);
+                actors.animate(world.pedestrians(), dt);
+                const std::vector<TrafficEvent> frame_events = world.take_traffic_events();
+                for (const TrafficEvent& e : frame_events)
+                    if (e.type == TrafficEvent::Type::Impact && e.energy > 2500.0f) actors.impact(world.time_seconds(), e.x, e.y, 0.3, e.energy);
+                const Cam cam = director.camera(tf, dt, world);
+                if (f < opt.start_frame) continue;
+                if (audio != nullptr) {
+                    // What the soundtrack needs about this frame: where the listener is, every vehicle, the residents within earshot, and the world's events (each is a real engine fact: a vehicle's rpm, a resident's gait, an impact's energy).
+                    bool indoors = false;
+                    for (const Interior& in : district.interiors)
+                        if (in.room.contains(static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y)) && cam.eye.z < 3.8f) indoors = true;
+                    std::fprintf(audio, "{\"f\":%d,\"t\":%.4f,\"in\":%d,\"cam\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f],\"veh\":[", f, tf, indoors ? 1 : 0, static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y), static_cast<double>(cam.eye.z), static_cast<double>(cam.look.x), static_cast<double>(cam.look.y), static_cast<double>(cam.look.z));
+                    bool first = true;
+                    for (const VehicleView& v : world.vehicles()) {
+                        std::fprintf(audio, "%s[%u,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d]", first ? "" : ",", v.id, static_cast<int>(v.kind), v.x, v.y, v.z, v.speed, v.engine_rpm, v.siren ? 1 : 0, v.disabled ? 1 : 0, v.braking ? 1 : 0);
+                        first = false;
+                    }
+                    std::fprintf(audio, "],\"ped\":[");
+                    first = true;
+                    for (const PedView& p : world.pedestrians()) {
+                        if (!p.visible || std::hypot(p.x - static_cast<double>(cam.eye.x), p.y - static_cast<double>(cam.eye.y)) > 90.0) continue;
+                        std::fprintf(audio, "%s[%llu,%.2f,%.2f,%.2f,%.2f,%d,%d]", first ? "" : ",", static_cast<unsigned long long>(p.id), p.x, p.y, p.z, p.speed, static_cast<int>(p.state), p.inside_building ? 1 : 0);
+                        first = false;
+                    }
+                    std::fprintf(audio, "],\"ev\":[");
+                    first = true;
+                    for (const TrafficEvent& e : frame_events) {
+                        std::fprintf(audio, "%s[%d,%.2f,%.2f,%.0f,%u,%d]", first ? "" : ",", static_cast<int>(e.type), e.x, e.y, static_cast<double>(e.energy), e.vehicle, static_cast<int>(e.surface_kind));
+                        first = false;
+                    }
+                    std::fprintf(audio, "]}\n");
+                }
+                if (opt.no_render) continue;
+                if (!opt.only_frames.empty() && std::find(opt.only_frames.begin(), opt.only_frames.end(), f) == opt.only_frames.end()) continue;
+                const render::Camera camera = render::look_at_camera(cam.eye, cam.look, {0, 0, 1}, cam.fov_deg * static_cast<float>(kPi / 180.0), 0.15f);
+                std::vector<render::ModelDraw> draws;
+                city.collect(draws, cam.eye, opt.far_distance);
+                actors.collect_parked(draws, cam.eye, opt.far_distance);
+                actors.collect(draws, world, world.time_seconds(), cam.eye, opt.far_distance);
+                city.collect_signals(draws, [&](std::uint32_t inter, int leg) {
+                    const traffic::IntersectionController* ic = district.traffic.find_intersection(inter);
+                    const Intersection& I = district.intersections[inter - 1];
+                    if (ic == nullptr) return 0;
+                    const traffic::SignalColor col = ic->signal_for_lane(I.inbound[static_cast<std::size_t>(leg)]);
+                    return col == traffic::SignalColor::Green ? 3 : col == traffic::SignalColor::Yellow ? 2 : 1;
+                }, [&](std::uint32_t cw) { return world.walk_signal(cw); });
+                const double hour = std::fmod(world.minute_of_day() / 60.0, 24.0);
+                const render::SolarPosition sun = render::solar_position(190, hour, 37.0, kPi * 0.5);
+                const double elev_deg = sun.elevation * 180.0 / kPi;
+                render::SceneFrame frame;
+                frame.tick = static_cast<std::uint64_t>(f);
+                frame.camera = &camera;
+                frame.models = draws;
+                render::SceneLighting light = render::time_of_day_lighting(rs.atmosphere, sun.to_sun, rs.lighting, 0.2f);
+                {   // Moonlight: below the horizon the sun's ambient gives way to a faint blue fill.
+                    const float n = static_cast<float>(smooth((-elev_deg + 1.0) / 9.0));
+                    const render::Float3 moon{0.030f, 0.042f, 0.085f};
+                    light.ambient_ground = {light.ambient_ground.x * (1 - n) + moon.x * n, light.ambient_ground.y * (1 - n) + moon.y * n, light.ambient_ground.z * (1 - n) + moon.z * n};
+                    light.ambient_sky_floor = 1.7f * n;
+                }
+                light.emissive_gain = static_cast<float>(emissive_gain_at(elev_deg));
+                float shot_ev = 0.0f;
+                if (director.shot_name(tf) == "inside the cafe") {   // the room's own lights: the emissive fixtures and the warm wall fill are lit for this shot (the renderer has no point lights)
+                    light.emissive_gain = std::max(light.emissive_gain, 0.8f);
+                    shot_ev = -0.5f;
+                }
+                frame.lighting = &light;
+                frame.exposure_ev = static_cast<float>(exposure_for(elev_deg)) + opt.exposure_bias + shot_ev;
+                const auto r0 = std::chrono::steady_clock::now();
+                Rgba img = downsample(target.render(renderer, frame, nullptr), opt.ssaa);
+                frame_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - r0).count();
+                ++drawn;
+                if (pipe != nullptr) {
+                    if (std::fwrite(img.px.data(), 1, img.px.size(), pipe) != img.px.size()) throw std::runtime_error("ffmpeg pipe closed");
+                } else {
+                    char name[64];
+                    std::snprintf(name, sizeof name, "frame_%05d.ppm", f);
+                    write_ppm(opt.out / name, img);
+                }
+                if (f % 30 == 0) std::printf("frame %d/%d  t=%.1f s  shot '%s'  sun %.1f deg  %.2f s/frame avg\n", f, total, tf, director.shot_name(tf).c_str(), elev_deg, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
+                std::fflush(stdout);
+            }
+            if (pipe != nullptr) pclose(pipe);
+            if (audio != nullptr) std::fclose(audio);
+            std::printf("film: %d frames drawn, %.2f s/frame average\n", drawn, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
+            return 0;
+        }
 
         int index = 0;
         for (const auto& c : opt.stills) {

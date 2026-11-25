@@ -74,7 +74,7 @@ enum Mat : std::uint32_t {
     MTire, MChrome, MAmbulanceWhite, MEmergencyRed, MEmergencyYellow, MLightBlue, MLightRed, MHeadlight, MTaillight,
     MWater, MFoam, MWake, MSmoke0, MSmoke1, MSmoke2, MSmoke3, MSpark, MDebris, MGlassShard, MBoatHullWhite, MBoatHullBlue, MBoatHullRed, MBoatDeck, MSail,
     MShirt0, MShirt1, MShirt2, MShirt3, MShirt4, MShirt5, MShirt6, MShirt7, MSkin, MSkin1, MSkin2,
-    MHair0, MHair1, MHair2, MTrouser0, MTrouser1, MTrouser2, MTrouser3, MShoe,
+    MHair0, MHair1, MHair2, MTrouser0, MTrouser1, MTrouser2, MTrouser3, MShoe, MInterior, MCeiling,
     MCount
 };
 

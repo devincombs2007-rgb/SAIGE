@@ -739,6 +739,7 @@ std::vector<VehicleView> TrafficDriver::vehicles() const {
         v.disabled = c.disabled;
         const VehicleDamageState& dm = c.body->damage();
         v.damage = *std::max_element(dm.zone.begin(), dm.zone.end());
+        v.zones = dm.zone;
         v.palette = c.palette;
         v.engine_rpm = static_cast<int>(vs.engine_rpm);
         out.push_back(v);

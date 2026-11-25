@@ -22,6 +22,8 @@ public:
     void collect(std::vector<render::ModelDraw>& out, const World& world, double t, Float3 eye, float far_distance);
     // The parked cars of the district (scenery with a collision box), drawn as the same car model.
     void collect_parked(std::vector<render::ModelDraw>& out, Float3 eye, float far_distance) const;
+    // An impact the traffic reported (the engine's impact event): dust and sparks at the point, scaled by the energy lost.
+    void impact(double t, double x, double y, double z, float energy);
     // The sea's height at a point and time (the surface drawn).
     [[nodiscard]] double sea_height(double x, double y, double t) const;
 

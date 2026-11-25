@@ -51,7 +51,7 @@ struct Opening {
     bool pane = true;   // a glass pane (false: an open doorway or an opening onto an interior)
 };
 
-void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face& f, float H, std::vector<Opening> ops) {
+void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face& f, float H, std::vector<Opening> ops, bool reveals = true) {
     // Horizontal bands from every opening's v range; in each band, wall quads fill what the openings leave.
     std::vector<float> vs{0.0f, H};
     for (const Opening& o : ops) {
@@ -73,6 +73,7 @@ void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face&
         }
         if (cur < f.W - 1e-4f) mb.quad_uv(wall, f.at(cur, va), f.at(f.W, va), f.at(f.W, vb), f.at(cur, vb), {{{cur, va}, {f.W, va}, {f.W, vb}, {cur, vb}}});
     }
+    if (!reveals) return;
     for (const Opening& o : ops) {
         const float d = o.depth;
         const Float3 left_n = f.u, right_n = f.u * -1.0f;
@@ -100,6 +101,23 @@ void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face&
     }
 }
 
+// The inside of a wall whose outside is `f`: the wall quads around the same openings, facing into the building.
+void emit_inner(MeshBuilder& mb, Mat wall, const Face& f, float H, const std::vector<Opening>& ops) {
+    Face g;
+    g.u = {-f.u.x, -f.u.y, -f.u.z};
+    g.out = {-f.out.x, -f.out.y, -f.out.z};
+    g.W = f.W;
+    g.origin = {f.origin.x + f.u.x * f.W - f.out.x * kWallT, f.origin.y + f.u.y * f.W - f.out.y * kWallT, 0};
+    std::vector<Opening> mirrored;
+    for (const Opening& o : ops) {
+        Opening m = o;
+        m.u0 = f.W - o.u1;
+        m.u1 = f.W - o.u0;
+        mirrored.push_back(m);
+    }
+    emit_face(mb, wall, wall, wall, g, H, mirrored, false);
+}
+
 Face make_face(const Rect& r, Leg leg) {
     const auto d = leg_dir(leg);
     Face f;
@@ -112,6 +130,10 @@ Face make_face(const Rect& r, Leg leg) {
     case Leg::West: f.origin = {static_cast<float>(r.x0), static_cast<float>(r.y1), 0}; f.W = static_cast<float>(r.h()); break;
     }
     return f;
+}
+
+float cafe_height(const Building& b, const Interior* in) {
+    return in != nullptr && in->has_stairs ? static_cast<float>(b.height()) - 0.25f : static_cast<float>(b.floor_height) - 0.25f;
 }
 
 struct Style {
@@ -266,6 +288,8 @@ struct CityScene::Impl {
         const float ext = 300.0f;
         // Land base (courtyards, lots): paving; everything else is laid over it.
         mb.quad(MPaving, {-ext, -ext, 0}, {ext, -ext, 0}, {ext, static_cast<float>(d.quay_y), 0}, {-ext, static_cast<float>(d.quay_y), 0});
+        // Beyond the district: a coarse skirt out to the horizon, so that nothing below the skyline shows the sky through.
+        mb.quad(MPaving, {-30000, -30000, -0.05f}, {30000, -30000, -0.05f}, {30000, static_cast<float>(d.quay_y), -0.05f}, {-30000, static_cast<float>(d.quay_y), -0.05f});
         for (const Rect& rr : d.roadway) mb.quad(MAsphalt, {static_cast<float>(rr.x0), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y1), 0.004f}, {static_cast<float>(rr.x0), static_cast<float>(rr.y1), 0.004f});
         // Sidewalks and kerbs
         for (const Rect& rr : d.sidewalk) {
@@ -280,7 +304,7 @@ struct CityScene::Impl {
         // The bulkhead of the quay, down to the sea bed.
         {
             const float q = static_cast<float>(d.quay_y);
-            mb.quad(MCurb, {-ext, q, -8.0f}, {ext, q, -8.0f}, {ext, q, 0.15f}, {-ext, q, 0.15f});
+            mb.quad(MCurb, {ext, q, -8.0f}, {-ext, q, -8.0f}, {-ext, q, 0.15f}, {ext, q, 0.15f});   // faces the water
             // The sea bed.
             mb.quad(MPaving, {-ext, q, -8.0f}, {-ext, q + 400.0f, -8.0f}, {ext, q + 400.0f, -8.0f}, {ext, q, -8.0f});
         }
@@ -468,7 +492,9 @@ struct CityScene::Impl {
                     ops.push_back(door);
                 }
             }
+            if (interior != nullptr && !is_front) ops.clear();
             emit_face(mb, face_leg == b.front && commercial ? st.upper_wall : st.wall, MPlasterB, MFrameWhite, f, H, ops);
+            if (interior != nullptr && is_front) emit_inner(mb, MInterior, f, cafe_height(b, interior), ops);
             // Ground-floor band of the front: a plinth.
             {   // a plinth, a little proud of the wall
                 const Float3 a = f.at(0.0f, 0.0f, -0.05f), c = f.at(f.W, 0.45f, 0.0f);
@@ -584,15 +610,15 @@ struct CityScene::Impl {
         const Mat floor_mat = b.kind == BuildingKind::Bar ? MFloorWoodDark : (b.kind == BuildingKind::Pharmacy || b.kind == BuildingKind::Bakery) ? MFloorTile : MFloorWood;
         mb.quad(floor_mat, {x0, y0, z0 + 0.003f}, {x1, y0, z0 + 0.003f}, {x1, y1, z0 + 0.003f}, {x0, y1, z0 + 0.003f});
         // Inner faces of the walls.
-        for (const Rect& w : in.walls) {
+        for (std::size_t wi = 2; wi < in.walls.size(); ++wi) {   // the first two pieces are the front wall: drawn from the facade
+            const Rect& w = in.walls[wi];
             const float a0 = static_cast<float>(w.x0), b0 = static_cast<float>(w.y0), a1 = static_cast<float>(w.x1), b1 = static_cast<float>(w.y1);
             const float top = cafe ? static_cast<float>(b.height()) - 0.25f : ceil_z;
-            // Four sides of the wall piece, plaster, double-sided enough through the reveal: draw all faces inward-visible by emitting both orientations on the long sides.
-            mb.box(MPlasterB, {a0, b0, z0}, {a1, b1, top}, 63);
+            mb.box(MInterior, {a0, b0, z0}, {a1, b1, top}, 63);
         }
         // Ceiling of the ground floor (with the stair well open in the cafe).
         if (!cafe) {
-            mb.quad(MPlasterB, {x0, y1, ceil_z}, {x1, y1, ceil_z}, {x1, y0, ceil_z}, {x0, y0, ceil_z});
+            mb.quad(MCeiling, {x0, y1, ceil_z}, {x1, y1, ceil_z}, {x1, y0, ceil_z}, {x0, y0, ceil_z});
             // A few ceiling lights.
             for (int i = 0; i < 3; ++i) {
                 const float cx = x0 + (x1 - x0) * (0.2f + 0.3f * static_cast<float>(i)), cy = 0.5f * (y0 + y1);
@@ -605,7 +631,7 @@ struct CityScene::Impl {
             // Ground-floor ceiling = underside of the first-floor slab (with the stair well open).
             const auto slab = [&](float a0, float b0, float a1, float b1) {
                 if (a1 - a0 < 1e-3f || b1 - b0 < 1e-3f) return;
-                mb.quad(MPlasterB, {a0, b1, uz - 0.25f}, {a1, b1, uz - 0.25f}, {a1, b0, uz - 0.25f}, {a0, b0, uz - 0.25f});
+                mb.quad(MCeiling, {a0, b1, uz - 0.25f}, {a1, b1, uz - 0.25f}, {a1, b0, uz - 0.25f}, {a0, b0, uz - 0.25f});
                 mb.quad(floor_mat == MFloorTile ? MFloorWood : MFloorWood, {a0, b0, uz}, {a1, b0, uz}, {a1, b1, uz}, {a0, b1, uz});
             };
             slab(x0, y0, wx0, y1);
@@ -631,7 +657,7 @@ struct CityScene::Impl {
             // Handrail along the open side of the well.
             // Upper room: ceiling under the roof slab.
             const float rz = static_cast<float>(b.height()) - 0.25f;
-            mb.quad(MPlasterB, {x0, y1, rz}, {x1, y1, rz}, {x1, y0, rz}, {x0, y0, rz});
+            mb.quad(MCeiling, {x0, y1, rz}, {x1, y1, rz}, {x1, y0, rz}, {x0, y0, rz});
             for (int i = 0; i < 4; ++i) {
                 const float cx = x0 + (x1 - x0) * (0.15f + 0.22f * static_cast<float>(i)), cy = 0.5f * (y0 + y1);
                 mb.quad(MBulbWarm, {cx - 0.5f, cy + 0.2f, rz - 0.01f}, {cx + 0.5f, cy + 0.2f, rz - 0.01f}, {cx + 0.5f, cy - 0.2f, rz - 0.01f}, {cx - 0.5f, cy - 0.2f, rz - 0.01f});
@@ -865,12 +891,20 @@ CityScene::CityScene(render::SceneRenderer& renderer, const Materials& materials
 CityScene::~CityScene() = default;
 
 void CityScene::collect(std::vector<render::ModelDraw>& out, Float3 eye, float far_distance) const {
-    for (const Placed& p : impl_->statics) {
-        if (p.radius < 1e8f) {
-            const float dx = p.cx - eye.x, dy = p.cy - eye.y;
-            if (std::sqrt(dx * dx + dy * dy) - p.radius > far_distance) continue;
+    // The district continues beyond its edge as scenery: copies of the same blocks, offset by the grid's period, drawn without any simulation (the roads and streets line up with the district's own).
+    static const float offsets[6][2] = {{0, 0}, {270, 0}, {-270, 0}, {0, -180}, {270, -180}, {-270, -180}};
+    for (const auto& o : offsets) {
+        const Mat4 shift = translation({o[0], o[1], 0.0f});
+        for (const Placed& p : impl_->statics) {
+            if (p.radius < 1e8f) {
+                const float dx = p.cx + o[0] - eye.x, dy = p.cy + o[1] - eye.y;
+                if (std::sqrt(dx * dx + dy * dy) - p.radius > far_distance) continue;
+            } else if (o[0] != 0.0f || o[1] != 0.0f) {
+                // The ground model is huge: a copy matters only while the eye is within reach of its district.
+                if (std::fabs(eye.x - o[0]) > 400.0f || std::fabs(eye.y - o[1]) > 400.0f) continue;
+            }
+            out.push_back({&p.model, o[0] == 0.0f && o[1] == 0.0f ? p.world : shift * p.world});
         }
-        out.push_back({&p.model, p.world});
     }
 }
 

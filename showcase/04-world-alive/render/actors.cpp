@@ -77,6 +77,15 @@ struct Actors::Impl {
     std::unique_ptr<render::GpuModel> sea_model;
     // smoke
     render::GpuModel puffs[4];
+    render::GpuModel spark;
+    render::GpuModel hazard[2];   // off, on (one small lamp at each corner of a unit box, scaled to the vehicle)
+    struct Fx {
+        double t0;
+        double x, y, z;
+        float energy;
+        std::uint32_t seed;
+    };
+    std::vector<Fx> fx;
     // people
     std::unique_ptr<gfx::GltfAsset> ual;
     render::GpuModel person;
@@ -336,7 +345,28 @@ struct Actors::Impl {
                 const std::uint32_t a = j * w + i, b = a + 1, c = a + w + 1, e = a + w;
                 mi.indices.insert(mi.indices.end(), {a, b, c, a, c, e});
             }
-        return upload_model(r, "sea", {mi}, mats.list());
+        // Flat water beyond the animated mesh, out to the horizon.
+        MeshIn far;
+        far.material = MWater;
+        const float lo = -30000.0f, hi = 30000.0f, x0 = xs.front(), x1 = xs.back(), y1 = ys.back();
+        const float lvl = static_cast<float>(sea->config().level);
+        const auto add = [&](float ax, float ay, float bx, float by) {
+            const std::uint32_t base = static_cast<std::uint32_t>(far.vertices.size());
+            const float px[4] = {ax, bx, bx, ax}, py[4] = {ay, ay, by, by};
+            for (int k = 0; k < 4; ++k) {
+                render::ModelVertex v;
+                v.position = {px[k], py[k], lvl};
+                v.normal = {0, 0, 1};
+                v.tangent[0] = 1;
+                v.tangent[3] = 1;
+                far.vertices.push_back(v);
+            }
+            far.indices.insert(far.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
+        };
+        add(lo, q, x0, hi);
+        add(x1, q, hi, hi);
+        add(x0, y1, x1, hi);
+        return upload_model(r, "sea", {mi, far}, mats.list());
     }
 
     // ---- people -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -479,10 +509,57 @@ struct Actors::Impl {
             mb.sphere(static_cast<Mat>(static_cast<int>(MSmoke0) + i), {0, 0, 0}, 1.0f, 5, 8);
             puffs[i] = upload_model(r, "puff", mb.finish(), mats.list());
         }
+        for (int on = 0; on < 2; ++on) {
+            MeshBuilder mb;
+            for (const float sx : {-1.0f, 1.0f})
+                for (const float sy : {-1.0f, 1.0f}) mb.box(on ? MSignalAmber : MSignalOff, {sx - 0.03f - (sx > 0 ? 0.0f : 0.0f), sy - 0.03f, -0.03f}, {sx + 0.03f, sy + 0.03f, 0.03f}, 63);
+            hazard[on] = upload_model(r, "hazard", mb.finish(), mats.list());
+        }
+        {
+            MeshBuilder mb;
+            mb.sphere(MSpark, {0, 0, 0}, 0.045f, 3, 5);
+            spark = upload_model(r, "spark", mb.finish(), mats.list());
+        }
         stage_people();
     }
 
+    void collect_fx(std::vector<render::ModelDraw>& out, double time) {
+        std::erase_if(fx, [&](const Fx& f) { return time - f.t0 > 3.0; });
+        for (const Fx& f : fx) {
+            const float age = static_cast<float>(time - f.t0);
+            const int puffs_n = std::clamp(static_cast<int>(f.energy / 5000.0f), 3, 11);
+            for (int k = 0; k < puffs_n; ++k) {
+                const float a = hashf(f.seed, static_cast<std::uint32_t>(k)) * 6.2832f, sp = 0.8f + 2.4f * hashf(f.seed, static_cast<std::uint32_t>(k + 40));
+                const float life = 2.4f;
+                const float u = std::clamp(age / life, 0.0f, 0.999f);
+                const float px = static_cast<float>(f.x) + std::cos(a) * sp * age * (1.0f - 0.35f * u), py = static_cast<float>(f.y) + std::sin(a) * sp * age * (1.0f - 0.35f * u);
+                const float pz = static_cast<float>(f.z) + 0.25f + age * (0.9f + hashf(f.seed, static_cast<std::uint32_t>(k + 80)) * 1.0f);
+                const int lv = std::clamp(3 - static_cast<int>(u * 4.0f), 0, 3);
+                out.push_back({&puffs[static_cast<std::size_t>(lv)], translation({px, py, pz}) * scaling(0.35f + u * 1.5f)});
+            }
+            if (age < 0.8f) {
+                const int n = std::clamp(static_cast<int>(f.energy / 3000.0f), 6, 24);
+                for (int k = 0; k < n; ++k) {
+                    const float a = hashf(f.seed, static_cast<std::uint32_t>(k + 200)) * 6.2832f, sp = 2.0f + 6.0f * hashf(f.seed, static_cast<std::uint32_t>(k + 240)), up = 1.5f + 4.0f * hashf(f.seed, static_cast<std::uint32_t>(k + 280));
+                    const float px = static_cast<float>(f.x) + std::cos(a) * sp * age, py = static_cast<float>(f.y) + std::sin(a) * sp * age;
+                    const float pz = std::max(static_cast<float>(f.z) + up * age - 4.9f * age * age, 0.16f);
+                    out.push_back({&spark, translation({px, py, pz})});
+                }
+            }
+        }
+    }
+
     // ---- drawing ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    // A body shortened about its far end by front/rear damage and pitched towards the harder hit end: what a visible crumple zone reads as without a deformable mesh.
+    static Mat4 crumple(const Mat4& m, const VehicleView& v, float x_lo, float x_hi) {
+        const float f = std::clamp(v.zones[0], 0.0f, 1.0f), r = std::clamp(v.zones[1], 0.0f, 1.0f);
+        if (f < 0.02f && r < 0.02f) return m;
+        const float shorten = 1.0f - 0.16f * f - 0.12f * r;
+        const float pivot = f >= r ? x_lo : x_hi;
+        const float pitch = 0.07f * f - 0.05f * r;
+        return m * translation({pivot, 0, 0}) * rot_y(pitch) * scaling(shorten, 1.0f, 1.0f - 0.05f * std::max(f, r)) * translation({-pivot, 0, 0});
+    }
+
     void draw_car(std::vector<render::ModelDraw>& out, const CarRig& rig, const VehicleView& v) {
         const VehicleConfig cfg = vehicle_config_for(v.kind == VehicleKind::Hatchback || v.kind == VehicleKind::Taxi ? VehicleKind::Sedan : v.kind);
         const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
@@ -493,7 +570,7 @@ struct Actors::Impl {
         }
         const float cx = (rig.lo.x + rig.hi.x) * 0.5f, cy = (rig.lo.y + rig.hi.y) * 0.5f;
         const Mat4 car_m = body_world * translation({-cx, -cy, -(wz_model - wz_phys)});
-        out.push_back({&rig.body, car_m});
+        out.push_back({&rig.body, crumple(car_m, v, rig.lo.x, rig.hi.x)});
         for (std::size_t w = 0; w < 4; ++w) {
             const VehicleWheelConfig& wc = cfg.wheels[w];
             const Float3 centre{wc.mount.x, wc.mount.y, wc.mount.z - cfg.suspension_travel + v.wheel_compression[w]};
@@ -507,7 +584,7 @@ struct Actors::Impl {
     void draw_truck(std::vector<render::ModelDraw>& out, const Truck& t, const VehicleView& v, double time) {
         const VehicleConfig cfg = vehicle_config_for(v.kind);
         const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
-        out.push_back({&t.body, body_world});
+        out.push_back({&t.body, crumple(body_world, v, -2.4f, 2.4f)});
         for (std::size_t w = 0; w < 4; ++w) {
             const VehicleWheelConfig& wc = cfg.wheels[w];
             const Float3 centre{wc.mount.x, wc.mount.y, wc.mount.z - cfg.suspension_travel + v.wheel_compression[w]};
@@ -536,9 +613,15 @@ struct Actors::Impl {
             case VehicleKind::FireEngine: draw_truck(out, engine, v, time); break;
             }
             if (v.disabled) {
+                const VehicleConfig cfgv = vehicle_config_for(v.kind);
+                const bool on = static_cast<int>(std::floor(time * 1.6)) % 2 == 0;
+                const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
+                // Hazard lamps at the corners (the unit box scaled by half extents; the lamps are tiny boxes, so scale only their placement).
+                for (const float sx : {-1.0f, 1.0f})
+                    for (const float sy : {-1.0f, 1.0f}) out.push_back({&hazard[on ? 1 : 0], body_world * translation({sx * (cfgv.half_extents.x + 0.02f), sy * (cfgv.half_extents.y - 0.12f), -0.1f}) * scaling(1.0f) * translation({-sx, -sy, 0.0f})});
                 // Smoke from under the bonnet: puffs rising and spreading over a few seconds.
-                for (int k = 0; k < 9; ++k) {
-                    const float age = std::fmod(static_cast<float>(time) * 0.45f + static_cast<float>(k) / 9.0f, 1.0f);
+                for (int k = 0; k < 14; ++k) {
+                    const float age = std::fmod(static_cast<float>(time) * 0.30f + static_cast<float>(k) / 14.0f, 1.0f);
                     const float lv = std::clamp(3.0f - age * 3.2f, 0.0f, 3.0f);
                     const float c = std::cos(static_cast<float>(v.yaw)), s = std::sin(static_cast<float>(v.yaw));
                     const float drift = age * 1.8f;
@@ -596,6 +679,7 @@ void Actors::collect(std::vector<render::ModelDraw>& out, const World& world, do
     Impl& i = *impl_;
     i.collect_vehicles(out, world, t, eye, far_distance);
     i.collect_people(out, eye, far_distance);
+    i.collect_fx(out, t);
     // Boats at their berths, riding the same surface the sea mesh shows.
     int k = 0;
     for (const BoatSpawn& b : i.d.boats) {
@@ -631,6 +715,8 @@ void Actors::collect_parked(std::vector<render::ModelDraw>& out, Float3 eye, flo
         }
     }
 }
+
+void Actors::impact(double t, double x, double y, double z, float energy) { impl_->fx.push_back({t, x, y, z, energy, static_cast<std::uint32_t>(t * 977.0) + static_cast<std::uint32_t>(x * 13.0)}); }
 
 double Actors::sea_height(double x, double y, double t) const { return impl_->sea->height(x, y, t); }
 

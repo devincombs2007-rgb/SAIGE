@@ -327,12 +327,12 @@ void build_props(District& d, Rng& rng) {
         }
     };
     for (const double sy : {-60.0, 0.0, 60.0}) {
-        along(true, sy + corner_offset + 1.0, -150.0, 150.0, 11.0, 1.0);
-        along(true, sy - corner_offset - 1.0, -150.0, 150.0, 11.0, -1.0);
+        along(true, sy + corner_offset - 1.0, -150.0, 150.0, 11.0, 1.0);
+        along(true, sy - corner_offset + 1.0, -150.0, 150.0, 11.0, -1.0);
     }
     for (const double ax : {-90.0, 0.0, 90.0}) {
-        along(false, ax + corner_offset + 1.0, -100.0, 60.0, 11.0, 1.0);
-        along(false, ax - corner_offset - 1.0, -100.0, 60.0, 11.0, -1.0);
+        along(false, ax + corner_offset - 1.0, -100.0, 60.0, 11.0, 1.0);
+        along(false, ax - corner_offset + 1.0, -100.0, 60.0, 11.0, -1.0);
     }
     // Promenade: benches facing the water, lamps, bins, mooring posts along the quay, a kiosk.
     for (double x = -120.0; x < 125.0; x += 15.0) {

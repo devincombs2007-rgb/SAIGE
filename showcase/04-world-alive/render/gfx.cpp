@@ -194,10 +194,10 @@ constexpr MatDef defs[MCount] = {
     /* MWater        */ {nullptr, {0.015f, 0.07f, 0.10f, 1}, 0.0f, 0.045f, {0, 0, 0}, 1, true, false, 1.0f},
     /* MFoam         */ {nullptr, {0.85f, 0.90f, 0.92f, 0.55f}, 0.0f, 0.5f, {0, 0, 0}, 1, true, true, 1.0f},
     /* MWake         */ {nullptr, {0.85f, 0.92f, 0.95f, 0.22f}, 0.0f, 0.6f, {0, 0, 0}, 1, true, true, 1.0f},
-    /* MSmoke0       */ {nullptr, {0.66f, 0.62f, 0.56f, 0.03f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
-    /* MSmoke1       */ {nullptr, {0.62f, 0.58f, 0.52f, 0.07f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
-    /* MSmoke2       */ {nullptr, {0.55f, 0.52f, 0.48f, 0.12f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
-    /* MSmoke3       */ {nullptr, {0.40f, 0.38f, 0.36f, 0.20f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
+    /* MSmoke0       */ {nullptr, {0.30f, 0.29f, 0.28f, 0.10f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
+    /* MSmoke1       */ {nullptr, {0.27f, 0.26f, 0.25f, 0.18f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
+    /* MSmoke2       */ {nullptr, {0.24f, 0.23f, 0.22f, 0.28f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
+    /* MSmoke3       */ {nullptr, {0.20f, 0.19f, 0.18f, 0.40f}, 0.0f, 1.0f, {0, 0, 0}, 1, false, true, 1.0f},
     /* MSpark        */ {nullptr, {0.05f, 0.05f, 0.05f, 1}, 0.0f, 0.5f, {18.0f, 8.0f, 2.0f}, 1, true, false, 1.0f},
     /* MDebris       */ {"concrete_floor", {0.85f, 0.85f, 0.85f, 1}, 1, 1, {0, 0, 0}, 0.6f, true, false, 1.0f},
     /* MGlassShard   */ {nullptr, {0.55f, 0.70f, 0.72f, 0.45f}, 0.0f, 0.05f, {0, 0, 0}, 1, true, true, 1.0f},
@@ -225,6 +225,8 @@ constexpr MatDef defs[MCount] = {
     /* MTrouser2     */ {nullptr, {0.30f, 0.24f, 0.14f, 1}, 0.0f, 0.85f, {0, 0, 0}, 1, true, false, 1.0f},
     /* MTrouser3     */ {nullptr, {0.12f, 0.12f, 0.13f, 1}, 0.0f, 0.85f, {0, 0, 0}, 1, true, false, 1.0f},
     /* MShoe         */ {nullptr, {0.05f, 0.04f, 0.035f, 1}, 0.0f, 0.6f, {0, 0, 0}, 1, true, false, 1.0f},
+    /* MInterior     */ {"white_plaster_02", {0.92f, 0.90f, 0.86f, 1}, 1, 1, {0.50f, 0.43f, 0.33f}, 3.0f, false, false, 1.0f},   // a small emission stands in for the light bouncing around a room: there is no interior GI
+    /* MCeiling      */ {"white_plaster_02", {0.92f, 0.90f, 0.86f, 1}, 1, 1, {0.75f, 0.64f, 0.48f}, 3.0f, false, false, 1.0f},
 };
 
 std::vector<std::uint8_t> read_file(const fs::path& p) {

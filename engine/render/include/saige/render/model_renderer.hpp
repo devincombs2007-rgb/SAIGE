@@ -194,8 +194,6 @@ private:
     void ensure_blend_pipelines();
     void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
     void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
-    void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
-    void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
     [[nodiscard]] rhi::BindGroupHandle constants_group() const noexcept;
 
     /// One primitive waiting for the sorted phase. Kept in a member vector that is cleared, not freed, each frame.

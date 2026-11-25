@@ -739,13 +739,6 @@ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be
 
 namespace {
 
-uint32_t scene_pass_count(const std::vector<rhi::RecordedCommand>& cmds)
-{
-    uint32_t n = 0;
-    for (const auto& c : cmds) n += c.type == rhi::CommandType::BeginRendering ? 1u : 0u;
-    return n;
-}
-
 RendererSettings bloom_settings(bool enabled, uint32_t levels = 5)
 {
     RendererSettings s;

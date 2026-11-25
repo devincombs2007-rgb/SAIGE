@@ -1,6 +1,7 @@
 #pragma once
 
 #include "saige/capsule_triangle.hpp"
+#include "saige/chunk_coord.hpp"
 #include "saige/prepared_scene.hpp"
 
 #include <chrono>
@@ -15,12 +16,6 @@
 #include <vector>
 
 namespace saige {
-
-struct ChunkCoord {
-    std::int32_t x;
-    std::int32_t y;
-    constexpr auto operator<=>(const ChunkCoord&) const = default;
-};
 
 struct ChunkSource {
     ChunkCoord coord;

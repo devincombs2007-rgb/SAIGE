@@ -11,10 +11,12 @@
 // approximations for a believable difference between surfaces, not measurements of any particular tire; a game replaces the table for its own surfaces.
 //
 // Combining two materials: friction by the geometric mean (the usual game-physics rule: either surface being slippery makes the pair slippery, and it is symmetric); restitution by the larger
-// (a bouncy object stays bouncy on a dead floor only partly, and the maximum is the common rule). Both are symmetric in their arguments.
+// (a bouncy object stays bouncy on a dead floor only partly, and the maximum is the common rule). Both are symmetric in their arguments. `contact_velocity` applies them to a falling object (debris, a dropped
+// prop) meeting a surface.
 
 #include "saige/static_collision.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -94,6 +96,32 @@ private:
     }
     std::vector<Surface> boxes_, triangles_;
 };
+
+// The velocity of a small object after it meets a surface: the part of the velocity into the surface is reflected and scaled by the combined restitution of the two materials, and the part along the surface
+// loses the Coulomb friction impulse of the contact (mu times the change of normal velocity, never more than the tangential speed itself: friction stops sliding, it never reverses it). A normal speed
+// at or below `rest_speed` is not bounced (the object stays on the surface), which stops the endless tiny bounces of a settling object. `normal` points out of the surface, to the side the object
+// is on (a `RayHit` normal does: it faces the ray's origin); a velocity already leaving the surface or running along it is returned unchanged. The kinetic energy of the result is never more than before (checked by the tests); a normal that is not
+// finite or has a length far from 1 is a caller error and gives the input velocity back.
+[[nodiscard]] inline Vec3 contact_velocity(Vec3 velocity, Vec3 normal, const PhysicsMaterial& object, const PhysicsMaterial& surface, float rest_speed = 0.35f) noexcept {
+    const float nl = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+    if (!std::isfinite(nl) || !(nl > 0.5f) || !(nl < 2.0f) || !std::isfinite(velocity.x) || !std::isfinite(velocity.y) || !std::isfinite(velocity.z)) return velocity;
+    const Vec3 unit{normal.x / nl, normal.y / nl, normal.z / nl};
+    const float vn = velocity.x * unit.x + velocity.y * unit.y + velocity.z * unit.z;
+    if (!(vn < 0.0f)) return velocity;  // along the surface, or leaving it
+    const float into = -vn;
+    const float e = into > rest_speed ? combine_restitution(object.restitution, surface.restitution) : 0.0f;
+    const float mu = combine_friction(object.friction, surface.friction);
+    const Vec3 tangent{velocity.x - vn * unit.x, velocity.y - vn * unit.y, velocity.z - vn * unit.z};
+    const float ts = std::sqrt(tangent.x * tangent.x + tangent.y * tangent.y + tangent.z * tangent.z);
+    const float kept = ts > 0.0f ? std::max(0.0f, ts - mu * (1.0f + e) * into) / ts : 0.0f;
+    const float out = e * into;
+    return {tangent.x * kept + unit.x * out, tangent.y * kept + unit.y * out, tangent.z * kept + unit.z * out};
+}
+
+// The same for a contact the collision reported: the surface is the map's material for the primitive that was hit.
+[[nodiscard]] inline Vec3 contact_velocity(Vec3 velocity, const RayHit& hit, const PhysicsMaterial& object, const SurfaceMap& map, float rest_speed = 0.35f) noexcept {
+    return contact_velocity(velocity, hit.normal, object, map.material_at(hit.primitive), rest_speed);
+}
 
 // The traction under a character's feet: a ray straight down from `up` above them for `up + down` meters, and the material of the primitive it hits; 1 when there is nothing underfoot (the character is
 // airborne, where traction does not matter). The collision and the map must describe the same primitives the character collides with (the same arrays, in the same order).

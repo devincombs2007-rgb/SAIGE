@@ -62,7 +62,8 @@ struct RendererSettings {
     float near_plane = 0.1f;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< linear; also the fog color
     float fog_density = 0.012f;                      ///< per meter
-    ModelShading model_shading = ModelShading::Legacy;  ///< lighting of imported models (the 0.1 cube and ground are unaffected)
+    ModelShading model_shading = ModelShading::Legacy;  ///< shading model of imported models (the 0.1 cube and ground are unaffected)
+    SceneLighting lighting;                          ///< sun and ground ambient of imported models; defaults are the long-standing look
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target

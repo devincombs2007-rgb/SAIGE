@@ -106,10 +106,40 @@ uint64_t GpuModel::triangle_count() const noexcept
     return triangles;
 }
 
+namespace {
+
+// Unit vector along `v` computed without squaring the components: dividing by the largest magnitude first keeps the sum of squares in
+// [1, 3] for any finite v (a plain squared length overflows above about 1.8e19 and underflows below about 1e-19, which used to turn a
+// valid direction into a zero or an infinity). Returns false for a zero vector.
+bool unit_direction(Float3 v, Float3& out)
+{
+    const float m = std::max({std::abs(v.x), std::abs(v.y), std::abs(v.z)});
+    if (!(m > 0.0f) || !std::isfinite(m)) return false;
+    const Float3 s{v.x / m, v.y / m, v.z / m};
+    const float len = std::sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
+    out = {s.x / len, s.y / len, s.z / len};
+    return true;
+}
+
+} // namespace
+
+void validate_lighting(const SceneLighting& lighting)
+{
+    const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+    const auto non_negative = [](Float3 v) { return v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f; };
+    if (!finite(lighting.sun_direction) || !finite(lighting.sun_color) || !finite(lighting.ambient_ground) ||
+        !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground)) {
+        throw std::invalid_argument("SceneLighting must be finite, with non-negative colors");
+    }
+    Float3 unit;
+    if (!unit_direction(lighting.sun_direction, unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
+}
+
 ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry, rhi::Format color_format,
                              rhi::Format depth_format, const ModelRenderSettings& settings)
     : device_(device), registry_(registry), shading_(settings.shading)
 {
+    validate_lighting(settings.lighting);  // before anything is acquired from the device
     using namespace saige::shaders;
     vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_vs_main), "VSMain", "SceneModel.VS"});
     ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_model_ps_main), "PSMain", "SceneModel.PS"});
@@ -153,22 +183,24 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
         }
     }
 
-    // Immutable scene constants: the same sun, ambient and fog as the 0.1 cube and ground shaders.
-    const float sun_len = std::sqrt(0.40f * 0.40f + 0.55f * 0.55f + 0.73f * 0.73f);
+    // Immutable scene constants. The default lighting is the same sun, ambient and fog as the 0.1 cube and ground shaders.
+    const SceneLighting& light = settings.lighting;
+    Float3 sun_unit{};
+    if (!unit_direction(light.sun_direction, sun_unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
     SceneConstants sc{};
     sc.fog_color_density[0] = settings.sky.r;
     sc.fog_color_density[1] = settings.sky.g;
     sc.fog_color_density[2] = settings.sky.b;
     sc.fog_color_density[3] = settings.fog_density;
-    sc.sun_direction[0] = -0.40f / sun_len;
-    sc.sun_direction[1] = -0.55f / sun_len;
-    sc.sun_direction[2] = 0.73f / sun_len;
-    sc.sun_color[0] = 1.00f;
-    sc.sun_color[1] = 0.95f;
-    sc.sun_color[2] = 0.85f;
-    sc.ambient_ground[0] = 0.20f;
-    sc.ambient_ground[1] = 0.18f;
-    sc.ambient_ground[2] = 0.16f;
+    sc.sun_direction[0] = sun_unit.x;
+    sc.sun_direction[1] = sun_unit.y;
+    sc.sun_direction[2] = sun_unit.z;
+    sc.sun_color[0] = light.sun_color.x;
+    sc.sun_color[1] = light.sun_color.y;
+    sc.sun_color[2] = light.sun_color.z;
+    sc.ambient_ground[0] = light.ambient_ground.x;
+    sc.ambient_ground[1] = light.ambient_ground.y;
+    sc.ambient_ground[2] = light.ambient_ground.z;
     sc.flags[0] = static_cast<float>(shading_);
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");

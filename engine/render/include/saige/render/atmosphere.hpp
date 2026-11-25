@@ -35,6 +35,10 @@ struct AtmosphereSettings {
     float sun_intensity = 20.0f;                               ///< radiance scale of the incoming sunlight
     float observer_height_km = 0.001f;                         ///< above the ground (1 m): the camera's altitude, which a host may update
     float exposure = 1.0f;                                     ///< scene-referred multiplier applied to the sky pass and the fog color
+    // Celestial bodies, each off at 0 (the default: the sky is exactly what it was). They are added to the sky's radiance before the exposure.
+    float sun_disc_intensity = 0.0f;  ///< radiance at the center of the sun's disc (0 to 1e6), times the air's transmittance toward it, so it reddens and dims as it sets; a few thousand is bright next to the sky's ~1
+    float moon_intensity = 0.0f;      ///< radiance of the moon's disc, which sits opposite the sun (a full moon); times its own transmittance; hundreds of times dimmer than the sun's disc
+    float star_intensity = 0.0f;      ///< peak radiance of a star, faded in as the sun sinks below the horizon and out toward the horizon (0 to 1e6)
 };
 
 /// Throws std::invalid_argument if a value is not finite, a radius, height, scale height, coefficient or intensity is not positive (the Mie
@@ -48,6 +52,22 @@ void validate_atmosphere(const AtmosphereSettings& atmosphere);
 /// The fraction of sunlight (RGB) that reaches the observer from `to_sun` (1 outside the air, near 0 for blue and less for green at the horizon): what to
 /// multiply a base sun color by so that the sun reddens as it sets. 0 when the sun is below the planet's horizon.
 [[nodiscard]] Float3 sun_transmittance(const AtmosphereSettings& atmosphere, Float3 to_sun);
+
+/// The angular radius (radians) of the sun's and the moon's discs: the real ones, about half a degree across.
+inline constexpr float kSunAngularRadius = 0.00465f;
+inline constexpr float kMoonAngularRadius = 0.0045f;
+
+/// The sun's disc toward `view_dir`: `sun_disc_intensity` times the air's transmittance toward the sun, limb-darkened (1 - 0.6 (1 - mu)) with a soft edge over the outer 15% of the radius; 0 outside
+/// the disc, below the horizon (the transmittance is 0 there) and when the intensity is 0. Linear RGB, no exposure. Pure; the reference of the sky shader's disc.
+[[nodiscard]] Float3 sun_disc_radiance(const AtmosphereSettings& atmosphere, Float3 view_dir, Float3 to_sun);
+/// The moon: the same profile, centered opposite the sun, `moon_intensity` times the transmittance toward the moon.
+[[nodiscard]] Float3 moon_radiance(const AtmosphereSettings& atmosphere, Float3 view_dir, Float3 to_sun);
+/// The stars toward `view_dir`: a fixed, deterministic field of point-like stars (one cell grid over the sphere, a hash of the cell deciding whether it holds a star, where, and how bright and
+/// what tint), `star_intensity` times how dark the sky is (fading in as the sun's elevation falls from -1 degree to -11) times a fade toward the horizon (0 at and below it, 1 at 11.5 degrees up).
+/// The field does not rotate. 0 in daylight. Linear RGB, no exposure.
+[[nodiscard]] Float3 star_radiance(const AtmosphereSettings& atmosphere, Float3 view_dir, Float3 to_sun);
+/// `sky_radiance` plus the three above: what the sky pass shows toward `view_dir`, before the exposure.
+[[nodiscard]] Float3 sky_with_bodies(const AtmosphereSettings& atmosphere, Float3 view_dir, Float3 to_sun);
 
 /// The mean sky radiance around the horizon (eight azimuths at 3 degrees of elevation, times exposure): the color distant things fade into, so the fog
 /// follows the time of day. Linear RGB.

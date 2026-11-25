@@ -49,6 +49,16 @@ std::vector<JointWorld> joint_world(const gfx::Skin& skin, const gfx::Pose& pose
     return out;
 }
 
+void set_joint_world_rotation(const gfx::Skin& skin, gfx::Pose& pose, const std::vector<JointWorld>& world, std::size_t j, render::Quat world_rot) {
+    Quat parent_rot = parent_world(skin, world, j).rotation;
+    if (skin.parent[j] < 0) {
+        const Mat4& b = skin.base[j];
+        const auto col = [&](int c) { return render::normalize(Float3{b.at(0, c), b.at(1, c), b.at(2, c)}); };
+        parent_rot = render::from_basis(col(0), col(1), col(2));
+    }
+    pose.local[j].rotation = render::normalize(render::conjugate(parent_rot) * world_rot);
+}
+
 JointWorld parent_world(const gfx::Skin& skin, const std::vector<JointWorld>& world, std::size_t joint) {
     const std::int32_t p = skin.parent[joint];
     if (p < 0) return {{0, 0, 0}, {0, 0, 0, 1}};

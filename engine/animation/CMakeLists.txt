@@ -25,6 +25,7 @@ add_library(saige_animation STATIC
     src/locomotion.cpp
     src/pose_ops.cpp
     src/retarget.cpp
+    src/seat_entry.cpp
 )
 add_library(saige::animation ALIAS saige_animation)
 target_include_directories(saige_animation PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
@@ -46,6 +47,7 @@ if(SAIGE_ANIMATION_BUILD_TESTS)
             tests/test_humanoid.cpp
             tests/test_action.cpp
             tests/test_ik.cpp
+            tests/test_seat_entry.cpp
             tests/test_layers.cpp
             tests/test_locomotion.cpp
             tests/test_retarget.cpp

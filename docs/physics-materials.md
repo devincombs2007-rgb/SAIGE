@@ -18,3 +18,12 @@ Evidence (`vehicle_surface` test, software build, Debug): from about 14 m/s the 
 limits the stop it matches v^2 / (2 mu g) within 15 to 30 percent); braking from 15 m/s with grip on one side and ice on the other turns the car 7.2 degrees toward the grippy side (mirrored cases agree; even ground
 turns it 1e-9 degrees); five seconds of full throttle reach 22.7 m/s on asphalt, 15.7 on grass and 2.5 on ice; coasting for five seconds loses 0.86, 2.63 and 3.97 m/s on asphalt, grass and sand. A head-on crash at 14 m/s into a wall bounces the car back at 8.2 m/s from a rubber wall against 2.1 m/s from concrete and 1.9 m/s with no map; an angled crash (a front corner first) spins it at 1.91 rad/s against rubber, 1.65 against concrete and 1.64 against ice (the spin comes mostly from the normal impulse at the corner, so friction changes it little). On ice a walking character has 0.85 m/s after half a second where concrete has its full 3.5 m/s, and slides 3.5 m to a stop against 0.27 m on concrete (`character_surface` test). Each effect was
 shown to disappear when its term is removed from the vehicle (mutation).
+
+## Vehicle handling options (`VehicleConfig`, `VehicleInput`)
+
+Both are off by default, and neutral values are bit-identical to the vehicle before they existed (the Showcase 03 replay checks pass unchanged).
+
+* **Tire load sensitivity** (`tire_load_sensitivity`, 0 to 1): a tire's grip coefficient is scaled by `1 - k (load / static load - 1)`, clamped to [0.5, 1.5], so load transferred onto the outside wheels in a corner does not buy back what the inside wheels lose (real tires: k about 0.1 to 0.3). In the reference turn at 22 m/s the lateral acceleration is 9.8 m/s^2 at k = 0, 8.6 at 0.3 and 7.7 at 0.6.
+* **Handbrake** (`VehicleInput::handbrake`, 0 to 1; `handbrake_force`, `handbrake_grip`): extra brake force at the non-steered wheels together and a loss of their grip (their friction circle keeps `handbrake_grip` of its size at full handbrake). Stopping from 15 m/s: coasting more than 120 m, handbrake alone 50 m, full brake 13 m; pulled in a 16 m/s corner it brings the tail round (body sideslip 1.6 to 85 degrees, yaw rate 0.57 to 3.6 rad/s: at full handbrake held for 1.5 s the car spins); pulled on a straight line it stays straight.
+
+Tested in `tests/vehicle_handling_test.cpp` (mutation-checked: grip loss, wheel selection, load sensitivity sign, handbrake force). Still not modelled: engine and gearbox curves, a differential, damage.

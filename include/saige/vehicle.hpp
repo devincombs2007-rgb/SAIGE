@@ -13,7 +13,7 @@
 // cone, so an off-centre impact produces yaw and roll. Impacts above a speed threshold are recorded as events (speed, point, normal, energy) for effects
 // and sound to consume; nothing is faked from the event.
 //
-// What this is not: no tire deformation, no suspension geometry beyond a vertical spring, no anti-roll bar, no gearbox, no damage model (the host reads the
+// What this is not: no tire deformation, no suspension geometry beyond a vertical spring, no anti-roll bar, no gearbox (an engine force and power limit only), no damage model (the host reads the
 // impact events), no vehicle-vehicle contact, and one contact point per primitive. Everything is deterministic for the same inputs and build.
 //
 // Frame: local +X forward, +Y left, +Z up (counter-clockwise from above, as make_oriented_box). Positions are chunk-local (see capsule_sweep.hpp's envelope).
@@ -56,6 +56,14 @@ struct VehicleConfig {
     float body_restitution = 0.18f;
     float body_friction = 0.55f;
     float impact_event_speed = 1.5f;            // m/s of approach below which a collision is not reported
+    // Handling options, all off by default (the defaults reproduce the vehicle exactly as before they existed).
+    // Tire load sensitivity: a tire's grip coefficient falls as its load rises above the static share of the weight, mu * (1 - k * (load / static load - 1)) clamped to [0.5, 1.5], so load transferred to the
+    // outside wheels in a corner does not buy back what the inside wheels lose (real tires: k of about 0.1 to 0.3). 0 is off.
+    float tire_load_sensitivity = 0.0f;
+    // Handbrake (VehicleInput::handbrake, 0 to 1): brake force at the non-steered wheels together, and the fraction of its grip their friction circle keeps at full handbrake (1 would be no loss; the
+    // rear wheels then slide, which is what makes the tail come round).
+    float handbrake_force = 9000.0f;
+    float handbrake_grip = 0.45f;
     std::array<VehicleWheelConfig, 4> wheels{{
         {{1.30f, 0.80f, -0.05f}, true, false},    // front left
         {{1.30f, -0.80f, -0.05f}, true, false},   // front right
@@ -72,6 +80,7 @@ struct VehicleInput {
     float throttle = 0.0f;  // -1 (reverse) to 1
     float brake = 0.0f;     // 0 to 1
     float steer = 0.0f;     // -1 (right) to 1 (left)
+    float handbrake = 0.0f; // 0 to 1: brakes the non-steered wheels and takes away part of their grip (VehicleConfig::handbrake_*)
 };
 
 struct VehicleWheelState {

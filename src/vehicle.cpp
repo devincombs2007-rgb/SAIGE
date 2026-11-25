@@ -74,6 +74,9 @@ void validate_vehicle_config(const VehicleConfig& c) {
     positive(c.half_extents.y, "half_extents.y");
     positive(c.half_extents.z, "half_extents.z");
     if (!(c.tire_friction > 0.0f && c.tire_friction <= 3.0f)) throw std::invalid_argument("VehicleConfig: tire_friction must be in (0, 3]");
+    if (!(c.tire_load_sensitivity >= 0.0f && c.tire_load_sensitivity <= 1.0f)) throw std::invalid_argument("VehicleConfig: tire_load_sensitivity must be in [0, 1]");
+    if (!(c.handbrake_force >= 0.0f && std::isfinite(c.handbrake_force))) throw std::invalid_argument("VehicleConfig: handbrake_force must be finite and not negative");
+    if (!(c.handbrake_grip > 0.0f && c.handbrake_grip <= 1.0f)) throw std::invalid_argument("VehicleConfig: handbrake_grip must be in (0, 1]");
     if (!(c.body_friction >= 0.0f && c.body_friction <= 2.0f)) throw std::invalid_argument("VehicleConfig: body_friction must be in [0, 2]");
     if (!(c.body_restitution >= 0.0f && c.body_restitution < 1.0f)) throw std::invalid_argument("VehicleConfig: body_restitution must be in [0, 1)");
     if (!(c.drag_area_cd >= 0.0f) || !std::isfinite(c.drag_area_cd) || !(c.rolling_resistance >= 0.0f) || !std::isfinite(c.rolling_resistance)) {
@@ -154,11 +157,12 @@ void Vehicle::park() noexcept {
 
 void Vehicle::step(const VehicleInput& input, float dt, const StaticCollision& world, QueryScratch& scratch, const SurfaceMap* surfaces) {
     if (!(dt > 0.0f) || !std::isfinite(dt) || dt > 1.0f) throw std::invalid_argument("Vehicle::step: dt must be finite, positive and at most one second");
-    if (!std::isfinite(input.throttle) || !std::isfinite(input.brake) || !std::isfinite(input.steer)) throw std::invalid_argument("Vehicle::step: the input must be finite");
+    if (!std::isfinite(input.throttle) || !std::isfinite(input.brake) || !std::isfinite(input.steer) || !std::isfinite(input.handbrake)) throw std::invalid_argument("Vehicle::step: the input must be finite");
     VehicleInput in = input;
     in.throttle = std::clamp(in.throttle, -1.0f, 1.0f);
     in.brake = std::clamp(in.brake, 0.0f, 1.0f);
     in.steer = std::clamp(in.steer, -1.0f, 1.0f);
+    in.handbrake = std::clamp(in.handbrake, 0.0f, 1.0f);
     double remaining = static_cast<double>(dt);
     const double h = static_cast<double>(substep);
     while (remaining > 1e-9) {
@@ -186,7 +190,11 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
     };
 
     int driven = 0;
-    for (const VehicleWheelConfig& wc : config_.wheels) driven += wc.driven ? 1 : 0;
+    int rear_wheels = 0;
+    for (const VehicleWheelConfig& wc : config_.wheels) {
+        driven += wc.driven ? 1 : 0;
+        rear_wheels += wc.steered ? 0 : 1;
+    }
     const double speed_along = dot(v, fwd);
     const double steer_limit = static_cast<double>(config_.max_steer) / (1.0 + std::pow(std::fabs(speed_along) / static_cast<double>(config_.steer_speed_scale), 2.0));
     const double corner_mass = mass / 4.0;
@@ -239,10 +247,20 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
         }
         // What the tire is on: its grip scales the friction circle, its rolling resistance the rolling term (both 1 without a surface map).
         const PhysicsMaterial& surface = surfaces != nullptr ? surfaces->material_at(contact.primitive) : physics_material(Surface::Default);
+        // The handbrake acts on the non-steered wheels: more braking force, and less of their grip. At 0 both terms are exactly zero / one, so the original arithmetic is unchanged.
+        const double handbrake = wc.steered ? 0.0 : static_cast<double>(input.handbrake);
         fx -= soft_sign(v_long, 0.35) * (static_cast<double>(input.brake) * static_cast<double>(config_.brake_force) / 4.0 +
-                                          static_cast<double>(config_.rolling_resistance) * static_cast<double>(surface.rolling_resistance) / 4.0);
+                                          static_cast<double>(config_.rolling_resistance) * static_cast<double>(surface.rolling_resistance) / 4.0 +
+                                          handbrake * static_cast<double>(config_.handbrake_force) / static_cast<double>(std::max(1, rear_wheels)));
         double fy = -corner_mass * v_lat / dt * 0.55;
-        const double limit = static_cast<double>(config_.tire_friction) * static_cast<double>(surface.tire_grip) * spring_force;
+        double mu = static_cast<double>(config_.tire_friction);
+        if (config_.tire_load_sensitivity > 0.0f) {  // grip falls with load above the static share of the weight
+            const double static_load = mass * 9.81 / 4.0;
+            mu *= clamp(1.0 - static_cast<double>(config_.tire_load_sensitivity) * (spring_force / static_load - 1.0), 0.5, 1.5);
+        }
+        double grip = mu * static_cast<double>(surface.tire_grip);
+        if (handbrake > 0.0) grip *= 1.0 - handbrake * (1.0 - static_cast<double>(config_.handbrake_grip));
+        const double limit = grip * spring_force;
         const double magnitude = std::hypot(fx, fy);
         if (magnitude > limit && magnitude > 0.0) {
             fx *= limit / magnitude;

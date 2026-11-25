@@ -114,16 +114,20 @@ void WaterSurface::source(double x, double y, double t, double& x0, double& y0) 
         const double change = std::fabs(nx - x0) + std::fabs(ny - y0);
         x0 = nx;
         y0 = ny;
-        if (change < 1e-10) break;
+        if (change < 1e-8) break;
     }
+}
+
+double WaterSurface::height_at_source(double x0, double y0, double t) const {
+    double h = config_.level;
+    for (std::size_t i = 0; i < config_.waves.size(); ++i) h += config_.waves[i].amplitude * std::cos(k_[i] * (cx_[i] * x0 + cy_[i] * y0) - w_[i] * t + config_.waves[i].phase);
+    return h;
 }
 
 double WaterSurface::height(double x, double y, double t) const {
     double x0, y0;
     source(x, y, t, x0, y0);
-    double h = config_.level;
-    for (std::size_t i = 0; i < config_.waves.size(); ++i) h += config_.waves[i].amplitude * std::cos(k_[i] * (cx_[i] * x0 + cy_[i] * y0) - w_[i] * t + config_.waves[i].phase);
-    return h;
+    return height_at_source(x0, y0, t);
 }
 
 WaterVec WaterSurface::normal(double x, double y, double t) const {
@@ -169,9 +173,7 @@ double WaterSurface::foam(double x, double y, double t, double threshold) const 
     return std::clamp((threshold - j) / threshold, 0.0, 1.0);
 }
 
-WaterVec WaterSurface::velocity(double x, double y, double z, double t) const {
-    double x0, y0;
-    source(x, y, t, x0, y0);
+WaterVec WaterSurface::velocity_at_source(double x0, double y0, double z, double t) const {
     WaterVec out = config_.current;
     for (std::size_t i = 0; i < config_.waves.size(); ++i) {
         const double a = config_.waves[i].amplitude, k = k_[i], w = w_[i];
@@ -192,6 +194,19 @@ WaterVec WaterSurface::velocity(double x, double y, double z, double t) const {
         out.z += a * w * std::sin(theta) * vertical;
     }
     return out;
+}
+
+WaterVec WaterSurface::velocity(double x, double y, double z, double t) const {
+    double x0, y0;
+    source(x, y, t, x0, y0);
+    return velocity_at_source(x0, y0, z, t);
+}
+
+void WaterSurface::sample(double x, double y, double z, double t, double& height_out, WaterVec& flow_out, double flow_only_above) const {
+    double x0, y0;
+    source(x, y, t, x0, y0);
+    height_out = height_at_source(x0, y0, t);
+    flow_out = height_out > flow_only_above ? velocity_at_source(x0, y0, std::min(z, height_out), t) : WaterVec{};
 }
 
 FloatingBody::FloatingBody(const FloatingBodyConfig& config, WaterVec position) : config_(config) {
@@ -288,14 +303,15 @@ void FloatingBody::substep_once(double dt, const WaterSurface& water, double t) 
     for (const Cell& cell : cells_) {
         const V r = qrotate(q, V{cell.offset[0], cell.offset[1], cell.offset[2]});
         const V pos = center + r;
-        const double surface = water.height(pos.x, pos.y, t);
+        double surface;
+        WaterVec flow;
+        water.sample(pos.x, pos.y, pos.z, t, surface, flow, pos.z - 0.5 * cell_height_);
         // Submerged fraction of the cell: its vertical extent against the surface (in a tilted body the cell is still a small block of the height of one layer).
         const double bottom = pos.z - 0.5 * cell_height_;
         const double s = std::clamp((surface - bottom) / cell_height_, 0.0, 1.0);
         if (s <= 0.0) continue;
         const V arm = pos - p;  // from the center of mass
         const V cell_velocity = v + cross(w, arm);
-        const WaterVec flow = water.velocity(pos.x, pos.y, std::min(pos.z, surface), t);
         const V relative = cell_velocity - V{flow.x, flow.y, flow.z};
         const double speed = length(relative);
         V drag{};

@@ -25,7 +25,7 @@
 
 ## Core architecture (21%)
 
-1. Replay the Showcase 03 workload under the perf instrumentation and record the entity-storage and threading baselines before changing either.
+1. CPU baselines of the vehicle, character and water steps are recorded (`baselines.md`); the Showcase 03 replay under the perf instrumentation (#68) and memory baselines are not, and are needed before changing entity storage or threading.
 2. Project and asset format versioning with migrations.
 
 ## Assets and tools (13%)

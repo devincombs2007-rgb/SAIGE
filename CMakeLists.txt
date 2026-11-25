@@ -23,6 +23,9 @@ add_library(saige::core ALIAS saige_core)
 target_include_directories(saige_core PUBLIC include)
 target_compile_features(saige_core PUBLIC cxx_std_20)
 
+add_executable(saige_sim_baseline tools/benchmarks/sim_baseline.cpp)
+target_link_libraries(saige_sim_baseline PRIVATE saige_core)
+
 add_executable(saige_headless apps/headless.cpp)
 target_link_libraries(saige_headless PRIVATE saige_core)
 

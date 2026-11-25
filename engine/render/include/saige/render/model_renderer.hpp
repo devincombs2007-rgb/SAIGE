@@ -18,6 +18,7 @@
 #include "saige/render/model.hpp"
 #include "saige/rhi/device.hpp"
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -101,7 +102,10 @@ void validate_lighting(const SceneLighting& lighting);
 /// buffers, and the device needs no sampled depth or comparison-sampler support.
 struct ModelShadowSettings {
     bool enabled = false;
-    uint32_t map_size = 2048;           ///< texels per side, 16 to 8192
+    uint32_t map_size = 2048;           ///< texels per side of each cascade's tile, 16 to 8192
+    /// Cascades, 1 to kMaxShadowCascades. One (the default) is the single map of the first slice. More are tiles of one atlas texture: 2 cascades
+    /// are two tiles side by side, 3 and 4 a 2x2 grid, so the texture is `shadow_atlas_size()` and `map_size` is the size of one tile.
+    uint32_t cascades = 1;
     float depth_bias_constant = -1024.0f;  ///< rasterizer bias of the shadow pass (rhi::DepthBias); negative moves casters away from the sun
     float depth_bias_slope = -1.5f;
 };
@@ -109,10 +113,20 @@ struct ModelShadowSettings {
 /// Per-frame input of the sun shadow lookup: the light's orthographic view-projection (reverse-Z, x and y in [-1, 1], depth in [0, 1])
 /// and how to filter.
 struct ModelShadowFrame {
-    Mat4 light_view_proj = Mat4::identity();
-    float texel_world_size = 0.0f;     ///< meters per shadow-map texel
+    Mat4 light_view_proj = Mat4::identity();  ///< cascade 0
+    float texel_world_size = 0.0f;     ///< meters per shadow-map texel (cascade 0)
     float normal_offset_texels = 1.5f; ///< receivers are moved along their geometric normal by this many texels before the lookup
     uint32_t filter_radius = 1;        ///< PCF radius in texels: (2r+1)^2 comparison taps
+    // More than one cascade (`cascade_count` > 1, at most the renderer's `ModelShadowSettings::cascades`): cascades 1 to 3 and the view the receiver's
+    // cascade is chosen by. A receiver uses the first cascade whose `split_far` (view-space depth along `camera_forward` from `camera_position`) is at
+    // least its depth, and none beyond the last; over the last `blend` fraction of a cascade's depth range its shadow blends into the next one's.
+    uint32_t cascade_count = 1;
+    std::array<Mat4, 3> more_view_proj{Mat4::identity(), Mat4::identity(), Mat4::identity()};
+    std::array<float, 3> more_texel_world_size{0.0f, 0.0f, 0.0f};
+    std::array<float, 4> split_far{0.0f, 0.0f, 0.0f, 0.0f};
+    Float3 camera_position{};
+    Float3 camera_forward{1.0f, 0.0f, 0.0f};
+    float blend = 0.1f;
 };
 
 struct ModelRenderSettings {
@@ -176,7 +190,14 @@ public:
     /// The sun shadow map: a D32_FLOAT texture, valid only when shadows are enabled. The caller (SceneRenderer's render graph) owns its
     /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
     [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }
+    /// Size of one cascade's tile in texels (ModelShadowSettings::map_size).
     [[nodiscard]] uint32_t shadow_map_size() const noexcept { return shadow_map_size_; }
+    [[nodiscard]] uint32_t shadow_cascade_count() const noexcept { return shadow_cascades_; }
+    /// Tiles across and down the atlas (1x1, 2x1, 2x2) and its extent in texels.
+    [[nodiscard]] uint32_t shadow_atlas_columns() const noexcept { return shadow_cascades_ <= 1 ? 1u : 2u; }
+    [[nodiscard]] uint32_t shadow_atlas_rows() const noexcept { return shadow_cascades_ <= 2 ? 1u : 2u; }
+    [[nodiscard]] uint32_t shadow_atlas_width() const noexcept { return shadow_map_size_ * shadow_atlas_columns(); }
+    [[nodiscard]] uint32_t shadow_atlas_height() const noexcept { return shadow_map_size_ * shadow_atlas_rows(); }
     /// Selects this frame's shadow block for draw(): call once per frame, between begin_frame and end_frame. `nullptr` means no shadows
     /// this frame (the sun is never occluded). The block lives in a ring of `DeviceInfo::frames_in_flight` buffers indexed by the device's
     /// frame number, so rewriting it never races the GPU's reads of an earlier frame. Frame-slot contract: one renderer, one write per
@@ -232,6 +253,7 @@ private:
     TextureRef shadow_map_;
     SamplerRef shadow_sampler_;
     uint32_t shadow_map_size_ = 0;
+    uint32_t shadow_cascades_ = 1;
     bool shadows_enabled_ = false;
     bool shadow_frame_written_ = false;
     uint64_t shadow_frame_number_ = 0;

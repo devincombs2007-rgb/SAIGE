@@ -121,7 +121,7 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
     endif()
     # test_capabilities.cpp is last on purpose: its printed report (loader, instance and effective versions, and where each
     # capability comes from) then sits at the end of the verbose ctest log, inside the part CI log viewers retain.
-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp)
+    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp)
     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)

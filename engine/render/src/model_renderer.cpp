@@ -173,6 +173,11 @@ bool unit_direction(Float3 v, Float3& out)
 
 } // namespace
 
+bool unit_sun_direction(Float3 v, Float3& out) noexcept
+{
+    return unit_direction(v, out);
+}
+
 void validate_lighting(const SceneLighting& lighting)
 {
     const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
@@ -208,6 +213,7 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     }
     ibl_enabled_ = settings.environment != nullptr;
     skinning_enabled_ = settings.skinning;
+    dynamic_lighting_ = settings.dynamic_lighting;
     // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
     // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows. This is
     // also what makes a failed shadow acquisition (shader, pipeline, map, sampler, ring buffers, groups) leave nothing behind.
@@ -389,8 +395,20 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     sc.ambient_ground[1] = light.ambient_ground.y;
     sc.ambient_ground[2] = light.ambient_ground.z;
     sc.flags[0] = static_cast<float>(shading_);
+    static_assert(sizeof(SceneConstants) == 80);
+    std::memcpy(scene_default_.data(), &sc, sizeof(sc));
+    frame_sun_ = sun_unit;
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");
+    const uint32_t light_slots = std::max(1u, device_.info().frames_in_flight);
+    if (dynamic_lighting_) {  // one copy of the scene constants per frame slot, each rewritten by the frame that owns the slot
+        scene_blocks_.reserve(light_slots);
+        for (uint32_t i = 0; i < light_slots; ++i) {
+            BufferRef block;
+            make_uniform(device_, registry_, block, &sc, sizeof(sc), "ModelSceneConstantsFrame");
+            scene_blocks_.push_back(std::move(block));
+        }
+    }
     // Neutral 1x1 textures, so a slot a material leaves empty changes nothing: white for base color, emissive (the factor
     // alone decides), metallic-roughness and occlusion (factors alone decide), and a flat tangent-space normal (0, 0, 1).
     const auto neutral = [&](rhi::Format format, const char* debug, uint8_t r, uint8_t g, uint8_t b) {
@@ -461,10 +479,10 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         block.params[1] = env.intensity;
         make_uniform(device_, registry_, ibl_block_, &block, sizeof(block), "ModelIblBlock");
     }
-    const auto constant_bindings_for = [&](const BufferRef* shadow_block) {
+    const auto constant_bindings_for = [&](const BufferRef* shadow_block, const BufferRef& scene_buffer) {
         std::vector<BindGroupBinding> bindings(3);
         bindings[0].binding = 0;
-        bindings[0].buffer = constants_buffer;
+        bindings[0].buffer = scene_buffer;
         bindings[0].size = sizeof(sc);
         bindings[1].binding = 1;
         bindings[1].texture = env_brdf_;
@@ -495,8 +513,15 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         return bindings;
     };
 
+    if (!shadows_enabled_ && dynamic_lighting_) {
+        constants_groups_.reserve(light_slots);
+        for (uint32_t i = 0; i < light_slots; ++i) {
+            constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(nullptr, scene_blocks_[i]), "ModelSceneConstants"));
+        }
+        return;
+    }
     if (!shadows_enabled_) {
-        constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings_for(nullptr), "ModelSceneConstants");
+        constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings_for(nullptr, constants_buffer), "ModelSceneConstants");
         return;
     }
 
@@ -529,7 +554,7 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     for (uint32_t i = 0; i < slots; ++i) {
         BufferRef block;
         make_uniform(device_, registry_, block, &off, sizeof(off), "ModelShadowBlock");
-        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(&block), "ModelSceneConstants"));
+        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(&block, dynamic_lighting_ ? scene_blocks_[i] : constants_buffer), "ModelSceneConstants"));
         shadow_blocks_.push_back(std::move(block));
     }
 }
@@ -543,6 +568,7 @@ void ModelRenderer::release() noexcept
 {
     constants_groups_.clear();
     shadow_blocks_.clear();
+    scene_blocks_.clear();
     constants_group_.reset();
     ibl_block_.reset();
     ibl_sampler_.reset();
@@ -606,7 +632,7 @@ void ModelRenderer::release() noexcept
 
 rhi::BindGroupHandle ModelRenderer::constants_group() const noexcept
 {
-    return shadows_enabled_ ? constants_groups_[active_group_].handle() : constants_group_.handle();
+    return (shadows_enabled_ || dynamic_lighting_) ? constants_groups_[active_group_].handle() : constants_group_.handle();
 }
 
 GpuMaterial ModelRenderer::create_material(const MaterialData& data, const TextureRef& base_color, const SamplerRef& sampler,
@@ -800,12 +826,56 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                          ModelFrameStats& stats)
 {
     check_palettes_unfrozen(draws);  // before anything is recorded or written
+    if (dynamic_lighting_) {
+        // Complete the frame's slot before anything reads it: lighting that was not published is the construction-time lighting, a shadow
+        // frame that was not set is "no shadows", and the draw reads this frame's slot rather than whichever slot was written last.
+        const uint64_t frame_number = device_.frame_number();
+        if (!(lighting_written_ && lighting_frame_number_ == frame_number)) write_scene_block(scene_default_.data(), sun_direction_);
+        if (shadows_enabled_ && !(shadow_frame_written_ && shadow_frame_number_ == frame_number)) set_shadow_frame(nullptr);
+        active_group_ = static_cast<uint32_t>(frame_number % constants_groups_.size());
+    }
     rhi::PipelineHandle bound{};
     rhi::BindGroupHandle bound_palette{};  // set 2 of the bound skinned pipeline
     blended_.clear();
     uint32_t sequence = 0;
     std::optional<Frustum> frustum;
     if (frustum_culling_) frustum = extract_frustum(view_proj);
+    // What is currently bound, so a primitive that shares the material group or the buffers of the one before it does not rebind them. A new
+    // pipeline resets everything (the contract is that it "starts with nothing bound"), so this only ever removes repeats, never a needed bind.
+    rhi::BindGroupHandle bound_material{};
+    rhi::BufferHandle bound_vertices{}, bound_indices{};
+    rhi::IndexType bound_index_type{};
+    const auto bind_geometry = [&](const GpuPrimitive& prim, rhi::BindGroupHandle material_group) {
+        if (material_group != bound_material) {
+            cmd.bind_group(0, material_group);
+            bound_material = material_group;
+        } else {
+            ++stats.binds_skipped;
+        }
+        if (prim.vertices.handle() != bound_vertices) {
+            cmd.bind_vertex_buffer(prim.vertices.handle());
+            bound_vertices = prim.vertices.handle();
+        } else {
+            ++stats.binds_skipped;
+        }
+        if (prim.indices.handle() != bound_indices || prim.index_type != bound_index_type) {
+            cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+            bound_indices = prim.indices.handle();
+            bound_index_type = prim.index_type;
+        } else {
+            ++stats.binds_skipped;
+        }
+    };
+    const auto bind_pipeline = [&](rhi::PipelineHandle pipeline) {
+        if (pipeline == bound) return;
+        cmd.bind_pipeline(pipeline);
+        cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
+        bound = pipeline;
+        bound_palette = {};
+        bound_material = {};
+        bound_vertices = {};
+        bound_indices = {};
+    };
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -870,14 +940,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                     blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored, palette});
                     continue;
                 }
-                const rhi::PipelineHandle pipeline = palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)]
-                                                                         : pipeline_for(mirrored, material.double_sided);
-                if (pipeline != bound) {
-                    cmd.bind_pipeline(pipeline);
-                    cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
-                    bound = pipeline;
-                    bound_palette = {};
-                }
+                bind_pipeline(palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)] : pipeline_for(mirrored, material.double_sided));
                 if (palette != nullptr) {
                     const rhi::BindGroupHandle group = palette_group(*palette);
                     if (group != bound_palette) {
@@ -886,9 +949,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                     }
                     ++stats.skinned_draws;
                 }
-                cmd.bind_group(0, material.group.handle());
-                cmd.bind_vertex_buffer(prim.vertices.handle());
-                cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+                bind_geometry(prim, material.group.handle());
                 cmd.push_constant_struct(push);
                 cmd.draw_indexed(prim.index_count);
                 ++stats.draw_calls;
@@ -918,14 +979,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         // against itself; a single-sided one draws its front faces only.
         const int first_pass = item.material->double_sided ? 1 : 0;
         for (int pass = first_pass; pass >= 0; --pass) {
-            const rhi::PipelineHandle pipeline = item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass]
-                                                                         : blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
-            if (pipeline != bound) {
-                cmd.bind_pipeline(pipeline);
-                cmd.bind_group(1, constants_group());
-                bound = pipeline;
-                bound_palette = {};
-            }
+            bind_pipeline(item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass] : blend_pipelines_[(item.mirrored ? 2 : 0) + pass]);
             if (item.palette != nullptr) {
                 const rhi::BindGroupHandle group = palette_group(*item.palette);
                 if (group != bound_palette) {
@@ -934,9 +988,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                 }
                 ++stats.skinned_draws;
             }
-            cmd.bind_group(0, item.material->group.handle());
-            cmd.bind_vertex_buffer(item.primitive->vertices.handle());
-            cmd.bind_index_buffer(item.primitive->indices.handle(), item.primitive->index_type);
+            bind_geometry(*item.primitive, item.material->group.handle());
             cmd.push_constant_struct(push);
             cmd.draw_indexed(item.primitive->index_count);
             ++stats.draw_calls;
@@ -944,6 +996,66 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         }
         ++stats.blended_primitives;
     }
+}
+
+void ModelRenderer::write_scene_block(const float* constants, Float3 sun)
+{
+    const uint64_t frame_number = device_.frame_number();
+    const std::size_t slot = static_cast<std::size_t>(frame_number % scene_blocks_.size());
+    std::span<std::byte> mapped = device_.map(scene_blocks_[slot].handle());  // may throw: nothing has been recorded as written
+    std::memcpy(mapped.data(), constants, sizeof(SceneConstants));
+    lighting_frame_number_ = frame_number;
+    lighting_written_ = true;
+    frame_sun_ = sun;
+}
+
+bool ModelRenderer::lighting_written_this_frame() const noexcept
+{
+    return dynamic_lighting_ && lighting_written_ && lighting_frame_number_ == device_.frame_number();
+}
+
+Float3 ModelRenderer::frame_sun_direction() const noexcept
+{
+    return dynamic_lighting_ && lighting_written_ && lighting_frame_number_ == device_.frame_number() ? frame_sun_ : sun_direction_;
+}
+
+void ModelRenderer::set_lighting_frame(const ModelLightingFrame* frame)
+{
+    if (!dynamic_lighting_) {
+        throw std::logic_error("ModelRenderer::set_lighting_frame: dynamic lighting is not enabled (ModelRenderSettings::dynamic_lighting)");
+    }
+    const uint64_t frame_number = device_.frame_number();
+    // The frame-slot contract: one write of the slot per renderer per frame, checked before anything changes. A draw completes an unpublished slot with the
+    // construction-time lighting, so it counts as the frame's write: publishing after the first draw is refused by the same check.
+    if (lighting_written_ && lighting_frame_number_ == frame_number) {
+        throw std::logic_error("ModelRenderer::set_lighting_frame: this frame's slot is already written (one publication per renderer per frame, before its first draw)");
+    }
+    if (frame == nullptr) {
+        write_scene_block(scene_default_.data(), sun_direction_);
+        return;
+    }
+    validate_lighting(frame->lighting);
+    const Float3 sky = frame->sky_color;
+    if (!std::isfinite(sky.x) || !std::isfinite(sky.y) || !std::isfinite(sky.z) || sky.x < 0.0f || sky.y < 0.0f || sky.z < 0.0f) {
+        throw std::invalid_argument("ModelLightingFrame: the sky color must be finite and not negative");
+    }
+    Float3 sun{};
+    if (!unit_direction(frame->lighting.sun_direction, sun)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
+    SceneConstants sc{};
+    std::memcpy(&sc, scene_default_.data(), sizeof(sc));  // keeps the fog density and the shading mode
+    sc.fog_color_density[0] = sky.x;
+    sc.fog_color_density[1] = sky.y;
+    sc.fog_color_density[2] = sky.z;
+    sc.sun_direction[0] = sun.x;
+    sc.sun_direction[1] = sun.y;
+    sc.sun_direction[2] = sun.z;
+    sc.sun_color[0] = frame->lighting.sun_color.x;
+    sc.sun_color[1] = frame->lighting.sun_color.y;
+    sc.sun_color[2] = frame->lighting.sun_color.z;
+    sc.ambient_ground[0] = frame->lighting.ambient_ground.x;
+    sc.ambient_ground[1] = frame->lighting.ambient_ground.y;
+    sc.ambient_ground[2] = frame->lighting.ambient_ground.z;
+    write_scene_block(reinterpret_cast<const float*>(&sc), sun);
 }
 
 void ModelRenderer::set_shadow_frame(const ModelShadowFrame* frame)

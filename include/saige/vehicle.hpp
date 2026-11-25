@@ -37,6 +37,28 @@ struct VehicleWheelConfig {
     bool driven{};
 };
 
+// An engine, gearbox and final drive in place of the flat `engine_force` and `engine_power` (which stay the model when `enabled` is false: the default, bit-identical to before). The engine's torque
+// follows a curve over its speed (piecewise linear between the points, rpm ascending); the engine speed is the wheels' times the gear and final drive, never below `launch_rpm` while the clutch
+// slips from a standstill; the drive force at the wheels is torque * gear * final drive * efficiency / wheel radius, shared by the driven wheels, and the tires' friction circle still limits what
+// reaches the ground. An automatic gearbox shifts up past `upshift_rpm` and down below `downshift_rpm` (never faster than `shift_time`, during which the engine delivers no torque); reverse is
+// engaged from a standstill by a negative throttle (a positive throttle while still rolling backward acts through first gear, which brakes it). Above the rev limit the engine delivers nothing. The engine speed and the gear are published in `VehicleState` (for engine sound and gauges).
+struct VehiclePowertrain {
+    bool enabled = false;
+    std::array<std::array<float, 2>, 6> torque_curve{{{1000, 150}, {2000, 220}, {3000, 265}, {4500, 285}, {6000, 260}, {7000, 200}}};  // {rpm, N m}
+    float idle_rpm = 900.0f;
+    float launch_rpm = 3000.0f;
+    float redline_rpm = 6800.0f;
+    std::array<float, 6> gear_ratios{{3.6f, 2.2f, 1.5f, 1.1f, 0.85f, 0.7f}};
+    int gear_count = 6;                // how many of the ratios are used (1 to 6)
+    float reverse_ratio = 3.4f;
+    float reverse_speed_limit = 7.0f;  // m/s: the engine delivers nothing in reverse past this speed
+    float final_drive = 3.7f;
+    float drivetrain_efficiency = 0.9f;
+    float upshift_rpm = 6000.0f;
+    float downshift_rpm = 2600.0f;
+    float shift_time = 0.25f;          // seconds
+};
+
 struct VehicleConfig {
     float mass = 1450.0f;                       // kg
     Vec3 half_extents{2.15f, 0.92f, 0.48f};     // the chassis box, meters
@@ -64,6 +86,7 @@ struct VehicleConfig {
     // rear wheels then slide, which is what makes the tail come round).
     float handbrake_force = 9000.0f;
     float handbrake_grip = 0.45f;
+    VehiclePowertrain powertrain;
     std::array<VehicleWheelConfig, 4> wheels{{
         {{1.30f, 0.80f, -0.05f}, true, false},    // front left
         {{1.30f, -0.80f, -0.05f}, true, false},   // front right
@@ -112,6 +135,8 @@ struct VehicleState {
     float forward_speed{};   // along the chassis' +X
     float yaw{};             // heading of the chassis' +X in the horizontal plane
     int wheels_in_contact{};
+    int gear{};              // with a powertrain: 1 to gear_count, -1 in reverse; 0 without one
+    float engine_rpm{};      // with a powertrain; 0 without one
 };
 
 class Vehicle {
@@ -158,6 +183,9 @@ private:
     std::uint64_t substep_count_ = 0;
     std::array<double, 4> compression_{};
     std::array<double, 4> spin_{};
+    int gear_ = 1;
+    double shift_timer_ = 0.0;
+    double engine_rpm_ = 0.0;
     std::array<double, 4> steer_{};
     std::array<Vec3, 4> contact_point_{}, contact_normal_{};
 };

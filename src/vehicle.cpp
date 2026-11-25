@@ -82,6 +82,27 @@ void validate_vehicle_config(const VehicleConfig& c) {
     if (!(c.drag_area_cd >= 0.0f) || !std::isfinite(c.drag_area_cd) || !(c.rolling_resistance >= 0.0f) || !std::isfinite(c.rolling_resistance)) {
         throw std::invalid_argument("VehicleConfig: drag and rolling resistance must be finite and not negative");
     }
+    if (c.powertrain.enabled) {
+        const VehiclePowertrain& t = c.powertrain;
+        const auto finite_positive = [](float x) { return std::isfinite(x) && x > 0.0f; };
+        if (t.gear_count < 1 || t.gear_count > 6) throw std::invalid_argument("VehicleConfig: powertrain gear_count must be 1 to 6");
+        for (int g = 0; g < t.gear_count; ++g) {
+            if (!finite_positive(t.gear_ratios[static_cast<std::size_t>(g)])) throw std::invalid_argument("VehicleConfig: powertrain gear ratios must be finite and positive");
+        }
+        if (!finite_positive(t.reverse_ratio) || !finite_positive(t.final_drive) || !(t.drivetrain_efficiency > 0.0f && t.drivetrain_efficiency <= 1.0f)) {
+            throw std::invalid_argument("VehicleConfig: powertrain reverse ratio, final drive and efficiency must be positive (efficiency at most 1)");
+        }
+        if (!finite_positive(t.reverse_speed_limit)) throw std::invalid_argument("VehicleConfig: powertrain reverse_speed_limit must be positive");
+        if (!(finite_positive(t.idle_rpm) && t.launch_rpm >= t.idle_rpm && t.redline_rpm > t.launch_rpm && t.upshift_rpm > t.downshift_rpm && t.downshift_rpm > t.idle_rpm && t.upshift_rpm <= t.redline_rpm) ||
+            !std::isfinite(t.launch_rpm) || !std::isfinite(t.redline_rpm) || !(t.shift_time >= 0.0f && std::isfinite(t.shift_time))) {
+            throw std::invalid_argument("VehicleConfig: powertrain rpm limits must satisfy idle <= launch < redline and idle < downshift < upshift <= redline");
+        }
+        for (std::size_t k = 0; k < t.torque_curve.size(); ++k) {
+            if (!std::isfinite(t.torque_curve[k][0]) || !std::isfinite(t.torque_curve[k][1]) || t.torque_curve[k][1] < 0.0f || (k > 0 && !(t.torque_curve[k][0] > t.torque_curve[k - 1][0]))) {
+                throw std::invalid_argument("VehicleConfig: powertrain torque curve must have ascending rpm and non-negative torque");
+            }
+        }
+    }
     if (c.max_steer >= 1.5f) throw std::invalid_argument("VehicleConfig: max_steer must be below 1.5 rad");
     if (!finite(c.center_of_mass) || std::fabs(c.center_of_mass.x) > c.half_extents.x || std::fabs(c.center_of_mass.y) > c.half_extents.y ||
         std::fabs(c.center_of_mass.z) > c.half_extents.z) {
@@ -199,6 +220,52 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
     const double steer_limit = static_cast<double>(config_.max_steer) / (1.0 + std::pow(std::fabs(speed_along) / static_cast<double>(config_.steer_speed_scale), 2.0));
     const double corner_mass = mass / 4.0;
 
+    // The powertrain (when enabled): the total drive force at the wheels for this substep, from the engine speed the wheels and the gear give.
+    const VehiclePowertrain& pt = config_.powertrain;
+    double powertrain_force = 0.0;
+    if (pt.enabled) {
+        const double throttle = static_cast<double>(input.throttle);
+        if (speed_along < 1.0 && throttle < 0.0) gear_ = -1;                                  // reverse from a standstill
+        else if (gear_ == -1 && throttle > 0.0 && speed_along > -1.0) gear_ = 1;
+        // A positive throttle while still rolling backward acts through first gear (it brakes the car and then drives it forward); the displayed gear changes once the car is no longer moving backward.
+        const int g = (gear_ == -1 && throttle > 0.0) ? 1 : gear_;
+        const double ratio = (g == -1 ? static_cast<double>(pt.reverse_ratio) : static_cast<double>(pt.gear_ratios[static_cast<std::size_t>(g - 1)])) * static_cast<double>(pt.final_drive);
+        const double wheel_rpm = std::fabs(speed_along) / static_cast<double>(config_.wheel_radius) * ratio * 60.0 / (2.0 * 3.14159265358979323846);
+        engine_rpm_ = std::max(wheel_rpm, static_cast<double>(throttle != 0.0 ? pt.launch_rpm : pt.idle_rpm));
+        engine_rpm_ = std::min(engine_rpm_, static_cast<double>(pt.redline_rpm) * 1.05);
+        if (shift_timer_ > 0.0) {
+            shift_timer_ = std::max(0.0, shift_timer_ - dt);
+        } else if (gear_ > 0 && g > 0) {
+            if (throttle > 0.0 && wheel_rpm > static_cast<double>(pt.upshift_rpm) && gear_ < pt.gear_count) {
+                ++gear_;
+                shift_timer_ = static_cast<double>(pt.shift_time);
+            } else if (wheel_rpm < static_cast<double>(pt.downshift_rpm) && gear_ > 1) {
+                --gear_;
+                shift_timer_ = static_cast<double>(pt.shift_time) * 0.5;
+            }
+        }
+        double torque = 0.0;
+        const auto& curve = pt.torque_curve;
+        if (shift_timer_ <= 0.0 && engine_rpm_ < static_cast<double>(pt.redline_rpm) && !(g > 0 && throttle < 0.0 && speed_along > 1.0) && !(g == -1 && speed_along < -static_cast<double>(pt.reverse_speed_limit))) {
+            const double rpm = engine_rpm_;
+            if (rpm <= static_cast<double>(curve.front()[0])) {
+                torque = static_cast<double>(curve.front()[1]);
+            } else if (rpm >= static_cast<double>(curve.back()[0])) {
+                torque = static_cast<double>(curve.back()[1]);
+            } else {
+                for (std::size_t k = 1; k < curve.size(); ++k) {
+                    if (rpm <= static_cast<double>(curve[k][0])) {
+                        const double t = (rpm - static_cast<double>(curve[k - 1][0])) / (static_cast<double>(curve[k][0]) - static_cast<double>(curve[k - 1][0]));
+                        torque = static_cast<double>(curve[k - 1][1]) + (static_cast<double>(curve[k][1]) - static_cast<double>(curve[k - 1][1])) * t;
+                        break;
+                    }
+                }
+            }
+        }
+        powertrain_force = torque * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * std::fabs(throttle);
+        if (g == -1) powertrain_force = -powertrain_force;
+    }
+
     for (std::size_t i = 0; i < 4; ++i) {
         const VehicleWheelConfig& wc = config_.wheels[i];
         const double steer = wc.steered ? static_cast<double>(input.steer) * steer_limit : 0.0;
@@ -237,7 +304,9 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
         const D3 l = normalized(cross(n, f), left);
         const double v_long = dot(v_cp, f), v_lat = dot(v_cp, l);
         double fx = 0.0;
-        if (wc.driven) {
+        if (wc.driven && pt.enabled) {
+            fx += powertrain_force / driven;
+        } else if (wc.driven) {
             const double throttle = static_cast<double>(input.throttle);
             const double per_wheel = static_cast<double>(config_.engine_force) / driven;
             const double power_cap = static_cast<double>(config_.engine_power) / (std::max(std::fabs(v_long), 2.0) * driven);
@@ -401,6 +470,8 @@ void Vehicle::publish() noexcept {
     state_.forward_speed = static_cast<float>(body_.v[0] * fwd.x + body_.v[1] * fwd.y + body_.v[2] * fwd.z);
     state_.yaw = static_cast<float>(std::atan2(fwd.y, fwd.x));
     state_.wheels_in_contact = 0;
+    state_.gear = config_.powertrain.enabled ? gear_ : 0;
+    state_.engine_rpm = config_.powertrain.enabled ? static_cast<float>(engine_rpm_) : 0.0f;
     for (std::size_t i = 0; i < 4; ++i) {
         VehicleWheelState& ws = state_.wheels[i];
         ws.in_contact = compression_[i] > 0.0;

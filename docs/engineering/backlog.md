@@ -11,7 +11,7 @@
 ## Physics (22%)
 
 1. Physical materials: table, vehicle tires and vehicle body contacts done (`docs/physics-materials.md`); character traction is done (`CapsuleInput::traction`, derived by the host from the surface under the feet: no change to what the controller reports); object restitution and friction are done as a reusable response (`contact_velocity`, not wired into Showcase 03); next is a Showcase world that builds a `SurfaceMap` from its surface enum (opt-in, since it changes the scripted drive).
-2. Vehicle: tire load sensitivity and a handbrake are done (opt-in, `docs/physics-materials.md`). Next: engine and gearbox curves, a differential, damage state, a controlled-drift test.
+2. Vehicle: tire load sensitivity and a handbrake are done (opt-in, `docs/physics-materials.md`). The powertrain (torque curve, automatic gearbox, rpm and gear published) is done too. Next: a differential, damage state, a controlled-drift test, engine braking.
 3. Rigid-body stacking and joints; evaluate Jolt and Bullet (license, determinism, maintenance) behind a backend interface; owner approval to adopt.
 4. Water (buoyancy, drag), destruction (fracture of authored meshes).
 

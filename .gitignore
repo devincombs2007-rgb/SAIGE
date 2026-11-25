@@ -4,3 +4,5 @@
 /CMakeUserPresets.json
 # Visual regression failure artifacts (actual / expected / diff images)
 **/goldens/_failures/
+__pycache__/
+*.pyc

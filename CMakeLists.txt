@@ -24,8 +24,76 @@ add_library(saige_core STATIC
     src/world.cpp
 )
 add_library(saige::core ALIAS saige_core)
+find_package(Threads REQUIRED)
+target_link_libraries(saige_core PUBLIC Threads::Threads)
 target_include_directories(saige_core PUBLIC include)
 target_compile_features(saige_core PUBLIC cxx_std_20)
+
+# Dynamic rigid-body backend (include/saige/dynamics.hpp). Optional until its compatibility gates pass in CI on every platform: with SAIGE_PHYSICS_JOLT=OFF (the default)
+# nothing here is built and make_dynamics_world() returns null. SAIGE_JOLT_ROOT is a directory holding Jolt/ at the pinned release, fetched and hash-verified by
+# tools/physics_eval/fetch_jolt.py (docs/physics-backends.md). SAIGE_JOLT_DOUBLE selects Jolt's double-precision build, evaluated separately from the default single precision.
+option(SAIGE_PHYSICS_JOLT "Build the Jolt Physics dynamics backend (needs SAIGE_JOLT_ROOT)" OFF)
+option(SAIGE_JOLT_DOUBLE "Build Jolt with double-precision world positions" OFF)
+set(SAIGE_JOLT_ROOT "" CACHE PATH "Directory containing Jolt/ (see tools/physics_eval/fetch_jolt.py)")
+add_library(saige_dynamics STATIC src/dynamics.cpp src/ragdoll.cpp src/buoyancy.cpp src/destruction.cpp)
+add_library(saige::dynamics ALIAS saige_dynamics)
+target_link_libraries(saige_dynamics PUBLIC saige_core)
+if(SAIGE_PHYSICS_JOLT)
+    if(NOT EXISTS "${SAIGE_JOLT_ROOT}/Jolt/Jolt.h")
+        message(FATAL_ERROR "SAIGE_PHYSICS_JOLT needs SAIGE_JOLT_ROOT to hold Jolt/Jolt.h (run tools/physics_eval/fetch_jolt.py DIR --tag v5.7.0)")
+    endif()
+    file(GLOB_RECURSE SAIGE_JOLT_SOURCES CONFIGURE_DEPENDS "${SAIGE_JOLT_ROOT}/Jolt/*.cpp")
+    list(FILTER SAIGE_JOLT_SOURCES EXCLUDE REGEX "/Jolt/(Renderer|Compute)/")
+    add_library(saige_jolt STATIC ${SAIGE_JOLT_SOURCES})
+    target_include_directories(saige_jolt SYSTEM PUBLIC "${SAIGE_JOLT_ROOT}")
+    target_compile_features(saige_jolt PUBLIC cxx_std_17)
+    # Every translation unit that includes Jolt must see the same configuration defines.
+    target_compile_definitions(saige_jolt PUBLIC $<$<CONFIG:Debug>:JPH_ENABLE_ASSERTS> $<$<BOOL:${SAIGE_JOLT_DOUBLE}>:JPH_DOUBLE_PRECISION>)
+    if(MSVC)
+        target_compile_options(saige_jolt PRIVATE /W0 /fp:precise)
+        target_compile_options(saige_jolt PUBLIC /Zc:__cplusplus)
+    else()
+        target_compile_options(saige_jolt PRIVATE -w -ffp-contract=off)
+        target_compile_options(saige_jolt PUBLIC -ffp-contract=off)
+    endif()
+    target_sources(saige_dynamics PRIVATE engine/physics_jolt/jolt_dynamics.cpp)
+    target_link_libraries(saige_dynamics PUBLIC saige_jolt)
+    target_compile_definitions(saige_dynamics PUBLIC SAIGE_HAVE_JOLT=1)
+endif()
+
+# The audio mixer and models are held to the strictest warnings on every compiler (the rest of saige_core predates this rule and is held to the Graphics workflow's flags).
+if(MSVC)
+    set_source_files_properties(src/audio.cpp src/audio_model.cpp PROPERTIES COMPILE_OPTIONS "/W4;/WX")
+else()
+    set_source_files_properties(src/audio.cpp src/audio_model.cpp PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror;-Wconversion;-Wno-sign-conversion;-Werror=double-promotion")
+endif()
+
+# Audio device adapter (include/saige/audio.hpp: AudioOutput). The mixer itself is always built (saige_core, src/audio.cpp); the miniaudio device layer is optional. SAIGE_MINIAUDIO_ROOT is a directory
+# holding miniaudio.h and stb_vorbis.c at the pinned release, fetched and hash-verified by tools/audio/fetch_miniaudio.py (docs/audio.md).
+option(SAIGE_AUDIO_MINIAUDIO "Build the miniaudio device adapter and decoders (needs SAIGE_MINIAUDIO_ROOT)" OFF)
+set(SAIGE_MINIAUDIO_ROOT "" CACHE PATH "Directory containing miniaudio.h (see tools/audio/fetch_miniaudio.py)")
+if(SAIGE_AUDIO_MINIAUDIO)
+    if(NOT EXISTS "${SAIGE_MINIAUDIO_ROOT}/miniaudio.h" OR NOT EXISTS "${SAIGE_MINIAUDIO_ROOT}/stb_vorbis.c")
+        message(FATAL_ERROR "SAIGE_AUDIO_MINIAUDIO needs SAIGE_MINIAUDIO_ROOT to hold miniaudio.h and stb_vorbis.c (run tools/audio/fetch_miniaudio.py DIR)")
+    endif()
+    add_library(saige_audio_miniaudio STATIC engine/audio_miniaudio/miniaudio_output.cpp)
+    add_executable(saige_audio_scene tools/audio/audio_scene.cpp)
+    add_library(saige::audio_miniaudio ALIAS saige_audio_miniaudio)
+    target_include_directories(saige_audio_miniaudio PUBLIC engine/audio_miniaudio PRIVATE "${SAIGE_MINIAUDIO_ROOT}")
+    target_link_libraries(saige_audio_miniaudio PUBLIC saige_core ${CMAKE_DL_LIBS})
+    target_link_libraries(saige_audio_scene PRIVATE saige_audio_miniaudio)
+    if(MSVC)
+        # miniaudio's own source is third-party: its warnings are not ours.
+        set_source_files_properties(engine/audio_miniaudio/miniaudio_output.cpp PROPERTIES COMPILE_OPTIONS "/W2;/WX-")
+    else()
+        set_source_files_properties(engine/audio_miniaudio/miniaudio_output.cpp PROPERTIES COMPILE_OPTIONS "-w")
+    endif()
+endif()
+
+add_executable(saige_sim_baseline tools/benchmarks/sim_baseline.cpp)
+target_link_libraries(saige_sim_baseline PRIVATE saige_core)
+add_executable(saige_water_workloads tools/benchmarks/water_workloads.cpp)
+target_link_libraries(saige_water_workloads PRIVATE saige_core)
 
 add_executable(saige_headless apps/headless.cpp)
 target_link_libraries(saige_headless PRIVATE saige_core)
@@ -42,11 +110,34 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_character character_course capsule_triangle capsule_slopes static_collision oriented_box wheel_contact vehicle vehicle_surface character_surface character_drive contact_response character_crouch vehicle_handling vehicle_powertrain vehicle_drivetrain vehicle_damage water audio_model audio navigation large_world)
+    foreach(suite IN ITEMS world runtime scene_hierarchy asset_id free_camera capsule_sweep capsule_triangle capsule_character capsule_slopes character_course static_collision oriented_box wheel_contact vehicle vehicle_surface character_surface character_drive contact_response character_crouch vehicle_handling vehicle_powertrain vehicle_drivetrain vehicle_damage water audio_model audio navigation large_world)
         add_executable(${suite}_test tests/${suite}_test.cpp)
         target_link_libraries(${suite}_test PRIVATE saige_core)
         add_test(NAME ${suite} COMMAND ${suite}_test)
     endforeach()
+
+    if(SAIGE_AUDIO_MINIAUDIO)
+        add_executable(audio_device_test tests/audio_device_test.cpp)
+        target_link_libraries(audio_device_test PRIVATE saige::audio_miniaudio)
+        add_test(NAME audio_device COMMAND audio_device_test)
+    endif()
+
+    add_executable(dynamics_test tests/dynamics_test.cpp)
+    target_link_libraries(dynamics_test PRIVATE saige_dynamics)
+    add_test(NAME dynamics COMMAND dynamics_test)
+    set_tests_properties(dynamics PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(destruction_test tests/destruction_test.cpp)
+    target_link_libraries(destruction_test PRIVATE saige_dynamics)
+    add_test(NAME destruction COMMAND destruction_test)
+    set_tests_properties(destruction PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(buoyancy_test tests/buoyancy_test.cpp)
+    target_link_libraries(buoyancy_test PRIVATE saige_dynamics)
+    add_test(NAME buoyancy COMMAND buoyancy_test)
+    set_tests_properties(buoyancy PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(ragdoll_test tests/ragdoll_test.cpp)
+    target_link_libraries(ragdoll_test PRIVATE saige_dynamics)
+    add_test(NAME ragdoll COMMAND ragdoll_test)
+    set_tests_properties(ragdoll PROPERTIES SKIP_RETURN_CODE 77)
 
     target_include_directories(character_course_test PRIVATE apps)
 
@@ -165,6 +256,11 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
                 --frames 30 --validate)
             set_tests_properties(win32_streamed_vehicle_course_vulkan PROPERTIES TIMEOUT 60
                 PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0 gpu_uploads=2([^0-9]|$)")
+            add_test(NAME win32_terrain_vehicle_vulkan COMMAND saige_desktop --character-course --course-vehicle --terrain-vehicle
+                --course-world "${CMAKE_CURRENT_SOURCE_DIR}/examples/textured-scene/ramp-course-world.json"
+                --frames 30 --require-rendered --validate)
+            set_tests_properties(win32_terrain_vehicle_vulkan PROPERTIES TIMEOUT 60
+                PASS_REGULAR_EXPRESSION "resident_chunks=2 gpu_models=2 model_draws=[1-9][0-9]* unresolved=0")
             set(course_save_fixture "${CMAKE_CURRENT_BINARY_DIR}/streamed-vehicle-checkpoint.json")
             file(WRITE "${course_save_fixture}" [=[
 {"checkpoint_version":2,"cell":[2147483646,-2147483648],"feet":[3,4,0],"vehicle":{"cell":[2147483646,-2147483648],"position":[3,1,0],"heading":0}}
@@ -203,3 +299,7 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
         endif()
     endif()
 endif()
+
+add_subdirectory(showcase)
+add_subdirectory(tools/production/inspect)
+add_subdirectory(tools/animation/viewer)

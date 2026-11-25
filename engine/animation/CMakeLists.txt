@@ -21,6 +21,7 @@ add_library(saige_animation STATIC
     src/clip_analysis.cpp
     src/humanoid.cpp
     src/ik.cpp
+    src/layers.cpp
     src/locomotion.cpp
     src/pose_ops.cpp
     src/retarget.cpp
@@ -45,6 +46,7 @@ if(SAIGE_ANIMATION_BUILD_TESTS)
             tests/test_humanoid.cpp
             tests/test_action.cpp
             tests/test_ik.cpp
+            tests/test_layers.cpp
             tests/test_locomotion.cpp
             tests/test_retarget.cpp
         LINK saige::animation)

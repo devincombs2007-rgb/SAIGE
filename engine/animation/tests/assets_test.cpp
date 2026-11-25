@@ -3,6 +3,7 @@
 #include "saige/animation/action.hpp"
 #include "saige/animation/bvh.hpp"
 #include "saige/animation/ik.hpp"
+#include "saige/animation/layers.hpp"
 #include "saige/animation/locomotion.hpp"
 #include "saige/animation/retarget.hpp"
 
@@ -186,6 +187,44 @@ int main(int argc, char** argv) {
     std::printf("the set's cycles (m/s):");
     for (const LocomotionCycle& c : set.cycles()) std::printf(" %.2f", static_cast<double>(c.info.ground_speed));
     std::printf("\n");
+    // Layering on the real rig: UAL's aim pose over the sprint, and a look-at.
+    if (set.usable()) {
+        const gfx::AnimationClip* aim = find_clip(ual, "Pistol_Aim_Neutral");
+        check(aim != nullptr, "clip Pistol_Aim_Neutral");
+        if (aim != nullptr) {
+            LocomotionController run(set, {});
+            for (int i = 0; i < 120; ++i) run.update(1.0f / 60.0f, {7.0f, true, 0.0f});
+            const gfx::Pose base = run.pose();
+            gfx::Pose layer = gfx::rest_pose(skin);
+            gfx::evaluate_clip(*aim, gfx::bind_clip(*aim, skin), aim->duration, false, layer);
+            const BoneMask mask = upper_body_mask(skin, *map);
+            gfx::Pose out = base;
+            blend_masked(out, layer, mask, 1.0f);
+            bool legs_identical = true;
+            for (const Bone leg : {Bone::Hips, Bone::LeftUpperLeg, Bone::LeftLowerLeg, Bone::LeftFoot, Bone::LeftToes, Bone::RightUpperLeg, Bone::RightLowerLeg, Bone::RightFoot, Bone::RightToes}) {
+                const std::size_t j = static_cast<std::size_t>((*map)[leg]);
+                legs_identical = legs_identical && out.local[j].rotation == base.local[j].rotation && out.local[j].position == base.local[j].position;
+            }
+            check(legs_identical, "the aim layer leaves the sprint's legs and hips bit-identical");
+            float arm_to_layer = 0.0f, arm_to_base = 0.0f;
+            for (const Bone arm : {Bone::LeftUpperArm, Bone::RightUpperArm, Bone::LeftLowerArm, Bone::RightLowerArm}) {
+                const std::size_t j = static_cast<std::size_t>((*map)[arm]);
+                arm_to_layer = std::max(arm_to_layer, rotation_angle_between(out.local[j].rotation, layer.local[j].rotation));
+                arm_to_base = std::max(arm_to_base, rotation_angle_between(base.local[j].rotation, layer.local[j].rotation));
+            }
+            std::printf("  aim layer over the sprint: arms end %.4f rad from the aim pose (the sprint's arms were %.2f rad from it)\n", static_cast<double>(arm_to_layer), static_cast<double>(arm_to_base));
+            check(arm_to_layer < 1e-4f && arm_to_base > 0.3f, "the aim layer puts the arms in the aim pose", static_cast<double>(arm_to_layer));
+            // Look at a point 4 m ahead and 2 m to the left of the standing character, at head height.
+            gfx::Pose stand = gfx::rest_pose(skin);
+            const render::Transform at_origin{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+            const render::Float3 eye = joint_world(skin, stand)[static_cast<std::size_t>((*map)[Bone::Head])].position;
+            LookAtState state;
+            const render::Float3 target = eye + render::Float3{4.0f, 2.0f, 0.0f};
+            const float left = look_at(skin, *map, rig, stand, at_origin, target, {}, state, 1.0f, 1.0f / 60.0f);
+            std::printf("  look at (4, 2) m from the head: %.2f degrees off after the turn\n", static_cast<double>(left) * 57.29578);
+            check(left < 0.035f, "the UAL head faces the target within 2 degrees", static_cast<double>(left));
+        }
+    }
     if (set.usable()) {
         LocomotionConfig cfg;
         // Slide inside the stance of each cycle, at the cycle's own speed (a pure cycle): the planted feet move at a few percent of the speed. Between cycles the blends are not pure and are reported only.

@@ -157,9 +157,9 @@ PreparedModel prepare_model(const GltfAsset& asset, std::string_view name, const
         data.normal_scale = m.normal_scale;
         data.occlusion_strength = m.occlusion_strength;
         data.double_sided = m.double_sided;
-        // The authored alpha mode decides shadow casting, independently of how the surface is drawn (a BLEND drawn opaque because blending
-        // is off still does not cast; a MASK with cutoff 0 still does not cast): only an opaque material does.
-        data.casts_sun_shadow = m.alpha_mode == AlphaMode::Opaque;
+        // The authored alpha mode decides shadow casting, independently of how the surface is drawn: opaque and MASK materials cast (a MASK
+        // through the alpha-tested variant, using its cutoff), a BLEND does not even when it is drawn opaque because blending is off.
+        data.casts_sun_shadow = m.alpha_mode != AlphaMode::Blend;
         if (m.alpha_mode == AlphaMode::Mask) {
             // glTF renders a fragment when alpha >= cutoff, so a cutoff of 0 passes everything, which is exactly what the
             // shader does for 0 (no test); the shader discards only alpha < cutoff.

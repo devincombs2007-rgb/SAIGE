@@ -210,3 +210,30 @@ TEST_CASE("Look at: a target that jumps is followed smoothly, without overshoot,
     CHECK(at_tau > 0.55f * cfg.max_yaw / deg && at_tau < 0.72f * cfg.max_yaw / deg);  // 1 - 1/e = 63% of the way after one time constant
     CHECK(std::fabs(last - cfg.max_yaw / deg) < 1.5f);
 }
+
+TEST_CASE("Stance blend: the weight ramps over the fade time in either direction and never jumps; the crouch capsule height follows the pose") {
+    StanceBlend blend(0.2f);
+    CHECK(blend.weight() == 0.0f);
+    CHECK(blend.settled());
+    float previous = 0.0f, biggest_step = 0.0f;
+    int ticks = 0;
+    while (!(blend.weight() >= 1.0f) && ticks < 100) {
+        blend.update(1.0f / 60.0f, true);
+        biggest_step = std::max(biggest_step, blend.weight() - previous);
+        previous = blend.weight();
+        ++ticks;
+    }
+    CHECK(ticks >= 12 && ticks <= 13);                     // 0.2 s at 60 Hz
+    CHECK(biggest_step < 1.0f / 12.0f + 1e-4f);
+    CHECK(blend.settled());
+    for (int i = 0; i < 6; ++i) blend.update(1.0f / 60.0f, false);  // back up for 0.1 s: halfway
+    CHECK(std::fabs(blend.weight() - 0.5f) < 0.02f);
+    CHECK(!blend.settled());
+    for (int i = 0; i < 30; ++i) blend.update(1.0f / 60.0f, false);
+    CHECK(blend.weight() == 0.0f);
+    CHECK(throws([&] { blend.update(0.0f, true); }));
+    // The crouch height: head 0.94 m crouched, standing head 1.52 m under a 1.7 m capsule -> 0.94 + 0.18.
+    CHECK(std::fabs(crouch_capsule_height(0.94f, 1.52f, 1.7f, 0.6f) - 1.12f) < 1e-5f);
+    CHECK(crouch_capsule_height(0.2f, 1.52f, 1.7f, 0.6f) == 0.6f);          // never under the minimum
+    CHECK(crouch_capsule_height(1.6f, 1.52f, 1.7f, 0.6f) == 1.7f);          // never above standing
+}

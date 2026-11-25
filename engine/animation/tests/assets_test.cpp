@@ -187,6 +187,71 @@ int main(int argc, char** argv) {
     std::printf("the set's cycles (m/s):");
     for (const LocomotionCycle& c : set.cycles()) std::printf(" %.2f", static_cast<double>(c.info.ground_speed));
     std::printf("\n");
+    // Crouching on the real rig: UAL's crouch idle and crouch walk as their own set, the foot contact at the cycle's own speed, and the capsule height that matches the pose.
+    {
+        LocomotionSet crouch(skin, *map);
+        const gfx::AnimationClip* cf = find_clip(ual, "Crouch_Fwd_Loop");
+        const gfx::AnimationClip* ci = find_clip(ual, "Crouch_Idle_Loop");
+        check(cf != nullptr && ci != nullptr, "the crouch clips exist");
+        if (cf != nullptr && ci != nullptr) {
+            std::string why_not;
+            check(crouch.add_cycle(*cf, &why_not), "the crouch walk is a locomotion cycle: " + why_not);
+            crouch.set_idle(*ci);
+            if (crouch.usable()) {
+                const float v = crouch.cycles()[0].info.ground_speed;
+                const double rel = metrics::window_slide(crouch, LocomotionConfig{}, 0, v);
+                std::printf("  crouch walk: %.2f m/s, planted feet move at %.1f%% of the speed\n", static_cast<double>(v), rel * 100.0);
+                check(rel < 0.08, "the crouch walk's planted feet hardly slide at its own speed", rel);
+                // The head's top over the crouch clips against the capsule height it gets.
+                float head_max = 0.0f;
+                for (const gfx::AnimationClip* c : {cf, ci}) {
+                    const gfx::ClipBinding bind = gfx::bind_clip(*c, skin);
+                    gfx::Pose p = gfx::rest_pose(skin);
+                    for (int i = 0; i < 40; ++i) {
+                        gfx::evaluate_clip(*c, bind, c->duration * static_cast<float>(i) / 40.0f, true, p);
+                        head_max = std::max(head_max, joint_world(skin, p)[static_cast<std::size_t>((*map)[Bone::Head])].position.z);
+                    }
+                }
+                float standing_head = 0.0f;
+                if (const gfx::AnimationClip* idle = find_clip(ual, "Idle_Loop")) {
+                    gfx::Pose p = gfx::rest_pose(skin);
+                    gfx::evaluate_clip(*idle, gfx::bind_clip(*idle, skin), 0.0f, true, p);
+                    standing_head = joint_world(skin, p)[static_cast<std::size_t>((*map)[Bone::Head])].position.z;
+                }
+                const float capsule = crouch_capsule_height(head_max, standing_head, 1.7f, 0.6f);
+                std::printf("  crouch head joint tops out at %.2f m (standing %.2f m): a crouched capsule of %.2f m (%.0f%% of 1.7 m)\n", static_cast<double>(head_max), static_cast<double>(standing_head),
+                            static_cast<double>(capsule), static_cast<double>(capsule / 1.7f) * 100.0);
+                check(capsule > 0.9f && capsule < 1.3f, "a plausible crouch capsule height", static_cast<double>(capsule));
+                // The crouch and the standing pose crossfade without a jump: the largest joint change per tick through the blend is far below a gait's own.
+                LocomotionController stand(set, {}), low(crouch, {});
+                StanceBlend stance(0.2f);
+                gfx::Pose previous = stand.pose();
+                float worst = 0.0f;
+                for (int i = 0; i < 90; ++i) {
+                    stand.update(1.0f / 60.0f, {0.0f, true, 0.0f});
+                    low.update(1.0f / 60.0f, {0.0f, true, 0.0f});
+                    stance.update(1.0f / 60.0f, i >= 20);
+                    gfx::Pose out = stand.pose();
+                    blend_into(out, low.pose(), stance.weight());
+                    if (i > 0) worst = std::max(worst, pose_distance(previous, out));
+                    previous = out;
+                }
+                // The reference: how much a pose changes per tick in the fastest gait itself.
+                LocomotionController sprint(set, {});
+                for (int i = 0; i < 120; ++i) sprint.update(1.0f / 60.0f, {set.cycles().back().info.ground_speed, true, 0.0f});
+                gfx::Pose before = sprint.pose();
+                float gait = 0.0f;
+                for (int i = 0; i < 60; ++i) {
+                    sprint.update(1.0f / 60.0f, {set.cycles().back().info.ground_speed, true, 0.0f});
+                    gait = std::max(gait, pose_distance(before, sprint.pose()));
+                    before = sprint.pose();
+                }
+                std::printf("  largest joint rotation change per tick: %.3f rad through the stance blend, %.3f rad in the fastest gait itself\n", static_cast<double>(worst), static_cast<double>(gait));
+                check(worst < gait, "the stance blend changes the pose per tick less than the fastest gait does", static_cast<double>(worst));
+            }
+        }
+    }
+
     // Layering on the real rig: UAL's aim pose over the sprint, and a look-at.
     if (set.usable()) {
         const gfx::AnimationClip* aim = find_clip(ual, "Pistol_Aim_Neutral");

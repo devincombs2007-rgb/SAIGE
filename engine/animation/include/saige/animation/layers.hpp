@@ -11,6 +11,9 @@
 #include "saige/animation/clip_analysis.hpp"
 #include "saige/render/transform.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
 #include <vector>
 
 namespace saige::anim {
@@ -27,6 +30,32 @@ struct BoneMask {
 // dst <- dst blended toward src, joint by joint, by weight * mask (translation and scale linearly, rotation by the shortest-arc slerp); a joint whose mask is 0 is not touched. The poses and the mask
 // must have the skin's joint count (throws std::invalid_argument otherwise). `weight` is clamped to [0, 1].
 void blend_masked(gfx::Pose& dst, const gfx::Pose& src, const BoneMask& mask, float weight);
+
+// Standing and crouching are two locomotion sets (UAL: `Idle_Loop` and the walk cycles against `Crouch_Idle_Loop` and `Crouch_Fwd_Loop`), each with its own controller; `StanceBlend` is the ramp that
+// crossfades their poses (`blend_into(standing, crouched, weight())`) when the capsule's `crouched` flag changes, over `fade` seconds, never faster, so the body does not pop between stances. The
+// controllers keep running both while the weight is strictly between 0 and 1; a host may skip the one that has no weight.
+class StanceBlend {
+public:
+    explicit StanceBlend(float fade = 0.20f) : fade_(fade > 0.0f ? fade : 1e-4f) {}
+    void update(float dt, bool crouched) {
+        if (!(dt > 0.0f) || !std::isfinite(dt)) throw std::invalid_argument("StanceBlend::update: dt must be finite and positive");
+        const float step = dt / fade_;
+        weight_ = crouched ? std::min(1.0f, weight_ + step) : std::max(0.0f, weight_ - step);
+    }
+    [[nodiscard]] float weight() const noexcept { return weight_; }
+    [[nodiscard]] bool settled() const noexcept { return weight_ <= 0.0f || weight_ >= 1.0f; }
+
+private:
+    float fade_;
+    float weight_ = 0.0f;
+};
+
+// The capsule height that matches a crouched pose: the highest the head joint gets in the crouch clips plus what the standing character has above its head joint (the capsule's top minus the standing
+// pose's head height), so the animation never rises above the capsule that is let under a low ceiling. Clamped to [minimum, standing_height].
+[[nodiscard]] inline float crouch_capsule_height(float crouched_head_max, float standing_head, float standing_height, float minimum) {
+    const float above_head = standing_height - standing_head;
+    return std::clamp(crouched_head_max + above_head, minimum, standing_height);
+}
 
 struct LookAtConfig {
     float max_yaw = 1.2217305f;         // radians left or right of the character's facing (70 degrees)

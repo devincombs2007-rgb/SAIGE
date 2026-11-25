@@ -29,6 +29,7 @@
 #include "saige/capsule_sweep.hpp"
 #include "saige/capsule_triangle.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <span>
 #include <vector>
@@ -48,6 +49,10 @@ struct CapsuleCharacterConfig {
     float max_slope_radians = 0.87266463f;  // 50 degrees
     float step_height = 0.35f;          // the tallest ledge walked up without jumping
     float ground_snap = 0.12f;          // how far below the feet the ground is still "underfoot" (small drops, step edges)
+    // Crouching (CapsuleInput::crouch). 0 means the default: 60% of `height`, but never less than the capsule's diameter, and half the walking speed. Otherwise the crouched height must be between the
+    // diameter and `height`, and the crouched speed positive.
+    float crouch_height = 0.0f;
+    float crouch_speed = 0.0f;
 };
 
 // A velocity the host drives the character at while it stands on the ground, in the same world axes as the state's velocity (+X, +Y horizontal, meters per second). An action that carries the character (a
@@ -70,6 +75,9 @@ struct CapsuleInput {
     // [0.02, 1]; it only affects the ground, never the air. A non-finite value is an invalid input.
     float traction = 1.0f;
     CapsuleDrive drive{};
+    // Crouch: the capsule is lowered to the crouch height (the feet stay where they are) and the character moves at the crouch speed; sprinting and jumping are not possible while crouched. Letting go
+    // stands up only if the standing capsule fits (there is room above): under a low ceiling the character stays crouched until it is clear. False (the default) never changes a step.
+    bool crouch{};
 };
 
 struct CapsuleCharacterState {
@@ -77,6 +85,7 @@ struct CapsuleCharacterState {
     Vec3 velocity;
     bool grounded{};
     Vec3 ground_normal{0, 0, 1};     // meaningful while grounded
+    bool crouched{};                 // the capsule is at the crouch height (it stays so under a low ceiling after the input is released)
     bool operator==(const CapsuleCharacterState&) const = default;
 };
 
@@ -122,7 +131,10 @@ public:
     [[nodiscard]] Capsule capsule() const noexcept { return capsule_at(state_.feet); }
 
 private:
-    [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, config_.height}; }
+    [[nodiscard]] float crouch_height() const noexcept { return config_.crouch_height > 0.0f ? config_.crouch_height : std::max(2.0f * config_.radius, 0.6f * config_.height); }
+    [[nodiscard]] float current_height() const noexcept { return state_.crouched ? crouch_height() : config_.height; }
+    [[nodiscard]] Capsule capsule_at(Vec3 feet) const noexcept { return {feet, config_.radius, current_height()}; }
+    [[nodiscard]] bool overlaps_standing(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
     [[nodiscard]] std::optional<CapsuleHit> sweep(Vec3 feet, Vec3 displacement) const;
     [[nodiscard]] bool overlaps(Vec3 feet, std::span<const Aabb> boxes, std::span<const Triangle> triangles) const;
     bool recover_from_overlap();  // false (and the feet restored to where they were) if the capsule is still overlapping after the bounded passes

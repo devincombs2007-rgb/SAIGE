@@ -28,7 +28,7 @@ std::vector<Aabb> level(bool with_wall) {
 
 CapsuleCharacter spawn(const std::vector<Aabb>& boxes) { return CapsuleCharacter({0, 0, 0}, boxes, CapsuleCharacterConfig{}); }
 
-bool same(const CapsuleCharacterState& a, const CapsuleCharacterState& b) { return std::memcmp(&a, &b, sizeof a) == 0; }
+bool same(const CapsuleCharacterState& a, const CapsuleCharacterState& b) { return a == b; }
 
 CapsuleInput driven(float x, float y) {
     CapsuleInput in;

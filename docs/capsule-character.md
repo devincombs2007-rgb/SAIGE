@@ -53,6 +53,8 @@ of the poses.
 
 - **Driven by an action (`CapsuleInput::drive`).** An action that carries the character (a roll, from a clip's root motion) sets the horizontal velocity directly while grounded: `{active, x, y}` in world axes, in m/s, replacing the acceleration toward the input's target for that tick. The step is otherwise unchanged (collide, slide, step up, ground snap), so a drive cannot carry the capsule through geometry; in the air it is ignored, a non-finite value is an invalid input, its magnitude is capped at `terminal_speed`, and an inactive drive (the default, whatever its numbers) leaves every state bit-identical to a controller without the field (`tests/character_drive_test.cpp`). The animation side (`engine/animation/.../action.hpp`) turns a clip's travel into drives and reads back how far the capsule got.
 
+- **Crouching (`CapsuleInput::crouch`).** The capsule comes down to `crouch_height` at once (0 means 60% of `height`, never under the diameter; the feet stay, the head comes down) and the character moves at `crouch_speed` (0 means half the walking speed); sprint and jump are ignored while crouched. Standing up is refused while the standing capsule would overlap geometry, so a character released under a low ceiling stays crouched, and `state().crouched` says so. `reset()` stands the character up; a collision swap checks the spawn with the standing capsule. Without the input nothing changes (`tests/character_crouch_test.cpp`).
+
 ## Non-box geometry (triangles)
 
 `CapsuleCharacter` also takes static triangles (`capsule_triangle.hpp`, #73) beside the boxes: ramps, crests and slopes. They are two-sided,

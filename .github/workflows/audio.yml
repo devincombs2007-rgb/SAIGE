@@ -1,6 +1,6 @@
 # Audio runtime CI (AUD-2). The mixer and the audio models are part of the default build and tests (Graphics workflow: audio_test, audio_model_test). This workflow adds what needs miniaudio:
-# the device adapter, the decoders and the AudioRuntime on miniaudio's null backend (no sound card on a runner), on Linux under ASan+UBSan and ThreadSanitizer and on Windows with MSVC /W4 /WX on
-# SAIGE's own code. miniaudio is fetched at the pinned tag and verified against a pinned SHA-256 (tools/audio/fetch_miniaudio.py); its warnings are not ours.
+# the device adapter, the decoders and the AudioRuntime on miniaudio's null backend (no sound card on a runner), on Linux under ASan+UBSan and ThreadSanitizer and on Windows with MSVC. The mixer and models carry their own
+# strict warning options in CMakeLists.txt (-Wall -Wextra -Werror -Wconversion -Werror=double-promotion; /W4 /WX), so the flags need not be global. miniaudio is fetched at the pinned tag and verified against a pinned SHA-256 (tools/audio/fetch_miniaudio.py); its warnings are not ours.
 # These are software and null-device results on shared runners: whether a real device sounds right and its latency are hardware checks (docs/audio.md).
 name: Audio
 
@@ -40,7 +40,7 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=ON
           -DSAIGE_BUILD_GRAPHICS=OFF -DSAIGE_BUILD_PROJECTS=OFF
           -DSAIGE_AUDIO_MINIAUDIO=ON -DSAIGE_MINIAUDIO_ROOT="$RUNNER_TEMP/miniaudio"
-          -DCMAKE_CXX_FLAGS="${{ matrix.flags }} -Wall -Wextra -Werror"
+          -DCMAKE_CXX_FLAGS="${{ matrix.flags }}"
       - name: Build
         run: cmake --build build --parallel --target audio_test audio_model_test audio_device_test
       - name: Tests
@@ -57,7 +57,7 @@ jobs:
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_TESTING=ON
           -DSAIGE_BUILD_GRAPHICS=OFF -DSAIGE_BUILD_PROJECTS=OFF
           -DSAIGE_AUDIO_MINIAUDIO=ON -DSAIGE_MINIAUDIO_ROOT="$env:RUNNER_TEMP/miniaudio"
-          -DCMAKE_CXX_FLAGS="/W4 /WX /EHsc"
+          -DCMAKE_CXX_FLAGS="/EHsc"
       - name: Build
         run: cmake --build build --config Release --parallel --target audio_test audio_model_test audio_device_test
       - name: Tests

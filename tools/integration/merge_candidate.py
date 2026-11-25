@@ -9,10 +9,15 @@ conflict where the two sides changed the same lines). Never touches a remote and
 
 The result is evidence for the owner's landing decision (`docs/engineering/integration-candidate.md`), not a branch to push or merge.
 """
-import subprocess, re, sys
+import os, subprocess, re, sys
 def sh(*a, **k): return subprocess.run(a, capture_output=True, text=True, **k)
+# STOP_AT_HUMAN=1 leaves the first merge that needs a person in progress (conflict markers in the working tree) and stops, so it can be resolved by hand and the run continued with SKIP_TO=<next PR>.
+# ORDER="76 79" runs only those PRs, in that order; SKIP_TO=N starts at PR N of the default order.
+stop_at_human = os.environ.get("STOP_AT_HUMAN") == "1"
 order = [67,44,45,64,42,60,63,86,69,70,65,73,74,80,88,71,75,77,78,81,82,83,92,95,98,76,79,89,85,87,90,91,96,84,94,99,93,97]
 log = []
+if os.environ.get("ORDER"): order = [int(x) for x in os.environ["ORDER"].split()]
+elif os.environ.get("SKIP_TO"): order = order[order.index(int(os.environ["SKIP_TO"])):]
 for n in order:
     ref = f"refs/remotes/pr/{n}"
     head = sh("git","rev-parse","--short",ref).stdout.strip()
@@ -52,7 +57,11 @@ for n in order:
         else:
             hard.append(f)
     if hard:
-        sh("git","merge","--abort"); log.append((n, head, "needs-human", hard))
+        log.append((n, head, "needs-human", hard))
+        if stop_at_human:
+            for n2, h2, s2, f2 in log: print(f"#{n2} {h2} {s2} {' '.join(f2)}")
+            print(f"stopped: #{n} is left merging in the working tree; conflicted files: {' '.join(hard)}"); sys.exit(0)
+        sh("git","merge","--abort")
     else:
         c = sh("git","commit","--no-edit","-q")
         log.append((n, head, "additive-resolution", auto))

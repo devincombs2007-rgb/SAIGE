@@ -355,25 +355,25 @@ void Vehicle::substep_once(const VehicleInput& input, double dt, const StaticCol
                 shift_timer_ = static_cast<double>(pt.shift_time) * 0.5;
             }
         }
-        double torque = 0.0;
+        double engine_torque = 0.0;
         const auto& curve = pt.torque_curve;
         if (shift_timer_ <= 0.0 && engine_rpm_ < static_cast<double>(pt.redline_rpm) && !(g > 0 && throttle < 0.0 && speed_along > 1.0) && !(g == -1 && speed_along < -static_cast<double>(pt.reverse_speed_limit))) {
             const double rpm = engine_rpm_;
             if (rpm <= static_cast<double>(curve.front()[0])) {
-                torque = static_cast<double>(curve.front()[1]);
+                engine_torque = static_cast<double>(curve.front()[1]);
             } else if (rpm >= static_cast<double>(curve.back()[0])) {
-                torque = static_cast<double>(curve.back()[1]);
+                engine_torque = static_cast<double>(curve.back()[1]);
             } else {
                 for (std::size_t k = 1; k < curve.size(); ++k) {
                     if (rpm <= static_cast<double>(curve[k][0])) {
                         const double t = (rpm - static_cast<double>(curve[k - 1][0])) / (static_cast<double>(curve[k][0]) - static_cast<double>(curve[k - 1][0]));
-                        torque = static_cast<double>(curve[k - 1][1]) + (static_cast<double>(curve[k][1]) - static_cast<double>(curve[k - 1][1])) * t;
+                        engine_torque = static_cast<double>(curve[k - 1][1]) + (static_cast<double>(curve[k][1]) - static_cast<double>(curve[k - 1][1])) * t;
                         break;
                     }
                 }
             }
         }
-        powertrain_force = torque * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * std::fabs(throttle) * engine_scale;
+        powertrain_force = engine_torque * ratio * static_cast<double>(pt.drivetrain_efficiency) / static_cast<double>(config_.wheel_radius) * std::fabs(throttle) * engine_scale;
         if (g == -1) powertrain_force = -powertrain_force;
         if (pt.engine_brake > 0.0f && throttle == 0.0 && shift_timer_ <= 0.0) {
             // The engine drags the driven wheels back against the way the car rolls, fading out below a walking pace (the clutch disengages).

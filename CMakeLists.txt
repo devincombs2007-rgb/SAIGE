@@ -61,6 +61,13 @@ if(SAIGE_PHYSICS_JOLT)
     target_compile_definitions(saige_dynamics PUBLIC SAIGE_HAVE_JOLT=1)
 endif()
 
+# The audio mixer and models are held to the strictest warnings on every compiler (the rest of saige_core predates this rule and is held to the Graphics workflow's flags).
+if(MSVC)
+    set_source_files_properties(src/audio.cpp src/audio_model.cpp PROPERTIES COMPILE_OPTIONS "/W4;/WX")
+else()
+    set_source_files_properties(src/audio.cpp src/audio_model.cpp PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror;-Wconversion;-Wno-sign-conversion;-Werror=double-promotion")
+endif()
+
 # Audio device adapter (include/saige/audio.hpp: AudioOutput). The mixer itself is always built (saige_core, src/audio.cpp); the miniaudio device layer is optional. SAIGE_MINIAUDIO_ROOT is a directory
 # holding miniaudio.h and stb_vorbis.c at the pinned release, fetched and hash-verified by tools/audio/fetch_miniaudio.py (docs/audio.md).
 option(SAIGE_AUDIO_MINIAUDIO "Build the miniaudio device adapter and decoders (needs SAIGE_MINIAUDIO_ROOT)" OFF)

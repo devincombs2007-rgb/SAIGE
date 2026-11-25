@@ -1,7 +1,7 @@
 #pragma once
 
 // An immutable broadphase over static collision geometry (axis-aligned boxes and triangles), with the queries a game needs from it:
-// ray casts, region queries and capsule sweeps and overlaps (issue #43, physics foundations).
+// ray casts, region queries, capsule sweeps and overlaps and oriented-box sweeps and overlaps for vehicles (issue #43, physics foundations).
 //
 // It is a bounding-volume hierarchy built once, deterministically: the same inputs give the same tree in the same build, and every query
 // result is a pure function of the geometry and the query. Results are identical to the brute-force sweep over every primitive: the
@@ -23,6 +23,7 @@
 
 #include "saige/capsule_sweep.hpp"
 #include "saige/capsule_triangle.hpp"
+#include "saige/oriented_box.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -44,11 +45,31 @@ struct RayHit {
     Vec3 point;             // origin + direction * distance, rounded to float
     Vec3 normal;            // unit; faces the ray's origin (for a box entered from outside, the entry face's outward normal)
     StaticPrimitive primitive;
+    bool started_inside{false};  // a box hit at distance 0 with the origin strictly inside it (not merely on its boundary)
 };
+
+// How a ray treats a surface it only touches.
+//  * Solid (the default, unchanged): every touching counts, including an origin on a box's boundary moving away from it (a hit at distance 0, normal = the reverse of the
+//    direction) and a triangle hit at distance 0.
+//  * Surface: a ray is a probe of what lies ahead, so a box it merely touches is not hit and the search goes on to what lies beyond it: an origin on the box's boundary that
+//    moves outward or along a face, and a ray running in a face's plane. An origin on the boundary moving in is a hit at distance 0 with that face's outward normal (on an
+//    edge, the face the direction is most aligned with; the lowest axis on a tie). Triangles are the same in both modes: they have no interior, so an origin on one is in
+//    contact with it (distance 0) and a ray in its plane misses it.
+enum class RayMode : std::uint8_t { Solid, Surface };
 
 struct StaticCapsuleHit {
     CapsuleHit hit;              // as the primitive sweeps report it: t, stop, contact_t, normal, point, started_overlapping
     StaticPrimitive primitive;   // which primitive; hit.index is its index within its own kind
+};
+
+struct StaticOrientedBoxHit {
+    OrientedBoxHit hit;          // see oriented_box.hpp; hit.index is the primitive's index within its own kind
+    StaticPrimitive primitive;
+};
+
+struct StaticOrientedBoxOverlap {
+    OrientedBoxOverlap overlap;  // normal from the primitive toward the box, depth beyond the contact tolerance
+    StaticPrimitive primitive;
 };
 
 // Reusable buffers for queries, so a frame loop allocates nothing after the first call.
@@ -79,6 +100,7 @@ public:
     // Boxes are solid (an origin inside one hits at distance 0); triangles are two-sided. An exact tie in distance goes to the lower id.
     // Throws std::invalid_argument for a non-finite origin or direction, a zero direction, or a negative or non-finite max_distance.
     [[nodiscard]] std::optional<RayHit> raycast(Vec3 origin, Vec3 direction, float max_distance) const;
+    [[nodiscard]] std::optional<RayHit> raycast(Vec3 origin, Vec3 direction, float max_distance, RayMode mode) const;
 
     // Appends the primitives whose bounds overlap `region` (touching counts), in ascending id order (boxes, then triangles), to `out`.
     void query_region(const Aabb& region, std::vector<StaticPrimitive>& out) const;
@@ -88,6 +110,20 @@ public:
     // including for a sweep outside the supported envelope.
     [[nodiscard]] std::optional<StaticCapsuleHit> sweep_capsule(const Capsule& capsule, Vec3 displacement) const;
     [[nodiscard]] std::optional<StaticCapsuleHit> sweep_capsule(const Capsule& capsule, Vec3 displacement, QueryScratch& scratch) const;
+
+    // The first contact of an oriented box translating by `displacement` with its orientation fixed (oriented_box.hpp): exact swept separating-axis
+    // tests against the primitives near the swept volume, equal to sweeping every box and triangle (earliest exact contact time; an exact tie goes to the
+    // deeper initial overlap, then the lower id, boxes before triangles). `stop` is clear of every primitive near the path. Throws like
+    // check_oriented_box_sweep_envelope, whatever the geometry holds.
+    [[nodiscard]] std::optional<StaticOrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 displacement) const;
+    [[nodiscard]] std::optional<StaticOrientedBoxHit> sweep_oriented_box(const OrientedBox& box, Vec3 displacement, QueryScratch& scratch) const;
+
+    // The deepest penetration of an oriented box into any primitive (more than the contact tolerance), the lowest id on a tie.
+    [[nodiscard]] std::optional<StaticOrientedBoxOverlap> overlap_oriented_box(const OrientedBox& box) const;
+    [[nodiscard]] std::optional<StaticOrientedBoxOverlap> overlap_oriented_box(const OrientedBox& box, QueryScratch& scratch) const;
+    // Appends every primitive the box penetrates by more than the tolerance, in ascending id order.
+    void overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out) const;
+    void overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out, QueryScratch& scratch) const;
 
     // Whether the capsule overlaps any primitive by more than the contact tolerance (capsule_box_push_out / capsule_triangle_push_out).
     [[nodiscard]] bool overlaps_capsule(const Capsule& capsule) const;

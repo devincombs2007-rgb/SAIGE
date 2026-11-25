@@ -81,6 +81,31 @@ std::optional<double> ray_box_entry(const D3& o, const D3& inv, const D3& d, con
     return t_enter;
 }
 
+// Surface mode: whether the ray only touches the box: it lies in the plane of one of its faces, or it begins on a face and moves out of it (or, with a component
+// along that face's axis of zero, along it). An origin outside the box (that is not on a face's plane), strictly inside it, or on the boundary and moving in
+// through every face it is on is not touch-only. (An origin outside the box that is on a face's plane and moving away cannot enter the box either way.)
+bool surface_touch_only(const D3& o, const D3& d, const float lo[3], const float hi[3]) noexcept {
+    for (std::size_t k = 0; k < 3; ++k) {
+        const bool on_lo = o[k] == lo[k], on_hi = o[k] == hi[k];
+        if ((on_lo && d[k] <= 0.0) || (on_hi && d[k] >= 0.0)) return true;
+    }
+    return false;
+}
+
+// The face a boundary origin enters through. Precondition: surface_touch_only is false, so every face the origin is on is one it moves in through. Of those, the
+// one the direction is most aligned with (the lowest axis on a tie).
+void boundary_entry_face(const D3& o, const D3& d, const float lo[3], const float hi[3], int* axis_out, double* sign_out) noexcept {
+    double best = -1.0;
+    for (std::size_t k = 0; k < 3; ++k) {
+        const bool low = o[k] == lo[k], high = o[k] == hi[k];
+        if ((low || high) && std::abs(d[k]) > best) {
+            best = std::abs(d[k]);
+            *axis_out = static_cast<int>(k);
+            *sign_out = low ? -1.0 : 1.0;
+        }
+    }
+}
+
 // Möller-Trumbore in double, two-sided; edges and vertices count as hits.
 std::optional<double> ray_triangle(const D3& o, const D3& d, const Triangle& tri, double max_t) noexcept {
     const D3 a = to_d3(tri.a), b = to_d3(tri.b), c = to_d3(tri.c);
@@ -217,6 +242,10 @@ void StaticCollision::query_region(const Aabb& region, std::vector<StaticPrimiti
 }
 
 std::optional<RayHit> StaticCollision::raycast(Vec3 origin, Vec3 direction, float max_distance) const {
+    return raycast(origin, direction, max_distance, RayMode::Solid);
+}
+
+std::optional<RayHit> StaticCollision::raycast(Vec3 origin, Vec3 direction, float max_distance, RayMode mode) const {
     if (!finite(origin) || !finite(direction) || !std::isfinite(max_distance) || max_distance < 0.0f) {
         throw std::invalid_argument("raycast: origin and direction must be finite and max_distance finite and non-negative");
     }
@@ -232,6 +261,7 @@ std::optional<RayHit> StaticCollision::raycast(Vec3 origin, Vec3 direction, floa
     std::uint32_t best_id = std::numeric_limits<std::uint32_t>::max();
     int best_axis = -1;
     double best_sign = 0.0;
+    bool best_inside = false;
     std::array<std::uint32_t, max_stack> stack{};
     std::size_t top = 0;
     stack[top++] = 0;
@@ -259,10 +289,18 @@ std::optional<RayHit> StaticCollision::raycast(Vec3 origin, Vec3 direction, floa
             std::optional<double> t;
             int axis = -1;
             double sign = 0.0;
+            bool inside = false;
             if (id < boxes_.size()) {
                 const Aabb& b = boxes_[id];
                 const float lo[3] = {b.min.x, b.min.y, b.min.z}, hi[3] = {b.max.x, b.max.y, b.max.z};
+                if (mode == RayMode::Surface && surface_touch_only(o, d, lo, hi)) continue;  // a ray that only touches the box does not hit it, and does not mask what is beyond
                 t = ray_box_entry(o, inv, d, lo, hi, best_t, &axis, &sign);
+                if (t && *t == 0.0 && axis < 0) {
+                    // The origin is in the closed box: strictly inside, or (Surface mode) on the boundary moving in.
+                    inside = true;
+                    for (std::size_t k = 0; k < 3; ++k) inside = inside && o[k] > lo[k] && o[k] < hi[k];
+                    if (!inside && mode == RayMode::Surface) boundary_entry_face(o, d, lo, hi, &axis, &sign);
+                }
             } else {
                 t = ray_triangle(o, d, triangles_[id - boxes_.size()], best_t);
             }
@@ -271,12 +309,14 @@ std::optional<RayHit> StaticCollision::raycast(Vec3 origin, Vec3 direction, floa
                 best_id = id;
                 best_axis = axis;
                 best_sign = sign;
+                best_inside = inside;
             }
         }
     }
     if (best_id == std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
 
     RayHit hit;
+    hit.started_inside = best_inside;
     hit.distance = best_t;
     hit.point = {static_cast<float>(o[0] + d[0] * best_t), static_cast<float>(o[1] + d[1] * best_t), static_cast<float>(o[2] + d[2] * best_t)};
     if (best_id < boxes_.size()) {
@@ -353,6 +393,108 @@ std::optional<StaticCapsuleHit> StaticCollision::sweep_capsule(const Capsule& ca
         }
     }
     return best;
+}
+
+namespace {
+
+// The region an oriented box covers over a sweep: its bounding box at the start and at the end, widened by a margin.
+void box_region(const OrientedBox& box, Vec3 displacement, float lo[3], float hi[3]) noexcept {
+    const double c[3] = {box.center.x, box.center.y, box.center.z};
+    const double d[3] = {displacement.x, displacement.y, displacement.z};
+    const double h[3] = {box.half_extents.x, box.half_extents.y, box.half_extents.z};
+    const double u[3][3] = {{box.axis_x.x, box.axis_x.y, box.axis_x.z}, {box.axis_y.x, box.axis_y.y, box.axis_y.z}, {box.axis_z.x, box.axis_z.y, box.axis_z.z}};
+    for (int i = 0; i < 3; ++i) {
+        const double reach = h[0] * std::fabs(u[0][i]) + h[1] * std::fabs(u[1][i]) + h[2] * std::fabs(u[2][i]) + region_margin;
+        const double a = std::min(c[i], c[i] + d[i]) - reach, b = std::max(c[i], c[i] + d[i]) + reach;
+        lo[i] = static_cast<float>(std::nextafter(static_cast<float>(a), -std::numeric_limits<float>::infinity()));
+        hi[i] = static_cast<float>(std::nextafter(static_cast<float>(b), std::numeric_limits<float>::infinity()));
+    }
+}
+
+void split_candidates(const std::vector<std::uint32_t>& ids, std::size_t box_count, std::span<const Aabb> boxes, std::span<const Triangle> triangles, QueryScratch& scratch) {
+    scratch.boxes.clear();
+    scratch.triangles.clear();
+    scratch.box_ids.clear();
+    scratch.triangle_ids.clear();
+    for (const std::uint32_t id : ids) {  // ascending: boxes, then triangles
+        if (id < box_count) {
+            scratch.boxes.push_back(boxes[id]);
+            scratch.box_ids.push_back(id);
+        } else {
+            scratch.triangles.push_back(triangles[id - box_count]);
+            scratch.triangle_ids.push_back(id - box_count);
+        }
+    }
+}
+
+} // namespace
+
+std::optional<StaticOrientedBoxHit> StaticCollision::sweep_oriented_box(const OrientedBox& box, Vec3 displacement) const {
+    QueryScratch scratch;
+    return sweep_oriented_box(box, displacement, scratch);
+}
+
+std::optional<StaticOrientedBoxHit> StaticCollision::sweep_oriented_box(const OrientedBox& box, Vec3 displacement, QueryScratch& scratch) const {
+    check_oriented_box_sweep_envelope(box, displacement);
+    float lo[3], hi[3];
+    box_region(box, displacement, lo, hi);
+    scratch.ids.clear();
+    gather(lo, hi, scratch.ids);
+    split_candidates(scratch.ids, boxes_.size(), boxes_, triangles_, scratch);
+    const auto hit = saige::sweep_oriented_box(box, displacement, scratch.boxes, scratch.triangles);
+    if (!hit) return std::nullopt;
+    StaticOrientedBoxHit out;
+    out.hit = *hit;
+    if (hit->on_triangle) {
+        out.primitive = {StaticPrimitive::Kind::Triangle, scratch.triangle_ids[hit->index]};
+        out.hit.index = scratch.triangle_ids[hit->index];
+    } else {
+        out.primitive = {StaticPrimitive::Kind::Box, scratch.box_ids[hit->index]};
+        out.hit.index = scratch.box_ids[hit->index];
+    }
+    return out;
+}
+
+std::optional<StaticOrientedBoxOverlap> StaticCollision::overlap_oriented_box(const OrientedBox& box) const {
+    QueryScratch scratch;
+    return overlap_oriented_box(box, scratch);
+}
+
+std::optional<StaticOrientedBoxOverlap> StaticCollision::overlap_oriented_box(const OrientedBox& box, QueryScratch& scratch) const {
+    check_oriented_box_sweep_envelope(box, Vec3{0.0f, 0.0f, 0.0f});
+    float lo[3], hi[3];
+    box_region(box, Vec3{0.0f, 0.0f, 0.0f}, lo, hi);
+    scratch.ids.clear();
+    gather(lo, hi, scratch.ids);
+    std::optional<StaticOrientedBoxOverlap> best;
+    for (const std::uint32_t id : scratch.ids) {  // ascending id: a strictly deeper overlap replaces, so the lowest id wins a tie
+        const bool is_box = id < boxes_.size();
+        const auto o = is_box ? oriented_box_aabb_overlap(box, boxes_[id]) : oriented_box_triangle_overlap(box, triangles_[id - boxes_.size()]);
+        if (o && (!best || o->depth > best->overlap.depth)) {
+            best = StaticOrientedBoxOverlap{*o, is_box ? StaticPrimitive{StaticPrimitive::Kind::Box, id} : StaticPrimitive{StaticPrimitive::Kind::Triangle, id - boxes_.size()}};
+        }
+    }
+    return best;
+}
+
+void StaticCollision::overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out) const {
+    QueryScratch scratch;
+    overlaps_oriented_box(box, out, scratch);
+}
+
+void StaticCollision::overlaps_oriented_box(const OrientedBox& box, std::vector<StaticOrientedBoxOverlap>& out, QueryScratch& scratch) const {
+    check_oriented_box_sweep_envelope(box, Vec3{0.0f, 0.0f, 0.0f});
+    float lo[3], hi[3];
+    box_region(box, Vec3{0.0f, 0.0f, 0.0f}, lo, hi);
+    scratch.ids.clear();
+    gather(lo, hi, scratch.ids);
+    for (const std::uint32_t id : scratch.ids) {
+        const bool is_box = id < boxes_.size();
+        const auto o = is_box ? oriented_box_aabb_overlap(box, boxes_[id]) : oriented_box_triangle_overlap(box, triangles_[id - boxes_.size()]);
+        if (o) {
+            out.push_back({*o, is_box ? StaticPrimitive{StaticPrimitive::Kind::Box, id} : StaticPrimitive{StaticPrimitive::Kind::Triangle, id - boxes_.size()}});
+        }
+    }
 }
 
 bool StaticCollision::overlaps_capsule(const Capsule& capsule) const {

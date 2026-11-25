@@ -16,11 +16,20 @@
 // Renderer modes: 0 preserves SAIGE 0.2, 1 adds emissive/occlusion textures to the same lighting,
 // and 2 uses metallic-roughness shading (pbr.hlsli).
 //
+// Sun shadows are a compile-time permutation. This file, as is (SAIGE_SUN_SHADOWS = 0), is the 0.2/0.3 shader with no shadow bindings, so a
+// renderer that does not ask for shadows needs nothing new from the device. model_shadowed.hlsl defines SAIGE_SUN_SHADOWS = 1 and includes
+// this file: set 1 gains 3 the sun shadow map (a depth texture), 4 its comparison sampler, 5 the shadow block for the frame (the light's
+// view-projection and filter parameters), and the sun term is multiplied by `sun_visibility`.
+//
 // @shader   SceneModel
 // @entry    VSMain vs
 // @entry    PSMain ps
 
 #include "pbr.hlsli"
+
+#ifndef SAIGE_SUN_SHADOWS
+#define SAIGE_SUN_SHADOWS 0
+#endif
 
 struct ModelPush {
     column_major float4x4 view_proj;
@@ -59,6 +68,43 @@ struct ModelPush {
 };
 [[vk::binding(1, 1)]] Texture2D<float2> g_env_brdf; // split-sum table: x = n.v, y = perceptual roughness -> (scale, bias)
 [[vk::binding(2, 1)]] SamplerState g_env_brdf_sampler;
+#if SAIGE_SUN_SHADOWS
+[[vk::binding(3, 1)]] Texture2D<float> g_shadow_map;            // sun depth, reverse-Z (1 nearest the light)
+[[vk::binding(4, 1)]] SamplerComparisonState g_shadow_sampler;  // nearest filtering, GreaterEqual
+[[vk::binding(5, 1)]] cbuffer ShadowConstants
+{
+    column_major float4x4 sh_light_view_proj;
+    float4 sh_params; // x: shadow-map texel size in meters, y: normal offset in texels, z: filter radius in texels (0 = one tap), w: 1 when shadows are on
+    float4 sh_map;    // x: 1 / shadow-map size in texels
+};
+
+/// The fraction of the sun that reaches `world_pos` (1 = fully lit, 0 = shadowed): a percentage-closer filter over (2r+1)^2 comparison
+/// taps. The position is first moved along the geometric normal by a fixed number of shadow texels, which removes the self-shadowing
+/// that a depth bias alone cannot (grazing surfaces). Outside the map, or beyond its depth range, the sun is not occluded. Explicit-LOD
+/// sampling only, so it is safe in any control flow.
+float sun_visibility(float3 world_pos, float3 geometric_normal)
+{
+    if (sh_params.w < 0.5) {
+        return 1.0;
+    }
+    const float3 offset_pos = world_pos + geometric_normal * (sh_params.y * sh_params.x);
+    const float4 clip = mul(sh_light_view_proj, float4(offset_pos, 1.0));
+    const float3 ndc = clip.xyz / clip.w;
+    const float2 uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);  // texture v = 0 is the top row; NDC +Y is up
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z < 0.0 || ndc.z > 1.0) {
+        return 1.0;
+    }
+    const int radius = (int)sh_params.z;
+    float sum = 0.0;
+    for (int y = -radius; y <= radius; ++y) {
+        for (int x = -radius; x <= radius; ++x) {
+            sum += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, uv + float2(x, y) * sh_map.x, ndc.z);
+        }
+    }
+    const float taps = (float)(2 * radius + 1);
+    return sum / (taps * taps);
+}
+#endif
 
 float3 ambient_radiance(float3 direction)
 {
@@ -167,7 +213,14 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
     }
     const float3 to_camera = pc.camera_sign.xyz - input.world_pos;
     const float distance_m = length(to_camera);
+#if SAIGE_SUN_SHADOWS
+    const float sun_vis = sun_visibility(input.world_pos, n);
+    const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz)) * sun_vis;  // the sun term of the two non-PBR modes, shadowed
+#define SUN_RADIANCE (sc_sun_color.rgb * sun_vis)
+#else
     const float n_dot_l = saturate(dot(n, sc_sun_direction.xyz));
+#define SUN_RADIANCE sc_sun_color.rgb
+#endif
     float3 lit;
     if (sc_flags.x < 0.5) {
         // Legacy, the 0.2 look exactly: base color texture and factor, the emissive *factor*, hemispherical ambient plus sun.
@@ -181,7 +234,7 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
             const float3 r = reflect(-v, mapped);
             const float2 table_uv = float2(saturate(dot(mapped, v)), clamp(surface.roughness, MIN_ROUGHNESS, 1.0));
             const float2 env_brdf = g_env_brdf.SampleLevel(g_env_brdf_sampler, table_uv, 0.0);
-            lit = shade_directional(surface, v, sc_sun_direction.xyz, sc_sun_color.rgb) +
+            lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
                   shade_ambient(surface, env_brdf, ambient_radiance(mapped), ambient_radiance(r)) + surface.emissive;
         } else {
             lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;

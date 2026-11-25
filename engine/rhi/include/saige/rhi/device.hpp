@@ -262,6 +262,10 @@ struct DeviceInfo {
     bool software_device = false;  ///< CPU implementation (e.g. lavapipe).
     bool gpu_timestamps = false;   ///< write_timestamp / completed_timestamps measure GPU work; false = unavailable
     double timestamp_period_ns = 0.0;
+    /// Frames the device keeps in flight (DeviceDesc::frames_in_flight, at least 1). `begin_frame` returns once the work of frame
+    /// `n - frames_in_flight` is complete, so a per-frame resource can be rewritten safely if it is indexed by
+    /// `frame_number() % frames_in_flight` (the renderer's per-frame uniforms are).
+    uint32_t frames_in_flight = 1;
 };
 
 /// GPU timestamps written by CommandList::write_timestamp, resolved for one completed frame.

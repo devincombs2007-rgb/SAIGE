@@ -44,6 +44,11 @@ struct MaterialData {
     /// `ModelRenderSettings::alpha_blending` (off by default: the 0.2 behavior, BLEND drawn opaque) and a blendable scene format
     /// (see rhi/blend.hpp); otherwise the material is drawn opaque.
     bool alpha_blend = false;
+    /// Whether this surface casts a sun shadow. It follows the *authored* alpha mode, not the pipeline the surface happens to be drawn
+    /// with: only an opaque material casts. glTF MASK and BLEND materials do not (first slice: a MASK needs an alpha-tested caster that
+    /// samples the visible pass's texture, factor and cutoff; a BLEND would need partial shadows), including a BLEND that the renderer
+    /// draws opaque because blending is off. Staging sets it from the glTF alpha mode; a hand-built material defaults to casting.
+    bool casts_sun_shadow = true;
 };
 /// The 0.2 name, kept so existing callers compile.
 using MaterialParams = MaterialData;
@@ -89,9 +94,29 @@ struct SceneLighting {
 /// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.
 void validate_lighting(const SceneLighting& lighting);
 
+/// Sun shadows for imported models (SceneRenderer drives them from RendererSettings::shadows). Off by default, and when off the renderer
+/// uses the shadow-free shader and layout and acquires nothing for shadows: no shadow map, comparison sampler, pass or per-frame
+/// buffers, and the device needs no sampled depth or comparison-sampler support.
+struct ModelShadowSettings {
+    bool enabled = false;
+    uint32_t map_size = 2048;           ///< texels per side, 16 to 8192
+    float depth_bias_constant = -1024.0f;  ///< rasterizer bias of the shadow pass (rhi::DepthBias); negative moves casters away from the sun
+    float depth_bias_slope = -1.5f;
+};
+
+/// Per-frame input of the sun shadow lookup: the light's orthographic view-projection (reverse-Z, x and y in [-1, 1], depth in [0, 1])
+/// and how to filter.
+struct ModelShadowFrame {
+    Mat4 light_view_proj = Mat4::identity();
+    float texel_world_size = 0.0f;     ///< meters per shadow-map texel
+    float normal_offset_texels = 1.5f; ///< receivers are moved along their geometric normal by this many texels before the lookup
+    uint32_t filter_radius = 1;        ///< PCF radius in texels: (2r+1)^2 comparison taps
+};
+
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
     SceneLighting lighting;
+    ModelShadowSettings shadows;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
     bool alpha_blending = false;
@@ -140,7 +165,26 @@ public:
 
     /// GPU textures the renderer itself keeps alive: three neutral slot textures and the environment BRDF table (visible in the
     /// registry's texture counters).
-    static constexpr uint32_t kOwnedTextureCount = 4;
+    static constexpr uint32_t kOwnedTextureCount = 4;  ///< +1 (the shadow map) when shadows are enabled
+
+    /// The unit vector toward the sun: the one value the lighting constants are built from and the shadow fit reads, so the two cannot
+    /// disagree (SceneLighting::sun_direction normalized).
+    [[nodiscard]] Float3 sun_direction() const noexcept { return sun_direction_; }
+    [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
+    /// The sun shadow map: a D32_FLOAT texture, valid only when shadows are enabled. The caller (SceneRenderer's render graph) owns its
+    /// synchronization: it must be written by the shadow pass and in `rhi::sampled_texture_state` while the scene pass draws.
+    [[nodiscard]] rhi::TextureHandle shadow_map() const noexcept { return shadow_map_.handle(); }
+    [[nodiscard]] uint32_t shadow_map_size() const noexcept { return shadow_map_size_; }
+    /// Selects this frame's shadow block for draw(): call once per frame, between begin_frame and end_frame. `nullptr` means no shadows
+    /// this frame (the sun is never occluded). The block lives in a ring of `DeviceInfo::frames_in_flight` buffers indexed by the device's
+    /// frame number, so rewriting it never races the GPU's reads of an earlier frame. Frame-slot contract: one renderer, one write per
+    /// frame. A second call in the same frame throws std::logic_error *before* anything is modified, because it would overwrite the block
+    /// the first view's draws read. (Several views per frame need independent ModelRenderers.) Throws std::logic_error if shadows are off.
+    void set_shadow_frame(const ModelShadowFrame* frame);
+    /// Records the shadow pass's draws into an active depth-only rendering pass (the shadow map as its depth attachment, viewport and
+    /// scissor set by the caller): the primitives of materials that cast (`MaterialData::casts_sun_shadow`), depth only, without
+    /// materials. Throws std::logic_error if shadows are off.
+    void draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_proj, std::span<const ModelDraw> draws, ModelFrameStats& stats);
 
     [[nodiscard]] ModelShading shading() const noexcept { return shading_; }
     [[nodiscard]] rhi::BindGroupLayoutHandle material_layout() const noexcept { return material_layout_; }
@@ -150,6 +194,9 @@ private:
     void ensure_blend_pipelines();
     void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
     void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
+    void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
+    void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
+    [[nodiscard]] rhi::BindGroupHandle constants_group() const noexcept;
 
     /// One primitive waiting for the sorted phase. Kept in a member vector that is cleared, not freed, each frame.
     struct BlendedDraw {
@@ -174,7 +221,20 @@ private:
     bool alpha_blending_ = false;
     bool frustum_culling_ = false;
     std::vector<BlendedDraw> blended_;
-    BindGroupRef constants_group_;
+    BindGroupRef constants_group_;  ///< set 1 with shadows off
+    // Shadows on (the permutation with set 1 bindings 3..5); all empty or invalid when off.
+    rhi::ShaderHandle shadow_vs_;
+    rhi::PipelineHandle shadow_pipeline_;
+    std::vector<BindGroupRef> constants_groups_;  ///< set 1 per frame slot: identical but for the shadow block
+    std::vector<BufferRef> shadow_blocks_;
+    uint32_t active_group_ = 0;
+    TextureRef shadow_map_;
+    SamplerRef shadow_sampler_;
+    uint32_t shadow_map_size_ = 0;
+    bool shadows_enabled_ = false;
+    bool shadow_frame_written_ = false;
+    uint64_t shadow_frame_number_ = 0;
+    Float3 sun_direction_{};
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading
     SamplerRef default_sampler_, env_brdf_sampler_;

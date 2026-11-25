@@ -811,6 +811,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_skinned_draws += model_stats.skinned_draws;
                 stats.model_skinned_skipped += model_stats.skinned_skipped;
                 stats.model_binds_skipped += model_stats.binds_skipped;
+                stats.model_skinned_cull_bypassed += model_stats.skinned_cull_bypassed;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

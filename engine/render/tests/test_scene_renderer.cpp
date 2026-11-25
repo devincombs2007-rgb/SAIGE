@@ -2183,3 +2183,32 @@ TEST_CASE("Dynamic lighting (null device): one effective lighting per device fra
     (void)o.device.end_frame();
     // (Several renders in one frame also write the frame's timestamps more than once; that device-level rule is the caller's, so the validation count is not checked here.)
 }
+TEST_CASE("Frustum culling and skinning (null device): a skinned primitive is never culled by its bind-pose bounds, a rigid one with the same bounds is")
+{
+    const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});
+    for (const bool culling : {true, false}) {
+        Offscreen o;
+        RendererSettings settings;
+        settings.skinning = true;
+        settings.frustum_culling = culling;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+        GpuModel skinned = skinned_triangle(renderer);
+        skinned.meshes[0][0].bounds_center = {0.0f, 60.0f, 0.0f};  // the bind pose is far to the side of the view
+        skinned.meshes[0][0].bounds_radius = 1.0f;
+        GpuModel rigid = bounded_model(renderer, 1.0f, {0.0f, 60.0f, 0.0f});
+        SkinPalette palette = renderer.model_renderer().create_skin_palette(1, "walker");
+        const Mat4 pose[] = {place({0.0f, -60.0f, 0.0f})};  // the pose brings the mesh back into the view
+        palette.update(pose);
+        const ModelDraw draws[] = {{&skinned, place({10, 0, 2}), &palette}, {&rigid, place({10, 0, 2})}};
+        const FrameStats stats = render_models(o, renderer, camera, draws);
+        CHECK(stats.model_skinned_draws == 1);  // always drawn
+        if (culling) {
+            CHECK(stats.model_primitives_culled == 1);      // the rigid one only
+            CHECK(stats.model_skinned_cull_bypassed == 1);
+        } else {
+            CHECK(stats.model_primitives_culled == 0);
+            CHECK(stats.model_skinned_cull_bypassed == 0);
+        }
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}

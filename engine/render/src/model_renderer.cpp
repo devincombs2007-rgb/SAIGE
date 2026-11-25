@@ -912,7 +912,11 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             }
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
-                if (frustum && prim.bounds_radius > 0.0f) {
+                if (frustum && prim.skinned) {
+                    // A skinned primitive's bounds are its bind pose's: the pose the palette holds can put the mesh anywhere (a character walking out of its bind-pose
+                    // sphere), so culling it by them would drop visible geometry. It is never culled until a per-pose conservative bound is supplied (docs/rendering/skinning.md).
+                    ++stats.skinned_cull_bypassed;
+                } else if (frustum && prim.bounds_radius > 0.0f) {
                     const Float3 local = prim.bounds_center;
                     const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
                                         world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),

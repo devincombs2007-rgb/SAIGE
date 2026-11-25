@@ -200,6 +200,7 @@ struct FrameStats {
     uint32_t shadow_draw_calls = 0;        ///< draws of the sun shadow pass (also counted in draw_calls)
     uint32_t model_skinned_draws = 0;      ///< draw calls of skinned primitives, shadow pass and scene pass together
     uint32_t model_skinned_skipped = 0;    ///< skinned primitives not drawn (skinning off, or the palette has too few joints)
+    uint32_t model_skinned_cull_bypassed = 0;  ///< skinned primitives that skipped frustum culling (their bind-pose bounds are not the posed mesh's)
 };
 
 class SceneRenderer {

@@ -1,0 +1,139 @@
+{
+  "package": "SAIGE_Gemini_WorldSimulation_Build_007",
+  "build_number": 7,
+  "target_repository": "https://github.com/devincombs2007-rgb/SAIGE",
+  "target_base_branch": "claude/production-infrastructure",
+  "target_base_commit": "d15bfd3",
+  "target_work_branch": "gemini/world-simulation",
+  "cpp_standard": "C++20",
+  "compiler_verified": "g++ (Debian 12.2.0-14+deb12u1) 12.2.0",
+  "standalone_only": true,
+  "verified_test_functions": 31,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 732,
+      "sha256": "4b6fca6f4530d27b5f145774051487413e85b5111c70a9b721c81d322ea537d1"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 817,
+      "sha256": "9222bacf57add9b7f3d9971986f5ea51b95545e7c89dc24127f319440478f724"
+    },
+    {
+      "path": "LICENSES.md",
+      "bytes": 249,
+      "sha256": "9f8639bbf274f6c6960d087cc417d330e65074d9489a4c19df968bf292066ff0"
+    },
+    {
+      "path": "README.md",
+      "bytes": 505,
+      "sha256": "4ed1f93accd8c0cdb6d24bdb3db1f18a18b9bd7c6e2177c037bb9c6c35ff239e"
+    },
+    {
+      "path": "demo/urban_world_demo.cpp",
+      "bytes": 8065,
+      "sha256": "721352373b744a58ec0b4a3f5959e46a497da93267ecb5620c202006734a8cc8"
+    },
+    {
+      "path": "docs/GRAPHICAL_INTEGRATION_SPEC.md",
+      "bytes": 1959,
+      "sha256": "e3ec736ea073437f73f9ab9e782e7a6d81ad133a63866057021d020e367d1fe3"
+    },
+    {
+      "path": "docs/RUNTIME_DEMONSTRATION_BLOCKER.md",
+      "bytes": 1110,
+      "sha256": "5fc09ac3c23837637ca1b3057806f014b442497cdc1930649b332ff868bfb98f"
+    },
+    {
+      "path": "docs/WORLD_SIMULATION_ARCHITECTURE.md",
+      "bytes": 1398,
+      "sha256": "27323ca1b45650ff9539ed15ba2a3ad569c7371a24baac788e23f7e23a23f370"
+    },
+    {
+      "path": "integration/CMakeLists.snippet.cmake",
+      "bytes": 577,
+      "sha256": "0f660f26e50ed1107beec8d5c8a8ab2df9e4894197388c5003416bf4cc03945c"
+    },
+    {
+      "path": "integration/INTEGRATION.md",
+      "bytes": 771,
+      "sha256": "5cfdc7ea1d533a2324f521a6c57b956181ec43dd7a180ce1aa0352f4766837f9"
+    },
+    {
+      "path": "patches/gemini_world_simulation.patch",
+      "bytes": 153525,
+      "sha256": "33cb169564f67ad055b5008f4b157bfb25028b985f2fdec52abec8a1b9327842"
+    },
+    {
+      "path": "results/compiler_and_sanitizer_output.txt",
+      "bytes": 4410,
+      "sha256": "6778c569eee786769857b7ccda0e65352527e9981b76e1c4969611f89582ce62"
+    },
+    {
+      "path": "source/include/saige/crowd_avoidance.hpp",
+      "bytes": 3468,
+      "sha256": "50a5e48ac39a3eb68986aa19e59576bbc5a520954a9567a46466055a9b6f5f09"
+    },
+    {
+      "path": "source/include/saige/multi_floor_nav.hpp",
+      "bytes": 2758,
+      "sha256": "7e5c9f902fe3cf0b2e80d8bcfa63cbd7c3cf15d5ae3d365bd22209720d7a8c74"
+    },
+    {
+      "path": "source/include/saige/npc_simulation.hpp",
+      "bytes": 8203,
+      "sha256": "4d86c3a621bcca0be8719890370fc30958a45acaadf9094aabe412be0aef0ef7"
+    },
+    {
+      "path": "source/include/saige/saige_world_adapter.hpp",
+      "bytes": 3822,
+      "sha256": "b8b34b187e51f7e185239c4a14c522c48a49d5a8a9fe6372239a02af9a69ac5e"
+    },
+    {
+      "path": "source/include/saige/traffic_simulation.hpp",
+      "bytes": 5314,
+      "sha256": "63b60a44ce0de696d40f687afb3e9c56b2d4752f21794eddf7b8d869197043c1"
+    },
+    {
+      "path": "source/src/crowd_avoidance.cpp",
+      "bytes": 22582,
+      "sha256": "fc38fdb9bac392ef95fdd4b1f2601ecdde3a87c4acee492036e576ea8faa5291"
+    },
+    {
+      "path": "source/src/multi_floor_nav.cpp",
+      "bytes": 10656,
+      "sha256": "cab974955ad5d3a24e9190670bdb33fd92b62d2a9a888e03c3969c76c3bae1df"
+    },
+    {
+      "path": "source/src/npc_simulation.cpp",
+      "bytes": 27307,
+      "sha256": "54bae8b056d5e7c388f72ccd55bb3ac3e476d3b8f5470743d686b9a8187876fd"
+    },
+    {
+      "path": "source/src/traffic_simulation.cpp",
+      "bytes": 16430,
+      "sha256": "ce38997433b7474a30953f1f19932f57140dac2836088c2b27e4e078805e9c09"
+    },
+    {
+      "path": "tests/crowd_avoidance_test.cpp",
+      "bytes": 9113,
+      "sha256": "4c0543f6aa9c7dc73589a0f69227ff98a571d0b74a3ccbf44e1754db7d3ce279"
+    },
+    {
+      "path": "tests/multi_floor_nav_test.cpp",
+      "bytes": 4945,
+      "sha256": "79e9ddcb64bf4c4f0a193c638cf6b46837022b26475d005abf8dd94d20d0ef2e"
+    },
+    {
+      "path": "tests/npc_simulation_test.cpp",
+      "bytes": 16160,
+      "sha256": "2a7418af42ded34fb74fa8b35a9a729e90edd890bf8e52fa9b534d6e454676a9"
+    },
+    {
+      "path": "tests/traffic_simulation_test.cpp",
+      "bytes": 8128,
+      "sha256": "9ee444f1e60314d909c8ae438e7f6e4b67f37be81c25570762e584045640ba49"
+    }
+  ]
+}

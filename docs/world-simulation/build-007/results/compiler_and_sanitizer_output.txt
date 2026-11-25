@@ -1,0 +1,47 @@
+=== Compiler Version ===
+g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+
+=== 1. C++20 Debug/O2 + ASan + UBSan + Werror ===
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/tests/npc_simulation_test.cpp -o build/npc_simulation_asan_test
+$ ./build/npc_simulation_asan_test
+npc_simulation_test: ALL 13 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/crowd_avoidance.cpp build/saige_repo/tests/crowd_avoidance_test.cpp -o build/crowd_avoidance_asan_test
+$ ./build/crowd_avoidance_asan_test
+[dense-4way-200] arrived=191/200 min_sep_all_ticks=0.160424m max_overlap_all_ticks=0m deadlocks=0 osc=0
+[narrow-door-60] arrived=54/60 max_overlap=0m deadlocks=0
+[crowd-scale n=100] avg_ms=4.21879 min_sep=0.611289m overlap_pairs=0 max_overlap=0m mem_kb=20
+[crowd-scale n=500] avg_ms=19.5955 min_sep=0.687501m overlap_pairs=0 max_overlap=0m mem_kb=85
+[crowd-scale n=1000] avg_ms=38.9348 min_sep=0.630961m overlap_pairs=0 max_overlap=0m mem_kb=171
+[crowd-scale n=2000] avg_ms=78.9787 min_sep=0.697275m overlap_pairs=0 max_overlap=0m mem_kb=343
+crowd_avoidance_test: ALL 5 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/traffic_simulation.cpp build/saige_repo/tests/traffic_simulation_test.cpp -o build/traffic_simulation_asan_test
+$ ./build/traffic_simulation_asan_test
+traffic_simulation_test: ALL 7 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/multi_floor_nav.cpp build/saige_repo/tests/multi_floor_nav_test.cpp -o build/multi_floor_nav_asan_test
+$ ./build/multi_floor_nav_asan_test
+multi_floor_nav_test: ALL 6 SUITES PASSED
+
+=== 2. C++20 Standalone Urban World Demo ===
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/crowd_avoidance.cpp build/saige_repo/src/traffic_simulation.cpp build/saige_repo/src/multi_floor_nav.cpp build/saige_repo/demo/urban_world_demo.cpp -o build/urban_world_demo
+$ ./build/urban_world_demo
+[urban_world_demo tick=900] npcs=20 crowd_arrived=6 crowd_max_overlap=0m npc1_z=3.5m car_s=116.707m crosswalk_brake_ticks=37 other_brake_ticks=421 traffic_veh=1
+
+=== 3. C++20 Release (-O2 -DNDEBUG) Regression & Benchmark Suite ===
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/tests/npc_simulation_test.cpp -o build/npc_simulation_rel_test
+$ ./build/npc_simulation_rel_test
+npc_simulation_test: ALL 13 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/crowd_avoidance.cpp build/saige_repo/tests/crowd_avoidance_test.cpp -o build/crowd_avoidance_rel_test
+$ ./build/crowd_avoidance_rel_test
+[dense-4way-200] arrived=191/200 min_sep_all_ticks=0.160424m max_overlap_all_ticks=0m deadlocks=0 osc=0
+[narrow-door-60] arrived=54/60 max_overlap=0m deadlocks=0
+[crowd-scale n=100] avg_ms=0.943307 min_sep=0.611289m overlap_pairs=0 max_overlap=0m mem_kb=20
+[crowd-scale n=500] avg_ms=3.93967 min_sep=0.687501m overlap_pairs=0 max_overlap=0m mem_kb=85
+[crowd-scale n=1000] avg_ms=7.27296 min_sep=0.630961m overlap_pairs=0 max_overlap=0m mem_kb=171
+[crowd-scale n=2000] avg_ms=13.6099 min_sep=0.697275m overlap_pairs=0 max_overlap=0m mem_kb=343
+crowd_avoidance_test: ALL 5 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/traffic_simulation.cpp build/saige_repo/tests/traffic_simulation_test.cpp -o build/traffic_simulation_rel_test
+$ ./build/traffic_simulation_rel_test
+traffic_simulation_test: ALL 7 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/multi_floor_nav.cpp build/saige_repo/tests/multi_floor_nav_test.cpp -o build/multi_floor_nav_rel_test
+$ ./build/multi_floor_nav_rel_test
+multi_floor_nav_test: ALL 6 SUITES PASSED

@@ -601,6 +601,78 @@ TEST_CASE("Stage (skinning): a zero-weight influence does not count toward the j
     }
 }
 
+TEST_CASE("Stage (skinning): each joint gets the bind-space box of the vertices it influences, and a primitive whose weights do not sum to one gets none")
+{
+    Rig rig(render::ModelShading::Legacy, false, true);
+    GltfAsset asset = skinned_fixture(8);
+    const Primitive& src = asset.meshes[0].primitives[0];
+    const uint32_t n = src.vertex_count();
+    {
+        const render::GpuModel model = stage_model(rig.renderer, asset, "bounds");
+        const render::GpuPrimitive& prim = model.meshes[0][0];
+        REQUIRE(prim.joint_bounds.size() == prim.joint_limit);
+        REQUIRE(prim.joint_bounds.size() == 3);
+        for (uint32_t j = 0; j < 3; ++j) {
+            // Vertex v is bound to joint v % 3 (weight 0.75) and to joint 0 (0.25): joint 0 influences every vertex, joint j > 0 the vertices with v % 3 == j.
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            uint32_t count = 0;
+            for (uint32_t v = 0; v < n; ++v) {
+                if (j != 0 && v % 3 != j) continue;
+                ++count;
+                for (uint32_t c = 0; c < 3; ++c) {
+                    lo[c] = std::min(lo[c], src.positions[v * 3 + c]);
+                    hi[c] = std::max(hi[c], src.positions[v * 3 + c]);
+                }
+            }
+            const render::JointBounds& jb = prim.joint_bounds[j];
+            CHECK(jb.used == (count > 0));
+            CHECK(jb.min.x == lo[0] && jb.min.y == lo[1] && jb.min.z == lo[2]);
+            CHECK(jb.max.x == hi[0] && jb.max.y == hi[1] && jb.max.z == hi[2]);
+        }
+        CHECK(!prim.joint_bounds[1].used || prim.joint_bounds[1].min.x >= prim.joint_bounds[0].min.x);  // a subset's box lies inside joint 0's
+    }
+    {
+        // A zero-weight influence contributes to no joint's box (the vertex's slot 3 names joint 200 with weight 0).
+        GltfAsset a = skinned_fixture(8);
+        a.meshes[0].primitives[0].joints[3] = 200;
+        const render::GpuModel model = stage_model(rig.renderer, a, "zero-weight-bounds");
+        CHECK(model.meshes[0][0].joint_bounds.size() == 3);
+    }
+    {
+        // A joint nobody uses (joints 0 and 2 only) stays unused.
+        GltfAsset a = skinned_fixture(8);
+        Primitive& p = a.meshes[0].primitives[0];
+        for (uint32_t v = 0; v < n; ++v) p.joints[v * 4] = (v % 2 == 0) ? 0 : 2;
+        const render::GpuModel model = stage_model(rig.renderer, a, "gap");
+        REQUIRE(model.meshes[0][0].joint_bounds.size() == 3);
+        CHECK(model.meshes[0][0].joint_bounds[0].used);
+        CHECK(!model.meshes[0][0].joint_bounds[1].used);
+        CHECK(model.meshes[0][0].joint_bounds[2].used);
+    }
+    {
+        // Weights that do not sum to one are not convex combinations: no bound holds, so the primitive carries none (and is drawn but never culled).
+        GltfAsset a = skinned_fixture(8);
+        a.meshes[0].primitives[0].weights[0] = 0.5f;  // vertex 0 sums to 0.75
+        const render::GpuModel model = stage_model(rig.renderer, a, "unnormalized");
+        CHECK(model.meshes[0][0].skinned);
+        CHECK(model.meshes[0][0].joint_bounds.empty());
+    }
+    {
+        // The tolerance is 1e-3: a sum of 1.005 is not a convex combination to within it.
+        GltfAsset a = skinned_fixture(8);
+        a.meshes[0].primitives[0].weights[0] = 0.75f + 5e-3f;
+        const render::GpuModel model = stage_model(rig.renderer, a, "off-by-half-percent");
+        CHECK(model.meshes[0][0].joint_bounds.empty());
+    }
+    {
+        // Within float noise of one is fine.
+        GltfAsset a = skinned_fixture(8);
+        a.meshes[0].primitives[0].weights[0] = 0.75f + 5e-4f;
+        const render::GpuModel model = stage_model(rig.renderer, a, "noise");
+        CHECK(model.meshes[0][0].joint_bounds.size() == 3);
+    }
+}
+
 TEST_CASE("Stage (skinning): with skinning off a skinned mesh is staged rigid in the bind pose, with a warning; a second skin is not placed")
 {
     {

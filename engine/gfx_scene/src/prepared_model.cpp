@@ -260,6 +260,32 @@ PreparedModel prepare_model(const GltfAsset& asset, std::string_view name, const
             } else if (mesh_is_skinned[mi] && !has_skin_data && model_skin >= 0 && can_skin) {
                 warn_once(report, "a skinned node instances a primitive without joints and weights: it is drawn rigid");
             }
+            // Per-joint bind-space boxes for conservative per-pose culling. A vertex whose weights do not sum to one is not a convex combination, so no bound would hold:
+            // then the primitive keeps no joint bounds and is never culled.
+            std::vector<render::JointBounds> joint_bounds;
+            if (skinned) {
+                joint_bounds.assign(joint_limit, render::JointBounds{});
+                for (uint32_t v = 0; v < vertex_count && !joint_bounds.empty(); ++v) {
+                    float sum = 0.0f;
+                    for (uint32_t c = 0; c < 4; ++c) sum += p.weights[v * 4 + c];
+                    if (!(std::fabs(sum - 1.0f) <= 1e-3f)) {
+                        joint_bounds.clear();
+                        break;
+                    }
+                    const render::Float3 position{p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
+                    for (uint32_t c = 0; c < 4; ++c) {
+                        if (!(p.weights[v * 4 + c] > 0.0f)) continue;
+                        render::JointBounds& jb = joint_bounds[p.joints[v * 4 + c]];
+                        if (!jb.used) {
+                            jb.min = jb.max = position;
+                            jb.used = true;
+                        } else {
+                            jb.min = {std::min(jb.min.x, position.x), std::min(jb.min.y, position.y), std::min(jb.min.z, position.z)};
+                            jb.max = {std::max(jb.max.x, position.x), std::max(jb.max.y, position.y), std::max(jb.max.z, position.z)};
+                        }
+                    }
+                }
+            }
             std::vector<render::SkinnedModelVertex> skinned_vertices(skinned ? vertex_count : 0);
             std::vector<render::ModelVertex> plain_vertices(skinned ? 0 : vertex_count);
             const auto vertex_at = [&](uint32_t v) -> render::ModelVertex& { return skinned ? skinned_vertices[v].base : plain_vertices[v]; };
@@ -317,6 +343,7 @@ PreparedModel prepare_model(const GltfAsset& asset, std::string_view name, const
             prim.index_count = static_cast<uint32_t>(indices.size());
             prim.skinned = skinned;
             prim.joint_limit = joint_limit;
+            prim.joint_bounds = std::move(joint_bounds);
             if (skinned) ++report.skinned_primitives;
             {   // bounding sphere for sorting blended draws and culling: the box center and the farthest vertex from it
                 float lo[3] = {p.positions[0], p.positions[1], p.positions[2]};
@@ -437,6 +464,7 @@ render::GpuModel upload_model(render::SceneRenderer& renderer, const PreparedMod
             prim.index_count = p.index_count;
             prim.skinned = p.skinned;
             prim.joint_limit = p.joint_limit;
+            prim.joint_bounds = p.joint_bounds;
             prim.bounds_center = p.bounds_center;
             prim.bounds_radius = p.bounds_radius;
             prim.material = p.material;

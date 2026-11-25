@@ -74,6 +74,7 @@ struct PreparedPrimitive {
     uint32_t index_count = 0;
     bool skinned = false;
     uint32_t joint_limit = 0;
+    std::vector<render::JointBounds> joint_bounds;  ///< per-joint bind-space boxes for conservative per-pose culling; empty: never culled (weights not convex)
     render::Float3 bounds_center{};
     float bounds_radius = 0.0f;
     uint32_t material = 0;              ///< into PreparedModel::materials (the last one is the default material)

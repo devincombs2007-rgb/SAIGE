@@ -2212,3 +2212,282 @@ TEST_CASE("Frustum culling and skinning (null device): a skinned primitive is ne
         CHECK(o.device.validation_error_count() == 0);
     }
 }
+
+// ---- Per-pose conservative bounds for skinned primitives ----------------------------------------------------------------------------------
+
+namespace {
+
+/// A tiny skinned model whose primitive carries per-joint bounds: joint 0's box is the triangle's bind-space box.
+GpuModel bounded_skinned_triangle(SceneRenderer& renderer)
+{
+    GpuModel model = skinned_triangle(renderer);
+    model.meshes[0][0].joint_bounds = {{{0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, true}};
+    return model;
+}
+
+}  // namespace
+
+TEST_CASE("Frustum culling and skinning with per-joint bounds (null device): the pose decides, in both directions, and primitives without bounds are still never culled")
+{
+    const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});  // looks along +X
+    Offscreen o;
+    RendererSettings settings;
+    settings.skinning = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    GpuModel bounded = bounded_skinned_triangle(renderer);
+    GpuModel unbounded = skinned_triangle(renderer);
+    SkinPalette palette = renderer.model_renderer().create_skin_palette(1, "walker");
+    const auto frame = [&](const GpuModel& m, Mat4 pose, Mat4 world) {
+        const Mat4 poses[] = {pose};
+        palette.update(poses);
+        const ModelDraw draws[] = {{&m, world, &palette}};
+        return render_models(o, renderer, camera, draws);
+    };
+    const Mat4 in_front = place({10, 0, 2});
+    // The pose keeps the mesh in view: drawn, not culled, not bypassed.
+    {
+        const FrameStats s = frame(bounded, Mat4::identity(), in_front);
+        CHECK(s.model_skinned_draws == 1 && s.model_skinned_culled == 0 && s.model_primitives_culled == 0 && s.model_skinned_cull_bypassed == 0);
+    }
+    // The pose throws it far to the side: culled by the posed bounds (the bind pose and the placement alone are in view).
+    {
+        const FrameStats s = frame(bounded, place({0.0f, 200.0f, 0.0f}), in_front);
+        CHECK(s.model_skinned_draws == 0 && s.model_skinned_culled == 1 && s.model_primitives_culled == 1 && s.model_skinned_cull_bypassed == 0);
+    }
+    // The bind pose is far away (its bounding sphere would cull it), the pose brings it back: drawn.
+    {
+        GpuModel far_bind = bounded_skinned_triangle(renderer);
+        far_bind.meshes[0][0].bounds_center = {0.0f, 60.0f, 0.0f};
+        far_bind.meshes[0][0].bounds_radius = 1.0f;
+        far_bind.meshes[0][0].joint_bounds = {{{0.0f, 60.0f, 0.0f}, {1.0f, 61.0f, 0.0f}, true}};
+        const FrameStats s = frame(far_bind, place({0.0f, -60.0f, 0.0f}), in_front);
+        CHECK(s.model_skinned_draws == 1 && s.model_skinned_culled == 0);
+        const FrameStats gone = frame(far_bind, Mat4::identity(), in_front);  // and the bind pose itself is out of view
+        CHECK(gone.model_skinned_draws == 0 && gone.model_skinned_culled == 1);
+    }
+    // The draw's world matrix counts too: the same pose placed far to the side is culled.
+    {
+        const FrameStats s = frame(bounded, Mat4::identity(), place({10, 200, 2}));
+        CHECK(s.model_skinned_culled == 1);
+    }
+    // No palette: the bind pose (identity matrices) is what is tested.
+    {
+        const ModelDraw drawn[] = {{&bounded, in_front}};
+        CHECK(render_models(o, renderer, camera, drawn).model_skinned_draws == 1);
+        const ModelDraw hidden[] = {{&bounded, place({10, 200, 2})}};
+        const FrameStats s = render_models(o, renderer, camera, hidden);
+        CHECK(s.model_skinned_draws == 0 && s.model_skinned_culled == 1);
+    }
+    // A primitive without joint bounds is drawn wherever the pose puts it, and counted as bypassed.
+    {
+        const FrameStats s = frame(unbounded, place({0.0f, 200.0f, 0.0f}), in_front);
+        CHECK(s.model_skinned_draws == 1 && s.model_skinned_culled == 0 && s.model_skinned_cull_bypassed == 1);
+    }
+    // A joint box that no joint uses leaves nothing to bound with: bypassed, drawn.
+    {
+        GpuModel unused = bounded_skinned_triangle(renderer);
+        unused.meshes[0][0].joint_bounds[0].used = false;
+        const FrameStats s = frame(unused, place({0.0f, 200.0f, 0.0f}), in_front);
+        CHECK(s.model_skinned_draws == 1 && s.model_skinned_cull_bypassed == 1);
+    }
+    // A palette with fewer joints than the primitive uses is skipped (not drawn, not culled), as before.
+    {
+        GpuModel wide = bounded_skinned_triangle(renderer);
+        wide.meshes[0][0].joint_limit = 2;
+        wide.meshes[0][0].joint_bounds.push_back({{0, 0, 0}, {1, 1, 0}, true});
+        const ModelDraw draws[] = {{&wide, in_front, &palette}};
+        const FrameStats s = render_models(o, renderer, camera, draws);
+        CHECK(s.model_skinned_skipped == 1 && s.model_skinned_culled == 0 && s.model_skinned_draws == 0);
+    }
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Posed skinned bounds contain every posed vertex, for random skeletons, poses and placements, and are tight for one joint")
+{
+    Offscreen o;
+    RendererSettings settings;
+    settings.skinning = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    ModelRenderer& models = renderer.model_renderer();
+    uint32_t state = 777u;
+    const auto next = [&] {
+        state = state * 1664525u + 1013904223u;
+        return static_cast<float>(state >> 8) / 16777216.0f;
+    };
+    const auto range = [&](float lo, float hi) { return lo + (hi - lo) * next(); };
+    const auto random_affine = [&](float scale) {
+        Mat4 m = Mat4::identity();
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) m.at(r, c) = range(-scale, scale);
+        return m;
+    };
+    const auto apply = [](const Mat4& m, Float3 p) {
+        return Float3{m.at(0, 0) * p.x + m.at(0, 1) * p.y + m.at(0, 2) * p.z + m.at(0, 3), m.at(1, 0) * p.x + m.at(1, 1) * p.y + m.at(1, 2) * p.z + m.at(1, 3),
+                      m.at(2, 0) * p.x + m.at(2, 1) * p.y + m.at(2, 2) * p.z + m.at(2, 3)};
+    };
+    for (int trial = 0; trial < 300; ++trial) {
+        const uint32_t joints = 1 + static_cast<uint32_t>(next() * 5.0f);
+        const uint32_t vertices = 4 + static_cast<uint32_t>(next() * 40.0f);
+        struct V {
+            Float3 p;
+            uint32_t j[4];
+            float w[4];
+        };
+        std::vector<V> vs(vertices);
+        GpuPrimitive prim;
+        prim.skinned = true;
+        prim.joint_limit = joints;
+        prim.joint_bounds.assign(joints, JointBounds{});
+        for (V& v : vs) {
+            v.p = {range(-3, 3), range(-3, 3), range(-3, 3)};
+            const uint32_t influences = 1 + static_cast<uint32_t>(next() * 4.0f);
+            float sum = 0.0f;
+            for (uint32_t k = 0; k < 4; ++k) {
+                v.j[k] = static_cast<uint32_t>(next() * static_cast<float>(joints)) % joints;
+                v.w[k] = k < influences ? 0.05f + next() : 0.0f;
+                sum += v.w[k];
+            }
+            for (float& w : v.w) w /= sum;
+            // Half the trials carry weights that sum to one only within the tolerance staging accepts (1e-3), as the shader would use them.
+            if (trial % 2 == 1) {
+                const float skew = 1.0f + range(-0.9e-3f, 0.9e-3f);
+                for (float& w : v.w) w *= skew;
+            }
+            for (uint32_t k = 0; k < 4; ++k) {
+                if (!(v.w[k] > 0.0f)) continue;
+                JointBounds& b = prim.joint_bounds[v.j[k]];
+                if (!b.used) {
+                    b.min = b.max = v.p;
+                    b.used = true;
+                } else {
+                    b.min = {std::min(b.min.x, v.p.x), std::min(b.min.y, v.p.y), std::min(b.min.z, v.p.z)};
+                    b.max = {std::max(b.max.x, v.p.x), std::max(b.max.y, v.p.y), std::max(b.max.z, v.p.z)};
+                }
+            }
+        }
+        SkinPalette palette = models.create_skin_palette(joints, "random");
+        std::vector<Mat4> pose(joints);
+        for (Mat4& m : pose) m = random_affine(2.0f);
+        palette.update(pose);
+        Mat4 world = random_affine(3.0f);
+        if (trial % 3 == 0) world.at(0, 3) += 150.0f, world.at(1, 3) -= 90.0f, world.at(2, 3) += 40.0f;  // far from the origin, where a weight-sum error reaches farthest
+        Float3 lo, hi;
+        REQUIRE(ModelRenderer::posed_world_bounds(prim, palette, world, lo, hi));
+        for (const V& v : vs) {
+            Float3 posed{};
+            for (uint32_t k = 0; k < 4; ++k) {
+                const Float3 q = apply(pose[v.j[k]], v.p);
+                posed = posed + q * v.w[k];
+            }
+            const Float3 w = apply(world, posed);
+            CHECK(w.x >= lo.x && w.x <= hi.x && w.y >= lo.y && w.y <= hi.y && w.z >= lo.z && w.z <= hi.z);
+        }
+        if (joints == 1) {
+            // One joint: the box is the exact bounds of the transformed bind box's corners (up to the margin), not a loose sphere.
+            float elo[3] = {1e30f, 1e30f, 1e30f}, ehi[3] = {-1e30f, -1e30f, -1e30f};
+            const JointBounds& b = prim.joint_bounds[0];
+            for (int corner = 0; corner < 8; ++corner) {
+                const Float3 p{(corner & 1) ? b.max.x : b.min.x, (corner & 2) ? b.max.y : b.min.y, (corner & 4) ? b.max.z : b.min.z};
+                const Float3 w = apply(world, apply(pose[0], p));
+                elo[0] = std::min(elo[0], w.x), elo[1] = std::min(elo[1], w.y), elo[2] = std::min(elo[2], w.z);
+                ehi[0] = std::max(ehi[0], w.x), ehi[1] = std::max(ehi[1], w.y), ehi[2] = std::max(ehi[2], w.z);
+            }
+            const float size = std::max({ehi[0] - elo[0], ehi[1] - elo[1], ehi[2] - elo[2]});
+            const float reach = std::max({std::fabs(elo[0]), std::fabs(elo[1]), std::fabs(elo[2]), std::fabs(ehi[0]), std::fabs(ehi[1]), std::fabs(ehi[2])});
+            const float shift = std::max({std::fabs(world.at(0, 3)), std::fabs(world.at(1, 3)), std::fabs(world.at(2, 3))});
+            const float tol = 1e-3f * (reach + shift) + 1e-4f + 1e-3f * (1.0f + size);  // the documented margin, and no more
+            CHECK(lo.x >= elo[0] - tol && lo.y >= elo[1] - tol && lo.z >= elo[2] - tol);
+            CHECK(hi.x <= ehi[0] + tol && hi.y <= ehi[1] + tol && hi.z <= ehi[2] + tol);
+        }
+    }
+    // Weights that sum to 1.0009 (accepted by staging) push a posed vertex 0.09% farther from the origin than the convex hull of the carried boxes: for one vertex far from the origin
+    // the box is a point, and the margin must still cover the vertex. (Both far from the origin in pose space and far through the placement.)
+    // (vertex x in pose space, placement translation x): the last pair puts the box near the origin while the vertex itself is 150 m out, so only the placement term of the margin covers it.
+    for (const std::pair<float, float>& tc : {std::pair<float, float>{100.0f, 0.0f}, {100.0f, 50.0f}, {150.0f, -50.0f}}) {
+        const float x = tc.first, far = tc.second;
+        GpuPrimitive point;
+        point.skinned = true;
+        point.joint_limit = 1;
+        point.joint_bounds = {{{x, 0.0f, 0.0f}, {x, 0.0f, 0.0f}, true}};
+        SkinPalette identity = models.create_skin_palette(1, "identity");
+        const Mat4 poses[] = {Mat4::identity()};
+        identity.update(poses);
+        Mat4 world = Mat4::identity();
+        world.at(0, 3) = far;
+        Float3 lo, hi;
+        REQUIRE(ModelRenderer::posed_world_bounds(point, identity, world, lo, hi));
+        const float posed_high = (x * 1.0009f) + far;  // world(S * v)
+        CHECK(posed_high >= lo.x && posed_high <= hi.x);
+        const float posed_low = (x * 0.9991f) + far;
+        CHECK(posed_low >= lo.x && posed_low <= hi.x);
+    }
+    // Refusals: no bounds, a palette smaller than the bounds, nothing used.
+    GpuPrimitive none;
+    none.skinned = true;
+    SkinPalette p1 = models.create_skin_palette(1, "one");
+    Float3 lo, hi;
+    CHECK(!ModelRenderer::posed_world_bounds(none, p1, Mat4::identity(), lo, hi));
+    GpuPrimitive two;
+    two.joint_bounds = {{{0, 0, 0}, {1, 1, 1}, true}, {{0, 0, 0}, {1, 1, 1}, true}};
+    CHECK(!ModelRenderer::posed_world_bounds(two, p1, Mat4::identity(), lo, hi));
+    two.joint_bounds = {{{0, 0, 0}, {1, 1, 1}, false}};
+    CHECK(!ModelRenderer::posed_world_bounds(two, p1, Mat4::identity(), lo, hi));
+    two.joint_bounds = {{{0, 0, 0}, {1, 1, 1}, true}};
+    Mat4 bad = Mat4::identity();
+    bad.at(0, 3) = std::numeric_limits<float>::infinity();
+    CHECK(!ModelRenderer::posed_world_bounds(two, p1, bad, lo, hi));
+    CHECK(ModelRenderer::posed_world_bounds(two, p1, Mat4::identity(), lo, hi));
+}
+
+TEST_CASE("Frustum culling never culls a skinned primitive any of whose posed vertices projects into the view")
+{
+    Offscreen o;
+    RendererSettings settings;
+    settings.skinning = true;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, settings);
+    GpuModel model = skinned_triangle(renderer);
+    // Joint 0 carries the triangle (0,0,0), (1,0,0), (0,1,0); the bounds are its box.
+    model.meshes[0][0].joint_bounds = {{{0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 0.0f}, true}};
+    SkinPalette palette = renderer.model_renderer().create_skin_palette(1, "walker");
+    uint32_t state = 4242u;
+    const auto next = [&] {
+        state = state * 1664525u + 1013904223u;
+        return static_cast<float>(state >> 8) / 16777216.0f;
+    };
+    const Float3 verts[3] = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    int visible = 0, invisible = 0, culled_invisible = 0;
+    for (int i = 0; i < 500; ++i) {
+        const Camera camera = look_at_camera({next() * 10 - 5, next() * 10 - 5, next() * 4}, {next() * 20 - 10, next() * 20 - 10, next() * 4 - 1});
+        Transform t;
+        t.position = {next() * 60 - 30, next() * 60 - 30, next() * 20 - 5};
+        t.scale = {0.3f + next() * 5.0f, 0.3f + next() * 5.0f, 0.3f + next() * 5.0f};
+        const Mat4 pose = to_matrix(t);
+        const Mat4 poses[] = {pose};
+        palette.update(poses);
+        const Mat4 vp = view_projection_matrix(camera, 320.0f / 180.0f);
+        // Independent oracle: sample the posed triangle (vertices, edges and interior); the primitive is visible if any sample projects inside the view.
+        bool any = false;
+        for (int s = 0; s < 300 && !any; ++s) {
+            float a = next(), b = next();
+            if (a + b > 1.0f) a = 1.0f - a, b = 1.0f - b;
+            Float3 p = s < 3 ? verts[s] : verts[0] * (1.0f - a - b) + verts[1] * a + verts[2] * b;
+            p = {pose.at(0, 0) * p.x + pose.at(0, 1) * p.y + pose.at(0, 2) * p.z + pose.at(0, 3), pose.at(1, 0) * p.x + pose.at(1, 1) * p.y + pose.at(1, 2) * p.z + pose.at(1, 3),
+                 pose.at(2, 0) * p.x + pose.at(2, 1) * p.y + pose.at(2, 2) * p.z + pose.at(2, 3)};
+            const Float4 clip = vp * Float4{p.x, p.y, p.z, 1.0f};
+            any = clip.w > 0.0f && std::fabs(clip.x) <= clip.w && std::fabs(clip.y) <= clip.w && clip.z > 0.0f && clip.z <= clip.w;
+        }
+        const ModelDraw draws[] = {{&model, Mat4::identity(), &palette}};
+        const bool culled = render_models(o, renderer, camera, draws).model_skinned_culled == 1;
+        if (any) {
+            ++visible;
+            CHECK(!culled);
+        } else {
+            ++invisible;
+            culled_invisible += culled ? 1 : 0;
+        }
+    }
+    CHECK(visible >= 40);
+    CHECK(invisible >= 200);
+    CHECK(culled_invisible * 100 >= invisible * 70);  // conservative, but it culls most of what cannot be seen
+    CHECK(o.device.validation_error_count() == 0);
+}

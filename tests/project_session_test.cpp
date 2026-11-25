@@ -98,9 +98,17 @@ void run(const std::filesystem::path& fixture) {
                 session.world().snapshot().size() == 3,
             "Failed reload damaged the active scene");
     std::filesystem::copy_file(fixture.parent_path() / "checker-box.gltf", staged.path / "checker-box.gltf");
+    auto saved = session.source();
+    saved.camera.position.z += 2.F;
+    saved.nodes.front().local.scale = {2.F, 2.F, 2.F};
+    saige::save_project(saved, copied);
     session.reload(copied);
-    require(session.camera_view()->position == before && session.source().assets.front().id == sink.mesh,
-            "Successful reload did not restore the saved camera and asset identity");
+    const auto reopened = session.world().snapshot();
+    require(session.camera_view()->position == saved.camera.position &&
+                session.source().assets.front().id == sink.mesh && reopened[1].mesh == sink.mesh &&
+                reopened[1].world_matrix && (*reopened[1].world_matrix)[12] == 4.F &&
+                (*reopened[1].world_matrix)[13] == 0.5F,
+            "Reopen did not restore the saved camera, shared asset identity, and inherited transform");
 }
 } // namespace
 

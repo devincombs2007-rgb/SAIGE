@@ -8,7 +8,7 @@ python3 tools/benchmarks/make_project.py /tmp/saige-8192.json --nodes 8192
 saige_scene_trace /tmp/saige-8192.json 1200
 ```
 
-The trace opens the saved project, advances one fixed simulation tick per frame, applies a scripted camera move, and records the CPU frame and extraction percentiles. It does not decode assets or present. The work and final camera pose are repeatable. Time measurements depend on the host and build. Keep the fixture, frame count, compiler configuration and host comparable across runs.
+The trace opens the saved project, advances one fixed simulation tick per frame, applies a scripted camera move, and records the CPU frame and extraction percentiles. It does not decode assets or present. The work and final camera pose are repeatable. The project_open_ms field measures CPU wall time for reading, parsing, validating, resolving the hierarchy, and creating the runtime world. It is separate from frame percentiles. Time measurements depend on the host and build. Keep the fixture, frame count, compiler configuration and host comparable across runs.
 
 The optional runtime observer measures wall time with a steady clock. It reports event polling, simulation, snapshot extraction, and synchronous sink submission. In a presenting app, polling or submission can include pacing and driver waits. They should never be reported as CPU execution time or GPU duration. The snapshot payload counts object storage, excluding vector reserve, project data, and allocator overhead. The trace reports GPU time and device memory as null.
 

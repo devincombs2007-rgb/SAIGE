@@ -1,4 +1,4 @@
-#include "saige/project.hpp"
+#include "project_load.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -95,7 +95,7 @@ void validate_path(std::string_view relative, const fs::path& root) {
     }
 }
 
-void validate(const Project& project, const fs::path& root) {
+std::vector<WorldMatrix> validate(const Project& project, const fs::path& root) {
     if (project.assets.size() > max_entries || project.nodes.size() > max_entries) {
         invalid("Project entry limit exceeded");
     }
@@ -107,7 +107,7 @@ void validate(const Project& project, const fs::path& root) {
     for (const auto& node : project.nodes) {
         if (!node.mesh.is_builtin() && !assets.contains(key(node.mesh))) invalid("Missing project mesh ID");
     }
-    (void)resolve_project_matrices(project);
+    auto matrices = resolve_project_matrices(project);
 
     const auto& camera = project.camera;
     if (!(camera.fov_y_radians > 0 && camera.fov_y_radians < 3.14159265F &&
@@ -116,6 +116,7 @@ void validate(const Project& project, const fs::path& root) {
     }
     const SceneNode pose{{camera.position, camera.rotation}};
     (void)resolve_world_matrices(std::span(&pose, 1));
+    return matrices;
 }
 
 Project decode(const Json& document) {
@@ -199,7 +200,7 @@ std::vector<WorldMatrix> resolve_project_matrices(const Project& project) {
     return resolve_world_matrices(nodes);
 }
 
-Project load_project(const fs::path& path) {
+detail::ValidatedProject detail::load_validated_project(const fs::path& path) {
     try {
         std::ifstream stream(path, std::ios::binary);
         if (!stream) throw std::runtime_error("Cannot open project");
@@ -225,16 +226,21 @@ Project load_project(const fs::path& path) {
             return true;
         };
         auto project = decode(Json::parse(bytes, callback));
-        validate(project, fs::canonical(fs::absolute(path).parent_path()));
-        return project;
+        auto root = fs::canonical(fs::absolute(path).parent_path());
+        auto matrices = validate(project, root);
+        return {std::move(project), std::move(root), std::move(matrices)};
     } catch (const std::exception& error) {
         throw std::runtime_error("Cannot load project: " + std::string(error.what()));
     }
 }
 
+Project load_project(const fs::path& path) {
+    return detail::load_validated_project(path).project;
+}
+
 void save_project(const Project& project, const fs::path& path) {
     const auto root = fs::canonical(fs::absolute(path).parent_path());
-    validate(project, root);
+    (void)validate(project, root);
     const auto wire = encode(project).dump(2) + '\n';
     if (wire.size() > max_file_bytes) invalid("Serialized project exceeds file limit");
 

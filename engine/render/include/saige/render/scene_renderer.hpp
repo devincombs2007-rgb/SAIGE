@@ -62,9 +62,13 @@ struct RendererSettings {
     float near_plane = 0.1f;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< linear; also the fog color
     float fog_density = 0.012f;                      ///< per meter
-    ModelShading model_shading = ModelShading::Legacy;  ///< lighting of imported models (the 0.1 cube and ground are unaffected)
+    ModelShading model_shading = ModelShading::Legacy;  ///< shading model of imported models (the 0.1 cube and ground are unaffected)
+    SceneLighting lighting;                          ///< sun and ground ambient of imported models; defaults are the long-standing look
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
+    /// Frustum-cull imported-model primitives by their bounding spheres. On by default: it never changes the image (the test is conservative and
+    /// primitives without bounds are always drawn), it only skips draws that cannot reach the screen. Off for debugging.
+    bool frustum_culling = true;
     float ground_half_size = 150.0f;                 ///< meters, centered under the camera target
     float cube_edge = 1.0f;                          ///< meters
     float spin_radians_per_second = 0.8f;
@@ -113,6 +117,7 @@ struct FrameStats {
     uint32_t model_instances = 0;          ///< imported-model placements drawn
     uint32_t model_instances_skipped = 0;  ///< non-finite or degenerate world matrices
     uint32_t model_blended_primitives = 0; ///< imported-model primitives drawn in the sorted alpha-blended phase
+    uint32_t model_primitives_culled = 0;  ///< imported-model primitives skipped by frustum culling (their bounding sphere is outside the view)
 };
 
 class SceneRenderer {
@@ -140,6 +145,8 @@ public:
     [[nodiscard]] rhi::Format scene_format() const noexcept { return scene_format_; }
 
 private:
+    void acquire();            ///< the constructor's acquisitions, so that a failure can release what was created
+    void release() noexcept;   ///< every raw handle that exists, in any state of completeness
     void ensure_targets(uint32_t width, uint32_t height);
     [[nodiscard]] Float3 camera_target(const SceneFrame& frame) const;
 

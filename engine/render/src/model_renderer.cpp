@@ -1,5 +1,6 @@
 #include "saige/render/model_renderer.hpp"
 
+#include "saige/render/camera.hpp"
 #include "saige/render/env_brdf.hpp"
 
 #include "saige/shaders/scene_model.spv.hpp"
@@ -9,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <stdexcept>
 
@@ -106,9 +108,51 @@ uint64_t GpuModel::triangle_count() const noexcept
     return triangles;
 }
 
+namespace {
+
+// Unit vector along `v` computed without squaring the components: dividing by the largest magnitude first keeps the sum of squares in
+// [1, 3] for any finite v (a plain squared length overflows above about 1.8e19 and underflows below about 1e-19, which used to turn a
+// valid direction into a zero or an infinity). Returns false for a zero vector.
+bool unit_direction(Float3 v, Float3& out)
+{
+    const float m = std::max({std::abs(v.x), std::abs(v.y), std::abs(v.z)});
+    if (!(m > 0.0f) || !std::isfinite(m)) return false;
+    const Float3 s{v.x / m, v.y / m, v.z / m};
+    const float len = std::sqrt(s.x * s.x + s.y * s.y + s.z * s.z);
+    out = {s.x / len, s.y / len, s.z / len};
+    return true;
+}
+
+} // namespace
+
+void validate_lighting(const SceneLighting& lighting)
+{
+    const auto finite = [](Float3 v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+    const auto non_negative = [](Float3 v) { return v.x >= 0.0f && v.y >= 0.0f && v.z >= 0.0f; };
+    if (!finite(lighting.sun_direction) || !finite(lighting.sun_color) || !finite(lighting.ambient_ground) ||
+        !non_negative(lighting.sun_color) || !non_negative(lighting.ambient_ground)) {
+        throw std::invalid_argument("SceneLighting must be finite, with non-negative colors");
+    }
+    Float3 unit;
+    if (!unit_direction(lighting.sun_direction, unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
+}
+
 ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry, rhi::Format color_format,
                              rhi::Format depth_format, const ModelRenderSettings& settings)
     : device_(device), registry_(registry), shading_(settings.shading)
+{
+    validate_lighting(settings.lighting);  // before anything is acquired from the device
+    // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
+    // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows.
+    try {
+        acquire(color_format, depth_format, settings);
+    } catch (...) {
+        release();
+        throw;
+    }
+}
+
+void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings)
 {
     using namespace saige::shaders;
     vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_vs_main), "VSMain", "SceneModel.VS"});
@@ -143,6 +187,7 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     pipeline_template_ = pd;
     blending_supported_ = rhi::is_blendable_color_format(color_format);
     alpha_blending_ = settings.alpha_blending;
+    frustum_culling_ = settings.frustum_culling;
     static const char* const names[4] = {"SceneModel.CCW.Back", "SceneModel.CCW.None", "SceneModel.CW.Back", "SceneModel.CW.None"};
     for (int mirrored = 0; mirrored < 2; ++mirrored) {
         for (int two_sided = 0; two_sided < 2; ++two_sided) {
@@ -153,22 +198,24 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
         }
     }
 
-    // Immutable scene constants: the same sun, ambient and fog as the 0.1 cube and ground shaders.
-    const float sun_len = std::sqrt(0.40f * 0.40f + 0.55f * 0.55f + 0.73f * 0.73f);
+    // Immutable scene constants. The default lighting is the same sun, ambient and fog as the 0.1 cube and ground shaders.
+    const SceneLighting& light = settings.lighting;
+    Float3 sun_unit{};
+    if (!unit_direction(light.sun_direction, sun_unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
     SceneConstants sc{};
     sc.fog_color_density[0] = settings.sky.r;
     sc.fog_color_density[1] = settings.sky.g;
     sc.fog_color_density[2] = settings.sky.b;
     sc.fog_color_density[3] = settings.fog_density;
-    sc.sun_direction[0] = -0.40f / sun_len;
-    sc.sun_direction[1] = -0.55f / sun_len;
-    sc.sun_direction[2] = 0.73f / sun_len;
-    sc.sun_color[0] = 1.00f;
-    sc.sun_color[1] = 0.95f;
-    sc.sun_color[2] = 0.85f;
-    sc.ambient_ground[0] = 0.20f;
-    sc.ambient_ground[1] = 0.18f;
-    sc.ambient_ground[2] = 0.16f;
+    sc.sun_direction[0] = sun_unit.x;
+    sc.sun_direction[1] = sun_unit.y;
+    sc.sun_direction[2] = sun_unit.z;
+    sc.sun_color[0] = light.sun_color.x;
+    sc.sun_color[1] = light.sun_color.y;
+    sc.sun_color[2] = light.sun_color.z;
+    sc.ambient_ground[0] = light.ambient_ground.x;
+    sc.ambient_ground[1] = light.ambient_ground.y;
+    sc.ambient_ground[2] = light.ambient_ground.z;
     sc.flags[0] = static_cast<float>(shading_);
     BufferRef constants_buffer;
     make_uniform(device_, registry_, constants_buffer, &sc, sizeof(sc), "ModelSceneConstants");
@@ -225,6 +272,11 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 
 ModelRenderer::~ModelRenderer()
 {
+    release();
+}
+
+void ModelRenderer::release() noexcept
+{
     constants_group_.reset();
     white_srgb_.reset();
     white_linear_.reset();
@@ -232,18 +284,24 @@ ModelRenderer::~ModelRenderer()
     env_brdf_.reset();
     env_brdf_sampler_.reset();
     default_sampler_.reset();
-    for (const rhi::PipelineHandle p : pipelines_) {
-        device_.destroy(p);
+    for (rhi::PipelineHandle& p : pipelines_) {
+        if (p.is_valid()) device_.destroy(p);
+        p = {};
     }
     if (blend_pipelines_ready_) {
         for (const rhi::PipelineHandle p : blend_pipelines_) {
             device_.destroy(p);
         }
+        blend_pipelines_ready_ = false;
     }
-    device_.destroy(ps_);
-    device_.destroy(vs_);
-    device_.destroy(material_layout_);
-    device_.destroy(constants_layout_);
+    if (ps_.is_valid()) device_.destroy(ps_);
+    ps_ = {};
+    if (vs_.is_valid()) device_.destroy(vs_);
+    vs_ = {};
+    if (material_layout_.is_valid()) device_.destroy(material_layout_);
+    material_layout_ = {};
+    if (constants_layout_.is_valid()) device_.destroy(constants_layout_);
+    constants_layout_ = {};
 }
 
 GpuMaterial ModelRenderer::create_material(const MaterialData& data, const TextureRef& base_color, const SamplerRef& sampler,
@@ -346,6 +404,8 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
     rhi::PipelineHandle bound{};
     blended_.clear();
     uint32_t sequence = 0;
+    std::optional<Frustum> frustum;
+    if (frustum_culling_) frustum = extract_frustum(view_proj);
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -372,8 +432,26 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             push.camera_sign[2] = camera_position.z;
             push.camera_sign[3] = det < 0.0f ? -1.0f : 1.0f;
             const bool mirrored = det < 0.0f;
+            // The largest axis scale of the instance: a sphere stays a sphere bounded by it under any affine map.
+            float max_scale = 0.0f;
+            if (frustum) {
+                for (int col = 0; col < 3; ++col) {
+                    const float sx = world.at(0, col), sy = world.at(1, col), sz = world.at(2, col);
+                    max_scale = std::max(max_scale, std::sqrt(sx * sx + sy * sy + sz * sz));
+                }
+            }
 
             for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
+                if (frustum && prim.bounds_radius > 0.0f) {
+                    const Float3 local = prim.bounds_center;
+                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                    if (!intersects_sphere(*frustum, center, prim.bounds_radius * max_scale)) {
+                        ++stats.primitives_culled;
+                        continue;
+                    }
+                }
                 const GpuMaterial& material = d.model->materials[prim.material];
                 if (material.blend && blend_pipelines_ready_) {
                     // Deferred: blended primitives draw after every opaque one, sorted back to front (below).

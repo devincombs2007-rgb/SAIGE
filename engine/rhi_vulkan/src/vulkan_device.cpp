@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <atomic>
 #include <cstring>
 #include <functional>
@@ -1769,8 +1770,16 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
 {
     const VkShaderRes* vs = shaders_.get(desc.vertex_shader);
     const VkShaderRes* ps = shaders_.get(desc.pixel_shader);
-    if (vs == nullptr || vs->stage != ShaderStage::Vertex || ps == nullptr || ps->stage != ShaderStage::Pixel) {
+    // A depth-only pipeline (a shadow pass) has no pixel shader; anything else needs a valid one.
+    const bool depth_only = !desc.pixel_shader.is_valid();
+    if (vs == nullptr || vs->stage != ShaderStage::Vertex || (!depth_only && (ps == nullptr || ps->stage != ShaderStage::Pixel))) {
         throw std::invalid_argument("create_graphics_pipeline: invalid vertex or pixel shader");
+    }
+    if (depth_only && (!desc.color_formats.empty() || !has_depth(desc.depth_format))) {
+        throw std::invalid_argument("create_graphics_pipeline: a pipeline without a pixel shader must be depth-only (no color formats, a depth format)");
+    }
+    if (!std::isfinite(desc.depth_bias.constant_factor) || !std::isfinite(desc.depth_bias.slope_factor)) {
+        throw std::invalid_argument("create_graphics_pipeline: depth bias factors must be finite");
     }
     if (desc.push_constant_size > max_push_constants || desc.push_constant_size % 4 != 0) {
         throw std::invalid_argument("create_graphics_pipeline: push constant size must be a multiple of 4 and <= 128");
@@ -1838,10 +1847,12 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
     stages[0].module = vs->module;
     stages[0].pName = vs->entry.c_str();
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = ps->module;
-    stages[1].pName = ps->entry.c_str();
+    if (!depth_only) {
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = ps->module;
+        stages[1].pName = ps->entry.c_str();
+    }
 
     VkVertexInputBindingDescription binding{0, desc.vertex_layout.stride, VK_VERTEX_INPUT_RATE_VERTEX};
     std::vector<VkVertexInputAttributeDescription> attributes;
@@ -1875,6 +1886,9 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
     }
     raster.frontFace = desc.front_face == FrontFace::CounterClockwise ? VK_FRONT_FACE_COUNTER_CLOCKWISE
                                                                       : VK_FRONT_FACE_CLOCKWISE;
+    raster.depthBiasEnable = desc.depth_bias.enabled() ? VK_TRUE : VK_FALSE;
+    raster.depthBiasConstantFactor = desc.depth_bias.constant_factor;
+    raster.depthBiasSlopeFactor = desc.depth_bias.slope_factor;
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
@@ -1917,7 +1931,7 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
 
     VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &rendering;
-    ci.stageCount = 2;
+    ci.stageCount = depth_only ? 1u : 2u;
     ci.pStages = stages;
     ci.pVertexInputState = &vertex_input;
     ci.pInputAssemblyState = &ia;

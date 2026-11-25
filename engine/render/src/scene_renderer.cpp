@@ -80,8 +80,20 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_(settings),
+      settings_((validate_lighting(settings.lighting), settings)),
       registry_(device)
+{
+    // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that
+    // fails part-way releases whatever exists by then (the registry, the tone mapper and the model renderer are RAII and release themselves).
+    try {
+        acquire();
+    } catch (...) {
+        release();
+        throw;
+    }
+}
+
+void SceneRenderer::acquire()
 {
     using namespace saige::shaders;
     if (settings_.hdr) {
@@ -132,15 +144,29 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
 
 SceneRenderer::~SceneRenderer()
 {
+    release();
+}
+
+void SceneRenderer::release() noexcept
+{
     release_targets(device_, depth_, hdr_, hdr_input_);
-    device_.destroy(cube_indices_);
-    device_.destroy(cube_vertices_);
-    device_.destroy(ground_pipeline_);
-    device_.destroy(cube_pipeline_);
-    device_.destroy(ground_ps_);
-    device_.destroy(ground_vs_);
-    device_.destroy(cube_ps_);
-    device_.destroy(cube_vs_);
+    depth_ = {};
+    hdr_ = {};
+    hdr_input_ = {};
+    const auto destroy_if = [this](auto& handle) {
+        if (handle.is_valid()) {
+            device_.destroy(handle);
+            handle = {};
+        }
+    };
+    destroy_if(cube_indices_);
+    destroy_if(cube_vertices_);
+    destroy_if(ground_pipeline_);
+    destroy_if(cube_pipeline_);
+    destroy_if(ground_ps_);
+    destroy_if(ground_vs_);
+    destroy_if(cube_ps_);
+    destroy_if(cube_vs_);
 }
 
 void SceneRenderer::ensure_targets(uint32_t width, uint32_t height)
@@ -235,7 +261,9 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.sky = settings_.sky;
         ms.fog_density = settings_.fog_density;
         ms.shading = settings_.model_shading;
+        ms.lighting = settings_.lighting;
         ms.alpha_blending = settings_.alpha_blending;
+        ms.frustum_culling = settings_.frustum_culling;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
@@ -335,6 +363,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instances += model_stats.instances_drawn;
                 stats.model_instances_skipped += model_stats.instances_skipped;
                 stats.model_blended_primitives += model_stats.blended_primitives;
+                stats.model_primitives_culled += model_stats.primitives_culled;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

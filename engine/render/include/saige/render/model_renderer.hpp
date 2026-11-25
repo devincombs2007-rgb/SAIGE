@@ -67,6 +67,7 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
     uint32_t blended_primitives = 0; ///< primitives drawn in the sorted blended phase
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
+    uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
 };
 
 /// Renderer-local lighting selection. These values also identify the shader modes.
@@ -76,13 +77,31 @@ enum class ModelShading : uint8_t {
     MetallicRoughness = 2,  ///< glTF physically based shading.
 };
 
+/// The sun and ground ambient that light imported models (linear). The defaults are the fixed values every release before this
+/// setting used, so leaving it alone changes nothing. The sky half of the ambient is not here: it is 0.6 times the sky color
+/// (`ModelRenderSettings::sky`), which is also the fog color. The 0.1 cube and ground shaders keep their own fixed lighting.
+struct SceneLighting {
+    Float3 sun_direction{-0.40f, -0.55f, 0.73f};  ///< points toward the sun; not required to be unit length, must not be zero
+    Float3 sun_color{1.00f, 0.95f, 0.85f};        ///< linear; may exceed 1 for an HDR output
+    Float3 ambient_ground{0.20f, 0.18f, 0.16f};   ///< ambient light arriving from below
+};
+
+/// Throws std::invalid_argument if any component is not finite, a color is negative, or the sun direction has no length.
+void validate_lighting(const SceneLighting& lighting);
+
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
+    SceneLighting lighting;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
     bool alpha_blending = false;
     rhi::ClearColor sky{0.30f, 0.50f, 0.82f, 1.0f};  ///< also the fog color (linear)
     float fog_density = 0.012f;                      ///< per meter
+    /// Skip primitives whose bounding sphere (`GpuPrimitive::bounds_center`/`bounds_radius`, placed by the instance's world matrix, scaled by its
+    /// largest axis scale) lies outside the frustum extracted from the `view_proj` given to `draw`. That matrix **must** be a reverse-Z infinite
+    /// perspective projection times a view (what SceneRenderer builds), which is why this is off here and on in RendererSettings. The test is
+    /// conservative (it never culls a visible sphere); a primitive without bounds (radius 0, a hand-built one) is never culled.
+    bool frustum_culling = false;
 };
 
 class ModelRenderer {
@@ -129,6 +148,8 @@ public:
 private:
     [[nodiscard]] rhi::PipelineHandle pipeline_for(bool mirrored, bool double_sided) const noexcept;
     void ensure_blend_pipelines();
+    void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
+    void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
 
     /// One primitive waiting for the sorted phase. Kept in a member vector that is cleared, not freed, each frame.
     struct BlendedDraw {
@@ -151,6 +172,7 @@ private:
     bool blend_pipelines_ready_ = false;
     bool blending_supported_ = false;
     bool alpha_blending_ = false;
+    bool frustum_culling_ = false;
     std::vector<BlendedDraw> blended_;
     BindGroupRef constants_group_;
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal

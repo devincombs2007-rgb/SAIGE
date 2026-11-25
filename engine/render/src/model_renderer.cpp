@@ -140,6 +140,18 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     : device_(device), registry_(registry), shading_(settings.shading)
 {
     validate_lighting(settings.lighting);  // before anything is acquired from the device
+    // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
+    // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows.
+    try {
+        acquire(color_format, depth_format, settings);
+    } catch (...) {
+        release();
+        throw;
+    }
+}
+
+void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings)
+{
     using namespace saige::shaders;
     vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_vs_main), "VSMain", "SceneModel.VS"});
     ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_model_ps_main), "PSMain", "SceneModel.PS"});
@@ -257,6 +269,11 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 
 ModelRenderer::~ModelRenderer()
 {
+    release();
+}
+
+void ModelRenderer::release() noexcept
+{
     constants_group_.reset();
     white_srgb_.reset();
     white_linear_.reset();
@@ -264,18 +281,24 @@ ModelRenderer::~ModelRenderer()
     env_brdf_.reset();
     env_brdf_sampler_.reset();
     default_sampler_.reset();
-    for (const rhi::PipelineHandle p : pipelines_) {
-        device_.destroy(p);
+    for (rhi::PipelineHandle& p : pipelines_) {
+        if (p.is_valid()) device_.destroy(p);
+        p = {};
     }
     if (blend_pipelines_ready_) {
         for (const rhi::PipelineHandle p : blend_pipelines_) {
             device_.destroy(p);
         }
+        blend_pipelines_ready_ = false;
     }
-    device_.destroy(ps_);
-    device_.destroy(vs_);
-    device_.destroy(material_layout_);
-    device_.destroy(constants_layout_);
+    if (ps_.is_valid()) device_.destroy(ps_);
+    ps_ = {};
+    if (vs_.is_valid()) device_.destroy(vs_);
+    vs_ = {};
+    if (material_layout_.is_valid()) device_.destroy(material_layout_);
+    material_layout_ = {};
+    if (constants_layout_.is_valid()) device_.destroy(constants_layout_);
+    constants_layout_ = {};
 }
 
 GpuMaterial ModelRenderer::create_material(const MaterialData& data, const TextureRef& base_color, const SamplerRef& sampler,

@@ -47,6 +47,9 @@ void fail_descriptor_pool_tracking_after(uint32_t n) noexcept;
 /// VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT for it would), so the rejection path can be tested on a device that supports it.
 /// Format::Unknown cancels.
 void deny_blending_into(Format format) noexcept;
+/// Makes every Vulkan device in this process report that it cannot sample `format` with linear filtering (as a device lacking
+/// VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT for it would). Format::Unknown cancels.
+void deny_filtered_sampling_of(Format format) noexcept;
 } // namespace testing
 #endif
 

@@ -17,6 +17,7 @@
 #include <span>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -1138,4 +1139,174 @@ TEST_CASE("Ambient occlusion (null device): a resize rebuilds the occlusion targ
     CHECK(renderer.render(o.device.begin_frame(), SceneFrame{}, small_target).ao_draw_calls == 2);
     (void)o.device.end_frame();
     CHECK(o.device.validation_error_count() == 0);
+}
+
+namespace {
+
+/// A small valid environment: 16x8 with three levels (16x8, 8x4, 4x2), every texel the same gray.
+std::shared_ptr<const EnvironmentLighting> tiny_environment()
+{
+    auto e = std::make_shared<EnvironmentLighting>();
+    e->width = 16;
+    e->height = 8;
+    e->levels = 3;
+    e->sh[0] = {1.0f, 1.0f, 1.0f};
+    const std::size_t texels = 16 * 8 + 8 * 4 + 4 * 2;
+    e->rgba16f.assign(texels * 4, 0x3800);  // half-float 0.5
+    return e;
+}
+
+RendererSettings ibl_settings(bool environment, bool shadows)
+{
+    RendererSettings s = shadow_settings(shadows);
+    s.model_shading = ModelShading::MetallicRoughness;
+    if (environment) {
+        s.environment = tiny_environment();
+    }
+    return s;
+}
+
+} // namespace
+
+TEST_CASE("IBL (null device): off acquires nothing for the environment; on adds exactly its texture, sampler and block, with or without shadows, and releases them")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    for (const bool shadows : {false, true}) {
+        uint32_t off_count = 0, on_count = 0;
+        {
+            SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(false, shadows));
+            CHECK(!off.model_renderer().ibl_enabled());
+            const GpuModel model = tiny_model(off);
+            const ModelDraw draws[] = {{&model, Mat4::identity()}};
+            SceneFrame frame;
+            frame.models = draws;
+            (void)off.render(o.device.begin_frame(), frame, o.target());
+            (void)o.device.end_frame();
+            off_count = o.device.live_resource_count() - baseline;
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        {
+            SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, shadows));
+            CHECK(on.model_renderer().ibl_enabled());
+            const GpuModel model = tiny_model(on);
+            const ModelDraw draws[] = {{&model, Mat4::identity()}};
+            SceneFrame frame;
+            frame.models = draws;
+            (void)on.render(o.device.begin_frame(), frame, o.target());
+            (void)o.device.end_frame();
+            on_count = o.device.live_resource_count() - baseline;
+            const std::vector<rhi::RecordedCommand> cmds = o.device.last_frame_commands();
+            CHECK(scene_pass_count(cmds) == (shadows ? 2u : 1u));
+        }
+        o.device.wait_idle();
+        CHECK(o.device.live_resource_count() == baseline);
+        // The environment texture, its sampler and its uniform block; the model pipeline permutation is lazy and is the same count either way
+        // (one of four shader modules is created), so only the three resources and the one shader differ is not asserted exactly: at least three more.
+        CHECK(on_count >= off_count + 3);
+    }
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("IBL (null device): a failed acquisition at any step releases everything, with and without shadows, and the renderer can be used afterwards")
+{
+    for (const bool shadows : {false, true}) {
+        Offscreen o;
+        SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, shadows));
+        const uint32_t baseline = o.device.live_resource_count();
+        uint32_t failures = 0;
+        for (uint32_t n = 1; n <= 200; ++n) {
+            bool threw = false;
+            o.device.fail_creation_after(n);
+            try {
+                (void)renderer.model_renderer();
+            } catch (const std::runtime_error&) {
+                threw = true;
+            }
+            o.device.fail_creation_after(0);
+            if (!threw) {
+                CHECK(renderer.model_renderer().ibl_enabled());
+                break;
+            }
+            ++failures;
+            o.device.wait_idle();
+            CHECK(o.device.live_resource_count() == baseline);
+        }
+        CHECK(failures >= (shadows ? 25u : 10u));
+        const GpuModel model = tiny_model(renderer);
+        const ModelDraw draws[] = {{&model, Mat4::identity()}};
+        SceneFrame frame;
+        frame.models = draws;
+        (void)renderer.render(o.device.begin_frame(), frame, o.target());
+        (void)o.device.end_frame();
+        CHECK(o.device.validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("IBL (null device): a bad environment, or one with a shading mode that would ignore it, is refused before anything is acquired")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    const auto refused = [&](const RendererSettings& s) {
+        try {
+            SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, s);
+            (void)r.model_renderer();
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    RendererSettings legacy = ibl_settings(true, false);
+    legacy.model_shading = ModelShading::Legacy;
+    CHECK(refused(legacy));
+    RendererSettings extended = ibl_settings(true, false);
+    extended.model_shading = ModelShading::Extended;
+    CHECK(refused(extended));
+
+    const auto mutated = [&](auto&& mutate) {
+        auto e = std::make_shared<EnvironmentLighting>(*tiny_environment());
+        mutate(*e);
+        RendererSettings s = ibl_settings(false, false);
+        s.environment = e;
+        return refused(s);
+    };
+    CHECK(mutated([](EnvironmentLighting& e) { e.width = 0; }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.levels = 0; }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.levels = 9; }));  // more levels than the chain has
+    CHECK(mutated([](EnvironmentLighting& e) { e.rgba16f.pop_back(); }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.sh[4].x = std::numeric_limits<float>::quiet_NaN(); }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.intensity = -1.0f; }));
+    CHECK(mutated([](EnvironmentLighting& e) { e.intensity = std::numeric_limits<float>::infinity(); }));
+    CHECK(!mutated([](EnvironmentLighting&) {}));  // the unmutated one is accepted (the harness is not refusing everything)
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+}
+
+TEST_CASE("IBL (null device): a device that cannot filter RGBA16F refuses the environment before acquiring anything, and the renderer without one is unaffected")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    o.device.deny_filtered_sampling(rhi::Format::RGBA16_FLOAT);
+    bool refused = false;
+    try {
+        SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, false));
+        (void)r.model_renderer();
+    } catch (const std::invalid_argument& e) {
+        refused = std::string(e.what()).find("linear filtering") != std::string::npos;
+    }
+    CHECK(refused);
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    {
+        SceneRenderer plain(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(false, true));  // no environment: the format is not needed
+        CHECK(!plain.model_renderer().ibl_enabled());
+    }
+    o.device.deny_filtered_sampling(rhi::Format::Unknown);
+    {
+        SceneRenderer ok(o.device, rhi::Format::RGBA8_SRGB, ibl_settings(true, true));
+        CHECK(ok.model_renderer().ibl_enabled());
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
 }

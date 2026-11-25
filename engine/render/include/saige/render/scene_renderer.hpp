@@ -98,6 +98,9 @@ struct RendererSettings {
     ModelShading model_shading = ModelShading::Legacy;  ///< shading model of imported models (the 0.1 cube and ground are unaffected)
     SceneLighting lighting;                          ///< sun and ground ambient of imported models; defaults are the long-standing look
     SunShadowSettings shadows;                       ///< sun shadows for imported models; off by default
+    /// Image-based lighting for imported models with metallic-roughness shading (model_shading must be MetallicRoughness, else the model renderer throws
+    /// std::invalid_argument when it is created). Null is off and changes nothing; see ModelRenderSettings::environment.
+    std::shared_ptr<const EnvironmentLighting> environment;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     /// Frustum-cull imported-model primitives by their bounding spheres. On by default: it never changes the image (the test is conservative and

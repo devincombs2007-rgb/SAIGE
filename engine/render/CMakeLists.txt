@@ -33,6 +33,7 @@ add_library(saige_render STATIC
     src/bloom_pass.cpp
     src/ambient_occlusion.cpp
     src/camera.cpp
+    src/environment_lighting.cpp
     src/env_brdf.cpp
     src/fxaa.cpp
     src/env_brdf_asset.cpp

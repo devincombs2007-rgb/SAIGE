@@ -44,7 +44,7 @@ struct Options {
     fs::path out = "anim-viewer-out";
     uint32_t width = 640, height = 360;
     int every = 6;
-    float seconds = 14.0f;
+    float seconds = 17.0f;
     bool self_check = false;
 };
 
@@ -314,7 +314,7 @@ void build_character(Character& c, const fs::path& root) {
 }
 
 const char* stage_name(int s) {
-    static const char* n[] = {"idle", "walk", "sprint", "roll", "crouch walk", "stand up", "approach ledge", "climb", "on the ledge"};
+    static const char* n[] = {"idle", "walk", "sprint", "roll", "crouch walk", "stand up", "approach ledge", "climb", "on the ledge", "jump"};
     return n[s];
 }
 
@@ -375,8 +375,8 @@ int main(int argc, char** argv) {
             const render::GpuModel ledge_model = stage_box(renderer, "ledge", 0.42f, 0.30f, 0.22f);
             const render::GpuModel marker_model = stage_box(renderer, "marker", 0.85f, 0.80f, 0.70f);
 
-            // The course: a floor, a ledge 1 m high whose face is at x = 30, and a row of posts every 5 m to read the speed from.
-            const float ledge_x = 30.0f;
+            // The course: a floor, a ledge 1 m high whose face is at x = 46, and a row of posts every 5 m to read the speed from.
+            const float ledge_x = 46.0f;
             std::vector<Aabb> boxes{{{-60, -20, -1}, {120, 20, 0}}, {{ledge_x, -20, 0}, {120, 20, 1.0f}}};
             const StaticCollision world(boxes, {});
             CapsuleCharacterConfig cfg;
@@ -395,6 +395,7 @@ int main(int argc, char** argv) {
             int stage = 0;
             float stage_time = 0.0f;
             bool roll_done = false, climb_started = false, on_ledge = false;
+            float roll_end = 1e9f;
             float final_height = 0.0f;
 
             const auto draw_course = [&](std::vector<render::ModelDraw>& draws) {
@@ -428,13 +429,18 @@ int main(int argc, char** argv) {
                 } else if (!climbing) {
                     if (t < 0.8f) stage = 0;
                     else if (t < 2.0f) stage = 1;
-                    else if (t < 3.4f) stage = 2;
+                    else if (t < 3.2f) stage = 2;
+                    else if (t < 4.4f) stage = 9;  // a jump from the sprint, then the landing
                     else if (!roll_done && ch.roll) stage = 3;
-                    else if (t < 6.4f) stage = 4;
-                    else if (t < 6.9f) stage = 5;
+                    else if (t < roll_end + 1.5f) stage = 4;
+                    else if (t < roll_end + 2.0f) stage = 5;
                     else stage = 6;
                 }
-                if (stage == 1 || stage == 2) {
+                if (stage == 9) {
+                    in.forward = 1.0f;
+                    in.sprint = true;
+                    in.jump = i == static_cast<int>(3.2f * 60.0f);
+                } else if (stage == 1 || stage == 2) {
                     in.forward = 1.0f;
                     in.sprint = stage == 2;
                 } else if (stage == 4) {
@@ -475,6 +481,7 @@ int main(int argc, char** argv) {
                     if (!action.active()) {
                         if (stage == 3) {
                             roll_done = true;
+                            roll_end = t;
                             stage_time = 0.0f;
                         }
                         if (climbing) {
@@ -535,7 +542,7 @@ int main(int argc, char** argv) {
                     exit_code = 1;
                 }
                 // The script must have done what it says: with the climb available and time for it, the character ends on the 1 m ledge.
-                if (ch.climb && opt.seconds >= 14.0f) {
+                if (ch.climb && opt.seconds >= 16.0f) {
                     std::printf("self-check: the character ends at height %.2f m (the ledge is 1.00 m)\n", static_cast<double>(final_height));
                     if (std::fabs(final_height - 1.0f) > 0.05f) {
                         std::fprintf(stderr, "self-check failed: the character did not end up on the ledge\n");

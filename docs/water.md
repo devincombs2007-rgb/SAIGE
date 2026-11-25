@@ -82,3 +82,13 @@ What the measurements say, including what did not work:
 Recommended defaults for many bodies: `water_lod_cells(distance, full)` per body, `step_bodies` on the available cores (determinism does not depend on the count), the exact surface for everyone. Reduced waves only beyond a distance where error of a third of a meter is invisible.
 
 Not done: wakes, swimming (a character in water), displacement, and two-way coupling with the dynamics backend's rigid bodies (a dynamic crate floating through `FloatingBody` forces). The water module and the dynamics backend are separate; the force evaluation (`FloatingBody` cells) can be applied to a `DynamicsWorld` body as external forces once the dynamics interface has force application (it has impulses; a per-step force API is the next addition).
+
+## Buoyancy on dynamics bodies (`include/saige/buoyancy.hpp`)
+
+`apply_buoyancy(world, body, box, water, t, dt)` applies the water's forces to a box body of the `DynamicsWorld` as impulses at the sample cells, once per step before `world.step(dt)`: the same cells, drag law, stability limit and heave and roll damping as
+`FloatingBody`, on a body that also collides, stacks and is pushed by everything else. The world's gravity must be the water's. Measured against the water module's own integrator and Archimedes (Jolt 5.7.0, Linux, 120 Hz, `buoyancy_test`):
+floating boxes of density 250, 600 and 900 settle within 4 mm of the draft (submerged volume within 0.4% of mass over water density, residual heave under 3 cm/s: the cell grid makes the volume step); a box of density 1500 sinks to 17.38 m after 8 s
+against 17.53 m for `FloatingBody` (same terminal speed, 2.305 against 2.304 m/s); a buoy on an 80 m wave heaves 0.409 m on both with a 1 mm RMS height difference over 30 s; a wide flat box heeled 25 degrees rights itself; a drop from 3 m is wet
+at the free-fall time and settles at the draft; a current of (2, 1) m/s carries the body to (1.995, 0.997) m/s; a 3 rad/s spin underwater falls to 0.73 rad/s in 3 s (3.0 with rotational drag off); a 40 m/s body never rebounds; with heave
+and roll damping the bobbing and rocking die away (0.004 m and 0.01 degrees after 8 s and 10 s) against 0.049 m and 1.9 degrees without. Ten mutations of the force law are each caught.
+Not done: a body with a centre of mass off its box centre (the box centre is used), shapes other than boxes (a cell grid per shape), wakes and swimming (a character in water), and the two-way coupling of a vessel's own thrust.

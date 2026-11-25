@@ -1,0 +1,30 @@
+diff --git a/engine/gfx_assets/CMakeLists.txt b/engine/gfx_assets/CMakeLists.txt
+index 64147b5..590df33 100644
+--- a/engine/gfx_assets/CMakeLists.txt
++++ b/engine/gfx_assets/CMakeLists.txt
+@@ -16,12 +16,8 @@ if(NOT TARGET saige::render)
+ endif()
+ 
+ add_library(saige_gfx_assets STATIC
+-<<<<<<< ours
+     src/animation.cpp
+-||||||| base
+-=======
+     src/environment.cpp
+->>>>>>> theirs
+     src/gltf.cpp
+     src/hdr_image.cpp
+     src/json.cpp
+@@ -58,12 +54,8 @@ if(SAIGE_GFX_ASSETS_BUILD_TESTS)
+             tests/alloc_fault.cpp
+             tests/test_environment.cpp
+             tests/test_gltf.cpp
+-<<<<<<< ours
+             tests/test_gltf_skin.cpp
+-||||||| base
+-=======
+             tests/test_hdr_image.cpp
+->>>>>>> theirs
+             tests/test_json.cpp
+             tests/test_resource_uri.cpp
+             tests/test_tangents.cpp

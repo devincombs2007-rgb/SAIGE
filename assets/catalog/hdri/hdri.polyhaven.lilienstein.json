@@ -1,0 +1,70 @@
+{
+ "category": "hdri",
+ "creators": [
+  "Andreas Mischok"
+ ],
+ "description": "Free 19K unclipped HDRI of a sunlit meadow at sunset: soft warm sun, partly cloudy sky, medium-contrast natural light with long shadows and forest.",
+ "files": [
+  {
+   "bytes": 1726218,
+   "format": "hdr",
+   "path": "polyhaven/lilienstein/1k/lilienstein_1k.hdr",
+   "role": "hdri",
+   "sha256": "07edff9b407e97cd380e5b7aa4b22675d65305693a67379f28ad893634e45b05"
+  }
+ ],
+ "history": [],
+ "id": "hdri.polyhaven.lilienstein",
+ "kind": "hdri",
+ "license": {
+  "ai_training": true,
+  "attribution": "Andreas Mischok",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Lilienstein",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven lilienstein --type hdris --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:46:06Z",
+  "source_id": "lilienstein",
+  "url": "https://polyhaven.com/a/lilienstein"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "sun",
+  "grass",
+  "field",
+  "forest",
+  "meadow",
+  "outdoor",
+  "skies",
+  "nature",
+  "sunrise-sunset",
+  "partly cloudy",
+  "medium contrast",
+  "natural light"
+ ],
+ "technical": {
+  "dimensions_mm": null,
+  "format": "hdr",
+  "max_resolution": [
+   19662,
+   9831
+  ],
+  "polycount_source": null,
+  "size": [
+   1024,
+   512
+  ]
+ },
+ "version": 1
+}

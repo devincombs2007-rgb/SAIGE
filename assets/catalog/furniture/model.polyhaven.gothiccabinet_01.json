@@ -1,0 +1,157 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Kirill Sannikov"
+ ],
+ "description": "Free 4K model: vintage Gothic wooden cabinet with ornate carved panels, iron hinges and stacked shelving - characterful furniture for period interiors.",
+ "files": [
+  {
+   "bytes": 8968,
+   "format": "gltf",
+   "path": "polyhaven/GothicCabinet_01/1k/GothicCabinet_01_1k.gltf",
+   "role": "model",
+   "sha256": "1b3506f78e263c66e90d4a84b9efa883fe0bb02a13ff8ead2b3a265024e045ce"
+  },
+  {
+   "bytes": 486532,
+   "format": "bin",
+   "path": "polyhaven/GothicCabinet_01/1k/GothicCabinet_01.bin",
+   "role": "dependency",
+   "sha256": "f1019b130872cad82d5bf5e27528a980fabbd69a9128340e5eb7530ea2d7c17b"
+  },
+  {
+   "bytes": 169970,
+   "format": "jpg",
+   "path": "polyhaven/GothicCabinet_01/1k/textures/GothicCabinet_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "8c413ff4acbc3b4c7b58cb08e9a921f1781817a24533e0e9af6880ef40bfd68c"
+  },
+  {
+   "bytes": 136344,
+   "format": "jpg",
+   "path": "polyhaven/GothicCabinet_01/1k/textures/GothicCabinet_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "9b9586d9a840045d3f27ea4237ec56d713212fb877aceb2d0fc1cb75c7d59b98"
+  },
+  {
+   "bytes": 213632,
+   "format": "jpg",
+   "path": "polyhaven/GothicCabinet_01/1k/textures/GothicCabinet_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "46b4a66b23836d37d5771ec024abfdc935c7b2bb17d73e2d802abca37edb6994"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.gothiccabinet_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Kirill Sannikov",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Gothic Cabinet 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven GothicCabinet_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:06Z",
+  "source_id": "GothicCabinet_01",
+  "url": "https://polyhaven.com/a/GothicCabinet_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "wood",
+  "gothic",
+  "furniture",
+  "table",
+  "shelf",
+  "decorative",
+  "furniture",
+  "shelves"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.8595719337463379,
+   2.36090087890625,
+   0.5582708120346069
+  ],
+  "bounds_min": [
+   -0.8595718145370483,
+   -0.44867900013923645,
+   -0.4573075771331787
+  ],
+  "dimensions_mm": [
+   1719.1437482833862,
+   1128.6656260490417,
+   2360.900953424988
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 5,
+  "node_names_sample": [
+   "GothicCabinet_01_cabinet",
+   "GothicCabinet_01_door4",
+   "GothicCabinet_01_door3",
+   "GothicCabinet_01_door2",
+   "GothicCabinet_01_door1"
+  ],
+  "nodes": 5,
+  "polycount_source": 12170,
+  "primitives": 5,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "GothicCabinet_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "GothicCabinet_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "GothicCabinet_01_metallic-GothicCabinet_01_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 12170,
+  "vertices": 12922
+ },
+ "version": 1
+}

@@ -1,0 +1,100 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Jenelle van Heerden",
+  "Matterfield"
+ ],
+ "description": "Free 8K texture of coarse pebbly gravel, rough and uneven stones in warm browns, ideal for driveways, pathways and outdoor stony ground.",
+ "files": [
+  {
+   "bytes": 1327302,
+   "format": "jpg",
+   "path": "polyhaven/gravel_floor/1k/gravel_floor_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "4e6ff82988506676cfd8a79ac3e2964af239764c0064d4566040167704c4838d"
+  },
+  {
+   "bytes": 1037640,
+   "format": "jpg",
+   "path": "polyhaven/gravel_floor/1k/gravel_floor_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "4f0d5b3e41cbf7f527dae5cc061778d173263a03ac0ef0756e89ebdefe232854"
+  },
+  {
+   "bytes": 1538430,
+   "format": "jpg",
+   "path": "polyhaven/gravel_floor/1k/gravel_floor_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "a3544e4aa7612a0bf0ea4890093b60c9f360234855d389bb9d408d29b90a7131"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.gravel_floor",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jenelle van Heerden; Matterfield",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Gravel Floor",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven gravel_floor --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:15Z",
+  "source_id": "gravel_floor",
+  "url": "https://polyhaven.com/a/gravel_floor"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "rough",
+  "uneven",
+  "stones",
+  "gravel",
+  "pathway",
+  "driveway stones",
+  "path",
+  "pebbles",
+  "outdoor flooring",
+  "gravelly ground",
+  "driveway gravel",
+  "coarse",
+  "gravelly texture",
+  "walkway",
+  "gravelly",
+  "pebbly",
+  "driveway",
+  "stony",
+  "outdoor",
+  "gravel"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2250,
+   2250
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

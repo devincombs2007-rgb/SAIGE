@@ -1,0 +1,66 @@
+diff --git a/docs/rendering/shadows.md b/docs/rendering/shadows.md
+index cf9daea..567cf67 100644
+--- a/docs/rendering/shadows.md
++++ b/docs/rendering/shadows.md
+@@ -93,16 +93,8 @@ continuous shadow with and without the blend; a column beyond `distance` casts n
+ 
+ ## Limits (be careful what you conclude from the images)
+ 
+-<<<<<<< ours
+-- One cascade: resolution falls with distance (a 2048 map over a 60 m range is about 5 cm per texel at the far end); cascades and blending are the next slice.
+-- Blended surfaces do not cast. Alpha-masked ones are tested at the shadow-map's resolution with nearest-filtered depth compare, so a fine cutout (thin foliage) can shimmer as the cascade moves; mip selection is the implicit one of the shadow pass's derivatives, not the camera's.
+-||||||| base
+-- One cascade: resolution falls with distance (a 2048 map over a 60 m range is about 5 cm per texel at the far end); cascades and blending are the next slice.
+-- Alpha-masked and blended surfaces do not cast (first slice), so foliage-like content has no shadow until the alpha-tested caster lands.
+-=======
+ - With one cascade resolution falls with distance (a 2048 map over a 60 m range is about 5 cm per texel at the far end); use cascades (above). The PCF tap clamp at a tile's edges is covered by a pixel test (`test_shadow_cascades.cpp`, a caster filling tile 0 with empty neighbours to its right and below, receivers in the last texel column and row, and the same from the neighbour's side): clamping to tile-local 1 or not clamping fails it. Clamping the *lower* bound to 0 instead of the first texel center is indistinguishable (a sample at exactly a texel boundary rounds into the receiver's own tile), so that half is argued from the shader, not shown by a test.
+-- Alpha-masked and blended surfaces do not cast (first slice), so foliage-like content has no shadow until the alpha-tested caster lands.
+->>>>>>> theirs
++- Blended surfaces do not cast. Alpha-masked ones are tested at the shadow-map's resolution with nearest-filtered depth compare, so a fine cutout (thin foliage) can shimmer as the cascade moves; mip selection is the implicit one of the shadow pass's derivatives, not the camera's.
+ - No contact-hardening or soft-shadow model beyond the fixed PCF radius; no shadows from the 0.1 cubes; one sun only.
+ - Software Vulkan (lavapipe) has validated correctness only. Nothing here has run on a physical GPU and no performance claim is made: the pass costs one extra draw of every caster plus
+   `(2r+1)^2` comparison taps per lit pixel, to be measured on hardware.
+diff --git a/engine/render/src/scene_renderer.cpp b/engine/render/src/scene_renderer.cpp
+index fb3e949..c583f66 100644
+--- a/engine/render/src/scene_renderer.cpp
++++ b/engine/render/src/scene_renderer.cpp
+@@ -395,18 +395,12 @@ ModelRenderer& SceneRenderer::model_renderer()
+         ms.shading = settings_.model_shading;
+         ms.lighting = settings_.lighting;
+         ms.alpha_blending = settings_.alpha_blending;
+-<<<<<<< ours
+         ms.frustum_culling = settings_.frustum_culling;
+-        ms.shadows = {settings_.shadows.enabled, settings_.shadows.map_size, settings_.shadows.depth_bias_constant, settings_.shadows.depth_bias_slope};
+-||||||| base
+-        ms.shadows = {settings_.shadows.enabled, settings_.shadows.map_size, settings_.shadows.depth_bias_constant, settings_.shadows.depth_bias_slope};
+-=======
+         ms.shadows.enabled = settings_.shadows.enabled;
+         ms.shadows.map_size = settings_.shadows.map_size;
+         ms.shadows.cascades = settings_.shadows.cascades;
+         ms.shadows.depth_bias_constant = settings_.shadows.depth_bias_constant;
+         ms.shadows.depth_bias_slope = settings_.shadows.depth_bias_slope;
+->>>>>>> theirs
+         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
+     }
+     return *models_;
+diff --git a/engine/rhi_vulkan/CMakeLists.txt b/engine/rhi_vulkan/CMakeLists.txt
+index 58dd119..988cf91 100644
+--- a/engine/rhi_vulkan/CMakeLists.txt
++++ b/engine/rhi_vulkan/CMakeLists.txt
+@@ -119,15 +119,9 @@ if(SAIGE_RHI_VULKAN_BUILD_TESTS)
+     if(NOT TARGET saige::render)
+         add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../render ${CMAKE_CURRENT_BINARY_DIR}/render)
+     endif()
+-<<<<<<< ours
+     # test_capabilities.cpp is last on purpose: its printed report (loader, instance and effective versions, and where each
+     # capability comes from) then sits at the end of the verbose ctest log, inside the part CI log viewers retain.
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp)
+-||||||| base
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_shadow_map.cpp tests/test_sun_shadows.cpp)
+-=======
+-    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_shadow_map.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp)
+->>>>>>> theirs
++    add_executable(saige_rhi_vulkan_tests tests/test_vulkan_device.cpp tests/test_scenes.cpp tests/test_texture_upload.cpp tests/test_bind_groups.cpp tests/test_gpu_resource_lifetime.cpp tests/test_models.cpp tests/test_pbr.cpp tests/test_hdr.cpp tests/test_blend.cpp tests/test_blend_render.cpp tests/test_diagnostics.cpp tests/test_tonemap.cpp tests/test_capabilities.cpp tests/test_shadow_map.cpp tests/test_frustum_culling.cpp tests/test_bloom.cpp tests/test_fxaa.cpp tests/test_ambient_occlusion.cpp tests/test_sun_shadows.cpp tests/test_shadow_cascades.cpp)
+     target_compile_definitions(saige_rhi_vulkan_tests PRIVATE SAIGE_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/goldens")
+     target_include_directories(saige_rhi_vulkan_tests PRIVATE ${SAIGE_GFX_SOURCE_ROOT}/engine/gfx_test_support/include
+                                                               ${SAIGE_GFX_SOURCE_ROOT}/shaders/generated)

@@ -1,0 +1,126 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 268684,
+   "format": "png",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099.png",
+   "role": "other",
+   "sha256": "f186d1ea695375cab4227d9852b39f4e9866b110b961778b7b442741270d1730"
+  },
+  {
+   "bytes": 2242,
+   "format": "mtlx",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "88ff9c9ee7d1294f1f8a63ed3e994972bb9af57eada4a03b11d3c8afea26ae79"
+  },
+  {
+   "bytes": 2886,
+   "format": "usdc",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "735d77f01449b781ca6cf4d4e346d16e717dbb4ea6c4d405d2317018cf8ee08d"
+  },
+  {
+   "bytes": 424563,
+   "format": "jpg",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "75185eb5b6989ff8cc222e7b4e1de67207783c12ba9420359ef0edebb2f2b067"
+  },
+  {
+   "bytes": 202329,
+   "format": "jpg",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "c26e8e26a68cc23bd0c2b9d97c197c15aa6f0bc90c5bef2eed31713d5153445a"
+  },
+  {
+   "bytes": 217931,
+   "format": "jpg",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "24d5f001c886b18a8fef0568125098f989606919ea7ef76618b19701297cd81e"
+  },
+  {
+   "bytes": 215632,
+   "format": "jpg",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "1e1d67f88e4a0cb08b54927f8784e07d62e35af40dd06a73f4237d5ea226405f"
+  },
+  {
+   "bytes": 231050,
+   "format": "jpg",
+   "path": "ambientcg/Wood099/1K-JPG/files/Wood099_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "b163e01c886f94e44d62d2d8dd649dde4e46da1eef1f069c8fd07edb702f0a60"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.wood099",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Wood 099",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Wood099 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:48Z",
+  "source_id": "Wood099",
+  "url": "https://ambientcg.com/a/Wood099"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "099",
+  "99",
+  "pattern",
+  "wood",
+  "wood099"
+ ],
+ "technical": {
+  "creation_method": "PBRApproximated",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 2796202,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "base_color",
+   "displacement",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   512
+  ]
+ },
+ "version": 1
+}

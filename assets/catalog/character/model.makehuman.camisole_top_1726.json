@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "MargaretToigo"
+ ],
+ "description": "This is a camisole-style top that will fit female and mostly female humans. It was made with Blender's cloth simulator. A diffuse texture is included. Illustration shows top with subsurf of two and some slight adjustments were made around the waist to fit the top over the skirt. Kira is also wearing Jeans skirt by punbkduck (http://www.makehumancommunity.org/clothes/jeans_skirt.html). ",
+ "files": [
+  {
+   "bytes": 352621,
+   "format": "obj",
+   "path": "makehuman/1726/camisole_top.obj",
+   "role": "obj",
+   "sha256": "2f4377c34c55608299ebae72717073b258b12f0ba1783d10db1fc037601be377"
+  },
+  {
+   "bytes": 507758,
+   "format": "png",
+   "path": "makehuman/1726/CamisoleTopPIC.png",
+   "role": "render",
+   "sha256": "76fb47f3b46181140cf86a0480286c19cde8d6f642cbc477f3c7be891b268d78"
+  },
+  {
+   "bytes": 502,
+   "format": "mhmat",
+   "path": "makehuman/1726/camisole_top.mhmat",
+   "role": "mhmat",
+   "sha256": "c12632e85622cc6b64a6e8f81fbbfc6862d6a56c1df332fb3c8644dbccba4bdc"
+  },
+  {
+   "bytes": 287125,
+   "format": "mhclo",
+   "path": "makehuman/1726/camisole_top.mhclo",
+   "role": "mhclo",
+   "sha256": "2954430d051b9707acdb9fee2aebdc8a250aab473f32452ef6b86684e8c26ffc"
+  },
+  {
+   "bytes": 4827382,
+   "format": "png",
+   "path": "makehuman/1726/CamisoleTop.png",
+   "role": "diffuse",
+   "sha256": "9277a2c8bbd15c379302b8f08f33420e87e8df4cfb234a83b698856c595a8385"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.camisole_top_1726",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Camisole Top",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 1726",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:56:52Z",
+  "source_id": "1726",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#1726"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

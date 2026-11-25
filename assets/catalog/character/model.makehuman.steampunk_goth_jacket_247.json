@@ -1,0 +1,96 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "o4saken"
+ ],
+ "description": "A goth/steampunk jacket for average female",
+ "files": [
+  {
+   "bytes": 525625,
+   "format": "obj",
+   "path": "makehuman/247/steampunk.001.obj",
+   "role": "obj",
+   "sha256": "e546ec6dd0bf315309c28cff806367fd4e9b75b780aefadc966a13b51d130449"
+  },
+  {
+   "bytes": 117400,
+   "format": "png",
+   "path": "makehuman/247/steampunk render.png",
+   "role": "render",
+   "sha256": "9aab3f193cb046578262d94bf9529c17945927dfc9d34ce795d5491987767a93"
+  },
+  {
+   "bytes": 568,
+   "format": "mhmat",
+   "path": "makehuman/247/steampunk.001.mhmat",
+   "role": "mhmat",
+   "sha256": "23961e1d9afe1e9df19ed07d9ae626357ffdf1ff883f0747ad3b7317b47aaae7"
+  },
+  {
+   "bytes": 2825454,
+   "format": "png",
+   "path": "makehuman/247/SteampunkAO.png",
+   "role": "glossy",
+   "sha256": "2eaa897c7dfd0d3acff90888603e6f4a19ad402c4cc57d37b077fb687e2e560f"
+  },
+  {
+   "bytes": 25043023,
+   "format": "png",
+   "path": "makehuman/247/Steampunknormal.png",
+   "role": "normals",
+   "sha256": "f34d360eab27c3c2457c2d1fe9809dc09322de52be7d8aa501ccae84d62a23c6"
+  },
+  {
+   "bytes": 438282,
+   "format": "mhclo",
+   "path": "makehuman/247/steampunk.001.mhclo",
+   "role": "mhclo",
+   "sha256": "2800d9313e78f93ddef095de32afcd2190e5489f97ce6dcb68c9ecf6e679efb6"
+  },
+  {
+   "bytes": 14740477,
+   "format": "png",
+   "path": "makehuman/247/Steampunk1.png",
+   "role": "diffuse",
+   "sha256": "47b3b6ea2e961db4be5ad040c025659f987f78865315054c2217e8545a41deff"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.steampunk_goth_jacket_247",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Steampunk/Goth Jacket",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 247",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:52:15Z",
+  "source_id": "247",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#247"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

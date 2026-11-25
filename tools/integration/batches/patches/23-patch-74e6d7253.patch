@@ -1,0 +1,50 @@
+diff --git a/engine/render/tests/test_scene_renderer.cpp b/engine/render/tests/test_scene_renderer.cpp
+index 0265dee..ce55d14 100644
+--- a/engine/render/tests/test_scene_renderer.cpp
++++ b/engine/render/tests/test_scene_renderer.cpp
+@@ -901,6 +901,45 @@ TEST_CASE("Ambient occlusion (null device): off adds no pass and no resource; on
+     CHECK(o.device.validation_error_count() == 0);
+ }
+ 
++TEST_CASE("Post chain (null device): bloom, occlusion and FXAA together add exactly what each adds alone, in order, over two frames, and everything is released")
++{
++    Offscreen o;
++    const uint32_t baseline = o.device.live_resource_count();
++    {
++        RendererSettings base;
++        base.hdr = true;
++        SceneRenderer plain(o.device, rhi::Format::RGBA8_SRGB, base);
++        const FrameStats plain_stats = plain.render(o.device.begin_frame(), SceneFrame{}, o.target());
++        (void)o.device.end_frame();
++        const size_t plain_passes = of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size();
++
++        RendererSettings bloom_only = base;
++        bloom_only.bloom.enabled = true;
++        SceneRenderer b(o.device, rhi::Format::RGBA8_SRGB, bloom_only);
++        const FrameStats bloom_stats = b.render(o.device.begin_frame(), SceneFrame{}, o.target());
++        (void)o.device.end_frame();
++        CHECK(bloom_stats.bloom_draw_calls > 0);
++
++        RendererSettings all = base;
++        all.bloom.enabled = true;
++        all.ambient_occlusion.enabled = true;
++        all.fxaa.enabled = true;
++        SceneRenderer c(o.device, rhi::Format::RGBA8_SRGB, all);
++        for (int frame = 0; frame < 2; ++frame) {
++            const FrameStats stats = c.render(o.device.begin_frame(), SceneFrame{}, o.target());
++            (void)o.device.end_frame();
++            CHECK(stats.bloom_draw_calls == bloom_stats.bloom_draw_calls);
++            CHECK(stats.ao_draw_calls == 2);
++            CHECK(stats.fxaa_draw_calls == 1);
++            CHECK(stats.draw_calls == plain_stats.draw_calls + stats.bloom_draw_calls + 2 + 1);
++            CHECK(of_type(o.device.last_frame_commands(), rhi::CommandType::BeginRendering).size() == plain_passes + stats.bloom_draw_calls + 2 + 1);
++        }
++    }
++    o.device.wait_idle();
++    CHECK(o.device.live_resource_count() == baseline);
++    CHECK(o.device.validation_error_count() == 0);
++}
++
+ TEST_CASE("Ambient occlusion (null device): a resize rebuilds the occlusion targets without leaking, and a failed creation is a failed frame, not a broken renderer")
+ {
+     Offscreen o(64, 48);

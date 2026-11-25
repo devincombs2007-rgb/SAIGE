@@ -1,0 +1,214 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "GurJas Studios"
+ ],
+ "description": "Free 8K model of a weathered metal trash can with removable lid, ribbed cylindrical body, dents, heavy rust, grime and realistic industrial wear.",
+ "files": [
+  {
+   "bytes": 15481,
+   "format": "gltf",
+   "path": "polyhaven/metal_trash_can/1k/metal_trash_can_1k.gltf",
+   "role": "model",
+   "sha256": "ccdc55ecfe43db2174c9257891e92551882a874564bb9a7908cafc5268b46c0c"
+  },
+  {
+   "bytes": 551939,
+   "format": "jpg",
+   "path": "polyhaven/metal_trash_can/1k/textures/metal_trash_can_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "920c895a31b1cd2c000123c0592c70c33d46562752987da98070e7e0eebb662f"
+  },
+  {
+   "bytes": 768161,
+   "format": "jpg",
+   "path": "polyhaven/metal_trash_can/1k/textures/metal_trash_can_rust_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "51c44248305b111d978f7e0cbfe4a71ab7f49549968ce37c54b635d74c2cfba1"
+  },
+  {
+   "bytes": 731776,
+   "format": "jpg",
+   "path": "polyhaven/metal_trash_can/1k/textures/metal_trash_can_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "b23dcdb2ed40c1c6cfbd2d2779c6f075025b7269bfbbed2a70c6bdb7167e47fb"
+  },
+  {
+   "bytes": 1085844,
+   "format": "jpg",
+   "path": "polyhaven/metal_trash_can/1k/textures/metal_trash_can_rust_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "a5497588e00e5e56db72e701457fc8a46d3a1fa7d9dd7bf9d79e02cada09e84b"
+  },
+  {
+   "bytes": 842945,
+   "format": "jpg",
+   "path": "polyhaven/metal_trash_can/1k/textures/metal_trash_can_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "b977f17aa9d4718ffc91a62868b7171b4479578b8cffd1d32001d92552af81a4"
+  },
+  {
+   "bytes": 378288,
+   "format": "bin",
+   "path": "polyhaven/metal_trash_can/1k/metal_trash_can.bin",
+   "role": "dependency",
+   "sha256": "a9b9f526b655bef865933335f2cfc8c8f0bd1a35fda05b290a93e3061f2b6c8a"
+  },
+  {
+   "bytes": 620549,
+   "format": "jpg",
+   "path": "polyhaven/metal_trash_can/1k/textures/metal_trash_can_rust_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "31a6269e98a3a8b2a2d6db8f58724e0151d5312b5137e6d59b5a2ba873989159"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.metal_trash_can",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "GurJas Studios",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Metal Trash Can",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven metal_trash_can --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:30Z",
+  "source_id": "metal_trash_can",
+  "url": "https://polyhaven.com/a/metal_trash_can"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "bin",
+  "rubbish",
+  "garbage",
+  "disposal",
+  "litter",
+  "dumpster",
+  "outdoor trash can",
+  " urban",
+  "utility",
+  "industrial",
+  "containers",
+  "collection: hidden_alley"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.30671587586402893,
+   0.9062314629554749,
+   0.278152197599411
+  ],
+  "bounds_min": [
+   -0.30671584606170654,
+   -0.07235946506261826,
+   -0.27813759446144104
+  ],
+  "dimensions_mm": [
+   1846.9352722167969,
+   556.2898814678192,
+   906.1697272554738
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.6.27",
+  "materials": 3,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 8,
+  "node_names_sample": [
+   "metal_trash_can_handle_left",
+   "metal_trash_can_lid",
+   "metal_trash_can",
+   "metal_trash_can_handle_right",
+   "metal_trash_can_rust",
+   "metal_trash_can_rust_handle_left",
+   "metal_trash_can_rust_handle_right",
+   "metal_trash_can_rust_lid"
+  ],
+  "nodes": 8,
+  "polycount_source": 13960,
+  "primitives": 8,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 33554430,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "metal_trash_can_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "metal_trash_can_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "metal_trash_can_metal-metal_trash_can_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "metal_trash_can_rust_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "metal_trash_can_rust_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "metal_trash_can_rust_metal-metal_trash_can_rust_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 13960,
+  "vertices": 9282
+ },
+ "version": 1
+}

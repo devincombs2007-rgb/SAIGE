@@ -1,0 +1,271 @@
+{
+ "category": "audio.foley",
+ "creators": [
+  "qubodup"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 476363,
+   "format": "7z",
+   "path": "opengameart/fantozzis_footsteps_grasssand_stone/Fantozzi-footsteps.7z",
+   "role": "content",
+   "sha256": "415d360e0911c1c1c5355ee94023b772e6f4044f59b9b580610e7dbffd1840fd"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.fantozzis_footsteps_grasssand_stone",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Fantozzi's Footsteps (Grass/Sand & Stone) by qubodup (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "Fantozzi's Footsteps (Grass/Sand & Stone)",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/fantozzis-footsteps-grasssand-stone --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:41:00Z",
+  "source_id": "fantozzis_footsteps_grasssand_stone",
+  "url": "https://opengameart.org/content/fantozzis-footsteps-grasssand-stone"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "7z",
+  "pack_contents": [
+   {
+    "bytes": 40317,
+    "channels": 2,
+    "duration_s": 0.443,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-SandL1.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -18.9,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 30870,
+    "channels": 2,
+    "duration_s": 0.32,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-SandL2.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 29250,
+    "channels": 2,
+    "duration_s": 0.3,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-SandL3.flac",
+    "loop_seam_ratio": 1.3,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 36934,
+    "channels": 2,
+    "duration_s": 0.406,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-SandR1.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -19.84,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 30328,
+    "channels": 2,
+    "duration_s": 0.34,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-SandR2.flac",
+    "loop_seam_ratio": 0.01,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 32496,
+    "channels": 2,
+    "duration_s": 0.329,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-SandR3.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 37045,
+    "channels": 2,
+    "duration_s": 0.373,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-StoneL1.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 33441,
+    "channels": 2,
+    "duration_s": 0.332,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-StoneL2.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 34318,
+    "channels": 2,
+    "duration_s": 0.331,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-StoneL3.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 36412,
+    "channels": 2,
+    "duration_s": 0.357,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-StoneR1.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 34323,
+    "channels": 2,
+    "duration_s": 0.323,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-StoneR2.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 35929,
+    "channels": 2,
+    "duration_s": 0.342,
+    "file": "Fantozzi-footsteps/flac/Fantozzi-StoneR3.flac",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -0.01,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 10440,
+    "channels": 2,
+    "duration_s": 0.443,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-SandL1.ogg",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -19.12,
+    "peak_dbfs": -0.27,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8922,
+    "channels": 2,
+    "duration_s": 0.32,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-SandL2.ogg",
+    "loop_seam_ratio": 0.17,
+    "peak_dbfs": -1.05,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8246,
+    "channels": 2,
+    "duration_s": 0.3,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-SandL3.ogg",
+    "loop_seam_ratio": 1.26,
+    "peak_dbfs": -0.25,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 9796,
+    "channels": 2,
+    "duration_s": 0.406,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-SandR1.ogg",
+    "loop_seam_ratio": 0.03,
+    "lufs_integrated": -20.07,
+    "peak_dbfs": -0.34,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8716,
+    "channels": 2,
+    "duration_s": 0.34,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-SandR2.ogg",
+    "loop_seam_ratio": 0.01,
+    "peak_dbfs": -0.69,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8635,
+    "channels": 2,
+    "duration_s": 0.329,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-SandR3.ogg",
+    "loop_seam_ratio": 0.02,
+    "peak_dbfs": 0.47,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8889,
+    "channels": 2,
+    "duration_s": 0.373,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-StoneL1.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": 0.03,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8516,
+    "channels": 2,
+    "duration_s": 0.332,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-StoneL2.ogg",
+    "loop_seam_ratio": 0.01,
+    "peak_dbfs": -0.11,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8207,
+    "channels": 2,
+    "duration_s": 0.331,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-StoneL3.ogg",
+    "loop_seam_ratio": 0.0,
+    "peak_dbfs": -1.02,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8855,
+    "channels": 2,
+    "duration_s": 0.357,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-StoneR1.ogg",
+    "loop_seam_ratio": 0.02,
+    "peak_dbfs": -0.85,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8346,
+    "channels": 2,
+    "duration_s": 0.323,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-StoneR2.ogg",
+    "loop_seam_ratio": 0.01,
+    "peak_dbfs": 0.11,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 8404,
+    "channels": 2,
+    "duration_s": 0.342,
+    "file": "Fantozzi-footsteps/ogg/Fantozzi-StoneR3.ogg",
+    "loop_seam_ratio": 0.03,
+    "peak_dbfs": 0.21,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 24,
+  "pack_seconds": 8.4
+ },
+ "version": 1
+}

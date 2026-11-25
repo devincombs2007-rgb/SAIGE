@@ -1,0 +1,73 @@
+{
+ "category": "hdri",
+ "creators": [
+  "Greg Zaal"
+ ],
+ "description": "Free 24K unclipped HDRI of a clear, low-contrast safari night - soft natural starlight and Milky Way with subtle horizon glow, trees, grass and a road.",
+ "files": [
+  {
+   "bytes": 1745132,
+   "format": "hdr",
+   "path": "polyhaven/dikhololo_night/1k/dikhololo_night_1k.hdr",
+   "role": "hdri",
+   "sha256": "6861489f983cdc0c22435b781a3487171bd25f25f9cc52c46ac402d48e08249e"
+  }
+ ],
+ "history": [],
+ "id": "hdri.polyhaven.dikhololo_night",
+ "kind": "hdri",
+ "license": {
+  "ai_training": true,
+  "attribution": "Greg Zaal",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Dikhololo Night",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven dikhololo_night --type hdris --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:46:01Z",
+  "source_id": "dikhololo_night",
+  "url": "https://polyhaven.com/a/dikhololo_night"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "bush",
+  "grass",
+  "road",
+  "safari",
+  "tree",
+  "veld",
+  "milky way",
+  "stars",
+  "astronomy",
+  "outdoor",
+  "nature",
+  "night",
+  "clear",
+  "low contrast",
+  "natural light"
+ ],
+ "technical": {
+  "dimensions_mm": null,
+  "format": "hdr",
+  "max_resolution": [
+   24576,
+   12288
+  ],
+  "polycount_source": null,
+  "size": [
+   1024,
+   512
+  ]
+ },
+ "version": 1
+}

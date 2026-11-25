@@ -1,0 +1,68 @@
+{
+ "category": "hdri",
+ "creators": [
+  "Greg Zaal",
+  "Jarod Guest"
+ ],
+ "description": "Free 24K unclipped HDRI. Soft, low-contrast sunrise with warm sun rays breaking through scattered clouds, cool blue ambient light.",
+ "files": [
+  {
+   "bytes": 1173154,
+   "format": "hdr",
+   "path": "polyhaven/kloppenheim_06_puresky/1k/kloppenheim_06_puresky_1k.hdr",
+   "role": "hdri",
+   "sha256": "206c67e3a1b992282821cf06662bdd69bbb4915c1c4444a66338a40d6a7d4e34"
+  }
+ ],
+ "history": [],
+ "id": "hdri.polyhaven.kloppenheim_06_puresky",
+ "kind": "hdri",
+ "license": {
+  "ai_training": true,
+  "attribution": "Greg Zaal; Jarod Guest",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Kloppenheim 06 (Pure Sky)",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven kloppenheim_06_puresky --type hdris --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:20:55Z",
+  "source_id": "kloppenheim_06_puresky",
+  "url": "https://polyhaven.com/a/kloppenheim_06_puresky"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "pure skies",
+  "outdoor",
+  "skies",
+  "nature",
+  "sunrise-sunset",
+  "partly cloudy",
+  "low contrast",
+  "natural light",
+  "pure skies"
+ ],
+ "technical": {
+  "dimensions_mm": null,
+  "format": "hdr",
+  "max_resolution": [
+   24576,
+   12288
+  ],
+  "polycount_source": null,
+  "size": [
+   1024,
+   512
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,156 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "ambientCG / Lennart Demes"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 321425,
+   "format": "png",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048.png",
+   "role": "other",
+   "sha256": "8061a67208b49da2d203815376b220313d2805e5dbed4eef150995eda06ab4b9"
+  },
+  {
+   "bytes": 2649,
+   "format": "mtlx",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG.mtlx",
+   "role": "other",
+   "sha256": "1c9b8e5fa8338a40ff38d34f7736c6dec2ec0d856d02ce84ac0f85bab54ab326"
+  },
+  {
+   "bytes": 3067,
+   "format": "usdc",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG.usdc",
+   "role": "other",
+   "sha256": "317c8afb005dcd0d37a47c29a1d3c8c55b423ae059372b1df4106f3d672b4cc1"
+  },
+  {
+   "bytes": 659489,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_AmbientOcclusion.jpg",
+   "role": "ao",
+   "sha256": "4d1f849c3a7881e6b634616918f6a4c0c2defe67529d05c5809084e36a9fbbe7"
+  },
+  {
+   "bytes": 1126366,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_Color.jpg",
+   "role": "base_color",
+   "sha256": "1bf2156b86866732660e6d3ccd1942598ac2b9e73a9bb97a23763574ac4d7722"
+  },
+  {
+   "bytes": 492343,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_Displacement.jpg",
+   "role": "displacement",
+   "sha256": "d4b27cabb35b7873c31f5b11df093e725664eadc308a992cae25d3928e3805a3"
+  },
+  {
+   "bytes": 5229,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_Metalness.jpg",
+   "role": "metalness",
+   "sha256": "c7269ed127d209f7211e00edfcc7fcefeb1dd1f905ff4848529c45a11a06a522"
+  },
+  {
+   "bytes": 1552023,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_NormalDX.jpg",
+   "role": "normal_dx",
+   "sha256": "19d94bd7376d362fef77f48da9f801e3de1c17465a72b571ebe25828ad78e42a"
+  },
+  {
+   "bytes": 1548946,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_NormalGL.jpg",
+   "role": "normal_gl",
+   "sha256": "16d110670d8a1ca4dd85d498bb46afaa6953456878dae7ab6717053600dddcfc"
+  },
+  {
+   "bytes": 702183,
+   "format": "jpg",
+   "path": "ambientcg/Concrete048/1K-JPG/files/Concrete048_1K-JPG_Roughness.jpg",
+   "role": "roughness",
+   "sha256": "cf9b741e1ffc25b89a7d7a8971656463009c25b30c3fd300b3296c60daef729f"
+  }
+ ],
+ "history": [],
+ "id": "material.ambientcg.concrete048",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "ambientCG.com (CC0)",
+  "commercial_use": true,
+  "notes": "ambientCG assets are CC0.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://docs.ambientcg.com/license/"
+ },
+ "name": "Concrete 048",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch ambientcg Concrete048 --res 1K-JPG",
+  "name": "ambientcg",
+  "retrieved": "2026-11-24T13:46:19Z",
+  "source_id": "Concrete048",
+  "url": "https://ambientcg.com/a/Concrete048"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "048",
+  "48",
+  "beige",
+  "clean",
+  "concrete",
+  "floor",
+  "grey",
+  "hard",
+  "indoor",
+  "industrial",
+  "layered",
+  "minimalist",
+  "modern",
+  "outdoor",
+  "smooth",
+  "stone",
+  "subtle",
+  "uniform",
+  "urban"
+ ],
+ "technical": {
+  "creation_method": "PBRPhotogrammetry",
+  "dimensions_mm": [
+   0,
+   0,
+   0
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "maps": [
+   "other",
+   "other",
+   "other",
+   "ao",
+   "base_color",
+   "displacement",
+   "metalness",
+   "normal_dx",
+   "normal_gl",
+   "roughness"
+  ],
+  "mode": "RGB",
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

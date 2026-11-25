@@ -1,0 +1,251 @@
+{
+ "category": "audio.ambience",
+ "creators": [
+  "qubodup"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 26178877,
+   "format": "7z",
+   "path": "opengameart/thunder_rain_and_wind/jute-dh-weather.7z",
+   "role": "content",
+   "sha256": "787e4d112f81fd4b2cc6f2cf59cfca1ed5c390cec9339f4e7a40acb6e47cd4f2"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.thunder_rain_and_wind",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "Thunder, rain and wind by qubodup (OpenGameArt.org)",
+  "commercial_use": "unknown",
+  "notes": "licence needs review",
+  "redistribution": "unknown",
+  "spdx": "LicenseRef-unknown",
+  "url": ""
+ },
+ "name": "Thunder, rain and wind",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/thunder-rain-and-wind --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T14:02:23Z",
+  "source_id": "thunder_rain_and_wind",
+  "url": "https://opengameart.org/content/thunder-rain-and-wind"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "7z",
+  "pack_contents": [
+   {
+    "bytes": 2050776,
+    "channels": 2,
+    "duration_s": 7.75,
+    "file": "jute-dh-weather/rain.wav",
+    "loop_seam_ratio": 0.04,
+    "lufs_integrated": -20.84,
+    "peak_dbfs": -9.24,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2116926,
+    "channels": 2,
+    "duration_s": 8.0,
+    "file": "jute-dh-weather/rain_2.wav",
+    "loop_seam_ratio": 0.85,
+    "lufs_integrated": -25.45,
+    "peak_dbfs": -3.57,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2249226,
+    "channels": 2,
+    "duration_s": 8.5,
+    "file": "jute-dh-weather/rain_indoors.wav",
+    "loop_seam_ratio": 0.83,
+    "lufs_integrated": -15.83,
+    "peak_dbfs": -4.4,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2116926,
+    "channels": 2,
+    "duration_s": 8.0,
+    "file": "jute-dh-weather/rain_indoors_2.wav",
+    "loop_seam_ratio": 11.78,
+    "lufs_integrated": -31.3,
+    "peak_dbfs": -20.32,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 1862770,
+    "channels": 2,
+    "duration_s": 10.553,
+    "file": "jute-dh-weather/thunder_1_far.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -24.95,
+    "peak_dbfs": -5.16,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 1862770,
+    "channels": 2,
+    "duration_s": 10.553,
+    "file": "jute-dh-weather/thunder_1_near.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -20.09,
+    "peak_dbfs": -0.28,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 988290,
+    "channels": 2,
+    "duration_s": 5.596,
+    "file": "jute-dh-weather/thunder_2_far.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -30.08,
+    "peak_dbfs": -13.1,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 988290,
+    "channels": 2,
+    "duration_s": 5.596,
+    "file": "jute-dh-weather/thunder_2_near.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -23.88,
+    "peak_dbfs": -6.53,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2223234,
+    "channels": 2,
+    "duration_s": 12.597,
+    "file": "jute-dh-weather/thunder_3_far.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -33.87,
+    "peak_dbfs": -12.77,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2223234,
+    "channels": 2,
+    "duration_s": 12.597,
+    "file": "jute-dh-weather/thunder_3_near.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -27.49,
+    "peak_dbfs": -4.67,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 1527422,
+    "channels": 2,
+    "duration_s": 8.652,
+    "file": "jute-dh-weather/thunder_4_far.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -28.55,
+    "peak_dbfs": -5.89,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 1527422,
+    "channels": 2,
+    "duration_s": 8.652,
+    "file": "jute-dh-weather/thunder_4_near.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.07,
+    "peak_dbfs": -1.2,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2485886,
+    "channels": 2,
+    "duration_s": 14.086,
+    "file": "jute-dh-weather/thunder_5_far.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -26.34,
+    "peak_dbfs": -6.05,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2485886,
+    "channels": 2,
+    "duration_s": 14.086,
+    "file": "jute-dh-weather/thunder_5_near.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -21.35,
+    "peak_dbfs": -2.42,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2485886,
+    "channels": 2,
+    "duration_s": 14.086,
+    "file": "jute-dh-weather/thunder_6_far.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.29,
+    "peak_dbfs": -15.95,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2485886,
+    "channels": 2,
+    "duration_s": 14.086,
+    "file": "jute-dh-weather/thunder_6_near.wav",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -29.29,
+    "peak_dbfs": -9.42,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 926226,
+    "channels": 2,
+    "duration_s": 3.5,
+    "file": "jute-dh-weather/wind_1.wav",
+    "loop_seam_ratio": 0.03,
+    "lufs_integrated": -18.45,
+    "peak_dbfs": -9.42,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 2116926,
+    "channels": 2,
+    "duration_s": 8.0,
+    "file": "jute-dh-weather/wind_2.wav",
+    "loop_seam_ratio": 0.02,
+    "lufs_integrated": -19.62,
+    "peak_dbfs": -8.08,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 3572226,
+    "channels": 2,
+    "duration_s": 13.5,
+    "file": "jute-dh-weather/wind_3.wav",
+    "loop_seam_ratio": 3.11,
+    "lufs_integrated": -27.1,
+    "peak_dbfs": -15.46,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 1984626,
+    "channels": 2,
+    "duration_s": 7.5,
+    "file": "jute-dh-weather/wind_4.wav",
+    "loop_seam_ratio": 5.39,
+    "lufs_integrated": -22.95,
+    "peak_dbfs": -12.17,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 20,
+  "pack_seconds": 195.9
+ },
+ "version": 1
+}

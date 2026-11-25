@@ -1,0 +1,163 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K brass vase model: ornate engraved swirls, warm aged copper-gold patina, polished highlights and pedestal base with subtle tool marks.",
+ "files": [
+  {
+   "bytes": 2668,
+   "format": "gltf",
+   "path": "polyhaven/brass_vase_03/1k/brass_vase_03_1k.gltf",
+   "role": "model",
+   "sha256": "b65379454ee1c8a608e757b513dc72013cfc5b4156deaf33a46e4f58338b5e8c"
+  },
+  {
+   "bytes": 465274,
+   "format": "jpg",
+   "path": "polyhaven/brass_vase_03/1k/textures/brass_vase_03_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "a1d46771607c6cfd4a33326d1f4365baf695e3ee29c56e8013dd3e41769a1d19"
+  },
+  {
+   "bytes": 565652,
+   "format": "jpg",
+   "path": "polyhaven/brass_vase_03/1k/textures/brass_vase_03_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "88d6e93a1bc7db023aa4321c3315de3625261bb903d84dc3da60a2147a87a58a"
+  },
+  {
+   "bytes": 65136,
+   "format": "bin",
+   "path": "polyhaven/brass_vase_03/1k/brass_vase_03.bin",
+   "role": "dependency",
+   "sha256": "55332659811893d1903cbff6aebee7ea4b2824d330171bd9cb20f80f305c4aeb"
+  },
+  {
+   "bytes": 482887,
+   "format": "jpg",
+   "path": "polyhaven/brass_vase_03/1k/textures/brass_vase_03_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "06780d103fe90af5bcd2b12b9ae5c1f8c744a29b8f584eed24fb67cf092678b1"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.brass_vase_03",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Brass Vase 03",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven brass_vase_03 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:33Z",
+  "source_id": "brass_vase_03",
+  "url": "https://polyhaven.com/a/brass_vase_03"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "metal",
+  "prop",
+  "brass",
+  "decorative",
+  "ornate",
+  "vase",
+  "gold",
+  "pitcher",
+  "copper",
+  "container",
+  "pattern",
+  "old",
+  "antique",
+  "fancy",
+  "decor",
+  "containers",
+  "props",
+  "decorative",
+  "vases"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.04123524948954582,
+   0.2012130320072174,
+   0.04123661667108536
+  ],
+  "bounds_min": [
+   -0.04126664251089096,
+   0.0008439713856205344,
+   -0.0412653423845768
+  ],
+  "dimensions_mm": [
+   82.50189200043678,
+   82.50195905566216,
+   200.36906062159687
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.7.33",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "brass_vase_03"
+  ],
+  "nodes": 1,
+  "polycount_source": 2616,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "brass_vase_03_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "brass_vase_03_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "brass_vase_03_arm",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 2616,
+  "vertices": 1545
+ },
+ "version": 1
+}

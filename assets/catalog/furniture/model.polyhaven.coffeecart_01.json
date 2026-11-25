@@ -1,0 +1,213 @@
+{
+ "category": "furniture.household",
+ "creators": [
+  "Joe Seabuhr"
+ ],
+ "description": "Free 4K model - industrial metal coffee cart with commercial brewer, glass carafes, storage cabinet, lower shelf bin, power cord and red caster wheels.",
+ "files": [
+  {
+   "bytes": 6637,
+   "format": "gltf",
+   "path": "polyhaven/CoffeeCart_01/1k/CoffeeCart_01_1k.gltf",
+   "role": "model",
+   "sha256": "3f4e7e79e751662a767c22b21c34dfb6f7d414d56dda60a236ad7d621d211934"
+  },
+  {
+   "bytes": 159358,
+   "format": "jpg",
+   "path": "polyhaven/CoffeeCart_01/1k/textures/CoffeeCart_01_cart_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "7481660c7b4b0c676c9143a9ae497dfa6da2c509a0e1db8080c0dfb498279175"
+  },
+  {
+   "bytes": 198809,
+   "format": "jpg",
+   "path": "polyhaven/CoffeeCart_01/1k/textures/CoffeeCart_01_props_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "8bc6a844a23d1ccb441d40e912adf8c38c6a3f7daf468598ae990a90d73733e8"
+  },
+  {
+   "bytes": 865700,
+   "format": "bin",
+   "path": "polyhaven/CoffeeCart_01/1k/CoffeeCart_01.bin",
+   "role": "dependency",
+   "sha256": "0c0f9ed417ba85208c7f42b674ee3ce99a7e6fb63e67c7ea8d312304c470db50"
+  },
+  {
+   "bytes": 156633,
+   "format": "jpg",
+   "path": "polyhaven/CoffeeCart_01/1k/textures/CoffeeCart_01_props_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "8546f2ba3cfb14e9aef8e24e695a30117b03076071f11d877c15007793b3ca9e"
+  },
+  {
+   "bytes": 171213,
+   "format": "jpg",
+   "path": "polyhaven/CoffeeCart_01/1k/textures/CoffeeCart_01_cart_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "160121cfeb3e9a6a029fd6b7be0e282c1f99abeb1b34d197dbc99d9fcaeea1f7"
+  },
+  {
+   "bytes": 118396,
+   "format": "jpg",
+   "path": "polyhaven/CoffeeCart_01/1k/textures/CoffeeCart_01_cart_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "654ead6c2e651e6aa3a9166e9b94333f41b33e31fcd9c75b4058e40744108bcb"
+  },
+  {
+   "bytes": 158758,
+   "format": "jpg",
+   "path": "polyhaven/CoffeeCart_01/1k/textures/CoffeeCart_01_props_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "2583de82b450923b75eb62b9e24fca9c252969fd249e91e7bbbbf3cfbad5e703"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.coffeecart_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Joe Seabuhr",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Coffee Cart 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven CoffeeCart_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:54Z",
+  "source_id": "CoffeeCart_01",
+  "url": "https://polyhaven.com/a/CoffeeCart_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "table",
+  "metal",
+  "shelf",
+  "plastic",
+  "cart",
+  "coffee",
+  "portable",
+  "wheels",
+  "tea",
+  "coffee maker",
+  "mobile",
+  "catering",
+  "appliances",
+  "props",
+  "furniture",
+  "office"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.7705622315406799,
+   1.721980333328247,
+   0.5157865881919861
+  ],
+  "bounds_min": [
+   -1.397074580192566,
+   0.004307919647544622,
+   -0.5575034618377686
+  ],
+  "dimensions_mm": [
+   2167.636811733246,
+   1073.2900500297546,
+   1717.6724136807024
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 3,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 3,
+  "node_names_sample": [
+   "CoffeeCart_01_cart",
+   "CoffeeCart_01_props",
+   "CoffeeCart_01_mugs"
+  ],
+  "nodes": 3,
+  "polycount_source": 27659,
+  "primitives": 3,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 33554430,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "CoffeeCart_01_cart_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "CoffeeCart_01_cart_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "CoffeeCart_01_cart_metallic-CoffeeCart_01_cart_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "CoffeeCart_01_props_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "CoffeeCart_01_props_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "CoffeeCart_01_props_metallic-CoffeeCart_01_props_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 27659,
+  "vertices": 21867
+ },
+ "version": 1
+}

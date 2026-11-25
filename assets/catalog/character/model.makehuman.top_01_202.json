@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "frankyaye"
+ ],
+ "description": "Top fitting to Skirt 03 https://onedrive.live.com/redir?resid=9F48D04CC76A8A6A!342&authkey=!AJyHfUxNmFgt3d4&ithint=folder%2c",
+ "files": [
+  {
+   "bytes": 187827,
+   "format": "obj",
+   "path": "makehuman/202/top_01.obj",
+   "role": "obj",
+   "sha256": "90919c9a2f5fbc5e4ab217d6ec5a39d488f3f3dcc42e7b847384e34a583f781e"
+  },
+  {
+   "bytes": 31637,
+   "format": "JPG",
+   "path": "makehuman/202/Top_01_preview.JPG",
+   "role": "render",
+   "sha256": "b89d91f2464b160d59021271392145e436c0566174b5a82b15c85b6d8c2dc9d5"
+  },
+  {
+   "bytes": 495,
+   "format": "mhmat",
+   "path": "makehuman/202/top_01.mhmat",
+   "role": "mhmat",
+   "sha256": "54818e7aa5e71479d62c8ec5b41295f9d32f1e2152dd16ef3a84af7e5f434f7a"
+  },
+  {
+   "bytes": 159714,
+   "format": "mhclo",
+   "path": "makehuman/202/top_01.mhclo",
+   "role": "mhclo",
+   "sha256": "7e4a2a16645cf6480b37ed5f5917732358ccafc0c519aa19eae6a507262df689"
+  },
+  {
+   "bytes": 906545,
+   "format": "PNG",
+   "path": "makehuman/202/wHITE02.PNG",
+   "role": "diffuse",
+   "sha256": "b05796d5a393b03bbffc25fe03feb834d86ac53b984d69a6d23110cebbe427bd"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.top_01_202",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Top 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 202",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:49:01Z",
+  "source_id": "202",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#202"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

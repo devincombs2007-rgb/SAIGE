@@ -1,0 +1,14 @@
+diff --git a/engine/render/src/scene_renderer.cpp b/engine/render/src/scene_renderer.cpp
+index 1ff2a0a..bb45af1 100644
+--- a/engine/render/src/scene_renderer.cpp
++++ b/engine/render/src/scene_renderer.cpp
+@@ -187,9 +187,6 @@ SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, Rend
+       color_format_(color_format),
+       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
+       settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_environment(settings), validate_atmosphere_settings(settings), validated_ao(validated_bloom(validated_fxaa(settings))))),
+-=======
+-      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validate_atmosphere_settings(settings), settings)),
+->>>>>>> refs/remotes/pr/91
+       registry_(device)
+ {
+     // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that

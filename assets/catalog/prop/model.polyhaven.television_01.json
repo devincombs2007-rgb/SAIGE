@@ -1,0 +1,156 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Gabriel Radić"
+ ],
+ "description": "Free 4K model of a vintage tabletop CRT TV with wood casing, scratched metal bezel, worn knobs and speaker grille, smudged glass and realistic weathering.",
+ "files": [
+  {
+   "bytes": 2933,
+   "format": "gltf",
+   "path": "polyhaven/Television_01/1k/Television_01_1k.gltf",
+   "role": "model",
+   "sha256": "ef4376366ea956519c1a1d06146a8e8cc2bb0fcbd5c6b9f919a54ce31d05d530"
+  },
+  {
+   "bytes": 90548,
+   "format": "bin",
+   "path": "polyhaven/Television_01/1k/Television_01.bin",
+   "role": "dependency",
+   "sha256": "fc32dd3e6722cfa093910d8b5b4e6173b0c92a13d58b55b8e9c6007a9218b0a0"
+  },
+  {
+   "bytes": 190774,
+   "format": "jpg",
+   "path": "polyhaven/Television_01/1k/textures/Television_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "b55594884fec13e47e22d1fdc3c89a528728454f65a7c26b482d9f3ec9200015"
+  },
+  {
+   "bytes": 102231,
+   "format": "jpg",
+   "path": "polyhaven/Television_01/1k/textures/Television_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "38e45263d115ab2832a4a2e99f93f03ff5f49c0aa0d5256528677a77c3ca4568"
+  },
+  {
+   "bytes": 144808,
+   "format": "jpg",
+   "path": "polyhaven/Television_01/1k/textures/Television_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "289519da9f2fa5aeca0246bbb6d42ea1b03e5f54865d8881d3b1e0b3116d300f"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.television_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Gabriel Radić",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Television 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven Television_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:42Z",
+  "source_id": "Television_01",
+  "url": "https://polyhaven.com/a/Television_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "vintage",
+  "prop",
+  "furniture",
+  "metal",
+  "wood",
+  "tv",
+  "television",
+  "video",
+  "audio",
+  "props",
+  "electronics",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.29999998211860657,
+   0.4568334221839905,
+   0.21244415640830994
+  ],
+  "bounds_min": [
+   -0.29999998211860657,
+   -1.5506739146076143e-05,
+   -0.25836652517318726
+  ],
+  "dimensions_mm": [
+   599.9999642372131,
+   470.8106815814972,
+   456.84892892313655
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.6.16",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "Television_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 1918,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "Television_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "Television_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "Television_01_metallic-Television_01_roughness",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 1918,
+  "vertices": 1976
+ },
+ "version": 1
+}

@@ -1,0 +1,68 @@
+{
+ "category": "hdri",
+ "creators": [
+  "Jarod Guest",
+  "Sergej Majboroda"
+ ],
+ "description": "Free 16K unclipped HDRI: soft, low-contrast overcast sky with diffused natural morning/afternoon light and a subtle warm horizon glow, calm moody lighting.",
+ "files": [
+  {
+   "bytes": 1195816,
+   "format": "hdr",
+   "path": "polyhaven/overcast_soil_puresky/1k/overcast_soil_puresky_1k.hdr",
+   "role": "hdri",
+   "sha256": "2dbbbbb1323a8e8989db2e8306bd13099b215539e5adba41b85738a250a7904e"
+  }
+ ],
+ "history": [],
+ "id": "hdri.polyhaven.overcast_soil_puresky",
+ "kind": "hdri",
+ "license": {
+  "ai_training": true,
+  "attribution": "Jarod Guest; Sergej Majboroda",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Overcast Soil (Pure Sky)",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven overcast_soil_puresky --type hdris --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:46:03Z",
+  "source_id": "overcast_soil_puresky",
+  "url": "https://polyhaven.com/a/overcast_soil_puresky"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "pure skies",
+  "outdoor",
+  "skies",
+  "natural light",
+  "nature",
+  "low contrast",
+  "overcast",
+  "morning-afternoon",
+  "pure skies"
+ ],
+ "technical": {
+  "dimensions_mm": null,
+  "format": "hdr",
+  "max_resolution": [
+   16384,
+   8192
+  ],
+  "polycount_source": null,
+  "size": [
+   1024,
+   512
+  ]
+ },
+ "version": 1
+}

@@ -1,0 +1,166 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Rico Cilliers",
+  "Yann Kervran"
+ ],
+ "description": "Free 8K model of a modern, slightly damaged industrial power box with breakers, switches and exposed wiring - rugged, rigged prop ready for utility, electronics, and industrial scenes.",
+ "files": [
+  {
+   "bytes": 4417,
+   "format": "gltf",
+   "path": "polyhaven/power_box_01/1k/power_box_01_1k.gltf",
+   "role": "model",
+   "sha256": "edb54e68fb1229e9f59906459d782c2ddc576f6bd1141cf09ad864f48d7cb93b"
+  },
+  {
+   "bytes": 801803,
+   "format": "jpg",
+   "path": "polyhaven/power_box_01/1k/textures/power_box_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "4601e901e2f7c1584ab5ecf65e0e192a99a4be86da505527f1622658e1b1e527"
+  },
+  {
+   "bytes": 646545,
+   "format": "jpg",
+   "path": "polyhaven/power_box_01/1k/textures/power_box_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "199b6fe93776aa0934f7bc36d8c82f1b4db9be9243e82e0cb3727bbcf25d85f1"
+  },
+  {
+   "bytes": 782096,
+   "format": "bin",
+   "path": "polyhaven/power_box_01/1k/power_box_01.bin",
+   "role": "dependency",
+   "sha256": "b46efdf668ec2d4e04ff51604b5f1486caf20df632f442aab62601718058db05"
+  },
+  {
+   "bytes": 490782,
+   "format": "jpg",
+   "path": "polyhaven/power_box_01/1k/textures/power_box_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "845c425ebc0ded263a7d49909e2c26710dd6160da11c0ca44aebd723f4f6f168"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.power_box_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers; Yann Kervran",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Power Box 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven power_box_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:44:56Z",
+  "source_id": "power_box_01",
+  "url": "https://polyhaven.com/a/power_box_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "box",
+  "electrical",
+  "power",
+  "wiring",
+  "db board",
+  "circuit",
+  "breakers",
+  "board",
+  "switch",
+  "prop",
+  "modern",
+  "damaged",
+  "utility",
+  "infrastructure",
+  "industrial",
+  "props",
+  "electronics",
+  "tools",
+  "rigged",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.32854655385017395,
+   0.251571387052536,
+   0.04702533781528473
+  ],
+  "bounds_min": [
+   -0.17049908638000488,
+   -0.251571387052536,
+   -0.04748108983039856
+  ],
+  "dimensions_mm": [
+   377.4920701980591,
+   418.45703125,
+   503.142774105072
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.6.27",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 2,
+  "node_names_sample": [
+   "power_box_01_door",
+   "power_box_01_box"
+  ],
+  "nodes": 2,
+  "polycount_source": 21272,
+  "primitives": 2,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "power_box_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "power_box_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "power_box_01_metal-power_box_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 21272,
+  "vertices": 20452
+ },
+ "version": 1
+}

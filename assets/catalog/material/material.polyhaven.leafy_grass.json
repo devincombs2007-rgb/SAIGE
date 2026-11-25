@@ -1,0 +1,92 @@
+{
+ "category": "material.pbr",
+ "creators": [
+  "Charlotte Baglioni"
+ ],
+ "description": "Free 8K leafy grass texture: trampled green blades with scattered brown leaves and twigs, low-relief rough soil surface with a natural matte finish.",
+ "files": [
+  {
+   "bytes": 1195394,
+   "format": "jpg",
+   "path": "polyhaven/leafy_grass/1k/leafy_grass_diff_1k.jpg",
+   "role": "base_color",
+   "sha256": "cfa40bc9d9417d1852db8753a8d5917f110c40101179f63543c382e39bc05e4a"
+  },
+  {
+   "bytes": 1010081,
+   "format": "jpg",
+   "path": "polyhaven/leafy_grass/1k/leafy_grass_arm_1k.jpg",
+   "role": "orm",
+   "sha256": "95432451cb2693794459fe7ea339ea9ffdb5959c40373740f80a4aa1703f089d"
+  },
+  {
+   "bytes": 1466049,
+   "format": "jpg",
+   "path": "polyhaven/leafy_grass/1k/leafy_grass_nor_gl_1k.jpg",
+   "role": "normal",
+   "sha256": "832328216adc0a7e1f70a31d5ee48c9ab7f2152d83816122736cf42ac4b2ebd6"
+  }
+ ],
+ "history": [],
+ "id": "material.polyhaven.leafy_grass",
+ "kind": "material",
+ "license": {
+  "ai_training": true,
+  "attribution": "Charlotte Baglioni",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Leafy Grass",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven leafy_grass --type textures --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:21:12Z",
+  "source_id": "leafy_grass",
+  "url": "https://polyhaven.com/a/leafy_grass"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "grass",
+  "green",
+  "nature",
+  "ground",
+  "foliage",
+  "leaves",
+  "plants",
+  "outdoors",
+  "twigs",
+  "sticks",
+  "trampled",
+  "outdoor",
+  "floor"
+ ],
+ "technical": {
+  "dimensions_mm": [
+   2000,
+   2000
+  ],
+  "format": "JPEG",
+  "gpu_bytes_rgba8_mips": 5592405,
+  "has_alpha": false,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "mode": "RGB",
+  "polycount_source": null,
+  "pot": true,
+  "size": [
+   1024,
+   1024
+  ]
+ },
+ "version": 1
+}

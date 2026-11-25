@@ -1,0 +1,394 @@
+{
+ "main": "5239e0c16c33d408f99aa7ec00f4271742c09cb3",
+ "steps": [
+  {
+   "kind": "ff",
+   "ref": "9b33dcd74462df7f9c1c250eb646de6737363b59",
+   "tree": "24a36eee3fc9da184842c2e5d553de579b9855a1",
+   "note": "descriptor rollback (#67) fast-forwarded, with main merged in",
+   "pr": 67
+  },
+  {
+   "kind": "merge",
+   "ref": "fad8558ebc559605230c30ed983407eadbb5ddbd",
+   "tree": "2d4d013bec20d0ad2cfdb43a34a02d11a50d2402",
+   "conflicted": false,
+   "pr": 44
+  },
+  {
+   "kind": "merge",
+   "ref": "7002dfc0f11153a1a4d6f9ac23c002b9ffe95611",
+   "tree": "5130151f39fd3ed5f69ae3ccc7d50cdba173635b",
+   "conflicted": true,
+   "patch": "02-merge-7002dfc0f.patch",
+   "pr": 45
+  },
+  {
+   "kind": "merge",
+   "ref": "99eabe45109ae4540d4cf25b5ecf444c9081a9ca",
+   "tree": "d5cb058c86331d72393ce4896fcf293e510f4486",
+   "conflicted": false,
+   "pr": 64
+  },
+  {
+   "kind": "merge",
+   "ref": "a3f07470c50685702552111119aad88388a10593",
+   "tree": "6afd43fb14e6ab023fdd74f8cb0c498c7a8b8ef8",
+   "conflicted": false,
+   "pr": 42
+  },
+  {
+   "kind": "merge",
+   "ref": "1f0721217e38aa87fe091dd531fa4b714c02900f",
+   "tree": "081349d9fc59d2c835576bb8ed3da833e2f26221",
+   "conflicted": false,
+   "pr": 60
+  },
+  {
+   "kind": "merge",
+   "ref": "618b62cadcdd0b0881eec99338d7cfbe5ddf654e",
+   "tree": "e4d22134d66edea377ce94b30092316bbcd761d1",
+   "conflicted": false,
+   "pr": 63
+  },
+  {
+   "kind": "merge",
+   "ref": "8805bce0a8d49385e5cef4e74673d9bfb8b7eda2",
+   "tree": "311d574496162e7aa07da740fd67cbcf9c4e83be",
+   "conflicted": false,
+   "pr": 69
+  },
+  {
+   "kind": "merge",
+   "ref": "aab9497fa489027460e6d189f411184278c7743d",
+   "tree": "376cecede9ec8f8a79aa2025c009fe9e9c9ae757",
+   "conflicted": false,
+   "pr": 70
+  },
+  {
+   "kind": "merge",
+   "ref": "f3a61031535fa67d9823faa74d2334caf96a3273",
+   "tree": "ddda9afdfb1c4a371ce13cb7124e5056f1754947",
+   "conflicted": false,
+   "pr": 65
+  },
+  {
+   "kind": "merge",
+   "ref": "4a1f63f704ad7d0e09e2b46b2c261b5d5750c645",
+   "tree": "0472db89a5713346dc646ae3387ebdc2e411dfbb",
+   "conflicted": true,
+   "patch": "10-merge-4a1f63f70.patch",
+   "pr": 73
+  },
+  {
+   "kind": "merge",
+   "ref": "6581811747d39294f3ffe6f4ff0bf8b1710c8a12",
+   "tree": "0d417db7b9e0ddc0f2efeefed73a5235d1587418",
+   "conflicted": true,
+   "patch": "11-merge-658181174.patch",
+   "pr": 80
+  },
+  {
+   "kind": "merge",
+   "ref": "5ee466c20f71a86e3c3b45ea4b919e4f670857d4",
+   "tree": "1b71cc13e38a610de8a5c3d179158249bbc6dcd3",
+   "conflicted": true,
+   "patch": "12-merge-5ee466c20.patch",
+   "pr": 88
+  },
+  {
+   "kind": "merge",
+   "ref": "3decd42ab030d2e9c8d9cbb779ef19ddccc38ad5",
+   "tree": "8cead3f8991f13366db64c1c28fa3d7cb61d3f8b",
+   "conflicted": false,
+   "pr": 71
+  },
+  {
+   "kind": "merge",
+   "ref": "782dfe19f600a46d728b26631a6ce4e111d844da",
+   "tree": "df773bf84dd4c965db35f8056d708ea6a4aaff92",
+   "conflicted": true,
+   "patch": "14-merge-782dfe19f.patch",
+   "pr": 75
+  },
+  {
+   "kind": "merge",
+   "ref": "e7b990a6d11212d72bc58f870ee4e139a4b4c6b7",
+   "tree": "e063f408f12f09d94a426d8a8c0fb6fcb4c30bf1",
+   "conflicted": false,
+   "pr": 77
+  },
+  {
+   "kind": "merge",
+   "ref": "3da0efe8b523396eae3b64d23a30cd2fd2fd9ac3",
+   "tree": "59d77051692e43770684baca192c084e5d45fc95",
+   "conflicted": true,
+   "patch": "16-merge-3da0efe8b.patch",
+   "pr": 78
+  },
+  {
+   "kind": "merge",
+   "ref": "fddab8726f1cd8232c03db93231fee021388b0bd",
+   "tree": "927db858223ee2bdb4be8347a355bea1bbf14c1a",
+   "conflicted": false,
+   "pr": 81
+  },
+  {
+   "kind": "merge",
+   "ref": "28f6af320fd65fbec3067afe3a33a325d91074c8",
+   "tree": "745a298e681b0d26afb60dbf7c204dc84956b361",
+   "conflicted": true,
+   "patch": "18-merge-28f6af320.patch",
+   "pr": 82
+  },
+  {
+   "kind": "merge",
+   "ref": "4504440aa394254a99bc9c53f4df9bdc3adc1ca4",
+   "tree": "2e8feff189bc4702f14499a37455a504710079c8",
+   "conflicted": true,
+   "patch": "19-merge-4504440aa.patch",
+   "pr": 83
+  },
+  {
+   "kind": "merge",
+   "ref": "f366caae74de02eebbcb76a16523e56a42865d58",
+   "tree": "eafe1104ddae42b01ade55c6d752b726783b0d5c",
+   "conflicted": true,
+   "patch": "20-merge-f366caae7.patch",
+   "pr": 92
+  },
+  {
+   "kind": "merge",
+   "ref": "6b6701c652bfe114274a97171e5b15010d7942d5",
+   "tree": "e8508cb0d35af71ec347835a637cb3af736a6a24",
+   "conflicted": true,
+   "patch": "21-merge-6b6701c65.patch",
+   "pr": 95
+  },
+  {
+   "kind": "merge",
+   "ref": "25cd8e11c99b77772f092731bc94f5eb80e8082d",
+   "tree": "a840988a3d04625ecffb17df9f16ef64367254fc",
+   "conflicted": true,
+   "patch": "22-merge-25cd8e11c.patch",
+   "pr": 98
+  },
+  {
+   "kind": "patch",
+   "tree": "7508526c22059dbe1df1651169da0b2137fc1970",
+   "subject": "integ: test that bloom, occlusion and FXAA compose (exact draw and pass counts over two frames, no leak, no validation error)",
+   "patch": "23-patch-74e6d7253.patch",
+   "pr": null
+  },
+  {
+   "kind": "merge",
+   "ref": "e0abd1f77424d7471325609c3ec07508048d1b0b",
+   "tree": "a99e75c93bae0daa19f589f6f802bcce5fe55da7",
+   "conflicted": true,
+   "patch": "24-merge-e0abd1f77.patch",
+   "pr": 76
+  },
+  {
+   "kind": "patch",
+   "tree": "0c3695c3effef7ad50d518ab36cf7b5cdc65eeae",
+   "subject": "integ: remove the duplicate acquire/release declarations and the duplicate test helper that the textual merge of #76 left (found by building, not by merging)",
+   "patch": "25-patch-89e9f65a6.patch",
+   "pr": null
+  },
+  {
+   "kind": "merge",
+   "ref": "c4f05b1ccb316c4ed15812fc4dbf15876025145e",
+   "tree": "23dfa55098bea985d203a8f40bcdf8cb0e617b1d",
+   "conflicted": false,
+   "pr": 79
+  },
+  {
+   "kind": "merge",
+   "ref": "4d07b3b28c23184b63403d06fba72f5630ad2bf2",
+   "tree": "79ee871df62c7de3d94e7849c59c723b2ac47626",
+   "conflicted": true,
+   "patch": "27-merge-4d07b3b28.patch",
+   "pr": 89
+  },
+  {
+   "kind": "merge",
+   "ref": "2249f52c65d037929fcd4fec651e32a46f555280",
+   "tree": "f10e91d84c619c8c39cf8aac1d36ab744c890e08",
+   "conflicted": true,
+   "patch": "28-merge-2249f52c6.patch",
+   "pr": 85
+  },
+  {
+   "kind": "merge",
+   "ref": "f50470b03c33f3059bdeb8ef5bd4574320e11057",
+   "tree": "0e0acb3e477d442f84191eca9a482439cd568248",
+   "conflicted": true,
+   "patch": "29-merge-f50470b03.patch",
+   "pr": 87
+  },
+  {
+   "kind": "merge",
+   "ref": "c7d55f5953936705badbd8587c525a4c9ec1a979",
+   "tree": "b6e4d3907da4d47752aa5c202577673f0bf23b83",
+   "conflicted": true,
+   "patch": "30-merge-c7d55f595.patch",
+   "pr": 90
+  },
+  {
+   "kind": "merge",
+   "ref": "2678942cfba81591889a9aa4454f6581612e23b2",
+   "tree": "75bfa69d506334cf9546205a88e70bcaf474bf0c",
+   "conflicted": true,
+   "patch": "31-merge-2678942cf.patch",
+   "pr": 91
+  },
+  {
+   "kind": "patch",
+   "tree": "6abbb790d994aada1faed22a9b7d208c75d388d6",
+   "subject": "integ: fix leftover markers in the #91 merge of scene_renderer.cpp",
+   "patch": "32-patch-d6cdd290c.patch",
+   "pr": null
+  },
+  {
+   "kind": "merge",
+   "ref": "bde2d67d953e14aef3c1847ca357fdc70447fbd4",
+   "tree": "2d8a6d28b2cc03b1429822b6f9adb4748818ca12",
+   "conflicted": false,
+   "pr": 96
+  },
+  {
+   "kind": "merge",
+   "ref": "e99293c4f4d5dceafc513af52bfda8064f10df8a",
+   "tree": "cd249e35dc87022c2bcc341e43bcf6b8f8b837c0",
+   "conflicted": true,
+   "patch": "34-merge-e99293c4f.patch",
+   "pr": 84
+  },
+  {
+   "kind": "patch",
+   "tree": "5cf773f5e374e457b340eb1a14abc34d1c889857",
+   "subject": "gfx_scene: split staging into CPU-only prepare_model and device upload_model (stage_model is their composition)",
+   "patch": "35-patch-a954ae29b.patch",
+   "pr": null
+  },
+  {
+   "kind": "patch",
+   "tree": "ab2164dbd79a0f8090670269e15725cb2fdc1814",
+   "subject": "integ: carry #79's shadow-casting rule (MASK casts through the alpha-tested variant) into #94's prepare_model, where the staging code moved",
+   "patch": "36-patch-e0fe514f5.patch",
+   "pr": null
+  },
+  {
+   "kind": "patch",
+   "tree": "11962a76bfc0a91674fb6cbd7e6715d2103d1a54",
+   "subject": "render: never frustum-cull skinned primitives by their bind-pose bounds (the #83/#87 seam), with a combined animated scene",
+   "patch": "37-patch-c822c2700.patch",
+   "pr": null
+  },
+  {
+   "kind": "patch",
+   "tree": "240a9f96db2ace70b6d07c85f06ea9a209259c12",
+   "subject": "render: conservative per-pose bounds for skinned primitives, so animated models are frustum-culled safely",
+   "patch": "38-patch-058f452fb.patch",
+   "pr": null
+  },
+  {
+   "kind": "patch",
+   "tree": "67898cb9b0fe98dbeceb72ed8bfcaab2d2ee77ed",
+   "subject": "gfx_assets: sky-derived IBL environment (gfx::sky_environment) and the recommended outdoor settings, with a time-of-day render test",
+   "patch": "39-patch-3659a40df.patch",
+   "pr": null
+  },
+  {
+   "kind": "patch",
+   "tree": "fa715e2b8ea4c5f1efd50b35ccaea01afd1e1ece",
+   "subject": "gfx_assets test: keep the sky image alive while its texel is read (ASan heap-use-after-free in hosted CI)",
+   "patch": "40-patch-26477347b.patch",
+   "pr": null
+  },
+  {
+   "kind": "merge",
+   "ref": "e26c6f9f8fb293fa48b1f97a8a55f934a66305e1",
+   "tree": "4f038cae79042f751fbabb6e63976cb585bd5197",
+   "conflicted": true,
+   "patch": "41-merge-e26c6f9f8.patch",
+   "pr": 74
+  },
+  {
+   "kind": "merge",
+   "ref": "1e211a5d97a30719ddaceaf742b8e59fd9891f48",
+   "tree": "9bc0594096dc5896cf80235bc1f3a6779721c6b1",
+   "conflicted": true,
+   "patch": "42-merge-1e211a5d9.patch",
+   "pr": 86
+  }
+ ],
+ "batches": [
+  {
+   "branch": "batch/1-platform",
+   "title": "Platform and Vulkan modernization",
+   "after_step": 2,
+   "tip": "37966935910472f1263917d2f8ccd9abf3578a58"
+  },
+  {
+   "branch": "batch/2-core",
+   "title": "Core architecture and resource management",
+   "after_step": 6,
+   "tip": "6756e99c27a54f92a07f35cc79fde1bc9ba201d2"
+  },
+  {
+   "branch": "batch/3-physics",
+   "title": "Physics and collision",
+   "after_step": 12,
+   "tip": "800622b338e82b796024ab7ca231ce3d96ab13b3"
+  },
+  {
+   "branch": "batch/4-foundational-render",
+   "title": "Foundational rendering",
+   "after_step": 19,
+   "tip": "2c3324c4ee40bf7267ca1bb30426f3c1209c54d1"
+  },
+  {
+   "branch": "batch/5a-post-processing",
+   "title": "Advanced rendering: post-processing (bloom, FXAA, SSAO)",
+   "after_step": 23,
+   "tip": "74e6d725330640a9d46f42e2e6256d3e1b27ab41"
+  },
+  {
+   "branch": "batch/5b-sun-shadows",
+   "title": "Advanced rendering: sun shadows, alpha-tested casters, cascades",
+   "after_step": 27,
+   "tip": "895d8790cd951cb74bb14103e5c18374515fdd83"
+  },
+  {
+   "branch": "batch/5c-ibl-skinning",
+   "title": "Advanced rendering and animation: image-based lighting and GPU skinning",
+   "after_step": 29,
+   "tip": "41b7bd797d66ea4950d56021ccaeb1ccbd6d4e64"
+  },
+  {
+   "branch": "batch/5d-sky-and-lighting",
+   "title": "Advanced rendering: atmosphere, per-frame lighting, night sky, draw-state cache",
+   "after_step": 34,
+   "tip": "8bb9cb139c36cea43a972190550ea270aacf655b"
+  },
+  {
+   "branch": "batch/5e-animation-integration",
+   "title": "Animation integration: prepared models, skinned culling, animated bounds, sky environment",
+   "after_step": 40,
+   "tip": "26477347bfb6c2f8a8b076585e75ebcd51a1f55a"
+  },
+  {
+   "branch": "batch/3b-capsule-slopes",
+   "title": "Physics follow-up: character on triangles (#74)",
+   "after_step": 41,
+   "tip": "5218b5da976f62b59adf48115c3fe2435c8162fa"
+  },
+  {
+   "branch": "integ/all",
+   "title": "Core follow-up: live world origin (#86); the whole stack",
+   "after_step": 42,
+   "tip": "af795b47fcc2916fe9c51b5ef0eb2710a3faf4c4"
+  }
+ ]
+}

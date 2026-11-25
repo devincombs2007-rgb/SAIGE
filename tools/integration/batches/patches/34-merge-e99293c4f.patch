@@ -1,0 +1,144 @@
+diff --git a/engine/render/src/model_renderer.cpp b/engine/render/src/model_renderer.cpp
+index a4d5ade..ef91987 100644
+--- a/engine/render/src/model_renderer.cpp
++++ b/engine/render/src/model_renderer.cpp
+@@ -869,8 +869,9 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
+     const auto bind_pipeline = [&](rhi::PipelineHandle pipeline) {
+         if (pipeline == bound) return;
+         cmd.bind_pipeline(pipeline);
+-        cmd.bind_group(1, constants_group_.handle());  // a new pipeline starts with nothing bound
++        cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
+         bound = pipeline;
++        bound_palette = {};
+         bound_material = {};
+         bound_vertices = {};
+         bound_indices = {};
+@@ -939,15 +940,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
+                     blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored, palette});
+                     continue;
+                 }
+-<<<<<<< ours
+-                const rhi::PipelineHandle pipeline = palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)]
+-                                                                         : pipeline_for(mirrored, material.double_sided);
+-                if (pipeline != bound) {
+-                    cmd.bind_pipeline(pipeline);
+-                    cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
+-                    bound = pipeline;
+-                    bound_palette = {};
+-                }
++                bind_pipeline(palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)] : pipeline_for(mirrored, material.double_sided));
+                 if (palette != nullptr) {
+                     const rhi::BindGroupHandle group = palette_group(*palette);
+                     if (group != bound_palette) {
+@@ -956,23 +949,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
+                     }
+                     ++stats.skinned_draws;
+                 }
+-                cmd.bind_group(0, material.group.handle());
+-                cmd.bind_vertex_buffer(prim.vertices.handle());
+-                cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+-||||||| base
+-                const rhi::PipelineHandle pipeline = pipeline_for(mirrored, material.double_sided);
+-                if (pipeline != bound) {
+-                    cmd.bind_pipeline(pipeline);
+-                    cmd.bind_group(1, constants_group_.handle());  // a new pipeline starts with nothing bound
+-                    bound = pipeline;
+-                }
+-                cmd.bind_group(0, material.group.handle());
+-                cmd.bind_vertex_buffer(prim.vertices.handle());
+-                cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+-=======
+-                bind_pipeline(pipeline_for(mirrored, material.double_sided));
+                 bind_geometry(prim, material.group.handle());
+->>>>>>> theirs
+                 cmd.push_constant_struct(push);
+                 cmd.draw_indexed(prim.index_count);
+                 ++stats.draw_calls;
+@@ -1002,15 +979,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
+         // against itself; a single-sided one draws its front faces only.
+         const int first_pass = item.material->double_sided ? 1 : 0;
+         for (int pass = first_pass; pass >= 0; --pass) {
+-<<<<<<< ours
+-            const rhi::PipelineHandle pipeline = item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass]
+-                                                                         : blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
+-            if (pipeline != bound) {
+-                cmd.bind_pipeline(pipeline);
+-                cmd.bind_group(1, constants_group());
+-                bound = pipeline;
+-                bound_palette = {};
+-            }
++            bind_pipeline(item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass] : blend_pipelines_[(item.mirrored ? 2 : 0) + pass]);
+             if (item.palette != nullptr) {
+                 const rhi::BindGroupHandle group = palette_group(*item.palette);
+                 if (group != bound_palette) {
+@@ -1019,23 +988,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
+                 }
+                 ++stats.skinned_draws;
+             }
+-            cmd.bind_group(0, item.material->group.handle());
+-            cmd.bind_vertex_buffer(item.primitive->vertices.handle());
+-            cmd.bind_index_buffer(item.primitive->indices.handle(), item.primitive->index_type);
+-||||||| base
+-            const rhi::PipelineHandle pipeline = blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
+-            if (pipeline != bound) {
+-                cmd.bind_pipeline(pipeline);
+-                cmd.bind_group(1, constants_group_.handle());
+-                bound = pipeline;
+-            }
+-            cmd.bind_group(0, item.material->group.handle());
+-            cmd.bind_vertex_buffer(item.primitive->vertices.handle());
+-            cmd.bind_index_buffer(item.primitive->indices.handle(), item.primitive->index_type);
+-=======
+-            bind_pipeline(blend_pipelines_[(item.mirrored ? 2 : 0) + pass]);
+             bind_geometry(*item.primitive, item.material->group.handle());
+->>>>>>> theirs
+             cmd.push_constant_struct(push);
+             cmd.draw_indexed(item.primitive->index_count);
+             ++stats.draw_calls;
+diff --git a/engine/render/src/scene_renderer.cpp b/engine/render/src/scene_renderer.cpp
+index a30a11e..ed53c72 100644
+--- a/engine/render/src/scene_renderer.cpp
++++ b/engine/render/src/scene_renderer.cpp
+@@ -808,13 +808,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
+                 stats.model_instances_skipped += model_stats.instances_skipped;
+                 stats.model_blended_primitives += model_stats.blended_primitives;
+                 stats.model_primitives_culled += model_stats.primitives_culled;
+-<<<<<<< ours
+                 stats.model_skinned_draws += model_stats.skinned_draws;
+                 stats.model_skinned_skipped += model_stats.skinned_skipped;
+-||||||| base
+-=======
+                 stats.model_binds_skipped += model_stats.binds_skipped;
+->>>>>>> theirs
+             }
+             c.end_rendering();
+             c.write_timestamp(timestamp_scene_end);
+diff --git a/engine/render/tests/test_scene_renderer.cpp b/engine/render/tests/test_scene_renderer.cpp
+index 8e6ad1b..c3b647c 100644
+--- a/engine/render/tests/test_scene_renderer.cpp
++++ b/engine/render/tests/test_scene_renderer.cpp
+@@ -520,7 +520,6 @@ TEST_CASE("Frustum culling never culls a sphere that any of its points projects
+     CHECK(culled_invisible * 100 >= invisible * 80);  // it is conservative, but it does cull most of what cannot be seen
+ }
+ 
+-<<<<<<< ours
+ namespace {
+ 
+ /// One triangle with one material, built on whatever device the renderer has.
+@@ -681,8 +680,6 @@ TEST_CASE("Sun shadows (null device): the shadow block is written once per rende
+     CHECK(o.device.validation_error_count() == 0);
+ }
+ 
+-||||||| base
+-=======
+ TEST_CASE("Draw state cache: primitives that share a material group or buffers do not rebind them, and a pipeline change rebinds everything")
+ {
+     const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});
+@@ -741,7 +738,6 @@ TEST_CASE("Draw state cache: primitives that share a material group or buffers d
+     CHECK(o.device.validation_error_count() == 0);
+ }
+ 
+->>>>>>> theirs
+ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be retried")
+ {
+     Offscreen o;

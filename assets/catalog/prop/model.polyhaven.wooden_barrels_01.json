@@ -1,0 +1,278 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "James Ray Cock"
+ ],
+ "description": "Free 8K model of weathered wooden barrels and loose staves - antique colonial/maritime props for smugglers' cove, farmhouse, or cellar scenes.",
+ "files": [
+  {
+   "bytes": 31017,
+   "format": "gltf",
+   "path": "polyhaven/wooden_barrels_01/1k/wooden_barrels_01_1k.gltf",
+   "role": "model",
+   "sha256": "ff785e2150198c4cdb3cc74e532b02ce9574d6a7fc3606f5801fcbf68e3136af"
+  },
+  {
+   "bytes": 555954,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_barrel02_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "57c3d5682f299c97270228e3ec08f6c982fb2c2696ec30a74d0edbfe067235dd"
+  },
+  {
+   "bytes": 848051,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_barrel02_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "970de5e9f682d4ac2a2098c88dafc1e5a6c27cf1dbe31eb7ed3f8bc2a92eb58f"
+  },
+  {
+   "bytes": 852652,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_barrel01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "35e34115f7657cadce27422730e936418a30e23397fb5c126591dff711acbf4b"
+  },
+  {
+   "bytes": 620276,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_pieces_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "3be77f6310507c9c37414809ba31c39c89621e8bde916893bd676d54a5ceade2"
+  },
+  {
+   "bytes": 1243556,
+   "format": "bin",
+   "path": "polyhaven/wooden_barrels_01/1k/wooden_barrels_01.bin",
+   "role": "dependency",
+   "sha256": "7de8294b07ecb6bd57ea3542760fa45bbefc296a47dd044723eb599ffc56084f"
+  },
+  {
+   "bytes": 538634,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_barrel01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "3dfa658b4a38a711887c9e4a492a319b20e2a821e4e08435368f98fe0c78a1b8"
+  },
+  {
+   "bytes": 672604,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_pieces_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "399134703c974ad4c8bc71107d513e8c89f5ca09f9b6175dc02e2e607b75c43d"
+  },
+  {
+   "bytes": 605063,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_barrel01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "639e616e8d69acaadbf69725bb3d13f07a28fdff6c6b15e1d7f0574336564c72"
+  },
+  {
+   "bytes": 618495,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_barrel02_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "c75f506a0c31093d4d3d425d4c979f49fce2dc99a8e6caefb50809fcf329845e"
+  },
+  {
+   "bytes": 904545,
+   "format": "jpg",
+   "path": "polyhaven/wooden_barrels_01/1k/textures/wooden_barrels_01_pieces_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "785b59a19add1951bcd54d7607c18fcafa5a09068349ac437640d495b45a62fd"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.wooden_barrels_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "James Ray Cock",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Wooden Barrels 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven wooden_barrels_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:22:07Z",
+  "source_id": "wooden_barrels_01",
+  "url": "https://polyhaven.com/a/wooden_barrels_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "checked_with": "saige_asset_inspect",
+  "notes": [
+   "validator did not run (is the Node toolchain installed?)",
+   "engine: loads, 33142 triangles, textures 48.0 MiB on the GPU"
+  ],
+  "runtime_ready": true
+ },
+ "tags": [
+  "barrel",
+  "celler",
+  "old",
+  "worn",
+  "wood",
+  "antique",
+  "prop",
+  "maritime",
+  "colonial",
+  "cove",
+  "farmhouse",
+  "farm",
+  "furniture",
+  "wooden",
+  "containers",
+  "props",
+  "collection: smugglers_cove"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.3715013563632965,
+   0.916801929473877,
+   0.4369439482688904
+  ],
+  "bounds_min": [
+   -0.3811948895454407,
+   -0.05336591228842735,
+   -0.45118430256843567
+  ],
+  "dimensions_mm": [
+   4440.432071685791,
+   3344.5359468460083,
+   956.7059241235256
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v1.7.33",
+  "materials": 3,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 19,
+  "node_names_sample": [
+   "wooden_barrels_01_barrel01",
+   "wooden_barrels_01_barrel02",
+   "wooden_barrels_01_piece01",
+   "wooden_barrels_01_piece02",
+   "wooden_barrels_01_piece03",
+   "wooden_barrels_01_piece04",
+   "wooden_barrels_01_piece05",
+   "wooden_barrels_01_piece06",
+   "wooden_barrels_01_piece07",
+   "wooden_barrels_01_piece08",
+   "wooden_barrels_01_piece09",
+   "wooden_barrels_01_piece10"
+  ],
+  "nodes": 19,
+  "polycount_source": 33142,
+  "primitives": 19,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 50331645,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_barrel01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_barrel01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_barrel01_metal-wooden_barrels_01_barrel01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 3,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_barrel02_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 4,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_barrel02_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 5,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_barrel02_metal-wooden_barrels_01_barrel02_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 6,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_pieces_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 7,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_pieces_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 8,
+    "mime": "image/jpeg",
+    "name": "wooden_barrels_01_pieces_metal-wooden_barrels_01_pieces_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 33142,
+  "vertices": 32647
+ },
+ "version": 1
+}

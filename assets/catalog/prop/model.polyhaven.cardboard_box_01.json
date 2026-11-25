@@ -1,0 +1,157 @@
+{
+ "category": "prop.environment",
+ "creators": [
+  "Rahul Chaudhary"
+ ],
+ "description": "Free 4K model of a worn, creased cardboard box with torn flaps, taped seams and a weathered strap - aged, dented paper texture and realistic damage.",
+ "files": [
+  {
+   "bytes": 2903,
+   "format": "gltf",
+   "path": "polyhaven/cardboard_box_01/1k/cardboard_box_01_1k.gltf",
+   "role": "model",
+   "sha256": "6038bcc5bba5a08a5f6643a265977e37e3d14553e62981e144c33a89f10b78e1"
+  },
+  {
+   "bytes": 398433,
+   "format": "jpg",
+   "path": "polyhaven/cardboard_box_01/1k/textures/cardboard_box_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "5db63828d0f904c6a8d9c83afc912260b2a27261c15a28d06360519384574d2b"
+  },
+  {
+   "bytes": 381936,
+   "format": "bin",
+   "path": "polyhaven/cardboard_box_01/1k/cardboard_box_01.bin",
+   "role": "dependency",
+   "sha256": "7212d43b4cb56459e46d31ab34dc7c310fcfbe170f4a588416dea07ae5628a4b"
+  },
+  {
+   "bytes": 567741,
+   "format": "jpg",
+   "path": "polyhaven/cardboard_box_01/1k/textures/cardboard_box_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "122c7ba8c5935e289804a730b480677a4bffdf74a45c91970cba682df92e171c"
+  },
+  {
+   "bytes": 817424,
+   "format": "jpg",
+   "path": "polyhaven/cardboard_box_01/1k/textures/cardboard_box_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "d2d1f529a851966b65411b5094510dd9eba03cd5c0a89921f79325c377a8e8eb"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.cardboard_box_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rahul Chaudhary",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Cardboard Box 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven cardboard_box_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:25Z",
+  "source_id": "cardboard_box_01",
+  "url": "https://polyhaven.com/a/cardboard_box_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "warehouse",
+  "shed",
+  "storage",
+  "box",
+  "paper",
+  "worn",
+  "old",
+  "broken",
+  "damaged",
+  "garage",
+  "industrial",
+  "containers",
+  "collection: the_shed"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.19451794028282166,
+   0.1583968549966812,
+   0.2907867133617401
+  ],
+  "bounds_min": [
+   -0.19250565767288208,
+   -0.18340270221233368,
+   -0.22508370876312256
+  ],
+  "dimensions_mm": [
+   387.02359795570374,
+   515.8704221248627,
+   341.7995423078537
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.3.32",
+  "materials": 1,
+  "max_resolution": [
+   4096,
+   4096
+  ],
+  "meshes": 1,
+  "node_names_sample": [
+   "cardboard_box_01"
+  ],
+  "nodes": 1,
+  "polycount_source": 16952,
+  "primitives": 1,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "cardboard_box_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "cardboard_box_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "cardboard_box_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 16952,
+  "vertices": 8757
+ },
+ "version": 1
+}

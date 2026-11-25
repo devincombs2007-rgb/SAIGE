@@ -1,0 +1,250 @@
+{
+ "category": "vehicle.car",
+ "creators": [
+  "modelmetadata",
+  "hand"
+ ],
+ "description": "Khronos glTF sample asset",
+ "files": [
+  {
+   "bytes": 11778688,
+   "format": "glb",
+   "path": "khronos/CarConcept/CarConcept.glb",
+   "role": "model",
+   "sha256": "c272098089d78c5cd9fd9f24ff50ee8acf8d932c55f2d55fc10adb6c8998966b"
+  },
+  {
+   "bytes": 943,
+   "format": "md",
+   "path": "khronos/CarConcept/LICENSE.md",
+   "role": "license",
+   "sha256": "e11477f29eab33d1a5c9fc8534f931556faeb2e11a7fee9e4723d917fcfaee50"
+  }
+ ],
+ "history": [],
+ "id": "model.khronos.carconcept",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "# LICENSE file for the model: Car Concept",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed-with-attribution",
+  "spdx": "CC-BY-4.0",
+  "text_sha256": "e11477f29eab33d1a5c9fc8534f931556faeb2e11a7fee9e4723d917fcfaee50",
+  "url": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CarConcept/LICENSE.md"
+ },
+ "name": "Car Concept",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch khronos CarConcept",
+  "name": "khronos",
+  "retrieved": "2026-11-24T13:20:54Z",
+  "source_id": "CarConcept",
+  "url": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/CarConcept"
+ },
+ "status": "candidate",
+ "suitability": {
+  "checked_with": "khronos-gltf-validator, saige_asset_inspect",
+  "notes": [
+   "validator: no errors, 0 warning(s)",
+   "engine: loads, 213347 triangles, textures 38.3 MiB on the GPU",
+   "engine advisory: a normal-mapped primitive has no UVs: its normal map is ignored (not blocking)"
+  ],
+  "runtime_ready": true
+ },
+ "tags": [
+  "showcase",
+  "extension"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   1.1724309921264648,
+   2.160587787628174,
+   1.251319408416748
+  ],
+  "bounds_min": [
+   -1.2993221282958984,
+   -2.3985517024993896,
+   -0.4876878559589386
+  ],
+  "extensions_required": [],
+  "extensions_used": [
+   "KHR_materials_clearcoat",
+   "KHR_materials_emissive_strength",
+   "KHR_materials_iridescence",
+   "KHR_materials_transmission",
+   "KHR_materials_variants",
+   "KHR_texture_transform"
+  ],
+  "format": "glb",
+  "generator": "Created by RapidPipeline 3D Processor v7.1.0 | rapidpipeline.com",
+  "materials": 29,
+  "meshes": 97,
+  "node_names_sample": [
+   "BodyUnderside",
+   "BodyWindshield",
+   "BodyWindshieldGasket",
+   "BodyWindshieldWipers",
+   "BodyWindshieldWipersBase",
+   "Engine",
+   "InteriorCage",
+   "InteriorDashMid",
+   "InteriorDashSides",
+   "InteriorFloor",
+   "InteriorFloormats",
+   "InteriorMid"
+  ],
+  "nodes": 101,
+  "primitives": 109,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 40124411,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 1398101,
+    "index": 0,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     512,
+     512
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 1398101,
+    "index": 1,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     512,
+     512
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 22369621,
+    "index": 2,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     2048,
+     2048
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 349525,
+    "index": 3,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     512,
+     128
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 10922,
+    "index": 4,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     64,
+     32
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5461,
+    "index": 5,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     32,
+     32
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 1398101,
+    "index": 6,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     1024,
+     256
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 87381,
+    "index": 7,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     128,
+     128
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 87381,
+    "index": 8,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     128,
+     128
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 87381,
+    "index": 9,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     128,
+     128
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 10,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 11,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 349525,
+    "index": 12,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     512,
+     128
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 1398101,
+    "index": 13,
+    "mime": "image/png",
+    "name": null,
+    "size": [
+     512,
+     512
+    ]
+   }
+  ],
+  "triangles": 213347,
+  "vertices": 162766
+ },
+ "version": 1
+}

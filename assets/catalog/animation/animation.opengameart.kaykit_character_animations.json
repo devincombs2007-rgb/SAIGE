@@ -1,0 +1,61 @@
+{
+ "category": "animation.skeletal",
+ "creators": [
+  "kay-lousberg"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 5860082,
+   "format": "zip",
+   "path": "opengameart/kaykit_character_animations/kaykit_character_animations_1.0.zip",
+   "role": "content",
+   "sha256": "b3f97b7a966a55a3243219e736ccd5ed86545c46be07585ff0093cbd5d336708"
+  },
+  {
+   "bytes": 7959257,
+   "format": "zip",
+   "path": "opengameart/kaykit_character_animations/kaykit_character_animations_1.2.zip",
+   "role": "content",
+   "sha256": "c9d3fbea492dc6edd0903939369a564c2240b892430bcd99e0aee4876110bb8f"
+  },
+  {
+   "bytes": 587336,
+   "format": "png",
+   "path": "opengameart/kaykit_character_animations/prototypepete.png",
+   "role": "content",
+   "sha256": "873bfef5cf5992bc24d45ffae750709e90a8b5b63295d6eafeeb0c1589fe5ca2"
+  }
+ ],
+ "history": [],
+ "id": "animation.opengameart.kaykit_character_animations",
+ "kind": "animation",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "KayKit: Character Animations by kay-lousberg (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "KayKit: Character Animations",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/kaykit-character-animations --kind animation",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:56:20Z",
+  "source_id": "kaykit_character_animations",
+  "url": "https://opengameart.org/content/kaykit-character-animations"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "zip"
+ },
+ "version": 1
+}

@@ -1,0 +1,169 @@
+{
+ "category": "vegetation",
+ "creators": [
+  "Rico Cilliers"
+ ],
+ "description": "Free 8K photoscanned set of medium dry branches - gnarled, cracked bark, weathered texture, natural twists, knots and subtle moss.",
+ "files": [
+  {
+   "bytes": 5844,
+   "format": "gltf",
+   "path": "polyhaven/dry_branches_medium_01/1k/dry_branches_medium_01_1k.gltf",
+   "role": "model",
+   "sha256": "23f328ded9be1e151ccd7994b303c70221551544c4857a71474c1c01a14b8a22"
+  },
+  {
+   "bytes": 831180,
+   "format": "jpg",
+   "path": "polyhaven/dry_branches_medium_01/1k/textures/dry_branches_medium_01_arm_1k.jpg",
+   "role": "dependency",
+   "sha256": "6d1ba6f4763d2815301a15bf62eaf68c345cecafb107e2681d12f26fbc657f5a"
+  },
+  {
+   "bytes": 778799,
+   "format": "jpg",
+   "path": "polyhaven/dry_branches_medium_01/1k/textures/dry_branches_medium_01_diff_1k.jpg",
+   "role": "dependency",
+   "sha256": "1fbaf810a9ca29d2faf0a179834e8dce10cf4854bafe13f63af111030b3ec660"
+  },
+  {
+   "bytes": 1170647,
+   "format": "jpg",
+   "path": "polyhaven/dry_branches_medium_01/1k/textures/dry_branches_medium_01_nor_gl_1k.jpg",
+   "role": "dependency",
+   "sha256": "62f5205bfec599000bb7a430e003bbada939bc8d7976a7d3ab7709fd5893413c"
+  },
+  {
+   "bytes": 465172,
+   "format": "bin",
+   "path": "polyhaven/dry_branches_medium_01/1k/dry_branches_medium_01.bin",
+   "role": "dependency",
+   "sha256": "969da1e8cbb2d8201e7fa0fc0dac5b19ef354b32c3d8c62dd9faa7cb3833d8ca"
+  }
+ ],
+ "history": [],
+ "id": "model.polyhaven.dry_branches_medium_01",
+ "kind": "model",
+ "license": {
+  "ai_training": true,
+  "attribution": "Rico Cilliers",
+  "commercial_use": true,
+  "notes": "Poly Haven assets are CC0; credit is appreciated, not required.",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://polyhaven.com/license"
+ },
+ "name": "Dry Branches Medium 01",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch polyhaven dry_branches_medium_01 --type models --res 1k",
+  "name": "polyhaven",
+  "retrieved": "2026-11-24T13:45:50Z",
+  "source_id": "dry_branches_medium_01",
+  "url": "https://polyhaven.com/a/dry_branches_medium_01"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [
+  "branches",
+  "dead",
+  "dry",
+  "plants",
+  "nature",
+  "natural",
+  "plant",
+  "outdoor",
+  "foliage",
+  "forest",
+  "jungle",
+  "shrub",
+  "medium",
+  "stick",
+  "twig",
+  "botany",
+  "wood",
+  "props",
+  "nature",
+  "plants",
+  "ground cover",
+  "collection: pine_forest",
+  "collection: verdant_trail"
+ ],
+ "technical": {
+  "animations": [],
+  "bounds_max": [
+   0.18606369197368622,
+   0.20076525211334229,
+   0.664777398109436
+  ],
+  "bounds_min": [
+   -0.13700003921985626,
+   -0.1402200609445572,
+   -0.6343755125999451
+  ],
+  "dimensions_mm": [
+   1059.486210346222,
+   1299.152910709381,
+   340.9853130578995
+  ],
+  "extensions_required": [],
+  "extensions_used": [],
+  "format": "gltf",
+  "generator": "Khronos glTF Blender I/O v3.2.43",
+  "materials": 1,
+  "max_resolution": [
+   8192,
+   8192
+  ],
+  "meshes": 3,
+  "node_names_sample": [
+   "dry_branches_medium_01_c",
+   "dry_branches_medium_01_b",
+   "dry_branches_medium_01_a"
+  ],
+  "nodes": 3,
+  "polycount_source": 16803,
+  "primitives": 3,
+  "skinned_primitives": 0,
+  "skins": [],
+  "texture_gpu_bytes": 16777215,
+  "textures": [
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 0,
+    "mime": "image/jpeg",
+    "name": "dry_branches_medium_01_nor_gl",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 1,
+    "mime": "image/jpeg",
+    "name": "dry_branches_medium_01_diff",
+    "size": [
+     1024,
+     1024
+    ]
+   },
+   {
+    "gpu_bytes_rgba8_mips": 5592405,
+    "index": 2,
+    "mime": "image/jpeg",
+    "name": "dry_branches_medium_01_rough",
+    "size": [
+     1024,
+     1024
+    ]
+   }
+  ],
+  "triangles": 16803,
+  "vertices": 11386
+ },
+ "version": 1
+}

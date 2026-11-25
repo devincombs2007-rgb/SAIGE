@@ -1,0 +1,471 @@
+{
+ "category": "audio.foley",
+ "creators": [
+  "qubodup"
+ ],
+ "description": "",
+ "files": [
+  {
+   "bytes": 4041779,
+   "format": "7z",
+   "path": "opengameart/42_snow_and_gravel_footsteps/corsica_s-walking_in_snow.7z",
+   "role": "content",
+   "sha256": "206306b51f8eeedf82043d6628174ec8ff9b16230dffb5192a5c74688e62abd4"
+  }
+ ],
+ "history": [],
+ "id": "audio.opengameart.42_snow_and_gravel_footsteps",
+ "kind": "audio",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "42 Snow and Gravel Footsteps by qubodup (OpenGameArt.org)",
+  "commercial_use": true,
+  "notes": "",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+ },
+ "name": "42 Snow and Gravel Footsteps",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch opengameart https://opengameart.org/content/42-snow-and-gravel-footsteps --kind audio",
+  "name": "opengameart",
+  "retrieved": "2026-11-24T13:41:04Z",
+  "source_id": "42_snow_and_gravel_footsteps",
+  "url": "https://opengameart.org/content/42-snow-and-gravel-footsteps"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [],
+  "runtime_ready": null
+ },
+ "tags": [],
+ "technical": {
+  "format": "7z",
+  "pack_contents": [
+   {
+    "bytes": 76096,
+    "channels": 2,
+    "duration_s": 0.477,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_01.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.51,
+    "peak_dbfs": -14.65,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 108901,
+    "channels": 2,
+    "duration_s": 0.694,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_02.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.17,
+    "peak_dbfs": -19.51,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 103146,
+    "channels": 2,
+    "duration_s": 0.65,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_03.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -36.94,
+    "peak_dbfs": -20.95,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 108268,
+    "channels": 2,
+    "duration_s": 0.679,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_04.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -22.19,
+    "peak_dbfs": -0.3,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 101893,
+    "channels": 2,
+    "duration_s": 0.641,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_05.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -33.48,
+    "peak_dbfs": -10.21,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 106300,
+    "channels": 2,
+    "duration_s": 0.666,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_06.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -34.44,
+    "peak_dbfs": -17.15,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 110287,
+    "channels": 2,
+    "duration_s": 0.69,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_07.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.87,
+    "peak_dbfs": -11.38,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 99592,
+    "channels": 2,
+    "duration_s": 0.614,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_08.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.37,
+    "peak_dbfs": -11.58,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 98950,
+    "channels": 2,
+    "duration_s": 0.614,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_09.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.74,
+    "peak_dbfs": -8.43,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 106924,
+    "channels": 2,
+    "duration_s": 0.656,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_10.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -28.76,
+    "peak_dbfs": -3.46,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 101823,
+    "channels": 2,
+    "duration_s": 0.627,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_11.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -34.42,
+    "peak_dbfs": -18.5,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 89559,
+    "channels": 2,
+    "duration_s": 0.554,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_12.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -27.71,
+    "peak_dbfs": -5.67,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 116329,
+    "channels": 2,
+    "duration_s": 0.72,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_13.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.7,
+    "peak_dbfs": -17.23,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 108452,
+    "channels": 2,
+    "duration_s": 0.67,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_14.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -31.96,
+    "peak_dbfs": -11.21,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 95018,
+    "channels": 2,
+    "duration_s": 0.586,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_15.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.2,
+    "peak_dbfs": -14.76,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 94223,
+    "channels": 2,
+    "duration_s": 0.589,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_16.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.04,
+    "peak_dbfs": -17.94,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 113616,
+    "channels": 2,
+    "duration_s": 0.708,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_17.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.85,
+    "peak_dbfs": -18.46,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 72716,
+    "channels": 2,
+    "duration_s": 0.448,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_18.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -28.74,
+    "peak_dbfs": -12.07,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 68886,
+    "channels": 2,
+    "duration_s": 0.442,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_01.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.09,
+    "peak_dbfs": -16.13,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 92657,
+    "channels": 2,
+    "duration_s": 0.63,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_02.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.23,
+    "peak_dbfs": -9.57,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 101566,
+    "channels": 2,
+    "duration_s": 0.637,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_03.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -26.65,
+    "peak_dbfs": -9.24,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 95382,
+    "channels": 2,
+    "duration_s": 0.609,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_04.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -22.87,
+    "peak_dbfs": -5.48,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 98620,
+    "channels": 2,
+    "duration_s": 0.621,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_05.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -27.93,
+    "peak_dbfs": -8.74,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 106301,
+    "channels": 2,
+    "duration_s": 0.675,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_06.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -30.07,
+    "peak_dbfs": -10.47,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 96768,
+    "channels": 2,
+    "duration_s": 0.603,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_07.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -27.77,
+    "peak_dbfs": -10.76,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 85985,
+    "channels": 2,
+    "duration_s": 0.534,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_08.flac",
+    "loop_seam_ratio": 0.01,
+    "lufs_integrated": -27.64,
+    "peak_dbfs": -9.59,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 91921,
+    "channels": 2,
+    "duration_s": 0.58,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_09.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -26.42,
+    "peak_dbfs": -9.51,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 103599,
+    "channels": 2,
+    "duration_s": 0.678,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_10.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.33,
+    "peak_dbfs": -12.11,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 94306,
+    "channels": 2,
+    "duration_s": 0.619,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_11.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.03,
+    "peak_dbfs": -10.28,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 91932,
+    "channels": 2,
+    "duration_s": 0.603,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_12.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -34.82,
+    "peak_dbfs": -17.89,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 91583,
+    "channels": 2,
+    "duration_s": 0.6,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_13.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -32.2,
+    "peak_dbfs": -12.46,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 86308,
+    "channels": 2,
+    "duration_s": 0.573,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_14.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -35.75,
+    "peak_dbfs": -13.87,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 78882,
+    "channels": 2,
+    "duration_s": 0.507,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_15.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -31.7,
+    "peak_dbfs": -13.22,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 105561,
+    "channels": 2,
+    "duration_s": 0.706,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_16.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -36.3,
+    "peak_dbfs": -16.93,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 86581,
+    "channels": 2,
+    "duration_s": 0.525,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_17.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -20.12,
+    "peak_dbfs": -1.28,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 108752,
+    "channels": 2,
+    "duration_s": 0.701,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_18.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -31.36,
+    "peak_dbfs": -15.12,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 90552,
+    "channels": 2,
+    "duration_s": 0.626,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_19.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -41.0,
+    "peak_dbfs": -12.2,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 83537,
+    "channels": 2,
+    "duration_s": 0.512,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_20.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -27.71,
+    "peak_dbfs": -9.7,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 107015,
+    "channels": 2,
+    "duration_s": 0.675,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_21.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -24.44,
+    "peak_dbfs": -7.6,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 102429,
+    "channels": 2,
+    "duration_s": 0.659,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_22.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -30.84,
+    "peak_dbfs": -11.32,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 82691,
+    "channels": 2,
+    "duration_s": 0.557,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_23.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -36.93,
+    "peak_dbfs": -15.92,
+    "sample_rate": 44100
+   },
+   {
+    "bytes": 67601,
+    "channels": 2,
+    "duration_s": 0.437,
+    "file": "Corsica_S-Walking_in_Snow/Corsica_S-Walking_on_snow_covered_gravel_and_ice_24.flac",
+    "loop_seam_ratio": 0.0,
+    "lufs_integrated": -28.93,
+    "peak_dbfs": -7.42,
+    "sample_rate": 44100
+   }
+  ],
+  "pack_files": 42,
+  "pack_seconds": 25.6
+ },
+ "version": 1
+}

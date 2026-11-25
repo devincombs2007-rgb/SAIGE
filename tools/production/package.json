@@ -1,0 +1,19 @@
+{
+  "name": "saige-production-tools",
+  "private": true,
+  "description": "Node side of the SAIGE asset pipeline: glTF Transform, meshoptimizer, gltfpack, KTX2 (Basis) encoding, image decoding.",
+  "type": "module",
+  "dependencies": {
+    "@gltf-transform/cli": "^4.5.1",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "@gltf-transform/functions": "^4.5.1",
+    "draco3dgltf": "^1.5.9",
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "gltfpack": "^1.3.0",
+    "ktx2-encoder": "^0.6.0",
+    "meshoptimizer": "^1.3.0",
+    "sharp": "^0.35.5",
+    "fbx2gltf": "^0.9.7-p1"
+  }
+}

@@ -1,0 +1,82 @@
+{
+ "category": "character.clothing",
+ "creators": [
+  "MargaretToigo"
+ ],
+ "description": "This is a keyhole style tank top that fits most female humans.  It was made using Blender's cloth sewing springs. \n\nRecommended modifiers: Solidify (.1 in/.25 cm, -1, only rim) and Subsurf (1 will do, but 2 is better).\n\nSix more materials are available in Materials. \n\nYvonne is also wearing Tight Jeans by punkduck.    ",
+ "files": [
+  {
+   "bytes": 53692,
+   "format": "obj",
+   "path": "makehuman/1606/tank_keyhole_neck.obj",
+   "role": "obj",
+   "sha256": "ab1cf8d5ea20ea88fa2af49a8c82bb57b0875fd3245701abf2aee6ab8020c601"
+  },
+  {
+   "bytes": 623431,
+   "format": "png",
+   "path": "makehuman/1606/TankKeyHoleGiraffe.png",
+   "role": "render",
+   "sha256": "eb4dd5b27622fd03a439791d629542acf1f5a1b5f467cc23ea5a14bd11d8ab5a"
+  },
+  {
+   "bytes": 474,
+   "format": "mhmat",
+   "path": "makehuman/1606/tank_keyhole_neck.mhmat",
+   "role": "mhmat",
+   "sha256": "6cdb64864b29896a03032d3aee32579c7242f5a538fd5eb68e49a2c6f1f96d78"
+  },
+  {
+   "bytes": 49748,
+   "format": "mhclo",
+   "path": "makehuman/1606/tank_keyhole_neck.mhclo",
+   "role": "mhclo",
+   "sha256": "3d806939bb7a31d7868800a90aeccbc2c327b64ba389965e0d575b9ff27a16d3"
+  },
+  {
+   "bytes": 1335850,
+   "format": "png",
+   "path": "makehuman/1606/Giraffe.png",
+   "role": "diffuse",
+   "sha256": "d65c8852e82d9f5b44511f645bb3a53567fa33f749b4148824183cbe8c8dbe01"
+  }
+ ],
+ "history": [],
+ "id": "model.makehuman.keyhole_tank_top_1606",
+ "kind": "model",
+ "license": {
+  "ai_training": "unknown",
+  "attribution": "",
+  "commercial_use": true,
+  "notes": "MakeHuman asset format",
+  "redistribution": "allowed",
+  "spdx": "CC0-1.0",
+  "url": "https://static.makehumancommunity.org/assets/license.html"
+ },
+ "name": "Keyhole Tank Top ",
+ "schema": 1,
+ "source": {
+  "acquire": "saige-assets fetch makehuman 1606",
+  "name": "makehuman",
+  "retrieved": "2026-11-24T13:55:39Z",
+  "source_id": "1606",
+  "url": "https://files.makehumancommunity.org/sites/default/files/assets.json#1606"
+ },
+ "status": "candidate",
+ "suitability": {
+  "notes": [
+   "MakeHuman format: needs conversion (MakeHuman or MPFB) before the engine can import it"
+  ],
+  "runtime_ready": false
+ },
+ "tags": [
+  "clothes",
+  "Shirt/T-shirt/Sweater"
+ ],
+ "technical": {
+  "compatibility": "1.1.x",
+  "makehuman_category": "Shirt/T-shirt/Sweater",
+  "makehuman_type": "clothes"
+ },
+ "version": 1
+}

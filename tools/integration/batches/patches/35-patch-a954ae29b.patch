@@ -1,0 +1,1447 @@
+diff --git a/docs/rendering/prepared-model.md b/docs/rendering/prepared-model.md
+new file mode 100644
+index 0000000..b4aac8c
+--- /dev/null
++++ b/docs/rendering/prepared-model.md
+@@ -0,0 +1,48 @@
++# Prepared models and the upload path
++
++`gfx::stage_model` used to do all of its work in one call on the host's staging thread: decode the images, build the mip chains, pack the vertices, then create the GPU objects, which
++waits on the device's transfers. A host that wants to stream an asset in without a frame hitch needs the first half on a worker and the second half where it chooses, with the cost of each
++visible. This slice separates them without changing what staging produces.
++
++```cpp
++StageCapabilities caps = capabilities_of(renderer);                     // shading mode, skinning, alpha blending: what the payload depends on
++PreparedModel prepared = prepare_model(asset, "name", caps, settings);   // CPU only: no renderer, no device, any thread, pure
++GpuModel model = upload_model(renderer, prepared, &report, &seconds);    // GPU objects; the payload is not consumed
++// stage_model(renderer, asset, name, settings, &report) == upload_model(renderer, prepare_model(asset, name, capabilities_of(renderer), settings), &report)
++```
++
++## What the payload is
++
++A value: images as whole mip chains (per source image and color space), materials with their factors and the sampler description of each slot, vertices and indices packed to the exact
++bytes that will be uploaded (`ModelVertex` or `SkinnedModelVertex`, 16- or 32-bit indices), bounds, placements, the skin's joint count and the report (warnings, counts). It refers to no device,
++registry or renderer. `PreparedModel::cpu_bytes()` is the host memory it holds; `prepare_seconds` and `decode_seconds` are measured, so decode and mip cost is reported apart from the upload.
++
++* **Immutable and reusable.** `upload_model` takes it by `const&` and leaves it alone. Uploading it twice gives two independent `GpuModel`s (a second renderer, or a re-upload); dropping one
++  releases only its own objects. A payload outlives the renderer whose capabilities it was prepared for.
++* **Per material mode.** Which slots are decoded, whether skinned vertices are packed and how blended materials are flagged depend on the renderer's configuration, so the payload records
++  `StageCapabilities` and a renderer whose capabilities differ refuses it (`std::invalid_argument`, before creating anything). Preparing for several modes means preparing once per mode; the
++  payload does not guess, and a Legacy payload carries one decoded image where a MetallicRoughness one of the same asset may carry two.
++* **Failure.** `prepare_model` throws `std::runtime_error` naming the asset, mesh, image or material, and has no effect (it touches no shared state, so several threads may prepare at once; tested).
++  `upload_model` is all-or-nothing on the device: a failure at any creation point releases everything made so far (swept at every creation point), never touches what the renderer was already
++  showing, and leaves the payload usable for another attempt.
++
++## What this slice does not do (the transfer ticket)
++
++The RHI today uploads synchronously (`upload_texture` and buffer creation wait for the device), so `upload_model` still blocks the calling thread for the transfers. The agreed next step (Core's
++#43 comment 7121748064) is a **graphics-owned transfer ticket** for unpublished resources, which this separation prepares for; its proposed contract, for review before any shared API exists:
++
++* A ticket is created from a `PreparedModel` and a renderer, owns the staging memory and the destination resources until the device reports completion, **even if the host drops or supersedes
++  it** (the resources are retired on the device's completion timeline, never freed under a running copy).
++* `poll()` is non-blocking and reports `Pending`, `Ready` (the `GpuModel` can be taken, once) or `Failed(reason)`. A failed or canceled ticket never replaces an active binding: the host only ever
++  swaps in a `GpuModel` it took from a `Ready` ticket, at a point of its choosing (Core's fixed-step activation).
++* Admission is the host's: `bytes_to_upload()` (the payload's GPU bytes, known before submission) lets Core apply a per-step byte budget and a cancellation policy; the ticket does no scheduling of its own.
++* It needs an RHI transfer path that does not wait inline (a transfer queue or deferred submission with a completion value); that is an RHI change and gets its own review.
++
++## Verification
++
++`engine/gfx_scene/tests/test_stage_model.cpp` (null device; the Vulkan staging tests pass unchanged): preparation without a device and its accounting, prepare+upload equal to `stage_model` for every
++material mode (live objects, bytes, names, warnings, counts, bounds), a payload uploaded twice and into another renderer after the first is gone, capability mismatches refused with nothing created,
++asset errors with the same messages, an upload failure swept over every creation point (8 here) with the payload reusable afterwards, four threads preparing the same asset to identical payloads,
++skinned payloads, and the texture description, sampler and bounds contents. Twelve mutants of the new code (the capability check, the image cache, the report, texture counts, lazy creation,
++index width, skinning, blending, default material, bounds, color space, samplers) each fail a test. Timing is printed for information only (an 8x8 fixture on a null device); no performance claim is
++made, and nothing here is measured on a physical GPU.
+diff --git a/engine/gfx_scene/CMakeLists.txt b/engine/gfx_scene/CMakeLists.txt
+index 3bf85eb..ea2b08b 100644
+--- a/engine/gfx_scene/CMakeLists.txt
++++ b/engine/gfx_scene/CMakeLists.txt
+@@ -17,7 +17,7 @@ if(NOT TARGET saige::gfx_assets)
+     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../gfx_assets ${CMAKE_CURRENT_BINARY_DIR}/gfx_assets)
+ endif()
+ 
+-add_library(saige_gfx_scene STATIC src/stage_model.cpp)
++add_library(saige_gfx_scene STATIC src/stage_model.cpp src/prepared_model.cpp)
+ add_library(saige::gfx_scene ALIAS saige_gfx_scene)
+ target_include_directories(saige_gfx_scene PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+ target_link_libraries(saige_gfx_scene PUBLIC saige::render saige::gfx_assets)
+diff --git a/engine/gfx_scene/include/saige/gfx_scene/prepared_model.hpp b/engine/gfx_scene/include/saige/gfx_scene/prepared_model.hpp
+new file mode 100644
+index 0000000..58fd904
+--- /dev/null
++++ b/engine/gfx_scene/include/saige/gfx_scene/prepared_model.hpp
+@@ -0,0 +1,106 @@
++// SAIGE gfx_scene — a glTF asset prepared on the CPU, and its upload.
++//
++// `stage_model` does two kinds of work: CPU work that needs no device (decode the images, build the mip chains, pack the vertices and indices, compute the bounds, resolve
++// the materials and placements, collect the warnings) and GPU work (create the textures, buffers, samplers and materials, which waits on the device's transfers). This header
++// separates them so a host can run the first on a worker and the second at a point it chooses, and measure them apart:
++//
++//   PreparedModel prepared = prepare_model(asset, "name", capabilities_of(renderer));   // CPU only: no renderer, no device, any thread
++//   GpuModel model = upload_model(renderer, prepared);                                    // GPU: the render thread; the payload is not consumed
++//
++// `stage_model(renderer, asset, ...)` is exactly `upload_model(renderer, prepare_model(asset, ..., capabilities_of(renderer)))`.
++//
++// The payload is a value: immutable once built, owned by whoever holds it, and **reusable**: uploading the same payload twice gives two independent GpuModels (for two
++// renderers, or a re-upload after a device loss), and a payload built for some capabilities is refused (std::invalid_argument, before anything is created) by a renderer whose
++// capabilities differ, because the payload's contents depend on them (which texture slots are decoded, whether skinned vertices are packed, how blended materials are flagged).
++// Preparing for several material modes means preparing once per mode; the payload does not guess.
++//
++// Failure semantics match stage_model's: `prepare_model` throws std::runtime_error naming the asset, mesh, image or material for anything wrong with the asset (an undecodable
++// base color image, a bad index, a joint beyond the skin) and has no effect; `upload_model` is all-or-nothing on the device (the references it created are released as the stack
++// unwinds) and never touches anything the renderer was already showing. Cancellation and budgets are the host's: a prepared payload that is never uploaded costs only its CPU
++// memory (`PreparedModel::cpu_bytes`), and an upload that fails or is dropped has changed nothing. Design and the asynchronous transfer ticket this prepares for:
++// docs/rendering/prepared-model.md.
++#pragma once
++
++#include "saige/gfx_scene/stage_model.hpp"
++
++#include <cstddef>
++#include <cstdint>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace saige::gfx {
++
++/// The renderer configuration the payload's contents depend on.
++struct StageCapabilities {
++    render::ModelShading shading = render::ModelShading::Legacy;  ///< which texture slots are decoded and uploaded
++    bool skinning = false;                                        ///< skinned primitives are packed as SkinnedModelVertex with joints and weights
++    bool alpha_blending = false;                                  ///< BLEND materials are flagged for the sorted phase (only with `blending_supported`)
++    bool blending_supported = false;                              ///< the scene's color format can blend
++    friend bool operator==(const StageCapabilities&, const StageCapabilities&) noexcept = default;
++};
++
++/// What `renderer` is configured with (creates its model renderer if it does not exist yet).
++[[nodiscard]] StageCapabilities capabilities_of(render::SceneRenderer& renderer);
++
++struct PreparedImage {
++    std::string label;      ///< for error messages and GPU debug names
++    bool srgb = false;
++    uint32_t width = 0;
++    uint32_t height = 0;
++    uint32_t levels = 0;
++    std::vector<uint8_t> data;  ///< the whole mip chain, tightly packed, level 0 first
++};
++
++/// The GPU texture description a prepared image is uploaded with (its color space decides the format; `debug_name` is left unset).
++[[nodiscard]] rhi::TextureDesc texture_desc_of(const PreparedImage& image);
++
++struct PreparedSlot {
++    int32_t image = -1;            ///< index into PreparedModel::images, or -1 for the neutral texture
++    rhi::SamplerDesc sampler{};
++};
++
++struct PreparedMaterial {
++    render::MaterialData data;
++    PreparedSlot slots[render::kMaterialSlotCount];
++    std::string label;
++};
++
++struct PreparedPrimitive {
++    std::string where;                  ///< "name/mesh[i] 'x' primitive j", for error messages
++    std::vector<std::byte> vertices;    ///< ModelVertex or SkinnedModelVertex, packed
++    std::vector<std::byte> indices;     ///< uint16 or uint32
++    rhi::IndexType index_type = rhi::IndexType::Uint32;
++    uint32_t index_count = 0;
++    bool skinned = false;
++    uint32_t joint_limit = 0;
++    render::Float3 bounds_center{};
++    float bounds_radius = 0.0f;
++    uint32_t material = 0;              ///< into PreparedModel::materials (the last one is the default material)
++};
++
++struct PreparedModel {
++    std::string name;
++    StageCapabilities capabilities;
++    std::vector<PreparedImage> images;
++    std::vector<PreparedMaterial> materials;  ///< the asset's, then the default material
++    std::vector<std::vector<PreparedPrimitive>> meshes;
++    std::vector<render::GpuPlacement> placements;
++    uint32_t skin_joint_count = 0;
++    StageReport report;               ///< warnings, and the primitive/vertex/index/skinned counts known without a device
++    double prepare_seconds = 0.0;     ///< wall time of prepare_model (decode, mips and packing included)
++    double decode_seconds = 0.0;      ///< of which: image decoding and mip generation
++
++    /// Host memory the payload holds (images, vertices, indices).
++    [[nodiscard]] uint64_t cpu_bytes() const noexcept;
++};
++
++/// CPU only. Throws std::runtime_error (naming the asset, mesh, image or material) for anything wrong with the asset, with no effect.
++[[nodiscard]] PreparedModel prepare_model(const GltfAsset& asset, std::string_view name, const StageCapabilities& capabilities, const StageSettings& settings = {});
++
++/// Creates the GPU objects of `prepared` on `renderer`. Throws std::invalid_argument, before creating anything, if the renderer's capabilities are not the payload's, and
++/// std::runtime_error for a device failure (everything created is released). `report` receives the payload's report plus the texture counts and GPU bytes; `upload_seconds`
++/// the wall time of the upload (the device's transfer waits included).
++[[nodiscard]] render::GpuModel upload_model(render::SceneRenderer& renderer, const PreparedModel& prepared, StageReport* report = nullptr, double* upload_seconds = nullptr);
++
++} // namespace saige::gfx
+diff --git a/engine/gfx_scene/include/saige/gfx_scene/stage_model.hpp b/engine/gfx_scene/include/saige/gfx_scene/stage_model.hpp
+index f86995e..e974606 100644
+--- a/engine/gfx_scene/include/saige/gfx_scene/stage_model.hpp
++++ b/engine/gfx_scene/include/saige/gfx_scene/stage_model.hpp
+@@ -48,6 +48,8 @@ struct StageReport {
+     uint64_t vertex_bytes = 0;
+     uint64_t index_bytes = 0;
+     uint32_t skinned_primitives = 0;  ///< primitives staged with joints and weights (SkinnedModelVertex)
++    double prepare_seconds = 0.0;     ///< CPU preparation (decode, mips, packing), see prepared_model.hpp
++    double upload_seconds = 0.0;      ///< GPU object creation and transfers
+ };
+ 
+ /// Throws std::runtime_error with an actionable message (naming the image, mesh or material) on any failure.
+diff --git a/engine/gfx_scene/src/prepared_model.cpp b/engine/gfx_scene/src/prepared_model.cpp
+new file mode 100644
+index 0000000..3b88813
+--- /dev/null
++++ b/engine/gfx_scene/src/prepared_model.cpp
+@@ -0,0 +1,455 @@
++#include "saige/gfx_scene/prepared_model.hpp"
++
++#include "stage_util.hpp"
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstring>
++#include <limits>
++#include <map>
++#include <span>
++
++namespace saige::gfx {
++
++using detail::fail;
++using detail::label;
++using detail::SlotProblem;
++using detail::warn_once;
++
++namespace {
++
++using Clock = std::chrono::steady_clock;
++
++double seconds_since(Clock::time_point start)
++{
++    return std::chrono::duration<double>(Clock::now() - start).count();
++}
++
++template <typename T>
++std::vector<std::byte> bytes_of(const std::vector<T>& v)
++{
++    std::vector<std::byte> out(v.size() * sizeof(T));
++    if (!out.empty()) std::memcpy(out.data(), v.data(), out.size());
++    return out;
++}
++
++}  // namespace
++
++StageCapabilities capabilities_of(render::SceneRenderer& renderer)
++{
++    const render::ModelRenderer& models = renderer.model_renderer();
++    StageCapabilities c;
++    c.shading = models.shading();
++    c.skinning = models.skinning_enabled();
++    c.alpha_blending = models.alpha_blending();
++    c.blending_supported = models.blending_supported();
++    return c;
++}
++
++rhi::TextureDesc texture_desc_of(const PreparedImage& image)
++{
++    rhi::TextureDesc td;
++    td.format = image.srgb ? rhi::Format::RGBA8_SRGB : rhi::Format::RGBA8_UNORM;
++    td.width = image.width;
++    td.height = image.height;
++    td.mip_levels = image.levels;
++    td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
++    return td;
++}
++
++uint64_t PreparedModel::cpu_bytes() const noexcept
++{
++    uint64_t total = 0;
++    for (const PreparedImage& i : images) total += i.data.size();
++    for (const auto& mesh : meshes) {
++        for (const PreparedPrimitive& p : mesh) total += p.vertices.size() + p.indices.size();
++    }
++    return total;
++}
++
++PreparedModel prepare_model(const GltfAsset& asset, std::string_view name, const StageCapabilities& caps, const StageSettings& settings)
++{
++    const auto started = Clock::now();
++    PreparedModel out;
++    out.name = std::string(name);
++    out.capabilities = caps;
++    StageReport& report = out.report;
++
++    // ------------------------------------------------------------------------------------------ images and slots
++    // One image per (source image, color space): the same image used as base color (sRGB) and as a linear data texture is decoded twice, because the format decides how the
++    // GPU reads it. Each slot names the sampler its glTF texture names; identical sampler descriptions share one device sampler through the registry at upload.
++    std::map<std::pair<int32_t, bool>, int32_t> image_index;
++    const auto prepare_slot = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref, bool srgb) -> PreparedSlot {
++        if (!ref.valid()) {
++            return {};
++        }
++        const std::string who = label(name, "material", material_index, material.name);
++        if (static_cast<std::size_t>(ref.texture) >= asset.textures.size()) {
++            throw SlotProblem{who, std::string(slot_name) + " texture index is out of range"};
++        }
++        const Texture& texture = asset.textures[static_cast<std::size_t>(ref.texture)];
++        if (texture.image < 0 || static_cast<std::size_t>(texture.image) >= asset.images.size()) {
++            throw SlotProblem{who, std::string(slot_name) + " texture has no usable source image"};
++        }
++        int32_t index = -1;
++        const std::pair<int32_t, bool> key{texture.image, srgb};
++        if (const auto it = image_index.find(key); it != image_index.end()) {
++            index = it->second;
++        } else {
++            const Image& image = asset.images[static_cast<std::size_t>(texture.image)];
++            const std::string image_label = label(name, "image", static_cast<std::size_t>(texture.image), image.name);
++#if defined(SAIGE_HAS_IMAGE_DECODE)
++            const auto decode_started = Clock::now();
++            const ImageDecodeResult decoded = decode_image(image.bytes, settings.image_limits);
++            if (!decoded.ok()) {
++                throw SlotProblem{image_label, decoded.error};
++            }
++            MipChain chain = generate_mips(*decoded.image, srgb ? ColorSpace::Srgb : ColorSpace::Linear);
++            out.decode_seconds += seconds_since(decode_started);
++            PreparedImage prepared;
++            prepared.label = image_label;
++            prepared.srgb = srgb;
++            prepared.width = chain.width;
++            prepared.height = chain.height;
++            prepared.levels = chain.levels;
++            prepared.data = std::move(chain.data);
++            index = static_cast<int32_t>(out.images.size());
++            out.images.push_back(std::move(prepared));
++            image_index.emplace(key, index);
++#else
++            (void)settings;
++            throw SlotProblem{image_label, "this build has no image decoder (SAIGE_GFX_IMAGE_DECODE is OFF)"};
++#endif
++        }
++        if (ref.tex_coord != 0) {
++            warn_once(report, "only TEXCOORD_0 is sampled: a texture that names another coordinate set reads TEXCOORD_0");
++        }
++        PreparedSlot slot;
++        slot.image = index;
++        slot.sampler = to_sampler_desc(texture.sampler >= 0 && static_cast<std::size_t>(texture.sampler) < asset.samplers.size()
++                                           ? asset.samplers[static_cast<std::size_t>(texture.sampler)]
++                                           : Sampler{},
++                                       settings.max_anisotropy);
++        return slot;
++    };
++    const auto slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref, bool srgb, bool optional) -> PreparedSlot {
++        try {
++            return prepare_slot(material, material_index, slot_name, ref, srgb);
++        } catch (const SlotProblem& problem) {
++            if (!optional) {
++                fail(problem.where, problem.why);
++            }
++            warn_once(report, "an optional material texture could not be used and its slot is left neutral: " + problem.where + ": " + problem.why);
++            return {};
++        }
++    };
++
++    // ------------------------------------------------------------------------------------------ materials
++    for (std::size_t i = 0; i < asset.materials.size(); ++i) {
++        const Material& m = asset.materials[i];
++        PreparedMaterial pm;
++        render::MaterialData& data = pm.data;
++        std::memcpy(data.base_color, m.base_color, sizeof(data.base_color));
++        std::memcpy(data.emissive, m.emissive, sizeof(data.emissive));
++        data.metallic = m.metallic;
++        data.roughness = m.roughness;
++        data.normal_scale = m.normal_scale;
++        data.occlusion_strength = m.occlusion_strength;
++        data.double_sided = m.double_sided;
++        // The authored alpha mode decides shadow casting, independently of how the surface is drawn (a BLEND drawn opaque because blending
++        // is off still does not cast; a MASK with cutoff 0 still does not cast): only an opaque material does.
++        data.casts_sun_shadow = m.alpha_mode == AlphaMode::Opaque;
++        if (m.alpha_mode == AlphaMode::Mask) {
++            // glTF renders a fragment when alpha >= cutoff, so a cutoff of 0 passes everything, which is exactly what the
++            // shader does for 0 (no test); the shader discards only alpha < cutoff.
++            data.alpha_cutoff = m.alpha_cutoff;
++        } else if (m.alpha_mode == AlphaMode::Blend) {
++            data.alpha_blend = true;  // the renderer decides: sorted blending only if it was asked for and the scene format can blend
++            if (!caps.alpha_blending) {
++                warn_once(report, "alpha blending is off (RendererSettings::alpha_blending): Blend materials draw as opaque, as in 0.2");
++            } else if (!caps.blending_supported) {
++                warn_once(report, "the scene's color format cannot blend: Blend materials draw as opaque");
++            }
++        }
++        // Legacy (the default) stages what 0.2 staged: the base color texture only, so 0.2 content loads and looks as it did, including
++        // content whose other textures could not be decoded. Extended and MetallicRoughness stage all five slots; an optional slot that
++        // cannot be used stays neutral.
++        const bool extended = caps.shading != render::ModelShading::Legacy;
++        const bool other_slots = m.normal_texture.valid() || m.metallic_roughness_texture.valid() || m.occlusion_texture.valid() || m.emissive_texture.valid();
++        if (!extended && other_slots) {
++            warn_once(report, "normal, metallic-roughness, occlusion and emissive textures are not sampled in 0.2 (base color only)");
++        } else if (caps.shading == render::ModelShading::Extended && m.normal_texture.valid()) {
++            warn_once(report, "normal textures are uploaded and bound but not shaded yet");  // only MetallicRoughness shades them
++        }
++        pm.slots[static_cast<uint32_t>(render::MaterialSlot::BaseColor)] = slot_texture(m, i, "base color", m.base_color_texture, true, /*optional=*/false);
++        if (extended) {
++            pm.slots[static_cast<uint32_t>(render::MaterialSlot::MetallicRoughness)] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false, true);
++            // The tangents are generated for TEXCOORD_0, and only TEXCOORD_0 is sampled. A normal map that names another coordinate
++            // set cannot be shaded correctly (it would be read with the wrong UVs and a frame that does not belong to them), so
++            // the slot is left empty and the surface keeps its geometric normal.
++            TextureRef normal_ref = m.normal_texture;
++            if (normal_ref.valid() && normal_ref.tex_coord != 0) {
++                warn_once(report, "a normal texture that names TEXCOORD_" + std::to_string(normal_ref.tex_coord) +
++                                      " is ignored: only TEXCOORD_0 is sampled, so the surface keeps its geometric normal");
++                normal_ref = TextureRef{};
++            }
++            pm.slots[static_cast<uint32_t>(render::MaterialSlot::Normal)] = slot_texture(m, i, "normal", normal_ref, false, true);
++            pm.slots[static_cast<uint32_t>(render::MaterialSlot::Occlusion)] = slot_texture(m, i, "occlusion", m.occlusion_texture, false, true);
++            pm.slots[static_cast<uint32_t>(render::MaterialSlot::Emissive)] = slot_texture(m, i, "emissive", m.emissive_texture, true, true);
++        }
++        pm.label = label(name, "material", i, m.name);
++        out.materials.push_back(std::move(pm));
++    }
++    // Primitives without a material use glTF's default: opaque white, single-sided.
++    const uint32_t default_material = static_cast<uint32_t>(out.materials.size());
++    {
++        PreparedMaterial pm;
++        pm.label = std::string(name) + "/default material";
++        out.materials.push_back(std::move(pm));
++    }
++
++    // ------------------------------------------------------------------------------------------ skin
++    // One model, one skin: the first skinned instance's skin. Meshes that a skinned instance uses are packed skinned when the renderer can skin.
++    int32_t model_skin = -1;
++    std::vector<bool> mesh_is_skinned(asset.meshes.size(), false);
++    for (const MeshInstance& inst : asset.instances) {
++        if (inst.skin < 0 || inst.mesh < 0 || static_cast<std::size_t>(inst.mesh) >= asset.meshes.size()) continue;
++        if (static_cast<std::size_t>(inst.skin) >= asset.skins.size()) fail(std::string(name), "a scene node refers to a skin that does not exist");
++        if (model_skin < 0) model_skin = inst.skin;
++        if (inst.skin == model_skin) mesh_is_skinned[static_cast<std::size_t>(inst.mesh)] = true;
++    }
++    const bool can_skin = caps.skinning;
++    uint32_t skin_joints = 0;
++    if (model_skin >= 0) {
++        skin_joints = static_cast<uint32_t>(asset.skins[static_cast<std::size_t>(model_skin)].joint_count());
++        if (can_skin && skin_joints > render::kMaxSkinJoints) {
++            fail(label(name, "skin", static_cast<std::size_t>(model_skin), asset.skins[static_cast<std::size_t>(model_skin)].name),
++                 "has " + std::to_string(skin_joints) + " joints; GPU skinning supports at most " + std::to_string(render::kMaxSkinJoints));
++        }
++        if (!can_skin) warn_once(report, "skinning is off (RendererSettings::skinning): skinned meshes are staged rigid, in their bind pose");
++    }
++
++    // ------------------------------------------------------------------------------------------ meshes
++    for (std::size_t mi = 0; mi < asset.meshes.size(); ++mi) {
++        const Mesh& mesh = asset.meshes[mi];
++        std::vector<PreparedPrimitive> primitives;
++        for (std::size_t pi = 0; pi < mesh.primitives.size(); ++pi) {
++            const Primitive& p = mesh.primitives[pi];
++            const std::string where = label(name, "mesh", mi, mesh.name) + " primitive " + std::to_string(pi);
++            const uint32_t vertex_count = p.vertex_count();
++            if (vertex_count == 0 || p.normals.size() != p.positions.size()) {
++                fail(where, "has no vertices or mismatched normals");
++            }
++            if (!p.uv0.empty() && p.uv0.size() != std::size_t{vertex_count} * 2) {
++                fail(where, "has a texture coordinate count that does not match its vertices");
++            }
++            if (!p.tangents.empty() && p.tangents.size() != std::size_t{vertex_count} * 4) {
++                fail(where, "has a tangent count that does not match its vertices");
++            }
++            const bool has_skin_data = !p.joints.empty() && p.joints.size() == std::size_t{vertex_count} * 4 && p.weights.size() == p.joints.size();
++            const bool skinned = can_skin && mesh_is_skinned[mi] && has_skin_data;
++            uint32_t joint_limit = 0;
++            if (skinned) {
++                for (std::size_t k = 0; k < p.joints.size(); ++k) {
++                    if (p.weights[k] > 0.0f) joint_limit = std::max<uint32_t>(joint_limit, uint32_t{p.joints[k]} + 1u);
++                }
++                if (joint_limit > skin_joints) {
++                    fail(where, "a vertex is bound to joint " + std::to_string(joint_limit - 1) + " but the skin has " + std::to_string(skin_joints) + " joints");
++                }
++            } else if (mesh_is_skinned[mi] && !has_skin_data && model_skin >= 0 && can_skin) {
++                warn_once(report, "a skinned node instances a primitive without joints and weights: it is drawn rigid");
++            }
++            std::vector<render::SkinnedModelVertex> skinned_vertices(skinned ? vertex_count : 0);
++            std::vector<render::ModelVertex> plain_vertices(skinned ? 0 : vertex_count);
++            const auto vertex_at = [&](uint32_t v) -> render::ModelVertex& { return skinned ? skinned_vertices[v].base : plain_vertices[v]; };
++            for (uint32_t v = 0; v < vertex_count; ++v) {
++                render::ModelVertex& vtx = vertex_at(v);
++                if (skinned) {
++                    for (uint32_t c = 0; c < 4; ++c) {
++                        skinned_vertices[v].joints[c] = p.joints[v * 4 + c];
++                        skinned_vertices[v].weights[c] = p.weights[v * 4 + c];
++                    }
++                }
++                vtx.position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
++                vtx.normal = {p.normals[v * 3], p.normals[v * 3 + 1], p.normals[v * 3 + 2]};
++                if (!p.uv0.empty()) {
++                    vtx.uv[0] = p.uv0[v * 2];
++                    vtx.uv[1] = p.uv0[v * 2 + 1];
++                }
++                if (!p.tangents.empty()) {  // absent tangents stay w = 0: the shader skips normal mapping there
++                    for (uint32_t c = 0; c < 4; ++c) {
++                        vtx.tangent[c] = p.tangents[v * 4 + c];
++                    }
++                }
++            }
++            if (p.tangents.empty() && p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size() &&
++                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid() &&
++                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.tex_coord == 0) {
++                warn_once(report, "a primitive with a normal texture has no tangents (it has no texture coordinates): its normal map is ignored");
++            }
++            std::vector<uint32_t> indices = p.indices;
++            if (indices.empty()) {  // a non-indexed triangle list
++                indices.resize(vertex_count);
++                for (uint32_t i = 0; i < vertex_count; ++i) indices[i] = i;
++            }
++            if (indices.size() % 3 != 0) {
++                fail(where, "index count is not a multiple of 3");
++            }
++            for (const uint32_t index : indices) {
++                if (index >= vertex_count) {
++                    fail(where, "an index refers past the last vertex");
++                }
++            }
++            PreparedPrimitive prim;
++            prim.where = where;
++            prim.vertices = skinned ? bytes_of(skinned_vertices) : bytes_of(plain_vertices);
++            if (vertex_count <= std::numeric_limits<uint16_t>::max()) {
++                std::vector<uint16_t> narrow;
++                narrow.reserve(indices.size());
++                for (const uint32_t index : indices) narrow.push_back(static_cast<uint16_t>(index));
++                prim.indices = bytes_of(narrow);
++                prim.index_type = rhi::IndexType::Uint16;
++            } else {
++                prim.indices = bytes_of(indices);
++                prim.index_type = rhi::IndexType::Uint32;
++            }
++            prim.index_count = static_cast<uint32_t>(indices.size());
++            prim.skinned = skinned;
++            prim.joint_limit = joint_limit;
++            if (skinned) ++report.skinned_primitives;
++            {   // bounding sphere for sorting blended draws and culling: the box center and the farthest vertex from it
++                float lo[3] = {p.positions[0], p.positions[1], p.positions[2]};
++                float hi[3] = {lo[0], lo[1], lo[2]};
++                for (uint32_t v = 1; v < vertex_count; ++v) {
++                    for (uint32_t c = 0; c < 3; ++c) {
++                        lo[c] = std::min(lo[c], p.positions[v * 3 + c]);
++                        hi[c] = std::max(hi[c], p.positions[v * 3 + c]);
++                    }
++                }
++                const render::Float3 center{(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
++                float radius2 = 0.0f;
++                for (uint32_t v = 0; v < vertex_count; ++v) {
++                    const float dx = p.positions[v * 3] - center.x, dy = p.positions[v * 3 + 1] - center.y, dz = p.positions[v * 3 + 2] - center.z;
++                    radius2 = std::max(radius2, dx * dx + dy * dy + dz * dz);
++                }
++                prim.bounds_center = center;
++                prim.bounds_radius = std::sqrt(radius2);
++            }
++            prim.material = (p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size()) ? static_cast<uint32_t>(p.material) : default_material;
++            report.vertex_bytes += prim.vertices.size();
++            report.index_bytes += prim.indices.size();
++            ++report.primitives;
++            primitives.push_back(std::move(prim));
++        }
++        out.meshes.push_back(std::move(primitives));
++    }
++
++    // ------------------------------------------------------------------------------------------ placements
++    for (const MeshInstance& inst : asset.instances) {
++        if (inst.mesh < 0 || static_cast<std::size_t>(inst.mesh) >= out.meshes.size()) {
++            fail(std::string(name), "a scene node refers to a mesh that does not exist");
++        }
++        if (inst.skin >= 0 && inst.skin != model_skin) {
++            warn_once(report, "a skinned instance of a second skin is not placed: one model supports one skin (one palette)");
++            continue;
++        }
++        // A skinned instance is placed by its skin matrices; the node's own transform is irrelevant (the importer already made it the identity).
++        const render::Mat4 world = inst.skin >= 0 && can_skin ? render::Mat4::identity() : inst.world;
++        out.placements.push_back({static_cast<uint32_t>(inst.mesh), world});
++    }
++    out.skin_joint_count = report.skinned_primitives > 0 ? skin_joints : 0;
++    if (out.placements.empty()) {
++        warn_once(report, "the asset's scene places no meshes: it will draw nothing");
++    }
++    out.prepare_seconds = seconds_since(started);
++    report.prepare_seconds = out.prepare_seconds;
++    return out;
++}
++
++render::GpuModel upload_model(render::SceneRenderer& renderer, const PreparedModel& prepared, StageReport* report_out, double* upload_seconds)
++{
++    const auto started = Clock::now();
++    if (!(capabilities_of(renderer) == prepared.capabilities)) {
++        throw std::invalid_argument("upload_model: '" + prepared.name + "' was prepared for a renderer with different capabilities (shading mode, skinning or alpha blending)");
++    }
++    StageReport local;
++    StageReport& report = report_out != nullptr ? *report_out : local;
++    report = prepared.report;
++    report.textures = 0;
++    report.texture_bytes = 0;
++    render::GpuResourceRegistry& registry = renderer.registry();
++    render::ModelRenderer& models = renderer.model_renderer();
++    render::GpuModel model;
++    model.name = prepared.name;
++
++    // One GPU texture per prepared image, created at its first use by a slot (the order the staging always created them in).
++    std::vector<render::TextureRef> textures(prepared.images.size());
++    std::vector<bool> created(prepared.images.size(), false);
++    const auto texture_for = [&](int32_t index) -> render::TextureRef {
++        const std::size_t i = static_cast<std::size_t>(index);
++        if (!created[i]) {
++            const PreparedImage& image = prepared.images[i];
++            rhi::TextureDesc td = texture_desc_of(image);
++            const std::string debug = image.label + (image.srgb ? " (sRGB)" : " (linear)");
++            td.debug_name = debug.c_str();
++            try {
++                textures[i] = registry.create_texture(td, std::as_bytes(std::span(image.data)));
++            } catch (const std::exception& e) {
++                fail(image.label, std::string("GPU upload failed: ") + e.what());
++            }
++            ++report.textures;
++            report.texture_bytes += textures[i].bytes();
++            created[i] = true;
++        }
++        return textures[i];
++    };
++    for (const PreparedMaterial& pm : prepared.materials) {
++        render::MaterialTextures slots;
++        for (uint32_t s = 0; s < render::kMaterialSlotCount; ++s) {
++            if (pm.slots[s].image >= 0) {
++                slots.slots[s] = {texture_for(pm.slots[s].image), registry.get_sampler(pm.slots[s].sampler)};
++            }
++        }
++        model.materials.push_back(models.create_material(pm.data, slots, pm.label.c_str()));
++    }
++    for (const auto& mesh : prepared.meshes) {
++        std::vector<render::GpuPrimitive> primitives;
++        for (const PreparedPrimitive& p : mesh) {
++            render::GpuPrimitive prim;
++            const std::string vname = p.where + " vertices";
++            const std::string iname = p.where + " indices";
++            rhi::BufferDesc vb;
++            vb.size = p.vertices.size();
++            vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
++            vb.debug_name = vname.c_str();
++            rhi::BufferDesc ib;
++            ib.size = p.indices.size();
++            ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
++            ib.debug_name = iname.c_str();
++            try {
++                prim.vertices = registry.create_buffer(vb, std::span<const std::byte>(p.vertices));
++                prim.indices = registry.create_buffer(ib, std::span<const std::byte>(p.indices));
++            } catch (const std::exception& e) {
++                fail(p.where, std::string("GPU upload failed: ") + e.what());
++            }
++            prim.index_type = p.index_type;
++            prim.index_count = p.index_count;
++            prim.skinned = p.skinned;
++            prim.joint_limit = p.joint_limit;
++            prim.bounds_center = p.bounds_center;
++            prim.bounds_radius = p.bounds_radius;
++            prim.material = p.material;
++            primitives.push_back(std::move(prim));
++        }
++        model.meshes.push_back(std::move(primitives));
++    }
++    model.placements = prepared.placements;
++    model.skin_joint_count = prepared.skin_joint_count;
++    const double elapsed = seconds_since(started);
++    report.upload_seconds = elapsed;
++    if (upload_seconds != nullptr) *upload_seconds = elapsed;
++    return model;
++}
++
++} // namespace saige::gfx
+diff --git a/engine/gfx_scene/src/stage_model.cpp b/engine/gfx_scene/src/stage_model.cpp
+index f9d0693..1395e18 100644
+--- a/engine/gfx_scene/src/stage_model.cpp
++++ b/engine/gfx_scene/src/stage_model.cpp
+@@ -1,56 +1,11 @@
+ #include "saige/gfx_scene/stage_model.hpp"
+ 
++#include "saige/gfx_scene/prepared_model.hpp"
++
+ #include <algorithm>
+-#include <cmath>
+-#include <cstddef>
+-#include <cstdint>
+-#include <cstring>
+-#include <limits>
+-#include <map>
+-#include <span>
+-#include <stdexcept>
+-#include <string>
+-#include <string_view>
+-#include <vector>
+ 
+ namespace saige::gfx {
+ 
+-namespace {
+-
+-void warn_once(StageReport& report, std::string message)
+-{
+-    if (std::find(report.warnings.begin(), report.warnings.end(), message) == report.warnings.end()) {
+-        report.warnings.push_back(std::move(message));
+-    }
+-}
+-
+-std::string label(std::string_view name, const std::string& kind, std::size_t index, const std::string& item_name)
+-{
+-    std::string out(name);
+-    out += '/';
+-    out += kind;
+-    out += '[' + std::to_string(index) + ']';
+-    if (!item_name.empty()) {
+-        out += " '" + item_name + "'";
+-    }
+-    return out;
+-}
+-
+-[[noreturn]] void fail(const std::string& what, const std::string& why)
+-{
+-    throw std::runtime_error(what + ": " + why);
+-}
+-
+-/// A problem with what the asset says about one texture slot (a bad index, a missing or undecodable image). It is fatal for the base
+-/// color slot, as in 0.2; for the optional slots, which 0.2 never read, it leaves the slot neutral with a warning. A *device* failure
+-/// (GPU upload) is never a SlotProblem: it always fails the staging.
+-struct SlotProblem {
+-    std::string where;
+-    std::string why;
+-};
+-
+-} // namespace
+-
+ rhi::SamplerDesc to_sampler_desc(const Sampler& s, float max_anisotropy)
+ {
+     rhi::SamplerDesc d;
+@@ -83,323 +38,10 @@ rhi::SamplerDesc to_sampler_desc(const Sampler& s, float max_anisotropy)
+     return d;
+ }
+ 
+-render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& asset, std::string_view name,
+-                             const StageSettings& settings, StageReport* report_out)
++render::GpuModel stage_model(render::SceneRenderer& renderer, const GltfAsset& asset, std::string_view name, const StageSettings& settings, StageReport* report_out)
+ {
+-    StageReport local;
+-    StageReport& report = report_out != nullptr ? *report_out : local;
+-    render::GpuResourceRegistry& registry = renderer.registry();
+-    render::ModelRenderer& models = renderer.model_renderer();
+-    render::GpuModel model;
+-    model.name = std::string(name);
+-
+-    // ------------------------------------------------------------------------------------------ textures
+-    // One GPU texture per (source image, color space): the same image used as base color (sRGB) and as a linear data
+-    // texture is decoded and uploaded twice, because the format decides how the GPU reads it. Each slot gets the sampler
+-    // its glTF texture names; identical sampler descriptions share one device sampler through the registry.
+-    std::map<std::pair<int32_t, bool>, render::TextureRef> textures_by_image;
+-    const auto load_slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref,
+-                                       bool srgb) -> render::MaterialTextureSlot {
+-        if (!ref.valid()) {
+-            return {};
+-        }
+-        const std::string who = label(name, "material", material_index, material.name);
+-        if (static_cast<std::size_t>(ref.texture) >= asset.textures.size()) {
+-            throw SlotProblem{who, std::string(slot_name) + " texture index is out of range"};
+-        }
+-        const Texture& texture = asset.textures[static_cast<std::size_t>(ref.texture)];
+-        if (texture.image < 0 || static_cast<std::size_t>(texture.image) >= asset.images.size()) {
+-            throw SlotProblem{who, std::string(slot_name) + " texture has no usable source image"};
+-        }
+-        render::TextureRef tex;
+-        const std::pair<int32_t, bool> key{texture.image, srgb};
+-        if (const auto it = textures_by_image.find(key); it != textures_by_image.end()) {
+-            tex = it->second;
+-        } else {
+-            const Image& image = asset.images[static_cast<std::size_t>(texture.image)];
+-            const std::string image_label = label(name, "image", static_cast<std::size_t>(texture.image), image.name);
+-#if defined(SAIGE_HAS_IMAGE_DECODE)
+-            const ImageDecodeResult decoded = decode_image(image.bytes, settings.image_limits);
+-            if (!decoded.ok()) {
+-                throw SlotProblem{image_label, decoded.error};
+-            }
+-            const MipChain chain = generate_mips(*decoded.image, srgb ? ColorSpace::Srgb : ColorSpace::Linear);
+-            rhi::TextureDesc td;
+-            td.format = srgb ? rhi::Format::RGBA8_SRGB : rhi::Format::RGBA8_UNORM;
+-            td.width = chain.width;
+-            td.height = chain.height;
+-            td.mip_levels = chain.levels;
+-            td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::TransferDst;
+-            const std::string debug = image_label + (srgb ? " (sRGB)" : " (linear)");
+-            td.debug_name = debug.c_str();
+-            try {
+-                tex = registry.create_texture(td, std::as_bytes(std::span(chain.data)));
+-            } catch (const std::exception& e) {
+-                fail(image_label, std::string("GPU upload failed: ") + e.what());
+-            }
+-            ++report.textures;
+-            report.texture_bytes += tex.bytes();
+-            textures_by_image.emplace(key, tex);
+-#else
+-            (void)settings;
+-            throw SlotProblem{image_label, "this build has no image decoder (SAIGE_GFX_IMAGE_DECODE is OFF)"};
+-#endif
+-        }
+-        if (ref.tex_coord != 0) {
+-            warn_once(report, "only TEXCOORD_0 is sampled: a texture that names another coordinate set reads TEXCOORD_0");
+-        }
+-        render::SamplerRef sampler;
+-        if (texture.sampler >= 0 && static_cast<std::size_t>(texture.sampler) < asset.samplers.size()) {
+-            sampler = registry.get_sampler(to_sampler_desc(asset.samplers[static_cast<std::size_t>(texture.sampler)], settings.max_anisotropy));
+-        } else {
+-            sampler = registry.get_sampler(to_sampler_desc(Sampler{}, settings.max_anisotropy));
+-        }
+-        return {tex, sampler};
+-    };
+-    const auto slot_texture = [&](const Material& material, std::size_t material_index, const char* slot_name, const TextureRef& ref,
+-                                  bool srgb, bool optional) -> render::MaterialTextureSlot {
+-        try {
+-            return load_slot_texture(material, material_index, slot_name, ref, srgb);
+-        } catch (const SlotProblem& problem) {
+-            if (!optional) {
+-                fail(problem.where, problem.why);
+-            }
+-            warn_once(report, "an optional material texture could not be used and its slot is left neutral: " + problem.where + ": " + problem.why);
+-            return {};
+-        }
+-    };
+-
+-    // ------------------------------------------------------------------------------------------ materials
+-    for (std::size_t i = 0; i < asset.materials.size(); ++i) {
+-        const Material& m = asset.materials[i];
+-        render::MaterialData data;
+-        std::memcpy(data.base_color, m.base_color, sizeof(data.base_color));
+-        std::memcpy(data.emissive, m.emissive, sizeof(data.emissive));
+-        data.metallic = m.metallic;
+-        data.roughness = m.roughness;
+-        data.normal_scale = m.normal_scale;
+-        data.occlusion_strength = m.occlusion_strength;
+-        data.double_sided = m.double_sided;
+-        // The authored alpha mode decides shadow casting, independently of how the surface is drawn: opaque and MASK materials cast (a MASK
+-        // through the alpha-tested variant, using its cutoff), a BLEND does not even when it is drawn opaque because blending is off.
+-        data.casts_sun_shadow = m.alpha_mode != AlphaMode::Blend;
+-        if (m.alpha_mode == AlphaMode::Mask) {
+-            // glTF renders a fragment when alpha >= cutoff, so a cutoff of 0 passes everything, which is exactly what the
+-            // shader does for 0 (no test); the shader discards only alpha < cutoff.
+-            data.alpha_cutoff = m.alpha_cutoff;
+-        } else if (m.alpha_mode == AlphaMode::Blend) {
+-            data.alpha_blend = true;  // the renderer decides: sorted blending only if it was asked for and the scene format can blend
+-            if (!models.alpha_blending()) {
+-                warn_once(report, "alpha blending is off (RendererSettings::alpha_blending): Blend materials draw as opaque, as in 0.2");
+-            } else if (!models.blending_supported()) {
+-                warn_once(report, "the scene's color format cannot blend: Blend materials draw as opaque");
+-            }
+-        }
+-        // Legacy (the default) stages what 0.2 staged: the base color texture only, so 0.2 content loads and looks as it did, including
+-        // content whose other textures could not be decoded. Extended and MetallicRoughness stage all five slots; an optional slot that
+-        // cannot be used stays neutral.
+-        const render::ModelShading shading = models.shading();
+-        const bool extended = shading != render::ModelShading::Legacy;
+-        const bool other_slots = m.normal_texture.valid() || m.metallic_roughness_texture.valid() || m.occlusion_texture.valid() || m.emissive_texture.valid();
+-        if (!extended && other_slots) {
+-            warn_once(report, "normal, metallic-roughness, occlusion and emissive textures are not sampled in 0.2 (base color only)");
+-        } else if (shading == render::ModelShading::Extended && m.normal_texture.valid()) {
+-            warn_once(report, "normal textures are uploaded and bound but not shaded yet");  // only MetallicRoughness shades them
+-        }
+-        render::MaterialTextures textures;
+-        textures[render::MaterialSlot::BaseColor] = slot_texture(m, i, "base color", m.base_color_texture, true, /*optional=*/false);
+-        if (extended) {
+-            textures[render::MaterialSlot::MetallicRoughness] = slot_texture(m, i, "metallic-roughness", m.metallic_roughness_texture, false, true);
+-            // The tangents are generated for TEXCOORD_0, and only TEXCOORD_0 is sampled. A normal map that names another coordinate
+-            // set cannot be shaded correctly (it would be read with the wrong UVs and a frame that does not belong to them), so
+-            // the slot is left empty and the surface keeps its geometric normal.
+-            TextureRef normal_ref = m.normal_texture;
+-            if (normal_ref.valid() && normal_ref.tex_coord != 0) {
+-                warn_once(report, "a normal texture that names TEXCOORD_" + std::to_string(normal_ref.tex_coord) +
+-                                      " is ignored: only TEXCOORD_0 is sampled, so the surface keeps its geometric normal");
+-                normal_ref = TextureRef{};
+-            }
+-            textures[render::MaterialSlot::Normal] = slot_texture(m, i, "normal", normal_ref, false, true);
+-            textures[render::MaterialSlot::Occlusion] = slot_texture(m, i, "occlusion", m.occlusion_texture, false, true);
+-            textures[render::MaterialSlot::Emissive] = slot_texture(m, i, "emissive", m.emissive_texture, true, true);
+-        }
+-        const std::string material_label = label(name, "material", i, m.name);
+-        model.materials.push_back(models.create_material(data, textures, material_label.c_str()));
+-    }
+-    // Primitives without a material use glTF's default: opaque white, single-sided.
+-    const uint32_t default_material = static_cast<uint32_t>(model.materials.size());
+-    model.materials.push_back(models.create_material({}, render::MaterialTextures{}, (std::string(name) + "/default material").c_str()));
+-
+-    // ------------------------------------------------------------------------------------------ skin
+-    // One model, one skin: the first skinned instance's skin. Meshes that a skinned instance uses are staged skinned when the renderer can skin.
+-    int32_t model_skin = -1;
+-    std::vector<bool> mesh_is_skinned(asset.meshes.size(), false);
+-    for (const MeshInstance& inst : asset.instances) {
+-        if (inst.skin < 0 || inst.mesh < 0 || static_cast<std::size_t>(inst.mesh) >= asset.meshes.size()) continue;
+-        if (static_cast<std::size_t>(inst.skin) >= asset.skins.size()) fail(std::string(name), "a scene node refers to a skin that does not exist");
+-        if (model_skin < 0) model_skin = inst.skin;
+-        if (inst.skin == model_skin) mesh_is_skinned[static_cast<std::size_t>(inst.mesh)] = true;
+-    }
+-    const bool can_skin = models.skinning_enabled();
+-    uint32_t skin_joints = 0;
+-    if (model_skin >= 0) {
+-        skin_joints = static_cast<uint32_t>(asset.skins[static_cast<std::size_t>(model_skin)].joint_count());
+-        if (can_skin && skin_joints > render::kMaxSkinJoints) {
+-            fail(label(name, "skin", static_cast<std::size_t>(model_skin), asset.skins[static_cast<std::size_t>(model_skin)].name),
+-                 "has " + std::to_string(skin_joints) + " joints; GPU skinning supports at most " + std::to_string(render::kMaxSkinJoints));
+-        }
+-        if (!can_skin) warn_once(report, "skinning is off (RendererSettings::skinning): skinned meshes are staged rigid, in their bind pose");
+-    }
+-
+-    // ------------------------------------------------------------------------------------------ meshes
+-    for (std::size_t mi = 0; mi < asset.meshes.size(); ++mi) {
+-        const Mesh& mesh = asset.meshes[mi];
+-        std::vector<render::GpuPrimitive> primitives;
+-        for (std::size_t pi = 0; pi < mesh.primitives.size(); ++pi) {
+-            const Primitive& p = mesh.primitives[pi];
+-            const std::string where = label(name, "mesh", mi, mesh.name) + " primitive " + std::to_string(pi);
+-            const uint32_t vertex_count = p.vertex_count();
+-            if (vertex_count == 0 || p.normals.size() != p.positions.size()) {
+-                fail(where, "has no vertices or mismatched normals");
+-            }
+-            if (!p.uv0.empty() && p.uv0.size() != std::size_t{vertex_count} * 2) {
+-                fail(where, "has a texture coordinate count that does not match its vertices");
+-            }
+-            if (!p.tangents.empty() && p.tangents.size() != std::size_t{vertex_count} * 4) {
+-                fail(where, "has a tangent count that does not match its vertices");
+-            }
+-            const bool has_skin_data = !p.joints.empty() && p.joints.size() == std::size_t{vertex_count} * 4 && p.weights.size() == p.joints.size();
+-            const bool skinned = can_skin && mesh_is_skinned[mi] && has_skin_data;
+-            uint32_t joint_limit = 0;
+-            if (skinned) {
+-                for (std::size_t k = 0; k < p.joints.size(); ++k) {
+-                    if (p.weights[k] > 0.0f) joint_limit = std::max<uint32_t>(joint_limit, uint32_t{p.joints[k]} + 1u);
+-                }
+-                if (joint_limit > skin_joints) {
+-                    fail(where, "a vertex is bound to joint " + std::to_string(joint_limit - 1) + " but the skin has " + std::to_string(skin_joints) + " joints");
+-                }
+-            } else if (mesh_is_skinned[mi] && !has_skin_data && model_skin >= 0 && can_skin) {
+-                warn_once(report, "a skinned node instances a primitive without joints and weights: it is drawn rigid");
+-            }
+-            std::vector<render::SkinnedModelVertex> skinned_vertices(skinned ? vertex_count : 0);
+-            std::vector<render::ModelVertex> plain_vertices(skinned ? 0 : vertex_count);
+-            const auto vertex_at = [&](uint32_t v) -> render::ModelVertex& { return skinned ? skinned_vertices[v].base : plain_vertices[v]; };
+-            for (uint32_t v = 0; v < vertex_count; ++v) {
+-                render::ModelVertex& vtx = vertex_at(v);
+-                if (skinned) {
+-                    for (uint32_t c = 0; c < 4; ++c) {
+-                        skinned_vertices[v].joints[c] = p.joints[v * 4 + c];
+-                        skinned_vertices[v].weights[c] = p.weights[v * 4 + c];
+-                    }
+-                }
+-                vtx.position = {p.positions[v * 3], p.positions[v * 3 + 1], p.positions[v * 3 + 2]};
+-                vtx.normal = {p.normals[v * 3], p.normals[v * 3 + 1], p.normals[v * 3 + 2]};
+-                if (!p.uv0.empty()) {
+-                    vtx.uv[0] = p.uv0[v * 2];
+-                    vtx.uv[1] = p.uv0[v * 2 + 1];
+-                }
+-                if (!p.tangents.empty()) {  // absent tangents stay w = 0: the shader skips normal mapping there
+-                    for (uint32_t c = 0; c < 4; ++c) {
+-                        vtx.tangent[c] = p.tangents[v * 4 + c];
+-                    }
+-                }
+-            }
+-            if (p.tangents.empty() && p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size() &&
+-                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.valid() &&
+-                asset.materials[static_cast<std::size_t>(p.material)].normal_texture.tex_coord == 0) {
+-                warn_once(report, "a primitive with a normal texture has no tangents (it has no texture coordinates): its normal map is ignored");
+-            }
+-            std::vector<uint32_t> indices = p.indices;
+-            if (indices.empty()) {  // a non-indexed triangle list
+-                indices.resize(vertex_count);
+-                for (uint32_t i = 0; i < vertex_count; ++i) indices[i] = i;
+-            }
+-            if (indices.size() % 3 != 0) {
+-                fail(where, "index count is not a multiple of 3");
+-            }
+-            for (const uint32_t index : indices) {
+-                if (index >= vertex_count) {
+-                    fail(where, "an index refers past the last vertex");
+-                }
+-            }
+-            render::GpuPrimitive prim;
+-            const std::string vname = where + " vertices";
+-            const std::string iname = where + " indices";
+-            rhi::BufferDesc vb;
+-            vb.size = skinned ? skinned_vertices.size() * sizeof(render::SkinnedModelVertex) : plain_vertices.size() * sizeof(render::ModelVertex);
+-            vb.usage = rhi::BufferUsage::Vertex | rhi::BufferUsage::TransferDst;
+-            vb.debug_name = vname.c_str();
+-            rhi::BufferDesc ib;
+-            ib.usage = rhi::BufferUsage::Index | rhi::BufferUsage::TransferDst;
+-            ib.debug_name = iname.c_str();
+-            try {
+-                prim.vertices = skinned ? registry.create_buffer(vb, std::as_bytes(std::span(skinned_vertices))) : registry.create_buffer(vb, std::as_bytes(std::span(plain_vertices)));
+-                if (vertex_count <= std::numeric_limits<uint16_t>::max()) {
+-                    std::vector<uint16_t> narrow;
+-                    narrow.reserve(indices.size());
+-                    for (const uint32_t index : indices) narrow.push_back(static_cast<uint16_t>(index));
+-                    ib.size = narrow.size() * sizeof(uint16_t);
+-                    prim.indices = registry.create_buffer(ib, std::as_bytes(std::span(narrow)));
+-                    prim.index_type = rhi::IndexType::Uint16;
+-                } else {
+-                    ib.size = indices.size() * sizeof(uint32_t);
+-                    prim.indices = registry.create_buffer(ib, std::as_bytes(std::span(indices)));
+-                    prim.index_type = rhi::IndexType::Uint32;
+-                }
+-            } catch (const std::exception& e) {
+-                fail(where, std::string("GPU upload failed: ") + e.what());
+-            }
+-            prim.index_count = static_cast<uint32_t>(indices.size());
+-            prim.skinned = skinned;
+-            prim.joint_limit = joint_limit;
+-            if (skinned) ++report.skinned_primitives;
+-            {   // bounding sphere for sorting blended draws: the box center and the farthest vertex from it
+-                float lo[3] = {p.positions[0], p.positions[1], p.positions[2]};
+-                float hi[3] = {lo[0], lo[1], lo[2]};
+-                for (uint32_t v = 1; v < vertex_count; ++v) {
+-                    for (uint32_t c = 0; c < 3; ++c) {
+-                        lo[c] = std::min(lo[c], p.positions[v * 3 + c]);
+-                        hi[c] = std::max(hi[c], p.positions[v * 3 + c]);
+-                    }
+-                }
+-                const render::Float3 center{(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
+-                float radius2 = 0.0f;
+-                for (uint32_t v = 0; v < vertex_count; ++v) {
+-                    const float dx = p.positions[v * 3] - center.x, dy = p.positions[v * 3 + 1] - center.y, dz = p.positions[v * 3 + 2] - center.z;
+-                    radius2 = std::max(radius2, dx * dx + dy * dy + dz * dz);
+-                }
+-                prim.bounds_center = center;
+-                prim.bounds_radius = std::sqrt(radius2);
+-            }
+-            prim.material = (p.material >= 0 && static_cast<std::size_t>(p.material) < asset.materials.size())
+-                                ? static_cast<uint32_t>(p.material)
+-                                : default_material;
+-            report.vertex_bytes += vb.size;
+-            report.index_bytes += ib.size;
+-            ++report.primitives;
+-            primitives.push_back(std::move(prim));
+-        }
+-        model.meshes.push_back(std::move(primitives));
+-    }
+-
+-    // ------------------------------------------------------------------------------------------ placements
+-    for (const MeshInstance& inst : asset.instances) {
+-        if (inst.mesh < 0 || static_cast<std::size_t>(inst.mesh) >= model.meshes.size()) {
+-            fail(std::string(name), "a scene node refers to a mesh that does not exist");
+-        }
+-        if (inst.skin >= 0 && inst.skin != model_skin) {
+-            warn_once(report, "a skinned instance of a second skin is not placed: one model supports one skin (one palette)");
+-            continue;
+-        }
+-        // A skinned instance is placed by its skin matrices; the node's own transform is irrelevant (the importer already made it the identity).
+-        const render::Mat4 world = inst.skin >= 0 && can_skin ? render::Mat4::identity() : inst.world;
+-        model.placements.push_back({static_cast<uint32_t>(inst.mesh), world});
+-    }
+-    model.skin_joint_count = report.skinned_primitives > 0 ? skin_joints : 0;
+-    if (model.placements.empty()) {
+-        warn_once(report, "the asset's scene places no meshes: it will draw nothing");
+-    }
+-    return model;
++    const PreparedModel prepared = prepare_model(asset, name, capabilities_of(renderer), settings);
++    return upload_model(renderer, prepared, report_out);
+ }
+ 
+ } // namespace saige::gfx
+diff --git a/engine/gfx_scene/src/stage_util.hpp b/engine/gfx_scene/src/stage_util.hpp
+new file mode 100644
+index 0000000..5189234
+--- /dev/null
++++ b/engine/gfx_scene/src/stage_util.hpp
+@@ -0,0 +1,46 @@
++// Internal helpers shared by stage_model.cpp and prepared_model.cpp.
++#pragma once
++
++#include "saige/gfx_scene/stage_model.hpp"
++
++#include <algorithm>
++#include <stdexcept>
++#include <string>
++#include <string_view>
++#include <utility>
++
++namespace saige::gfx::detail {
++
++inline void warn_once(StageReport& report, std::string message)
++{
++    if (std::find(report.warnings.begin(), report.warnings.end(), message) == report.warnings.end()) {
++        report.warnings.push_back(std::move(message));
++    }
++}
++
++inline std::string label(std::string_view name, const std::string& kind, std::size_t index, const std::string& item_name)
++{
++    std::string out(name);
++    out += '/';
++    out += kind;
++    out += '[' + std::to_string(index) + ']';
++    if (!item_name.empty()) {
++        out += " '" + item_name + "'";
++    }
++    return out;
++}
++
++[[noreturn]] inline void fail(const std::string& what, const std::string& why)
++{
++    throw std::runtime_error(what + ": " + why);
++}
++
++/// A problem with what the asset says about one texture slot (a bad index, a missing or undecodable image). It is fatal for the base
++/// color slot, as in 0.2; for the optional slots, which 0.2 never read, it leaves the slot neutral with a warning. A *device* failure
++/// (GPU upload) is never a SlotProblem: it always fails the staging.
++struct SlotProblem {
++    std::string where;
++    std::string why;
++};
++
++} // namespace saige::gfx::detail
+diff --git a/engine/gfx_scene/tests/test_stage_model.cpp b/engine/gfx_scene/tests/test_stage_model.cpp
+index d29d064..fc4ad25 100644
+--- a/engine/gfx_scene/tests/test_stage_model.cpp
++++ b/engine/gfx_scene/tests/test_stage_model.cpp
+@@ -1,16 +1,21 @@
+ #include "saige/gfx_test/saige_test.hpp"
+ 
+ #include "saige/gfx_assets/tangents.hpp"
++#include "saige/gfx_scene/prepared_model.hpp"
+ #include "saige/gfx_scene/stage_model.hpp"
+ #include "saige/rhi_null/null_device.hpp"
+ 
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstdio>
++#include <algorithm>
++#include <cmath>
+ #include <cstdlib>
+ #include <filesystem>
+ #include <stdexcept>
+ #include <string>
++#include <thread>
++#include <vector>
+ 
+ using namespace saige;
+ using namespace saige::gfx;
+@@ -634,3 +639,325 @@ TEST_CASE("Stage (skinning): with skinning off a skinned mesh is staged rigid in
+         CHECK(threw);
+     }
+ }
++
++// ---- Prepared models: CPU preparation, then upload ----------------------------------------------------------------------------------------------
++
++namespace {
++
++/// Everything observable about a staged model that two stagings of the same asset must agree on.
++struct Fingerprint {
++    std::size_t meshes = 0, materials = 0, placements = 0;
++    std::vector<uint32_t> index_counts;
++    std::vector<uint64_t> vertex_bytes, index_bytes;
++    std::vector<float> radii;
++    std::vector<std::string> names;
++    uint32_t live = 0;
++    uint64_t live_bytes = 0;
++    bool operator==(const Fingerprint&) const = default;
++};
++
++Fingerprint fingerprint(Rig& rig, const render::GpuModel& model)
++{
++    Fingerprint f;
++    f.meshes = model.meshes.size();
++    f.materials = model.materials.size();
++    f.placements = model.placements.size();
++    for (const auto& mesh : model.meshes) {
++        for (const render::GpuPrimitive& p : mesh) {
++            f.index_counts.push_back(p.index_count);
++            f.vertex_bytes.push_back(p.vertices.bytes());
++            f.index_bytes.push_back(p.indices.bytes());
++            f.radii.push_back(p.bounds_radius);
++            f.names.push_back(p.vertices.name());
++        }
++    }
++    const render::ResourceStats s = rig.renderer.registry().total_stats();
++    f.live = s.live;
++    f.live_bytes = s.live_bytes;
++    return f;
++}
++
++}  // namespace
++
++TEST_CASE("Prepared: preparation needs no renderer or device, and the payload accounts for its CPU memory and time")
++{
++    const GltfAsset asset = load_fixture();
++    StageCapabilities caps;  // the defaults: Legacy shading, no skinning, no blending
++    const PreparedModel prepared = prepare_model(asset, "checker-box", caps);
++    CHECK(prepared.name == "checker-box");
++    CHECK(prepared.capabilities == caps);
++    REQUIRE(prepared.images.size() == 1);
++    CHECK(prepared.images[0].levels == 4);
++    CHECK(prepared.images[0].data.size() == (64 + 16 + 4 + 1) * 4);
++    REQUIRE(prepared.meshes.size() == 1);
++    CHECK(prepared.meshes[0][0].vertices.size() == 24 * sizeof(render::ModelVertex));
++    CHECK(prepared.meshes[0][0].indices.size() == 36 * sizeof(uint16_t));
++    CHECK(prepared.materials.size() == 2);  // the file's, then the default
++    CHECK(prepared.cpu_bytes() == prepared.images[0].data.size() + prepared.meshes[0][0].vertices.size() + prepared.meshes[0][0].indices.size());
++    CHECK(prepared.report.primitives == 1);
++    CHECK(prepared.report.vertex_bytes == 24 * sizeof(render::ModelVertex));
++    CHECK(prepared.report.warnings.empty());
++    CHECK(prepared.prepare_seconds >= 0.0);
++    CHECK(prepared.decode_seconds >= 0.0);
++    CHECK(prepared.decode_seconds <= prepared.prepare_seconds);
++    CHECK(prepared.report.textures == 0);  // nothing is on a GPU yet
++    Rig rig;
++    StageReport report;
++    double upload_seconds = 0.0;
++    (void)upload_model(rig.renderer, prepare_model(asset, "timing", capabilities_of(rig.renderer)), &report, &upload_seconds);
++    // Informational, not asserted: the 8x8 fixture is tiny, and a null device has no transfer to wait for. The numbers exist so a host can see decode/mips cost apart from
++    // submit/readiness cost on its own assets and device.
++    std::printf("  prepare %.3f ms (decode and mips %.3f ms), upload %.3f ms on the null device, %llu CPU bytes\n", prepared.prepare_seconds * 1e3, prepared.decode_seconds * 1e3,
++                upload_seconds * 1e3, static_cast<unsigned long long>(prepared.cpu_bytes()));
++}
++
++TEST_CASE("Prepared: prepare then upload equals stage_model, for every material mode, and the payload is not consumed")
++{
++    for (const render::ModelShading shading : {render::ModelShading::Legacy, render::ModelShading::Extended, render::ModelShading::MetallicRoughness}) {
++        GltfAsset asset = load_fixture();
++        asset.materials[0].emissive_texture.texture = 0;
++        asset.materials[0].occlusion_texture.texture = 0;
++        Rig staged(shading), split(shading);
++        StageReport staged_report, split_report;
++        const render::GpuModel a = stage_model(staged.renderer, asset, "same", {}, &staged_report);
++        const PreparedModel prepared = prepare_model(asset, "same", capabilities_of(split.renderer));
++        const uint64_t cpu_before = prepared.cpu_bytes();
++        double upload_seconds = -1.0;
++        const render::GpuModel b = upload_model(split.renderer, prepared, &split_report, &upload_seconds);
++        CHECK(fingerprint(staged, a) == fingerprint(split, b));
++        CHECK(staged_report.warnings == split_report.warnings);
++        CHECK(staged_report.textures == split_report.textures);
++        CHECK(staged_report.texture_bytes == split_report.texture_bytes);
++        CHECK(staged_report.vertex_bytes == split_report.vertex_bytes);
++        CHECK(staged_report.index_bytes == split_report.index_bytes);
++        CHECK(upload_seconds >= 0.0 && split_report.upload_seconds == upload_seconds);
++        CHECK(split_report.prepare_seconds == prepared.prepare_seconds);
++        CHECK(prepared.cpu_bytes() == cpu_before);  // upload_model takes the payload by const reference and leaves it alone
++        CHECK(shading == render::ModelShading::Legacy ? split_report.textures == 1 : split_report.textures == 2);  // sRGB and linear uploads of the one image
++        CHECK(split.device.validation_error_count() == 0);
++    }
++}
++
++TEST_CASE("Prepared: one payload uploads twice into independent models, on one renderer or two, and outlives the renderer it was prepared for")
++{
++    const GltfAsset asset = load_fixture();
++    PreparedModel prepared;
++    {
++        Rig first;
++        prepared = prepare_model(asset, "shared", capabilities_of(first.renderer));
++    }  // the renderer the capabilities were read from is gone: the payload does not refer to it
++    Rig rig;
++    (void)rig.renderer.model_renderer();
++    const render::ResourceStats baseline = rig.renderer.registry().total_stats();
++    {
++        const render::GpuModel one = upload_model(rig.renderer, prepared);
++        const render::ResourceStats after_one = rig.renderer.registry().total_stats();
++        const render::GpuModel two = upload_model(rig.renderer, prepared);
++        const render::ResourceStats after_two = rig.renderer.registry().total_stats();
++        CHECK(after_one.live > baseline.live);
++        CHECK(after_two.live - after_one.live == after_one.live - baseline.live);  // the second upload made exactly as many objects as the first
++        CHECK(one.meshes[0][0].vertices.handle() != two.meshes[0][0].vertices.handle());
++        CHECK(one.meshes[0][0].vertices.bytes() == two.meshes[0][0].vertices.bytes());
++    }
++    rig.device.wait_idle();
++    CHECK(rig.renderer.registry().total_stats().live == baseline.live);  // both released; the payload is untouched
++    Rig other;
++    const render::GpuModel again = upload_model(other.renderer, prepared);  // a different renderer with the same capabilities
++    CHECK(again.meshes.size() == 1);
++    CHECK(other.device.validation_error_count() == 0);
++}
++
++TEST_CASE("Prepared: a renderer with other capabilities refuses the payload before creating anything")
++{
++    const GltfAsset asset = load_fixture();
++    Rig legacy;
++    const PreparedModel prepared = prepare_model(asset, "legacy", capabilities_of(legacy.renderer));
++    const auto refused = [&](Rig& rig) {
++        (void)rig.renderer.model_renderer();
++        const uint32_t before = rig.renderer.registry().total_stats().live;
++        bool threw = false;
++        try {
++            (void)upload_model(rig.renderer, prepared);
++        } catch (const std::invalid_argument&) {
++            threw = true;
++        }
++        return threw && rig.renderer.registry().total_stats().live == before;
++    };
++    Rig metallic(render::ModelShading::MetallicRoughness);
++    Rig extended(render::ModelShading::Extended);
++    Rig blending(render::ModelShading::Legacy, /*alpha_blending=*/true);
++    Rig skinning(render::ModelShading::Legacy, false, /*skinning=*/true);
++    CHECK(refused(metallic));
++    CHECK(refused(extended));
++    CHECK(refused(blending));
++    CHECK(refused(skinning));
++    CHECK(!refused(legacy));  // the matching renderer accepts it (refused() reports a refusal)
++    // Preparing per mode gives per-mode payloads of different content: the other slots are decoded only when the mode reads them.
++    GltfAsset slots = load_fixture();
++    slots.materials[0].emissive_texture.texture = 0;    // sRGB: shares the base color's image
++    slots.materials[0].occlusion_texture.texture = 0;   // linear: a second decode of the same image
++    CHECK(prepare_model(slots, "m", capabilities_of(legacy.renderer)).images.size() == 1);
++    CHECK(prepare_model(slots, "m", capabilities_of(metallic.renderer)).images.size() == 2);
++}
++
++TEST_CASE("Prepared: asset errors fail the preparation with the same messages and no device effect; an upload failure at any creation releases everything and keeps the payload usable")
++{
++    {
++        GltfAsset asset = load_fixture();
++        asset.images[0].bytes.resize(20);
++        std::string message;
++        try {
++            (void)prepare_model(asset, "broken", StageCapabilities{});
++        } catch (const std::runtime_error& e) {
++            message = e.what();
++        }
++        CHECK(message.find("broken/image[0]") != std::string::npos);
++        asset = load_fixture();
++        asset.meshes[0].primitives[0].indices[0] = 9999;
++        message.clear();
++        try {
++            (void)prepare_model(asset, "bad-index", StageCapabilities{});
++        } catch (const std::runtime_error& e) {
++            message = e.what();
++        }
++        CHECK(message.find("bad-index/mesh[0]") != std::string::npos);
++        CHECK(message.find("past the last vertex") != std::string::npos);
++    }
++    Rig rig(render::ModelShading::MetallicRoughness);
++    GltfAsset asset = load_fixture();
++    asset.materials[0].emissive_texture.texture = 0;
++    asset.materials[0].occlusion_texture.texture = 0;
++    const PreparedModel prepared = prepare_model(asset, "swept", capabilities_of(rig.renderer));
++    rig.device.wait_idle();
++    const uint32_t baseline = rig.device.live_resource_count();
++    uint32_t failures = 0;
++    for (uint32_t n = 1; n <= 80; ++n) {
++        rig.device.fail_creation_after(n);
++        bool threw = false;
++        try {
++            const render::GpuModel m = upload_model(rig.renderer, prepared);
++        } catch (const std::runtime_error&) {
++            threw = true;
++        }
++        rig.device.fail_creation_after(0);
++        rig.device.wait_idle();
++        if (!threw) break;
++        ++failures;
++        CHECK(rig.device.live_resource_count() == baseline);
++    }
++    std::printf("  %u failing creation points swept\n", failures);
++    CHECK(failures >= 5);  // textures, a sampler, materials and their groups, vertex and index buffers
++    const render::GpuModel fine = upload_model(rig.renderer, prepared);  // the payload survived every failed attempt
++    CHECK(fine.meshes.size() == 1);
++    CHECK(rig.device.validation_error_count() == 0);
++}
++
++TEST_CASE("Prepared: preparation is a pure function of its inputs (several threads at once give identical payloads), and skinning payloads match what staging produced")
++{
++    const GltfAsset asset = load_fixture();
++    const StageCapabilities caps{render::ModelShading::MetallicRoughness, false, false, false};
++    const PreparedModel reference = prepare_model(asset, "threads", caps);
++    std::vector<PreparedModel> results(4);
++    std::vector<std::thread> workers;
++    for (std::size_t i = 0; i < results.size(); ++i) {
++        workers.emplace_back([&, i] { results[i] = prepare_model(asset, "threads", caps); });
++    }
++    for (std::thread& w : workers) w.join();
++    for (const PreparedModel& r : results) {
++        REQUIRE(r.images.size() == reference.images.size());
++        for (std::size_t i = 0; i < r.images.size(); ++i) CHECK(r.images[i].data == reference.images[i].data);
++        CHECK(r.meshes[0][0].vertices == reference.meshes[0][0].vertices);
++        CHECK(r.meshes[0][0].indices == reference.meshes[0][0].indices);
++        CHECK(r.report.warnings == reference.report.warnings);
++    }
++    // A skinned asset prepared for a skinning renderer packs skinned vertices, with the same joint limit, joint count and identity placement as stage_model's.
++    Rig rig(render::ModelShading::Legacy, false, /*skinning=*/true);
++    const GltfAsset skinned = skinned_fixture(8);
++    const PreparedModel p = prepare_model(skinned, "skinned", capabilities_of(rig.renderer));
++    REQUIRE(p.meshes.size() == 1);
++    CHECK(p.meshes[0][0].skinned);
++    CHECK(p.meshes[0][0].joint_limit == 3);
++    CHECK(p.meshes[0][0].vertices.size() == 24 * sizeof(render::SkinnedModelVertex));
++    CHECK(p.skin_joint_count == 8);
++    CHECK(p.report.skinned_primitives == 1);
++    const render::GpuModel model = upload_model(rig.renderer, p);
++    CHECK(model.skin_joint_count == 8);
++    CHECK(model.meshes[0][0].skinned);
++}
++
++namespace {
++bool has_flag(rhi::TextureUsage u, rhi::TextureUsage f) { return (static_cast<uint32_t>(u) & static_cast<uint32_t>(f)) != 0; }
++}  // namespace
++
++TEST_CASE("Prepared: the uploaded textures have the color space of their slot, every slot's sampler reaches the device, and the bounds are the box center and farthest vertex")
++{
++    Rig rig(render::ModelShading::MetallicRoughness);
++    GltfAsset asset = load_fixture();
++    Sampler nearest;
++    nearest.mag_filter = 9728;
++    nearest.min_filter = 9728;
++    Sampler clamped;
++    clamped.wrap_s = 33071;
++    clamped.wrap_t = 33071;
++    asset.samplers.assign({nearest, clamped});
++    asset.textures[0].sampler = 0;
++    Texture second = asset.textures[0];
++    second.sampler = 1;
++    asset.textures.push_back(second);
++    Material& m = asset.materials[0];
++    m.base_color_texture.texture = 0;  // sRGB, the nearest sampler
++    m.occlusion_texture.texture = 1;   // linear, the clamping sampler
++    const PreparedModel prepared = prepare_model(asset, "slots", capabilities_of(rig.renderer));
++    REQUIRE(prepared.images.size() == 2);
++    CHECK(prepared.images[0].srgb);    // the base color is decoded first, as sRGB
++    CHECK(!prepared.images[1].srgb);
++    const PreparedMaterial& pm = prepared.materials[0];
++    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::BaseColor)].image == 0);
++    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::BaseColor)].sampler.min_filter == rhi::Filter::Nearest);
++    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::Occlusion)].image == 1);
++    CHECK(pm.slots[static_cast<uint32_t>(render::MaterialSlot::Occlusion)].sampler.address_u == rhi::AddressMode::ClampToEdge);
++
++    (void)rig.renderer.model_renderer();
++    const render::ResourceStats samplers_before = rig.renderer.registry().stats(render::ResourceKind::Sampler);
++    const render::GpuModel model = upload_model(rig.renderer, prepared);
++    CHECK(rig.renderer.registry().stats(render::ResourceKind::Sampler).created - samplers_before.created == 2);  // both non-default descriptions
++    // Which of the model's textures is sRGB and which linear: one of each, by the device's own description.
++    uint32_t srgb = 0, linear = 0;
++    for (const render::ResourceInfo& r : rig.renderer.registry().live_resources()) {
++        if (r.kind != render::ResourceKind::Texture || r.name.find("slots/image[0]") != 0) continue;
++        if (r.name.find("(sRGB)") != std::string::npos) ++srgb;
++        if (r.name.find("(linear)") != std::string::npos) ++linear;
++    }
++    CHECK(srgb == 1);
++    CHECK(linear == 1);
++    // The GPU description each prepared image is uploaded with: the color space decides the format, and the mip chain is the whole chain.
++    const rhi::TextureDesc d_srgb = texture_desc_of(prepared.images[0]), d_linear = texture_desc_of(prepared.images[1]);
++    CHECK(d_srgb.format == rhi::Format::RGBA8_SRGB);
++    CHECK(d_linear.format == rhi::Format::RGBA8_UNORM);
++    CHECK(d_srgb.width == 8 && d_srgb.height == 8 && d_srgb.mip_levels == 4);
++    CHECK(has_flag(d_srgb.usage, rhi::TextureUsage::Sampled) && has_flag(d_srgb.usage, rhi::TextureUsage::TransferDst));
++
++    // Bounds: the center of the position box and the farthest vertex from it, checked against the asset's own positions.
++    const Primitive& p = asset.meshes[0].primitives[0];
++    float lo[3] = {p.positions[0], p.positions[1], p.positions[2]}, hi[3] = {lo[0], lo[1], lo[2]};
++    for (std::size_t v = 1; v < p.vertex_count(); ++v) {
++        for (int c = 0; c < 3; ++c) {
++            lo[c] = std::min(lo[c], p.positions[v * 3 + static_cast<std::size_t>(c)]);
++            hi[c] = std::max(hi[c], p.positions[v * 3 + static_cast<std::size_t>(c)]);
++        }
++    }
++    const float center[3] = {(lo[0] + hi[0]) * 0.5f, (lo[1] + hi[1]) * 0.5f, (lo[2] + hi[2]) * 0.5f};
++    float far2 = 0.0f;
++    for (std::size_t v = 0; v < p.vertex_count(); ++v) {
++        float d2 = 0.0f;
++        for (int c = 0; c < 3; ++c) {
++            const float d = p.positions[v * 3 + static_cast<std::size_t>(c)] - center[c];
++            d2 += d * d;
++        }
++        far2 = std::max(far2, d2);
++    }
++    const render::GpuPrimitive& gp = model.meshes[0][0];
++    CHECK(std::fabs(gp.bounds_center.x - center[0]) < 1e-6f && std::fabs(gp.bounds_center.y - center[1]) < 1e-6f && std::fabs(gp.bounds_center.z - center[2]) < 1e-6f);
++    CHECK(std::fabs(gp.bounds_radius - std::sqrt(far2)) < 1e-5f);
++    CHECK(gp.bounds_radius > 0.5f);  // a real sphere, not a zero default
++}

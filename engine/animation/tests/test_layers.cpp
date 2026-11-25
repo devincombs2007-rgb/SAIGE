@@ -211,6 +211,30 @@ TEST_CASE("Look at: a target that jumps is followed smoothly, without overshoot,
     CHECK(std::fabs(last - cfg.max_yaw / deg) < 1.5f);
 }
 
+TEST_CASE("Stance blend: the eased weight is a smoothstep of the linear one: same ends, same middle, slow start and end") {
+    StanceBlend blend(1.0f);
+    CHECK(blend.eased() == 0.0f);
+    blend.update(0.1f, true);
+    CHECK(std::fabs(blend.eased() - 0.028f) < 1e-4f);  // 3 x 0.01 - 2 x 0.001
+    blend.update(0.4f, true);
+    CHECK(std::fabs(blend.eased() - 0.5f) < 1e-5f);
+    blend.update(0.4f, true);
+    CHECK(std::fabs(blend.eased() - 0.972f) < 1e-4f);
+    blend.update(0.5f, true);
+    CHECK(blend.eased() == 1.0f);
+    // Never faster than the linear ramp's steepest, and never beyond [0, 1]: its largest step per tick is at most 1.5 times the linear one.
+    StanceBlend steps(0.5f);
+    float last = 0.0f, biggest = 0.0f;
+    for (int i = 0; i < 40; ++i) {
+        steps.update(1.0f / 60.0f, true);
+        biggest = std::max(biggest, steps.eased() - last);
+        last = steps.eased();
+        CHECK(steps.eased() >= 0.0f);
+        CHECK(steps.eased() <= 1.0f);
+    }
+    CHECK(biggest <= 1.5f * (1.0f / 30.0f) + 1e-4f);
+}
+
 TEST_CASE("Stance blend: the weight ramps over the fade time in either direction and never jumps; the crouch capsule height follows the pose") {
     StanceBlend blend(0.2f);
     CHECK(blend.weight() == 0.0f);

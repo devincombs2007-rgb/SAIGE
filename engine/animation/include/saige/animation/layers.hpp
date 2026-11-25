@@ -43,6 +43,9 @@ public:
         weight_ = crouched ? std::min(1.0f, weight_ + step) : std::max(0.0f, weight_ - step);
     }
     [[nodiscard]] float weight() const noexcept { return weight_; }
+    // The same ramp eased (smoothstep): it leaves a stance slowly, passes the middle at the same time as the linear one and arrives slowly, so neither the start nor the end of a crouch shows as a kink. Use it for
+    // the pose blend; `weight()` stays the linear progress (and what a host compares with 0 and 1).
+    [[nodiscard]] float eased() const noexcept { return weight_ * weight_ * (3.0f - 2.0f * weight_); }
     [[nodiscard]] bool settled() const noexcept { return weight_ <= 0.0f || weight_ >= 1.0f; }
 
 private:

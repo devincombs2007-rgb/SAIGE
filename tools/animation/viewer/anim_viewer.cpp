@@ -44,7 +44,7 @@ struct Options {
     fs::path out = "anim-viewer-out";
     uint32_t width = 640, height = 360;
     int every = 6;
-    float seconds = 17.0f;
+    float seconds = 20.0f;
     bool self_check = false;
 };
 
@@ -373,7 +373,7 @@ void build_character(Character& c, const fs::path& root) {
 }
 
 const char* stage_name(int s) {
-    static const char* n[] = {"idle", "walk", "sprint", "roll", "crouch walk", "stand up", "approach ledge", "climb", "on the ledge", "jump"};
+    static const char* n[] = {"idle", "walk", "sprint", "roll", "crouch walk", "stand up", "approach ledge", "climb", "on the ledge", "jump", "reach"};
     return n[s];
 }
 
@@ -454,6 +454,7 @@ int main(int argc, char** argv) {
             if (ch.crouch->usable()) crouch_ctl.emplace(*ch.crouch, LocomotionConfig{});
             StanceBlend stance(0.2f);
             FootPlacement feet;
+            LookAtState look_state;
             const GroundQuery ground = ground_query(world);
             const ObstacleQuery obstacle = obstacle_query(world);
             ActionPlayer action;
@@ -463,6 +464,8 @@ int main(int argc, char** argv) {
             bool roll_done = false, climb_started = false, on_ledge = false;
             float roll_end = 1e9f;
             float final_height = 0.0f;
+            float on_ledge_since = -1.0f, reach_start = -1.0f, reach_error = 1e9f;
+            Float3 handle{};
 
             const auto draw_course = [&](std::vector<render::ModelDraw>& draws) {
                 const auto box = [&](const render::GpuModel& m, Float3 center, Float3 size) {
@@ -501,7 +504,9 @@ int main(int argc, char** argv) {
                 const CapsuleCharacterState& s = capsule.state();
                 // The script: stand, walk, sprint, roll, crouch-walk, stand, approach the ledge, climb it, walk on.
                 if (on_ledge) {
-                    stage = 8;
+                    if (on_ledge_since < 0.0f) on_ledge_since = t;
+                    stage = t < on_ledge_since + 2.5f ? 8 : 10;
+                    if (stage == 10 && reach_start < 0.0f) reach_start = t;
                 } else if (!climbing) {
                     if (t < 0.8f) stage = 0;
                     else if (t < 2.0f) stage = 1;
@@ -526,7 +531,7 @@ int main(int argc, char** argv) {
                     in.forward = 1.0f;
                 }
                 if (stage == 3 && !action.active() && !roll_done) action.start(*ch.roll);
-                if (stage == 8) in.forward = 1.0f;
+                if (stage == 8) in.forward = 1.0f;  // jogging on the ledge; in the reach stage the character stands
                 if (stage == 6 && !climbing) {
                     const LedgeInfo ledge = find_ledge(world, s.feet, 0.0f);
                     const float stand_distance = ch.climb_stand_distance;  // where the clip's first foot meets the ledge's face
@@ -580,12 +585,31 @@ int main(int argc, char** argv) {
                 const bool locomoting = !action.active();
                 if (action.active()) blend_into(pose, action.pose(), action.weight());
                 (void)feet.apply(*ch.skin, *ch.map, ch.rig, pose, root, locomoting ? &ground : nullptr, &obstacle, after.grounded && locomoting && stance.weight() < 0.5f, dt);
+                if (stage == 10) {
+                    // Reach for a handle in front of the chest with the left hand while looking at it: weight ramps in over 0.6 s, holds, and ramps out.
+                    const float u = t - reach_start;
+                    const float ramp = std::clamp(std::min(u / 0.6f, (2.4f - u) / 0.6f), 0.0f, 1.0f);
+                    const float w = ramp * ramp * (3.0f - 2.0f * ramp);
+                    const gfx::Pose rest_pose = gfx::rest_pose(*ch.skin);
+                    const Float3 shoulder = joint_world(*ch.skin, rest_pose)[static_cast<std::size_t>((*ch.map)[Bone::LeftUpperArm])].position;
+                    const Float3 model_target = shoulder + Float3{0.42f, 0.10f, -0.12f};
+                    handle = root.position + render::rotate(root.rotation, model_target);
+                    const HandIkResult hr = reach_hand(*ch.skin, *ch.map, ch.rig, pose, root, true, handle, w);
+                    (void)look_at(*ch.skin, *ch.map, ch.rig, pose, root, handle, {}, look_state, w * 0.8f, dt);
+                    if (w >= 0.999f) reach_error = std::min(reach_error, hr.end_error);
+                }
                 palette.update(gfx::skin_matrices(*ch.skin, pose));
 
                 if (i % opt.every == 0) {
                     std::vector<render::ModelDraw> draws;
                     draw_course(draws);
                     draws.push_back({&man, render::to_matrix(root), &palette});
+                    if (stage == 10) {
+                        render::Transform h;
+                        h.position = handle;
+                        h.scale = {0.07f, 0.16f, 0.07f};
+                        draws.push_back({&marker_model, render::to_matrix(h)});
+                    }
                     const Float3 focus{after.feet.x + 1.4f, 0.0f, after.feet.z + 0.95f};
                     const render::Camera cam = render::look_at_camera({focus.x - 0.3f, -4.6f, focus.z + 0.7f}, focus);
                     render::SceneFrame frame;
@@ -616,6 +640,13 @@ int main(int argc, char** argv) {
                 if (frames.size() < 3 || lowest_detail < 3.0 || biggest_change < 0.5) {
                     std::fprintf(stderr, "self-check failed: a frame is empty or the picture never changes\n");
                     exit_code = 1;
+                }
+                if (ch.climb && opt.seconds >= 19.0f) {
+                    std::printf("self-check: at full weight the left hand was %.1f mm from the handle\n", static_cast<double>(reach_error) * 1000.0);
+                    if (!(reach_error < 0.01f)) {
+                        std::fprintf(stderr, "self-check failed: the hand never reached the handle\n");
+                        exit_code = 1;
+                    }
                 }
                 // The script must have done what it says: with the climb available and time for it, the character ends on the 1 m ledge.
                 if (ch.climb && opt.seconds >= 16.0f) {

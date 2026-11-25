@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <set>
+#include "saige/capsule_sweep.hpp"
 #include <vector>
 
 using namespace saige;
@@ -91,6 +92,22 @@ int main() {
             CHECK(known);
         }
     }
+
+    // --- a pedestrian can stand on every node of the network (no prop, post or wall on the line people are routed along) ------------------------------------------------------------------------
+    std::size_t blocked_nodes = 0;
+    for (const PedNode& n : d.ped_nodes) {
+        if (n.layer != 0) continue;
+        const Capsule cap{Vec3{static_cast<float>(n.x), static_cast<float>(n.y), static_cast<float>(ground_height(d, n.x, n.y) + 0.02)}, 0.30f, 1.75f};
+        for (const Aabb& b : d.collision) {
+            if (b.max.z <= cap.feet.z + 0.001f) continue;
+            if (capsule_box_gap(cap, b) < 0.05f) {
+                ++blocked_nodes;
+                std::fprintf(stderr, "node (%.2f, %.2f) blocked by box [%.2f %.2f %.2f]-[%.2f %.2f %.2f]\n", n.x, n.y, b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z);
+                break;
+            }
+        }
+    }
+    CHECK(blocked_nodes == 0);
 
     // --- vehicles: lanes exist, intersections carry signals, every approach has a lane, and the entry lanes reach each other -------------------------------------------------------------------
     for (const Intersection& in : d.intersections) {

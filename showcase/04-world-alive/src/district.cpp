@@ -81,6 +81,9 @@ double ground_height(const District& d, double x, double y) {
     }
     if (y > d.quay_y) return d.sea_level;
     if (d.promenade.contains(x, y)) return 0.15;
+    for (const Interior& in : d.interiors) {
+        if (in.room.contains(x, y)) return 0.15;   // the floor of an accessible building (the ground floor)
+    }
     // Sidewalks sit 0.15 m above the asphalt.
     for (const Rect& r : d.sidewalk) {
         if (r.contains(x, y)) return 0.15;

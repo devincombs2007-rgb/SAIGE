@@ -26,6 +26,7 @@ namespace saige::anim {
 struct PlanarVelocity {
     float forward = 0.0f;  // m/s along the character's facing
     float left = 0.0f;     // m/s to the character's left
+    float up = 0.0f;       // m/s upward; only for an action with vertical root motion (a climb), 0 otherwise
 };
 
 struct ActionConfig {
@@ -39,14 +40,17 @@ struct ActionConfig {
 // through the clip's binding, so the skin must outlive it.
 class ActionClip {
 public:
-    // `sample_rate` samples per second of the hips' path (linearly interpolated between samples; 60 resolves a roll or a lunge to well under a millimeter of path error).
-    ActionClip(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, const gfx::AnimationClip& clip, float sample_rate = 60.0f);
+    // `sample_rate` samples per second of the hips' path (linearly interpolated between samples; 60 resolves a roll or a lunge to well under a millimeter of path error). With `vertical` the hips' rise is
+    // root motion too (a climb or a vault: the capsule is carried up and the pose has the rise removed, so the capsule's height is the only height); without it the vertical motion stays in the pose
+    // (a roll's dip), as before. A vertical action is driven as a scripted 3D move (`CapsuleDrive::vertical`).
+    ActionClip(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, const gfx::AnimationClip& clip, float sample_rate = 60.0f, bool vertical = false);
 
     [[nodiscard]] bool valid() const noexcept { return valid_; }
     [[nodiscard]] float duration() const noexcept { return clip_.duration; }
     // How far the hips travel over the whole clip, in the character's frame (forward, left), meters.
-    [[nodiscard]] PlanarVelocity travel() const noexcept { return total_; }   // meters, not meters per second
-    [[nodiscard]] float travel_length() const noexcept;
+    [[nodiscard]] PlanarVelocity travel() const noexcept { return total_; }   // meters, not meters per second (`up` is 0 unless the clip is vertical)
+    [[nodiscard]] float travel_length() const noexcept;                       // meters, including the rise of a vertical clip
+    [[nodiscard]] bool vertical() const noexcept { return vertical_; }
     // The hips' offset from where they were at time 0, in the character's frame, meters; time clamped to [0, duration].
     [[nodiscard]] PlanarVelocity offset(float time) const;
     [[nodiscard]] const gfx::AnimationClip& clip() const noexcept { return clip_; }
@@ -63,6 +67,7 @@ private:
     float step_ = 0.0f;
     PlanarVelocity total_{};
     bool valid_ = false;
+    bool vertical_ = false;
 };
 
 class ActionPlayer {
@@ -76,6 +81,7 @@ public:
 
     [[nodiscard]] bool active() const noexcept { return clip_ != nullptr && !done_; }
     [[nodiscard]] bool travelling() const noexcept { return active() && !cancelled_ && time_ < clip_->duration(); }
+    [[nodiscard]] bool vertical() const noexcept { return clip_ != nullptr && clip_->vertical(); }  // the action drives the capsule as a scripted 3D move
     // The velocity to drive the character at for the next physics step of `dt` seconds (zero when not travelling): the clip's own travel over [time, time + dt].
     [[nodiscard]] PlanarVelocity command(float dt) const;
     // Moves the clip on by dt * progress (progress in [0, 1], clamped; non-finite counts as 0) and re-evaluates the pose. Throws std::invalid_argument for a non-finite or non-positive dt.

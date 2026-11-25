@@ -37,16 +37,20 @@ namespace saige::anim {
     d.active = true;
     d.x = v.forward * c - v.left * s;
     d.y = v.forward * s + v.left * c;
+    if (action.vertical()) {
+        d.z = v.up;
+        d.vertical = true;
+    }
     return d;
 }
 
-// How much of the commanded travel of one step the capsule covered, in [0, 1]: the displacement of the feet along the commanded direction over the commanded distance. 1 when nothing was commanded
+// How much of the commanded travel of one step the capsule covered, in [0, 1]: the displacement of the feet along the commanded direction (in 3D for a vertical drive) over the commanded distance. 1 when nothing was commanded
 // (so a pause in a clip is not a stall). `before` and `after` are the feet around the step; the drive and dt are what was given to it.
 [[nodiscard]] inline float drive_progress(const Vec3& before, const Vec3& after, const CapsuleDrive& drive, float dt) {
-    const float cx = drive.x * dt, cy = drive.y * dt;
-    const float commanded = std::hypot(cx, cy);
+    const float cx = drive.x * dt, cy = drive.y * dt, cz = drive.vertical ? drive.z * dt : 0.0f;
+    const float commanded = std::sqrt(cx * cx + cy * cy + cz * cz);
     if (!drive.active || commanded < 1e-5f) return 1.0f;
-    const float achieved = ((after.x - before.x) * cx + (after.y - before.y) * cy) / commanded;
+    const float achieved = ((after.x - before.x) * cx + (after.y - before.y) * cy + (after.z - before.z) * cz) / commanded;
     return std::clamp(achieved / commanded, 0.0f, 1.0f);
 }
 

@@ -59,10 +59,17 @@ struct CapsuleCharacterConfig {
 // roll, a lunge: the root motion of an animation clip) uses it: the horizontal velocity is set to the drive instead of accelerating toward the input's target, and the character still collides, slides,
 // steps up and keeps to the ground exactly as it does when walking, so an action can never carry it through geometry. In the air it is ignored (the air keeps its own rules); a non-finite drive is an
 // invalid input and its magnitude is limited to the terminal speed. Inactive (the default) changes nothing: the step is bit-identical to one with no drive field.
+//
+// `vertical` makes the drive a scripted 3D move (a climb, a vault, a ledge hang): the velocity is (x, y, z) wherever the character is, in the air too, with no gravity and no ground acceleration for
+// that tick; it still collides and slides in 3D (a ceiling stops a rise, a wall stops the forward part and the rest slides) but does not step up. A rising drive leaves the ground; one that is not rising
+// puts the character back on the ground when there is ground underfoot. The host owns the action for its whole length: when the drive ends in the air, gravity takes over from the last velocity, so
+// an action should end on a surface. `z` without `vertical` is ignored.
 struct CapsuleDrive {
     bool active{};
     float x{};
     float y{};
+    float z{};
+    bool vertical{};
 };
 
 struct CapsuleInput {

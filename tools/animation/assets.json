@@ -70,5 +70,17 @@
    "Jump_Land"
   ],
   "note": "keyframed by artists, not motion capture; one rig with a mesh and 46 clips"
+ },
+ "ual2": {
+  "license": "CC0-1.0 (Quaternius, Universal Animation Library 2 Standard)",
+  "source": "https://opengameart.org/content/universal-animation-library-2",
+  "file": "UAL2_Standard.glb",
+  "sha256": "0815dd05531cae9bc313fc9c0ba81330bc72f8e19ec45f73738e74ddc5796a43",
+  "bytes": 8061600,
+  "clips_used": [
+   "ClimbUp_1m_RM"
+  ],
+  "optional": true,
+  "note": "keyframed by artists, not motion capture; 43 clips on a 65-joint Unreal-style rig, including climbing, sliding, dashes and a carry walk; no strafe or turn clips"
  }
 }

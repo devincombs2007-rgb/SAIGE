@@ -237,4 +237,32 @@ inline gfx::AnimationClip make_root_motion_clip(const Biped& b, float duration, 
     return clip;
 }
 
+// A climb: the hips rise `rise` meters over the first 60% of `duration` and travel `forward` meters over the last 60% (the two overlap in the middle), settling `settle` meters down at the end like the
+// end of a real climb clip, so that the character is put back on the ledge it climbed. Smooth-stepped, so the speeds are far from constant.
+inline gfx::AnimationClip make_climb_clip(const Biped& b, float duration, float rise, float forward, float settle = 0.05f, int samples = 60) {
+    const std::size_t pelvis = static_cast<std::size_t>(b.map[anim::Bone::Hips]);
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const std::vector<anim::JointWorld> rest_w = anim::joint_world(b.skin, rest);
+    const anim::JointWorld parent = anim::parent_world(b.skin, rest_w, pelvis);
+    const auto smooth = [](float x) {
+        x = std::fmin(1.0f, std::fmax(0.0f, x));
+        return x * x * (3.0f - 2.0f * x);
+    };
+    gfx::AnimationClip clip;
+    clip.name = "climb";
+    clip.duration = duration;
+    gfx::AnimationSampler pos;
+    pos.components = 3;
+    for (int k = 0; k <= samples; ++k) {
+        const float u = static_cast<float>(k) / static_cast<float>(samples);
+        const Float3 world = rest_w[pelvis].position + b.rig.forward * (forward * smooth((u - 0.4f) / 0.6f)) + Float3{0, 0, rise * smooth(u / 0.6f) - settle * smooth((u - 0.6f) / 0.4f)};
+        const Float3 local = render::rotate(render::conjugate(parent.rotation), world - parent.position);
+        pos.times.push_back(duration * u);
+        pos.values.insert(pos.values.end(), {local.x, local.y, local.z});
+    }
+    clip.samplers.push_back(pos);
+    clip.channels.push_back({b.skin.joint_nodes[pelvis], gfx::AnimationPath::Translation, 0});
+    return clip;
+}
+
 } // namespace fixtures

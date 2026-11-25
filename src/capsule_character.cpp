@@ -308,7 +308,7 @@ void CapsuleCharacter::step(CapsuleInput input, std::chrono::nanoseconds dt) {
 }
 
 void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanoseconds dt) {
-    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left) || !std::isfinite(input.traction) || !std::isfinite(input.drive.x) || !std::isfinite(input.drive.y)) {
+    if (dt <= std::chrono::nanoseconds::zero() || dt > max_step || !std::isfinite(input.forward) || !std::isfinite(input.left) || !std::isfinite(input.traction) || !std::isfinite(input.drive.x) || !std::isfinite(input.drive.y) || !std::isfinite(input.drive.z)) {
         throw std::invalid_argument("Capsule character step requires finite input and a fixed step in (0, 100 ms]");
     }
     const float seconds = std::chrono::duration<float>(dt).count();
@@ -325,6 +325,18 @@ void CapsuleCharacter::step_unchecked(CapsuleInput input, std::chrono::nanosecon
         state_.crouched = true;
     } else if (state_.crouched && !overlaps_standing(state_.feet, geometry_, triangles_)) {
         state_.crouched = false;
+    }
+    if (input.drive.active && input.drive.vertical) {
+        // A scripted 3D move (see CapsuleDrive): the action owns the whole velocity this tick, gravity included.
+        Vec3 v{input.drive.x, input.drive.y, input.drive.z};
+        const float magnitude = std::sqrt(length2(v));
+        if (magnitude > config_.terminal_speed) v = v * (config_.terminal_speed / magnitude);
+        state_.velocity = v;
+        if (v.z > 0.0f) state_.grounded = false;
+        previous_jump_ = input.jump;
+        slide(v * seconds, /*can_step=*/false);
+        if (!(v.z > 0.0f)) snap_to_ground();
+        return;
     }
     const bool no_input = input.forward == 0.0f && input.left == 0.0f;
     const bool keep_horizontal_speed = !state_.grounded && was_sliding && no_input;

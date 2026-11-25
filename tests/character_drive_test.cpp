@@ -104,6 +104,54 @@ void test_inactive_is_bit_identical() {
     (void)seconds;
 }
 
+CapsuleInput scripted(float x, float y, float z) {
+    CapsuleInput in;
+    in.drive = {true, x, y, z, true};
+    return in;
+}
+
+void test_vertical_drive_climbs_a_ledge() {
+    // A ledge 1 m high from x = 1.2 on.
+    std::vector<Aabb> boxes{{{-50, -50, -1}, {200, 50, 0}}, {{1.2f, -50, 0}, {200, 50, 1.0f}}};
+    CapsuleCharacter c = spawn(boxes);
+    for (int i = 0; i < 6; ++i) c.step({}, tick);
+    require(c.state().grounded, "starts on the ground");
+    // Up 1.05 m in 0.6 s, then forward 1.5 m in 0.6 s settling 5 cm down onto the ledge (as the end of a climb clip does).
+    for (int i = 0; i < 36; ++i) c.step(scripted(0.0f, 0.0f, 1.05f / 0.6f), tick);
+    require(!c.state().grounded && c.state().feet.z > 1.0f, "a rising drive leaves the ground and goes up");
+    for (int i = 0; i < 36; ++i) c.step(scripted(1.5f / 0.6f, 0.0f, -0.05f / 0.6f), tick);
+    std::cout << "  climb: feet at x " << c.state().feet.x << ", z " << c.state().feet.z << ", grounded " << c.state().grounded << "\n";
+    require(c.state().grounded && std::fabs(c.state().feet.z - 1.0f) < 0.02f && c.state().feet.x > 1.3f, "it ends standing on the ledge");
+    // Ignoring `vertical`, the z is ignored: a grounded drive stays on the floor.
+    CapsuleCharacter f = spawn(boxes);
+    CapsuleInput flat;
+    flat.drive = {true, 1.0f, 0.0f, 3.0f, false};
+    for (int i = 0; i < 20; ++i) f.step(flat, tick);
+    require(f.state().grounded && f.state().feet.z < 0.01f, "z without vertical is ignored");
+}
+
+void test_vertical_drive_collides() {
+    // A ceiling at 1.0 m over x in [3, 6]: rising under it stops at the ceiling; there is no gravity while a drive holds the character in the air.
+    std::vector<Aabb> boxes{{{-50, -50, -1}, {200, 50, 0}}, {{3, -50, 2.0f}, {6, 50, 3.0f}}};
+    CapsuleCharacter c({4.5f, 0, 0}, boxes, CapsuleCharacterConfig{});
+    for (int i = 0; i < 60; ++i) c.step(scripted(0.0f, 0.0f, 2.0f), tick);
+    std::cout << "  rising under a ceiling at 2.0 m: the top of the capsule at " << (c.state().feet.z + 1.7f) << " m\n";
+    require(c.state().feet.z + 1.7f < 2.0f + 1e-3f && c.state().feet.z > 0.25f, "a ceiling stops the rise");
+    CapsuleCharacter h({0, 0, 3.0f}, boxes, CapsuleCharacterConfig{});
+    for (int i = 0; i < 60; ++i) h.step(scripted(0.0f, 0.0f, 0.0f), tick);
+    require(std::fabs(h.state().feet.z - 3.0f) < 1e-4f && !h.state().grounded, "a zero scripted drive holds the character in the air: no gravity");
+    h.step({}, tick);
+    require(h.state().feet.z < 3.0f, "and gravity takes over the moment the drive ends");
+    // A wall: the forward part is stopped, the rise carries on.
+    std::vector<Aabb> wall{{{-50, -50, -1}, {200, 50, 0}}, {{2, -50, 0}, {3, 50, 10}}};
+    CapsuleCharacter w = spawn(wall);
+    for (int i = 0; i < 60; ++i) w.step(scripted(3.0f, 0.0f, 1.0f), tick);
+    require(w.state().feet.x < 2.0f - 0.29f && w.state().feet.z > 0.9f, "against a wall the forward part is stopped and the rise carries on (slides)");
+    bool threw = false;
+    try { w.step(scripted(0.0f, 0.0f, std::nanf("")), tick); } catch (const std::invalid_argument&) { threw = true; }
+    require(threw, "a non-finite z is an invalid input");
+}
+
 } // namespace
 
 int main() {
@@ -112,6 +160,8 @@ int main() {
         test_it_never_goes_through_geometry();
         test_air_and_invalid_input();
         test_inactive_is_bit_identical();
+        test_vertical_drive_climbs_a_ledge();
+        test_vertical_drive_collides();
     } catch (const std::exception& e) {
         std::cerr << "character drive test failed: " << e.what() << '\n';
         return 1;

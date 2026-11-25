@@ -12,7 +12,7 @@ float dot2(render::Float3 a, render::Float3 b) { return a.x * b.x + a.y * b.y; }
 
 } // namespace
 
-ActionClip::ActionClip(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, const gfx::AnimationClip& clip, float sample_rate) : skin_(&skin), rig_(rig), clip_(clip) {
+ActionClip::ActionClip(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, const gfx::AnimationClip& clip, float sample_rate, bool vertical) : skin_(&skin), rig_(rig), clip_(clip), vertical_(vertical) {
     binding_ = gfx::bind_clip(clip_, skin);
     if (!(clip_.duration > 0.0f) || !(sample_rate > 0.0f) || !std::isfinite(sample_rate)) return;
     const int n = std::max(2, static_cast<int>(std::ceil(clip_.duration * sample_rate)));
@@ -26,13 +26,13 @@ ActionClip::ActionClip(const gfx::Skin& skin, const HumanoidMap& map, const RigI
         const render::Float3 p = joint_world(skin, pose)[hips].position;
         if (i == 0) origin = p;
         const render::Float3 d = p - origin;
-        path_.push_back({dot2(d, rig.forward), dot2(d, rig.left)});
+        path_.push_back({dot2(d, rig.forward), dot2(d, rig.left), vertical ? d.z : 0.0f});
     }
     total_ = path_.back();
     valid_ = true;
 }
 
-float ActionClip::travel_length() const noexcept { return std::hypot(total_.forward, total_.left); }
+float ActionClip::travel_length() const noexcept { return std::sqrt(total_.forward * total_.forward + total_.left * total_.left + total_.up * total_.up); }
 
 PlanarVelocity ActionClip::offset(float time) const {
     if (path_.empty()) return {};
@@ -41,7 +41,7 @@ PlanarVelocity ActionClip::offset(float time) const {
     const std::size_t i = static_cast<std::size_t>(x);
     if (i + 1 >= path_.size()) return path_.back();
     const float f = x - static_cast<float>(i);
-    return {path_[i].forward + (path_[i + 1].forward - path_[i].forward) * f, path_[i].left + (path_[i + 1].left - path_[i].left) * f};
+    return {path_[i].forward + (path_[i + 1].forward - path_[i].forward) * f, path_[i].left + (path_[i + 1].left - path_[i].left) * f, path_[i].up + (path_[i + 1].up - path_[i].up) * f};
 }
 
 void ActionPlayer::start(const ActionClip& clip) {
@@ -65,7 +65,7 @@ PlanarVelocity ActionPlayer::command(float dt) const {
     if (!travelling() || !(dt > 0.0f) || !std::isfinite(dt)) return {};
     const float t1 = std::min(time_ + dt, clip_->duration());
     const PlanarVelocity a = clip_->offset(time_), b = clip_->offset(t1);
-    return {(b.forward - a.forward) / dt, (b.left - a.left) / dt};
+    return {(b.forward - a.forward) / dt, (b.left - a.left) / dt, (b.up - a.up) / dt};
 }
 
 void ActionPlayer::advance(float dt, float progress) {
@@ -79,7 +79,7 @@ void ActionPlayer::advance(float dt, float progress) {
         time_ = std::min(time_ + dt * p, clip_->duration());
         // Headway is only judged where the clip actually travels: a pause in the middle of a roll is not a stall.
         const PlanarVelocity v = command(dt);
-        const bool travelling_now = std::hypot(v.forward, v.left) > 0.05f;
+        const bool travelling_now = std::sqrt(v.forward * v.forward + v.left * v.left + v.up * v.up) > 0.05f;
         stall_time_ = (travelling_now && p < cfg_.stall_progress) ? stall_time_ + dt : 0.0f;
         if (stall_time_ >= cfg_.stall_seconds) {
             stalled_ = true;
@@ -113,7 +113,7 @@ void ActionPlayer::evaluate() {
     const PlanarVelocity o = clip_->offset(time_);
     const RigInfo& rig = clip_->rig();
     const render::Float3 travel = rig.forward * o.forward + rig.left * o.left;
-    translate_model(skin, {-travel.x, -travel.y, 0.0f}, pose_);
+    translate_model(skin, {-travel.x, -travel.y, -o.up}, pose_);
 }
 
 } // namespace saige::anim

@@ -8,6 +8,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <vector>
 
 using namespace saige;
@@ -295,4 +298,152 @@ TEST_CASE("Action on the capsule: a roll off a ledge is ended by the host the mo
     CHECK(!player.active());
     CHECK(!player.stalled());
     CHECK(character.state().feet.x > 1.95f);
+}
+
+namespace {
+
+struct ClimbResult {
+    Vec3 end;
+    bool grounded = false;
+    bool stalled = false;
+    float worst_pose_rise = 0.0f;  // how far the pose's hips were above their start (the climb's rise is the capsule's, not the pose's)
+    int ticks = 0;
+};
+
+// Climbs with a vertical action on a 1 m-ish ledge whose face is at x = 1.2 and whose height is `ledge`.
+ClimbResult climb(const fixtures::Biped& b, const ActionClip& action, float ledge, bool feedback, bool ceiling = false) {
+    std::vector<Aabb> boxes{{{-50, -20, -1}, {50, 20, 0}}, {{1.2f, -20, 0}, {50, 20, ledge}}};
+    if (ceiling) boxes.push_back({{-5, -20, 2.0f}, {50, 20, 3.0f}});  // a ceiling over the whole run, 2 m up: the capsule (1.7 m) can rise 0.3 m, and the way forward is open
+    CapsuleCharacter character({0.0f, 0.0f, 0.0f}, boxes, CapsuleCharacterConfig{});
+    for (int i = 0; i < 6; ++i) character.step({}, tick);
+    ActionPlayer player;
+    player.start(action);
+    const std::size_t hips = static_cast<std::size_t>(b.map[Bone::Hips]);
+    const float start_z = joint_world(b.skin, player.pose())[hips].position.z;
+    const float dt = 1.0f / 60.0f;
+    ClimbResult r;
+    while (player.active() && r.ticks < 600) {
+        CapsuleInput in;
+        in.drive = capsule_drive(player, dt, 0.0f);
+        const Vec3 before = character.state().feet;
+        character.step(in, tick);
+        player.advance(dt, feedback ? drive_progress(before, character.state().feet, in.drive, dt) : 1.0f);
+        r.worst_pose_rise = std::max(r.worst_pose_rise, joint_world(b.skin, player.pose())[hips].position.z - start_z);
+        ++r.ticks;
+    }
+    for (int i = 0; i < 30; ++i) character.step({}, tick);  // let it settle
+    r.end = character.state().feet;
+    r.grounded = character.state().grounded;
+    r.stalled = player.stalled();
+    return r;
+}
+
+} // namespace
+
+TEST_CASE("Vertical action on the capsule: a climb carries the character up onto a ledge and the pose stays at the capsule; a ledge too high for the clip stops it without going through") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::AnimationClip clip = fixtures::make_climb_clip(b, 1.0f, 1.05f, 2.0f);
+    const ActionClip action(b.skin, b.map, b.rig, clip, 60.0f, true);
+    REQUIRE(action.valid());
+    CHECK(action.vertical());
+    CHECK(std::fabs(action.travel().forward - 2.0f) < 5e-3f);
+    CHECK(std::fabs(action.travel().up - 1.0f) < 5e-3f);       // 1.05 up, 0.05 settled
+    CHECK(action.travel_length() > 2.2f);
+    // Without the vertical option the rise is not root motion.
+    const ActionClip flat(b.skin, b.map, b.rig, clip);
+    CHECK(flat.travel().up == 0.0f);
+    const ClimbResult ok = climb(b, action, 1.0f, true);
+    std::printf("  climb onto a 1.0 m ledge: feet at (%.2f, %.2f), grounded %d, stalled %d, %d ticks, pose rose %.1f mm\n", static_cast<double>(ok.end.x), static_cast<double>(ok.end.z), ok.grounded ? 1 : 0, ok.stalled ? 1 : 0,
+                ok.ticks, static_cast<double>(ok.worst_pose_rise) * 1000.0);
+    CHECK(ok.grounded);
+    CHECK(std::fabs(ok.end.z - 1.0f) < 0.02f);
+    CHECK(std::fabs(ok.end.x - 2.0f) < 0.1f);
+    CHECK(!ok.stalled);
+    CHECK(ok.worst_pose_rise < 2e-3f);
+    // A 1.6 m wall: the clip cannot carry the character over it. It rises along the face, stalls, and never ends up on or beyond it.
+    const ClimbResult wall = climb(b, action, 1.6f, true);
+    std::printf("  climb at a 1.6 m wall: feet at (%.2f, %.2f), stalled %d\n", static_cast<double>(wall.end.x), static_cast<double>(wall.end.z), wall.stalled ? 1 : 0);
+    CHECK(wall.end.x < 1.2f - 0.29f);
+    CHECK(wall.end.z < 0.3f || wall.grounded);   // back on the floor after the action gave up (gravity), not on the wall
+    CHECK(wall.stalled);
+    // A ceiling 2 m up over the whole run, with only a 5 cm step ahead: the rise is blocked while the way forward is open, so only the 3D progress sees it; the action gives up and the character stays under the ceiling.
+    const ClimbResult low = climb(b, action, 0.05f, true, true);
+    const ClimbResult blind = climb(b, action, 0.05f, false, true);
+    std::printf("  climb under a low ceiling: feet at (%.2f, %.2f) stalled %d; ignoring the physics the clip plays on (%d ticks)\n", static_cast<double>(low.end.x), static_cast<double>(low.end.z), low.stalled ? 1 : 0, blind.ticks);
+    CHECK(low.stalled);
+    CHECK(low.end.z < 0.3f);
+    CHECK(!blind.stalled);
+}
+
+// The real climb clip (UAL 2's ClimbUp_1m_RM) on the capsule: needs the optional asset (SAIGE_ANIM_ASSETS/ual2/UAL2_Standard.glb, see tools/animation/fetch_humanoid_assets.py); reports and passes without it.
+TEST_CASE("Vertical action on the capsule: UAL 2's ClimbUp_1m_RM climbs a 1 m ledge, in place on the rig, with the capsule doing the travel") {
+    const char* env = std::getenv("SAIGE_ANIM_ASSETS");
+    const std::filesystem::path path = env != nullptr ? std::filesystem::path(env) / "ual2" / "UAL2_Standard.glb" : std::filesystem::path();
+    if (env == nullptr || !std::filesystem::exists(path)) {
+        std::printf("  UAL 2 not available (SAIGE_ANIM_ASSETS/ual2/UAL2_Standard.glb): real climb skipped\n");
+        return;
+    }
+    const gfx::GltfLoadResult loaded = gfx::load_gltf_file(path);
+    REQUIRE(loaded.ok());
+    const gfx::Skin& skin = loaded.asset->skins[0];
+    const auto map = map_humanoid(skin);
+    REQUIRE(map.has_value());
+    const RigInfo rig = analyze_rig(skin, *map);
+    const gfx::AnimationClip* clip = nullptr;
+    for (const gfx::AnimationClip& c : loaded.asset->animations) {
+        if (c.name == "ClimbUp_1m_RM") clip = &c;
+    }
+    REQUIRE(clip != nullptr);
+    const ActionClip action(skin, *map, rig, *clip, 60.0f, true);
+    std::printf("  ClimbUp_1m_RM: %.2f s, travel %.2f m forward, %.2f m up\n", static_cast<double>(action.duration()), static_cast<double>(action.travel().forward), static_cast<double>(action.travel().up));
+    CHECK(std::fabs(action.travel().up - 1.0f) < 0.1f);
+    CHECK(action.travel().forward > 1.4f && action.travel().forward < 2.0f);
+    // Where the clip puts its first foot on the ledge: the toes' forward position (relative to the hips' start) when they first reach the ledge's height.
+    const gfx::ClipBinding bind = gfx::bind_clip(*clip, skin);
+    gfx::Pose pose = gfx::rest_pose(skin);
+    gfx::evaluate_clip(*clip, bind, 0.0f, false, pose);
+    const Float3 start = joint_world(skin, pose)[static_cast<std::size_t>((*map)[Bone::Hips])].position;
+    const float floor_z = std::min(joint_world(skin, pose)[static_cast<std::size_t>((*map)[Bone::LeftToes])].position.z, joint_world(skin, pose)[static_cast<std::size_t>((*map)[Bone::RightToes])].position.z);
+    float face = 0.0f;
+    for (int i = 0; i <= 200 && face == 0.0f; ++i) {
+        gfx::evaluate_clip(*clip, bind, clip->duration * static_cast<float>(i) / 200.0f, false, pose);
+        const std::vector<JointWorld> w = joint_world(skin, pose);
+        for (const Bone toes : {Bone::LeftToes, Bone::RightToes}) {
+            const Float3 t = w[static_cast<std::size_t>((*map)[toes])].position;
+            if (t.z - floor_z > 0.9f && face == 0.0f) face = t.x - start.x;
+        }
+    }
+    std::printf("  the first toe reaches ledge height %.2f m ahead of the hips' start\n", static_cast<double>(face));
+    REQUIRE(face > 0.3f);
+    // A ledge 1 m high whose face is where the clip's first foot lands, less the length of the foot; the character stands at the start.
+    const float face_x = face - 0.12f;
+    std::vector<Aabb> boxes{{{-50, -20, -1}, {50, 20, 0}}, {{face_x, -20, 0}, {50, 20, 1.0f}}};
+    CapsuleCharacter character({0.0f, 0.0f, 0.0f}, boxes, CapsuleCharacterConfig{});
+    for (int i = 0; i < 6; ++i) character.step({}, tick);
+    ActionPlayer player;
+    player.start(action);
+    const float dt = 1.0f / 60.0f;
+    int ticks = 0;
+    float worst_swim = 0.0f;
+    while (player.active() && ticks < 600) {
+        CapsuleInput in;
+        in.drive = capsule_drive(player, dt, 0.0f);
+        const Vec3 before = character.state().feet;
+        character.step(in, tick);
+        player.advance(dt, drive_progress(before, character.state().feet, in.drive, dt));
+        const Float3 h = joint_world(skin, player.pose())[static_cast<std::size_t>((*map)[Bone::Hips])].position;
+        worst_swim = std::max(worst_swim, std::hypot(h.x - start.x, h.y - start.y));
+        worst_swim = std::max(worst_swim, std::fabs(h.z - start.z));
+        ++ticks;
+    }
+    for (int i = 0; i < 30; ++i) character.step({}, tick);
+    const CapsuleCharacterState& s = character.state();
+    std::printf("  climbed: feet at (%.2f, %.2f), grounded %d, stalled %d, %d ticks, pose %.1f mm from its start\n", static_cast<double>(s.feet.x), static_cast<double>(s.feet.z), s.grounded ? 1 : 0, player.stalled() ? 1 : 0,
+                ticks, static_cast<double>(worst_swim) * 1000.0);
+    CHECK(s.grounded);
+    CHECK(std::fabs(s.feet.z - 1.0f) < 0.03f);
+    CHECK(s.feet.x > face_x);
+    CHECK(!player.stalled());
+    // The pose is in place in all three axes: the capsule did all the travel.
+    CHECK(worst_swim < 0.005f);
 }

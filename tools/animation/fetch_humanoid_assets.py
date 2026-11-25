@@ -70,6 +70,20 @@ def main():
     else:
         ok = False
         print(f"  {u['file']}: missing. Fetch it with: tools/production/saige-assets fetch opengameart {u['source']} --kind animation   then re-run this script, or pass --ual PATH")
+    # UAL 2 is optional (the climb test uses it): copied from the asset cache when it is there, never a failure when it is not.
+    u2 = manifest.get("ual2")
+    if u2 is not None:
+        dest2 = out / "ual2" / u2["file"]
+        src2 = find_ual_in_cache(u2["file"])
+        if not dest2.exists() and src2 is not None and src2.exists():
+            (out / "ual2").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src2, dest2)
+        if dest2.exists():
+            good = sha256(dest2) == u2["sha256"]
+            ok = ok and good
+            print(f"  {dest2.name}: {'ok' if good else 'HASH MISMATCH'} (optional)")
+        else:
+            print(f"  {u2['file']}: not available (optional; fetch with tools/production/saige-assets fetch opengameart {u2['source']} --kind animation)")
     print("attribution (CMU): " + manifest["cmu"]["attribution"])
     return 0 if ok else 1
 

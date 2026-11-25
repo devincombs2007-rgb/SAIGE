@@ -20,6 +20,17 @@ struct TwoBoneResult {
 // toward `pole` (a model-space direction: forward for a knee, backward for an elbow). Only the rotations of `upper` and `lower` change. `weight` in [0, 1] blends the solution with the input pose.
 TwoBoneResult solve_two_bone(const gfx::Skin& skin, gfx::Pose& pose, std::size_t upper, std::size_t lower, std::size_t end, render::Float3 target, render::Float3 pole, float weight = 1.0f);
 
+// Hand IK: puts a hand (the wrist joint) on a world point: a door handle, a steering wheel, a rail. The arm is solved with `solve_two_bone`, the elbow bending backward and a little outward, and the hand
+// can also be turned to a world rotation (a grip) instead of keeping the animation's own. `root` is the character's world transform with the rig's model space inside it. `weight` in [0, 1] fades the
+// whole effect (0 leaves the pose untouched, bit for bit); a target out of reach extends the arm toward it and `reached` says so. Only the rotations of upper arm, lower arm and hand change. Throws
+// std::invalid_argument for a rig without that arm or a non-finite target.
+struct HandIkResult {
+    bool reached = false;
+    float end_error = 0.0f;  // meters between the hand and the target (or the nearest reachable point) after the solve
+};
+HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, render::Float3 world_target, float weight,
+                        const render::Quat* world_grip = nullptr);
+
 // What the ground is under a point: the height of the surface and its unit normal at a horizontal position near `reference_z` (the query should look for ground around that height, so a floor above or
 // below the character is not picked). Returns false when there is none.
 struct GroundSample {

@@ -214,6 +214,25 @@ int main(int argc, char** argv) {
             }
             std::printf("  aim layer over the sprint: arms end %.4f rad from the aim pose (the sprint's arms were %.2f rad from it)\n", static_cast<double>(arm_to_layer), static_cast<double>(arm_to_base));
             check(arm_to_layer < 1e-4f && arm_to_base > 0.3f, "the aim layer puts the arms in the aim pose", static_cast<double>(arm_to_layer));
+            // Hand IK on the UAL rig: each hand on a point in front of the chest (a door handle), the arm keeping its bone lengths.
+            for (const bool left_hand : {true, false}) {
+                gfx::Pose arm_pose = base;
+                const render::Transform at_feet{{2, 1, 0}, render::from_axis_angle({0, 0, 1}, 0.6f), {1, 1, 1}};
+                const Bone ub = left_hand ? Bone::LeftUpperArm : Bone::RightUpperArm, hb = left_hand ? Bone::LeftHand : Bone::RightHand;
+                const std::vector<JointWorld> before_w = joint_world(skin, arm_pose);
+                const render::Float3 shoulder = before_w[static_cast<std::size_t>((*map)[ub])].position;
+                const render::Float3 handle_model = shoulder + render::Float3{0.35f, left_hand ? 0.1f : -0.1f, -0.15f};
+                const render::Float3 handle_world = at_feet.position + render::rotate(at_feet.rotation, handle_model);
+                const HandIkResult hr = reach_hand(skin, *map, rig, arm_pose, at_feet, left_hand, handle_world, 1.0f);
+                const std::vector<JointWorld> after_w = joint_world(skin, arm_pose);
+                const render::Float3 got = after_w[static_cast<std::size_t>((*map)[hb])].position;
+                const float err = std::hypot(std::hypot(got.x - handle_model.x, got.y - handle_model.y), got.z - handle_model.z);
+                const std::size_t lj = static_cast<std::size_t>((*map)[left_hand ? Bone::LeftLowerArm : Bone::RightLowerArm]);
+                const float len0 = render::length(before_w[lj].position - before_w[static_cast<std::size_t>((*map)[ub])].position), len1 = render::length(after_w[lj].position - after_w[static_cast<std::size_t>((*map)[ub])].position);
+                std::printf("  UAL %s hand to a point 0.35 m ahead of the shoulder: %.2f mm off, reached=%d\n", left_hand ? "left" : "right", static_cast<double>(err) * 1000.0, hr.reached ? 1 : 0);
+                check(hr.reached && err < 0.003f, "the UAL hand reaches the point", static_cast<double>(err));
+                check(std::fabs(len0 - len1) < 1e-4f, "the upper arm keeps its length", static_cast<double>(len1 - len0));
+            }
             // Look at a point 4 m ahead and 2 m to the left of the standing character, at head height.
             gfx::Pose stand = gfx::rest_pose(skin);
             const render::Transform at_origin{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};

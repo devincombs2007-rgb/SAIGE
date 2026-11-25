@@ -251,3 +251,36 @@ void lock_planted_feet(const gfx::Skin& skin, const HumanoidMap& map, const RigI
 }
 
 } // namespace saige::anim
+
+namespace saige::anim {
+
+HandIkResult reach_hand(const gfx::Skin& skin, const HumanoidMap& map, const RigInfo& rig, gfx::Pose& pose, const render::Transform& root, bool left_hand, Float3 world_target, float weight,
+                        const render::Quat* world_grip) {
+    const Bone upper_bone = left_hand ? Bone::LeftUpperArm : Bone::RightUpperArm, lower_bone = left_hand ? Bone::LeftLowerArm : Bone::RightLowerArm, hand_bone = left_hand ? Bone::LeftHand : Bone::RightHand;
+    if (!map.has(upper_bone) || !map.has(lower_bone) || !map.has(hand_bone)) throw std::invalid_argument("reach_hand: the rig has no such arm");
+    if (!std::isfinite(world_target.x) || !std::isfinite(world_target.y) || !std::isfinite(world_target.z)) throw std::invalid_argument("reach_hand: non-finite target");
+    HandIkResult result;
+    const float w = std::clamp(weight, 0.0f, 1.0f);
+    if (!(w > 0.0f)) {
+        result.reached = true;
+        return result;
+    }
+    const std::size_t upper = static_cast<std::size_t>(map[upper_bone]), lower = static_cast<std::size_t>(map[lower_bone]), hand = static_cast<std::size_t>(map[hand_bone]);
+    const Float3 target = render::rotate(render::conjugate(root.rotation), world_target - root.position);
+    // The elbow bends backward and a little away from the body.
+    const Float3 outward = rig.left * (left_hand ? 1.0f : -1.0f);
+    const Float3 pole = rig.forward * -1.0f + outward * 0.5f;
+    const std::vector<JointWorld> before = joint_world(skin, pose);
+    const TwoBoneResult r = solve_two_bone(skin, pose, upper, lower, hand, target, pole, w);
+    result.reached = r.reached;
+    if (world_grip != nullptr) {
+        const std::vector<JointWorld> after = joint_world(skin, pose);
+        const render::Quat wanted = render::normalize(render::conjugate(root.rotation) * *world_grip);
+        set_world_rotation(skin, pose, after, hand, render::slerp(before[hand].rotation, wanted, w));
+    }
+    const std::vector<JointWorld> done = joint_world(skin, pose);
+    result.end_error = length(done[hand].position - target);
+    return result;
+}
+
+} // namespace saige::anim

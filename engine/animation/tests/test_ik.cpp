@@ -253,3 +253,80 @@ TEST_CASE("Foot locking: a planted foot stays where it landed when the stride do
     try { lock_planted_feet(b.skin, b.map, b.rig, pose, {{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}}, {}, state, 0.0f); } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
 }
+
+TEST_CASE("Hand IK: each hand reaches a world point from any heading, bones keep their length, the elbow bends backward, and only the arm's rotations change") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    for (const bool left : {true, false}) {
+        const Bone ub = left ? Bone::LeftUpperArm : Bone::RightUpperArm, lb = left ? Bone::LeftLowerArm : Bone::RightLowerArm, hb = left ? Bone::LeftHand : Bone::RightHand;
+        const std::size_t up = static_cast<std::size_t>(b.map[ub]), lo = static_cast<std::size_t>(b.map[lb]), hd = static_cast<std::size_t>(b.map[hb]);
+        const float len_a = dist(w0[up].position, w0[lo].position), len_b = dist(w0[lo].position, w0[hd].position);
+        const Float3 shoulder = w0[up].position;
+        for (const render::Transform& root : {render::Transform{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}}, render::Transform{{4, -3, 0}, render::from_axis_angle({0, 0, 1}, -0.9f), {1, 1, 1}}}) {
+            for (const Float3 offset : {Float3{0.35f, 0.0f, 0.0f}, Float3{0.3f, left ? 0.25f : -0.25f, 0.2f}, Float3{0.2f, 0.0f, -0.25f}, Float3{0.25f, left ? -0.2f : 0.2f, 0.1f}}) {
+                gfx::Pose pose = rest;
+                const Float3 world_target = root.position + render::rotate(root.rotation, shoulder + offset);
+                const HandIkResult r = reach_hand(b.skin, b.map, b.rig, pose, root, left, world_target, 1.0f);
+                REQUIRE(r.reached);
+                const std::vector<JointWorld> w = joint_world(b.skin, pose);
+                CHECK(dist(w[hd].position, shoulder + offset) < 2e-3f);
+                CHECK(r.end_error < 2e-3f);
+                CHECK(std::fabs(dist(w[up].position, w[lo].position) - len_a) < 1e-4f);
+                CHECK(std::fabs(dist(w[lo].position, w[hd].position) - len_b) < 1e-4f);
+                // The elbow bends toward the pole (backward and a little outward), away from the line from shoulder to hand.
+                const Float3 axis = render::normalize(w[hd].position - w[up].position);
+                const Float3 elbow_off = (w[lo].position - w[up].position) - axis * render::dot(w[lo].position - w[up].position, axis);
+                const Float3 pole = b.rig.forward * -1.0f + b.rig.left * (left ? 0.5f : -0.5f);
+                CHECK(render::dot(elbow_off, pole) > 0.01f);
+                if (offset.z < -0.2f) CHECK(render::dot(elbow_off, b.rig.forward) < -0.01f);  // a hand low in front: the elbow is behind the line
+                // Only the three joints' rotations changed.
+                for (std::size_t j = 0; j < pose.local.size(); ++j) {
+                    CHECK(pose.local[j].position == rest.local[j].position);
+                    if (j != up && j != lo && j != hd) CHECK(pose.local[j].rotation == rest.local[j].rotation);
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("Hand IK: out of reach the arm extends toward the target, the weight fades the effect, a grip turns the hand, and bad input throws") {
+    const fixtures::Biped b = fixtures::make_biped();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    const render::Transform root{{0, 0, 0}, {0, 0, 0, 1}, {1, 1, 1}};
+    const std::vector<JointWorld> w0 = joint_world(b.skin, rest);
+    const std::size_t up = static_cast<std::size_t>(b.map[Bone::LeftUpperArm]), hd = static_cast<std::size_t>(b.map[Bone::LeftHand]), lo = static_cast<std::size_t>(b.map[Bone::LeftLowerArm]);
+    const float reach = dist(w0[up].position, w0[lo].position) + dist(w0[lo].position, w0[hd].position);
+    // Far away: fully extended, pointing at the target, not reached.
+    gfx::Pose far = rest;
+    const Float3 far_target = w0[up].position + Float3{3.0f, 1.0f, 0.5f};
+    const HandIkResult rf = reach_hand(b.skin, b.map, b.rig, far, root, true, far_target, 1.0f);
+    CHECK(!rf.reached);
+    const std::vector<JointWorld> wf = joint_world(b.skin, far);
+    CHECK(std::fabs(dist(wf[up].position, wf[hd].position) - reach) < 5e-3f);
+    CHECK(render::dot(render::normalize(wf[hd].position - wf[up].position), render::normalize(far_target - wf[up].position)) > 0.999f);
+    // Weight 0 is bit-identical; weight 0.5 ends between the rest position and the target.
+    const Float3 target = w0[up].position + Float3{0.3f, 0.2f, 0.15f};
+    gfx::Pose p0 = rest, ph = rest, p1 = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, p0, root, true, target, 0.0f);
+    (void)reach_hand(b.skin, b.map, b.rig, ph, root, true, target, 0.5f);
+    (void)reach_hand(b.skin, b.map, b.rig, p1, root, true, target, 1.0f);
+    CHECK(pose_distance(p0, rest) == 0.0f);
+    const float full = dist(joint_world(b.skin, p1)[hd].position, w0[hd].position), half = dist(joint_world(b.skin, ph)[hd].position, w0[hd].position);
+    CHECK(half > 0.2f * full && half < 0.8f * full);
+    // A grip: the hand's world rotation becomes the requested one.
+    const render::Quat grip = render::from_axis_angle({1, 0, 0}, 1.1f);
+    gfx::Pose pg = rest;
+    (void)reach_hand(b.skin, b.map, b.rig, pg, root, true, target, 1.0f, &grip);
+    CHECK(rotation_angle_between(joint_world(b.skin, pg)[hd].rotation, grip) < 1e-3f);
+    CHECK(dist(joint_world(b.skin, pg)[hd].position, target) < 2e-3f);
+    // Bad input.
+    bool threw = false;
+    try { (void)reach_hand(b.skin, b.map, b.rig, pg, root, true, {std::nanf(""), 0, 0}, 1.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+    HumanoidMap no_arm = b.map;
+    no_arm.joint[static_cast<std::size_t>(Bone::LeftHand)] = -1;
+    threw = false;
+    try { (void)reach_hand(b.skin, no_arm, b.rig, pg, root, true, target, 1.0f); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}

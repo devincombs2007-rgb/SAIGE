@@ -18,6 +18,46 @@ Off by default (`-DSAIGE_PHYSICS_JOLT=OFF`). To build it:
 **Pin: v5.7.0.** Verified as the latest release tag reachable from the cloud session by probing the raw host for v5.3.0 through v5.8.0 and v6.0.0 (v5.7.0 exists, later ones do not, and `master` reports 5.7.0 in its version header).
 The earlier evaluation used v5.3.0; the harness numbers there are not re-measured on v5.7.0 (backlog).
 
+## Status and version policy
+
+**Jolt is SAIGE's permanent dynamic physics dependency** (owner and development director, 2026-11-25), always behind `DynamicsWorld`; the character controller, vehicle, water and material table remain SAIGE's own. The rule for versions: the newest stable
+release that passes the acceptance tests (`dynamics_test`, `ragdoll_test`, `buoyancy_test`, the tower gate below, ASan/UBSan, ThreadSanitizer, double precision, MSVC). **Pinned: v5.7.0**, the newest tag that exists (probed to v6.0.0) and passes. The adapter needs at least
+v5.4.0 (`HingeConstraint::SetTargetOrientationBS`); v5.4.0, v5.5.0, v5.6.0 and v5.7.0 all pass the whole `dynamics_test` except the pin check, and v5.3.0 does not build the adapter. No older version needs to be retained.
+
+### The stacking change between v5.5.0 and v5.6.0 (investigated)
+
+Bisected with the same harness on v5.3.0 to v5.7.0 (`tools/physics_eval`, `stacksweep` workload: 55 configurations of column height, substeps, velocity and position iterations): **v5.3.0, v5.4.0 and v5.5.0 are bit-identical; the change first appears in v5.6.0** and v5.7.0 is the same as v5.6.0.
+It is **not a changed default** (`PhysicsSettings` is identical apart from an unrelated internal-edge tolerance), **not our solver settings**, and **not an upstream defect**: v5.6.0 replaced Jolt's friction model. Up to v5.5.0 every contact point of a manifold carried
+its own pair of friction constraints (`wcp.mFrictionConstraint1/2`, limited by that point's normal impulse); from v5.6.0 a manifold has one pair of friction constraints at the centroid of its contact points plus a new angular (torsional) friction constraint limited by the
+normal impulses times their distances to that centroid (`ContactConstraintManager.cpp`, `AngularFrictionConstraintPart.h`). Evidence that the new model is sound and the old stack was at a margin: disabling the angular friction in v5.7.0 makes the 20-box column far worse (25 m of drift),
+and the old model is itself non-monotonic in solver effort (a 20-box column at one substep stands with 30 velocity iterations, falls with 45, stands with 60 and 90).
+
+What changed in practice, measured (Linux GCC, Release, single precision, shared CPU: costs indicative):
+
+| Column | v5.5.0 | v5.7.0 |
+| --- | --- | --- |
+| 10 boxes, 1 substep, 10 velocity iterations | stands, drift 1.7 cm, asleep | stands, drift 5.2 cm, asleep (3 times the creep, still within what a person calls standing) |
+| 15 boxes | stands at 1 substep from 30 iterations, at 2 from 60 | identical |
+| 20 boxes, 1 substep | stands at 30, 60, 90 iterations (not 45) | **falls at 30 and 45**, stands at 60 and 90 |
+| 20 boxes, 2 substeps | stands from 45 iterations | identical |
+| 20 boxes, 4 substeps | stands at every effort tried | identical |
+| Cost, 20 boxes, 1 substep, 60 iterations | 0.0042 ms per step | **0.0024 ms** (a fall to rest 1.8 times cheaper) |
+| Cost, 20 boxes, 2 substeps, 60 iterations | 0.0213 ms | **0.0085 ms** |
+| Cost, 20 boxes, 4 substeps, 60 iterations | 0.0588 ms | **0.0332 ms** |
+
+So the regression is narrow: one marginal configuration of a 20-metre column at one substep and 30 iterations, while the solver is about 1.8 times cheaper on the configurations that stand. Nothing was fixed by "more effort" blindly: a 20-box tower is stable at **60 velocity iterations
+and one substep (0.0024 ms per step)** or two substeps, and that is what the gate pins. `DynamicsConfig` defaults stay at 10 iterations and one substep (a 10-box column stands and sleeps); tall towers and ragdolls choose their own (the ragdoll tests use four substeps, 20 velocity and 10 position
+iterations, measured in `docs/ragdoll.md`).
+
+**The gate** (`dynamics_test towers`): ten boxes at the defaults; fifteen at two substeps and 30 iterations; twenty at two substeps and 60; twenty at one substep and 60: each must stand (drift under 8 cm, tilt under 1 degree) and be asleep after 20 s. It passes on v5.4.0 to v5.7.0, so a future upgrade
+that breaks stacking is caught by CI, not by a game.
+
+### Lifetimes, threads and sanitizers
+
+`dynamics_test lifetimes` churns 3000 steps on four workers (1,328 bodies created, 1,029 removed, 440 constraints, slots reused with a new generation 3,082 times; every removed id stays refused; the live count always equals the test's; the state stays finite). It found a defect in
+the adapter: self-collision sub-group ids were never returned when a body was removed, so a group refused its 65th body ever, not its 65th live body. Fixed (ids are returned and reused; mutation-checked). The whole of `dynamics_test` and `ragdoll_test` also run clean under ThreadSanitizer
+(Jolt's job system with 4 workers) and under ASan/UBSan, and TSan is a CI job.
+
 ## Compatibility gates (`tests/dynamics_test.cpp`)
 
 | Gate | What it measures | Result (Jolt 5.7.0, Linux GCC, single and double precision) |

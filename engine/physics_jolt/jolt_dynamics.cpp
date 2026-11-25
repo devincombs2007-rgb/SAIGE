@@ -27,6 +27,7 @@
 #include <cfloat>
 #include <cmath>
 #include <map>
+#include <set>
 #include <mutex>
 #include <stdexcept>
 #include <vector>
@@ -204,16 +205,25 @@ public:
         s.mRestitution = d.restitution >= 0.0f ? d.restitution : m.restitution;
         s.mLinearDamping = d.linear_damping;
         s.mAngularDamping = d.angular_damping;
+        std::uint32_t group = 0, sub = 0;
         if (d.self_collision_group != 0) {
             Group& g = groups_[d.self_collision_group];
-            if (g.count >= 64) throw std::invalid_argument("add_body: a self-collision group holds at most 64 bodies");
+            if (g.free.empty() && g.count >= 64) throw std::invalid_argument("add_body: a self-collision group holds at most 64 bodies at a time");
             if (g.filter == nullptr) {
                 g.filter = new JPH::GroupFilterTable(64);
                 for (JPH::CollisionGroup::SubGroupID a = 0; a < 64; ++a) {
                     for (JPH::CollisionGroup::SubGroupID b = a + 1; b < 64; ++b) g.filter->DisableCollision(a, b);
                 }
             }
-            s.mCollisionGroup = JPH::CollisionGroup(g.filter, d.self_collision_group, g.count++);
+            // A sub-group id is held for as long as the body lives and returned when it is removed, so a group can churn through any number of bodies 64 at a time.
+            if (!g.free.empty()) {
+                sub = *g.free.begin();
+                g.free.erase(g.free.begin());
+            } else {
+                sub = g.count++;
+            }
+            group = d.self_collision_group;
+            s.mCollisionGroup = JPH::CollisionGroup(g.filter, group, sub);
         }
         if (dynamic) {
             const double mass = d.mass > 0.0 ? d.mass : static_cast<double>(m.density) * volume;
@@ -223,15 +233,23 @@ public:
             s.mLinearVelocity = jv(d.linear_velocity);
             s.mAngularVelocity = jv(d.angular_velocity);
         }
-        const JPH::BodyID id = ps_.GetBodyInterface().CreateAndAddBody(s, dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+        JPH::BodyID id;
+        try {
+            id = ps_.GetBodyInterface().CreateAndAddBody(s, dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+        } catch (...) {
+            if (group != 0) groups_[group].free.insert(sub);
+            throw;
+        }
         for (std::size_t i = 0; i < slots_.size(); ++i) {
             if (!slots_[i].alive) {
                 slots_[i].id = id;
                 slots_[i].alive = true;
+                slots_[i].group = group;
+                slots_[i].sub = sub;
                 return {static_cast<std::uint32_t>(i), slots_[i].generation};
             }
         }
-        slots_.push_back({id, 0, true});
+        slots_.push_back({id, 0, true, group, sub});
         return {static_cast<std::uint32_t>(slots_.size() - 1), 0};
     }
 
@@ -242,6 +260,8 @@ public:
         }
         ps_.GetBodyInterface().RemoveBody(s.id);
         ps_.GetBodyInterface().DestroyBody(s.id);
+        if (s.group != 0) groups_[s.group].free.insert(s.sub);
+        s.group = 0;
         s.alive = false;
         ++s.generation;
     }
@@ -473,13 +493,15 @@ private:
     std::vector<CSlot> cslots_;
     struct Group {
         JPH::Ref<JPH::GroupFilterTable> filter;
-        std::uint32_t count = 0;
+        std::uint32_t count = 0;        // sub-group ids handed out so far
+        std::set<std::uint32_t> free;   // ids returned by removed bodies, lowest first
     };
     std::map<std::uint32_t, Group> groups_;
     struct Slot {
         JPH::BodyID id;
         std::uint32_t generation = 0;
         bool alive = false;
+        std::uint32_t group = 0, sub = 0;  // the self-collision group and sub-group id this body holds (group 0: none)
     };
     Slot& slot(BodyId id) {
         if (id.index >= slots_.size() || !slots_[id.index].alive || slots_[id.index].generation != id.generation) throw std::invalid_argument("a stale or invalid body id");

@@ -69,6 +69,8 @@ public:
     virtual void set_threads(int n) = 0;
     // Solver effort per step: velocity iterations (the default of each library is 10 for both).
     virtual void set_solver_iterations(int velocity_iterations) = 0;
+    // Position iterations separately (Jolt: mNumPositionSteps; the default coupling in set_solver_iterations is max(2, n / 4)). Backends without the notion ignore it.
+    virtual void set_position_iterations(int) {}
     // A cast of a sphere along a segment against the world: the fraction of the segment at the first hit, or -1.
     [[nodiscard]] virtual double raycast_fraction(V3 from, V3 to) const = 0;
     // Switches the contact materials to SAIGE's rule (friction by the geometric mean, restitution by the larger) where the library's default differs.

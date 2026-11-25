@@ -36,6 +36,10 @@ jobs:
             build_type: Release
             double: "ON"
             flags: ""
+          - name: single-tsan
+            build_type: RelWithDebInfo
+            double: "OFF"
+            flags: -fsanitize=thread -fno-omit-frame-pointer
     name: linux-gcc (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v4

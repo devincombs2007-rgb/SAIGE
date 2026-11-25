@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -79,6 +80,45 @@ void w_stack(Backend& b, const std::string& label, bool perturbed, bool heavy_to
     report(b.name(), label, "max speed after 5 s", max_speed_late, "m/s");
     report(b.name(), label, "boxes asleep at 20 s", asleep, "of 20");
     report(b.name(), label, "cost per frame", (now_ms() - t_start) / (60.0 * 20.0), "ms", "includes the first seconds of motion; substeps " + std::to_string(substeps) + ", velocity iterations " + std::to_string(iterations));
+}
+
+// --- Stack sweep: stability of a column of N boxes against height, substeps and the solver's iterations, with the cost of getting there. A column counts as standing when after 20 s the largest horizontal drift is
+// under 5 cm, the top tilts under 1 degree and every box is asleep (the cost is the wall time of the whole run per step, which includes the settling).
+void w_stack_sweep(const std::function<std::unique_ptr<Backend>(int)>& make, const char* name) {
+    std::printf("%-8s %6s %5s %4s %4s  %9s %9s %8s %6s %10s\n", name, "boxes", "subst", "vel", "pos", "drift m", "tilt deg", "asleep", "stands", "ms/step");
+    const bool tower = std::getenv("SAIGE_SWEEP_TOWER") != nullptr;  // the 20-box column only, with more solver effort and substeps
+    const std::vector<int> counts = tower ? std::vector<int>{20} : std::vector<int>{10, 15, 20};
+    const std::vector<int> subs = tower ? std::vector<int>{1, 2, 4} : std::vector<int>{1, 2};
+    const std::vector<int> vels = tower ? std::vector<int>{30, 45, 60, 90} : std::vector<int>{10, 20, 30};
+    const std::vector<int> poss = tower ? std::vector<int>{2, 8} : std::vector<int>{2, 4, 8};
+    for (const int count : counts) {
+        for (const int substeps : subs) {
+            for (const int vel : vels) {
+                for (const int pos : poss) {
+                    auto b = make(100);
+                    b->set_solver_iterations(vel);
+                    b->set_position_iterations(pos);
+                    ground(*b, kConcrete, {});
+                    std::vector<int> ids;
+                    for (int i = 0; i < count; ++i) ids.push_back(b->add_box({V3{0, 0, 0.5 + i * 1.0}, {0.5, 0.5, 0.5}, 20.0, {0.6f, 0.0f}, {}, false}));
+                    const double t0 = now_ms();
+                    for (int s = 0; s < 60 * 20; ++s) b->step(kDt, substeps);
+                    const double ms = (now_ms() - t0) / (60.0 * 20.0);
+                    double drift = 0;
+                    int asleep = 0;
+                    for (const int id : ids) {
+                        const V3 p = b->position(id);
+                        drift = std::max(drift, std::hypot(p.x, p.y));
+                        asleep += b->active(id) ? 0 : 1;
+                    }
+                    const Q4 q = b->rotation(ids.back());
+                    const double tilt = 2.0 * std::acos(std::min(1.0, std::fabs(q.w))) * 57.2958;
+                    const bool stands = drift < 0.05 && tilt < 1.0 && asleep == count;
+                    std::printf("%-8s %6d %5d %4d %4d  %9.4f %9.3f %5d/%-2d %6s %10.4f\n", name, count, substeps, vel, pos, drift, tilt, asleep, count, stands ? "yes" : "NO", ms);
+                }
+            }
+        }
+    }
 }
 
 // --- W2: materials: bounce apex and sliding distance against several floors; the SAIGE combination rule is the reference.
@@ -360,6 +400,7 @@ int main(int argc, char** argv) {
                 }
             }
         }
+        if (which_workload == "stacksweep") w_stack_sweep(e.make, e.name);
         if (wants("materials")) {
             w_materials(e.make, false);
             w_materials(e.make, true);

@@ -693,6 +693,105 @@ void test_controls() {
     }
 }
 
+// Tall columns: the acceptance gate for a Jolt upgrade. Between v5.5.0 and v5.6.0 Jolt replaced per-contact-point friction by friction at the manifold's centre plus a torsional constraint (docs/physics-backends.md): a
+// column of 20 boxes at one substep and 30 velocity iterations stood on v5.5.0 and falls on v5.6.0 and later, while the same column with 60 iterations or two substeps stands on all of them. A column of ten stands and goes to
+// sleep at the default settings on every version. This test pins both, so an upgrade that breaks either is caught by CI and not by a game.
+void test_towers() {
+    const StaticCollision c = floor_only();
+    struct Case {
+        int boxes, substeps, velocity;
+    };
+    for (const Case k : {Case{10, 1, 10}, Case{15, 2, 30}, Case{20, 2, 60}, Case{20, 1, 60}}) {
+        DynamicsConfig cfg;
+        cfg.collision_steps = k.substeps;
+        cfg.velocity_iterations = k.velocity;
+        auto w = make(c, nullptr, cfg);
+        std::vector<BodyId> ids;
+        for (int i = 0; i < k.boxes; ++i) ids.push_back(w->add_body(box_at(0, 0, 0.5 + i * 1.0, 0.5, 0.5, 0.5)));
+        run(*w, 20.0);
+        double drift = 0.0;
+        int asleep = 0;
+        for (const BodyId id : ids) {
+            const DBodyState st = w->state(id);
+            drift = std::max(drift, std::hypot(st.position.x, st.position.y));
+            asleep += st.active ? 0 : 1;
+        }
+        const DQuat q = w->state(ids.back()).rotation;
+        const double tilt = 2.0 * std::acos(std::min(1.0, std::fabs(q.w))) * 57.2958;
+        std::printf("  tower of %d, %d substep(s), %d velocity iterations: drift %.3f m, top tilt %.2f deg, %d of %d asleep after 20 s\n", k.boxes, k.substeps, k.velocity, drift, tilt, asleep, k.boxes);
+        require(drift < 0.08 && tilt < 1.0 && asleep == k.boxes, "a column of boxes stands and goes to sleep at these settings");
+    }
+}
+
+// Body lifetimes: bodies and constraints are created and destroyed while the world steps, from several threads' worth of work (the world is configured with four workers). Every id that was removed stays refused (the
+// generation moves on), slots are reused, the live count always matches what the test holds, constraints go with their bodies, and the state stays finite.
+void test_lifetimes() {
+    DynamicsConfig cfg;
+    cfg.threads = 4;
+    cfg.max_bodies = 600;
+    cfg.max_constraints = 1200;
+    auto w = make(floor_only(), nullptr, cfg);
+    std::uint32_t seed = 4242u;
+    const auto rnd = [&](std::uint32_t n) {
+        seed = seed * 1664525u + 1013904223u;
+        return (seed >> 8) % n;
+    };
+    std::vector<BodyId> live, dead;
+    std::size_t created = 0, removed = 0, constraints = 0, reused = 0;
+    std::vector<std::uint32_t> seen_slots;
+    for (int step = 0; step < 3000; ++step) {
+        const std::uint32_t action = rnd(10);
+        if (action < 5 && live.size() < 300) {
+            DBodyDesc d = box_at(-8.0 + rnd(160) * 0.1, -8.0 + rnd(160) * 0.1, 1.0 + rnd(100) * 0.1, 0.2 + rnd(3) * 0.1, 0.2, 0.2);
+            d.mass = 2.0;
+            d.self_collision_group = rnd(4) == 0 ? 1 + rnd(5) : 0;
+            const BodyId id = w->add_body(d);
+            for (const BodyId& old : dead) reused += (old.index == id.index && old.generation != id.generation) ? 1u : 0u;
+            live.push_back(id);
+            ++created;
+            if (live.size() >= 2 && rnd(3) == 0) {
+                DConstraintDesc c;
+                c.kind = DConstraintKind::Distance;
+                c.a = live[live.size() - 1];
+                c.b = live[live.size() - 2];
+                c.pivot = w->state(c.a).position;
+                c.use_pivot_b = true;
+                c.pivot_b = w->state(c.b).position;
+                c.max_distance = 3.0;
+                (void)w->add_constraint(c);
+                ++constraints;
+            }
+        } else if (action < 8 && !live.empty()) {
+            const std::size_t k = rnd(static_cast<std::uint32_t>(live.size()));
+            w->remove_body(live[k]);
+            dead.push_back(live[k]);
+            live.erase(live.begin() + static_cast<std::ptrdiff_t>(k));
+            ++removed;
+        } else if (!live.empty()) {
+            w->add_impulse(live[rnd(static_cast<std::uint32_t>(live.size()))], {rnd(20) * 0.5 - 5.0, rnd(20) * 0.5 - 5.0, rnd(10) * 0.5}, w->state(live.front()).position);
+        }
+        w->step(1.0 / 60.0);
+        require(w->body_count() == live.size(), "the world's live count is the test's");
+        if (step % 500 == 0) {
+            for (std::size_t i = 0; i < std::min<std::size_t>(dead.size(), 20); ++i) {
+                bool refused = false;
+                try {
+                    (void)w->state(dead[dead.size() - 1 - i]);
+                } catch (const std::invalid_argument&) {
+                    refused = true;
+                }
+                require(refused, "an id that was removed stays refused");
+            }
+        }
+    }
+    for (const BodyId id : live) {
+        const DBodyState st = w->state(id);
+        require(std::isfinite(st.position.x + st.position.y + st.position.z + st.linear_velocity.x), "every live body is finite");
+    }
+    std::printf("  3000 steps of churn on four workers: %zu bodies created, %zu removed, %zu constraints, %zu live at the end, slots reused with a new generation %zu times\n", created, removed, constraints, live.size(), reused);
+    require(created > 1000 && removed > 600 && reused > 100, "control: the churn happened and slots were reused");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -705,7 +804,7 @@ int main(int argc, char** argv) {
         void (*fn)();
     };
     const Named tests[] = {{"api", test_api},           {"parity", test_static_parity}, {"materials", test_materials},   {"stacking", test_stacking}, {"constraints", test_constraints},
-                           {"ccd", test_ccd},           {"replay", test_replay},        {"origin", test_origin_shift},   {"interactions", test_dynamic_interactions}, {"controls", test_controls}};
+                           {"ccd", test_ccd},           {"replay", test_replay},        {"origin", test_origin_shift},   {"interactions", test_dynamic_interactions}, {"controls", test_controls}, {"towers", test_towers}, {"lifetimes", test_lifetimes}};
     int failures = 0;
     for (const Named& t : tests) {
         if (argc > 1 && std::string(argv[1]) != t.name) continue;

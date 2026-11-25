@@ -162,6 +162,11 @@ public:
         s.mNumPositionSteps = static_cast<unsigned>(std::max(2, n / 4));
         ps_.SetPhysicsSettings(s);
     }
+    void set_position_iterations(int n) override {
+        JPH::PhysicsSettings s = ps_.GetPhysicsSettings();
+        s.mNumPositionSteps = static_cast<unsigned>(n);
+        ps_.SetPhysicsSettings(s);
+    }
     double raycast_fraction(V3 from, V3 to) const override {
         const V3 d = to - from;
         JPH::RayCastResult hit;

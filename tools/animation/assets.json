@@ -96,11 +96,12 @@
   }
  },
  "cmu_candidates": {
-  "note": "Not fetched by default and not yet used by any test. Found by measuring the root motion of 1,223 CMU clips (subjects chosen for locomotion) through the raw host: a turn in place has a large yaw change and almost no travel, a sidestep travels mostly sideways. The measurement is of the root track only: a clip's character (a wave, a dance) was NOT checked by looking at it, so these are candidates to review before use. Travel is in the BVH's own units.",
+  "note": "REVIEWED, NONE USABLE (2026-11-25). These eight came from a root-motion scan that measured yaw from the first frame; CMU files open with a T-pose frame, so for 85_09, 104_15, 111_16, 111_25 and 113_12 the whole turn of about 90 degrees is the jump from the T-pose to the first real pose: from the third frame on the yaw changes by under 2.5 degrees in every one of them (a person standing still). 75_09 is a 3 s motion with arm swings and a bow (30 degrees of yaw, the left foot travelling 48 units), not a turn. 78_26 travels diagonally with the body turning (not a clean sidestep); 45_01 turns 139 degrees while walking 80 units. Kept as a record of what was checked; tools/animation/bvh_contact_sheet.py documents the cause, and the scan was corrected and re-run. Not fetched by default and not used by any test.",
   "files": [
    {
     "id": "85_09",
     "what": "turn in place, about 90 degrees right",
+    "review": "not usable: standing still after the T-pose frame (yaw -0.6 deg)",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/085/85_09.bvh",
     "sha256": "792e56aacd1ad896657f17a5c56b5ad239cab0afbe61546f6eab90b836bbc085",
     "bytes": 196606,
@@ -113,6 +114,7 @@
    {
     "id": "104_15",
     "what": "turn in place, about 87 degrees left",
+    "review": "not usable: standing still after the T-pose frame (yaw -0.4 deg)",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/104/104_15.bvh",
     "sha256": "23299eb1431846830be761e46369c58635ddf644997e3679f258c44e8903b5a9",
     "bytes": 161215,
@@ -125,6 +127,7 @@
    {
     "id": "111_16",
     "what": "turn in place, about 87 degrees",
+    "review": "not usable: standing still after the T-pose frame (yaw -1.7 deg, feet shuffle 3.6 units)",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/111/111_16.bvh",
     "sha256": "19904d5f841e117bc4bd7a8e4088340f30979fb05e7fd9cd89faa1a34a07f93c",
     "bytes": 329131,
@@ -137,6 +140,7 @@
    {
     "id": "111_25",
     "what": "turn in place, about 84 degrees",
+    "review": "not usable: standing still after the T-pose frame (yaw 2.2 deg)",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/111/111_25.bvh",
     "sha256": "1105724204fcd10a7fc7c32df7f0e8c29a0c2ac7a4fc21d9edeedc3be38263a5",
     "bytes": 221822,
@@ -149,6 +153,7 @@
    {
     "id": "113_12",
     "what": "turn in place, about 85 degrees",
+    "review": "not usable: standing still after the T-pose frame (yaw 0.4 deg)",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/113/113_12.bvh",
     "sha256": "f729ac5f1ce4a70fe4d643f0d714147e3c4b5ba2da180859897bbc48b1f3d14f",
     "bytes": 306085,
@@ -161,6 +166,7 @@
    {
     "id": "75_09",
     "what": "turn in place, about 209 degrees",
+    "review": "not usable: arm swings and a bow, 30 deg of yaw, not a turn",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/075/75_09.bvh",
     "sha256": "db0874cb2440b3c6d89d850be0fb60105b6c1024778ed9964bf6c1c9ccfc7530",
     "bytes": 283413,
@@ -173,6 +179,7 @@
    {
     "id": "78_26",
     "what": "sidestep, lateral travel with little turn",
+    "review": "not usable: diagonal travel with the body turning, not a clean sidestep",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/078/78_26.bvh",
     "sha256": "810fcba67fbf159bd98ac19335662345d1fd75e82f4ee4b1bc13381d2746bd7c",
     "bytes": 253512,
@@ -185,6 +192,7 @@
    {
     "id": "45_01",
     "what": "sidestep-like, lateral travel",
+    "review": "not usable: a turn while walking (139 deg, 80 units of travel)",
     "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/master/data/045/45_01.bvh",
     "sha256": "b0de21cac27182011931148761e304c73213d32d173c795b82f8ce255df9d00b",
     "bytes": 349723,

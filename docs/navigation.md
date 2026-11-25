@@ -9,7 +9,7 @@ A walkability lattice per world chunk, a map that joins the loaded chunks, A* wi
 * **Pedestrians.** Follow the waypoints at walking speed with bounded acceleration, are pushed apart inside 1.4 sums of radii, and sidestep to the right when the relative motion will bring them within 1.3 sums of radii inside 2.5 s (so head-on pairs form lanes). Forty pedestrians crossing a 30 m plaza around a pillar in opposite streams: all arrive in 33 s, none leaves walkable ground, none exceeds 1.4 m/s,
   the closest approach is 0.24 m (against 0.00 m without the steering; two radii are 0.56 m: they do touch in the funnel, they do not walk through each other), and a velocity change above the acceleration limit happens on 49 of 39,840 agent-ticks (a step into an unwalkable cell being stopped).
 
-Not done: no navigation mesh (the narrowest passage is a lattice cell wide), no dynamic obstacles in the grid, one floor per column (the highest walkable surface below `search_top` is used: a roof is walked on), no off-mesh links (jumps, doors, ladders), no hierarchical search (a 40 x 20 m region searches in well under a millisecond; a city needs a coarser level), no cost field (roads over grass) and no schedules.
+Not done: no navigation mesh (the narrowest passage is a lattice cell wide), one floor per column (the highest walkable surface below `search_top` is used: a roof is walked on; see the NAV-2 section for links and obstacles, which exist now), no hierarchical search (a 40 x 20 m region searches in well under a millisecond; a city needs a coarser level), no cost field (roads over grass) and no schedules.
 
 ## Off-mesh links, dynamic obstacles, crowds (NAV-2)
 

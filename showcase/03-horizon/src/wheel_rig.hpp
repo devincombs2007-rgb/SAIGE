@@ -170,6 +170,28 @@ inline void smallest_eigenvector(double a[3][3], double out[3])
     return masks;
 }
 
+// A wheel is not one rigid part: the tire, rim and brake disc turn with the axle, but the brake pad and caliper are mounted on the hub, which steers and moves with the suspension and never spins. Drawn
+// rigidly with the wheel (as they were), the pads turned with it. `fixed` holds, per wheel, the instances that belong to the hub; `spinning` the rest of the wheel; together they are exactly `wheels`.
+struct WheelPartMasks {
+    std::array<std::vector<bool>, 4> spinning, fixed;
+};
+
+[[nodiscard]] inline bool is_hub_part(const std::string& name) { return name.find("BrakePad") != std::string::npos || name.find("Caliper") != std::string::npos; }
+
+[[nodiscard]] inline WheelPartMasks split_wheel_masks(const gfx::GltfAsset& asset, const std::array<std::vector<bool>, 4>& wheels)
+{
+    WheelPartMasks out;
+    for (std::size_t w = 0; w < 4; ++w) {
+        out.spinning[w].assign(asset.instances.size(), false);
+        out.fixed[w].assign(asset.instances.size(), false);
+        for (std::size_t i = 0; i < asset.instances.size() && i < wheels[w].size(); ++i) {
+            if (!wheels[w][i]) continue;
+            (is_hub_part(asset.instances[i].name) ? out.fixed[w] : out.spinning[w])[i] = true;
+        }
+    }
+    return out;
+}
+
 // The wheel's points in the frame of its car, from the instances of a staged model that make up the wheel. `keep` marks the instances; brake calipers (pads) are left out because they are not symmetric
 // about the axle.
 [[nodiscard]] inline std::vector<render::Float3> wheel_points(const gfx::GltfAsset& asset, const std::vector<bool>& keep)

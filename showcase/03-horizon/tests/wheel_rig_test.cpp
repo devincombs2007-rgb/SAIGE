@@ -107,6 +107,34 @@ int main(int argc, char** argv)
             }
         }
     }
+    // The hub parts: brake pads and calipers do not spin, the rest of the wheel does; the split is a partition of the wheel.
+    {
+        gfx::GltfAsset asset;
+        const char* names[] = {"BodyMain", "WheelFrontL", "WheelFrontLRim", "WheelFrontLBrakeDisc", "WheelFrontLBrakePad", "None", "WheelFrontR", "WheelFrontRBrakeCaliper", "None"};
+        for (const char* n : names) {
+            gfx::MeshInstance inst;
+            inst.name = n;
+            asset.instances.push_back(inst);
+        }
+        const auto wheels = wheel_masks(asset);
+        const WheelPartMasks parts = split_wheel_masks(asset, wheels);
+        bool partition = true;
+        for (std::size_t w = 0; w < 4; ++w) {
+            for (std::size_t i = 0; i < asset.instances.size(); ++i) partition = partition && (wheels[w][i] == (parts.spinning[w][i] || parts.fixed[w][i])) && !(parts.spinning[w][i] && parts.fixed[w][i]);
+        }
+        expect(partition, "the spinning and hub parts partition each wheel exactly");
+        expect(parts.fixed[0][4] && !parts.spinning[0][4], "a brake pad is a hub part, not a spinning one");
+        expect(parts.fixed[1][7] && !parts.spinning[1][7], "a brake caliper is a hub part");
+        expect(parts.spinning[0][2] && parts.spinning[0][3] && parts.spinning[0][5], "the rim, the brake disc and the tire spin");
+        expect(!parts.fixed[0][0] && !parts.spinning[0][0], "the body is neither");
+        // Drawn with the hub transform (steer and travel, no spin) a pad stays where it was while the wheel turns: a point on the pad does not move under a spin of the wheel's own transform.
+        const render::Mat4 hub = render::Mat4::identity();
+        const Float3 pad{0.2f, 0.1f, 0.3f};
+        const Float3 on_wheel = render::transform_point(wheel_spin(1.0f), pad);
+        expect(angle_deg(on_wheel, pad) > 30.0, "control: a part drawn with the spin does move", angle_deg(on_wheel, pad));
+        const Float3 on_hub = render::transform_point(hub, pad);
+        expect(std::fabs(on_hub.x - pad.x) + std::fabs(on_hub.y - pad.y) + std::fabs(on_hub.z - pad.z) < 1e-6f, "a part drawn with the hub transform does not move");
+    }
     // The real model.
     const char* env = std::getenv("SAIGE_HORIZON_ASSETS");
     const std::filesystem::path root = argc > 1 ? argv[1] : env != nullptr ? env : "";
@@ -137,6 +165,19 @@ int main(int argc, char** argv)
                     static_cast<double>(fit.axle.z), angle_deg(fit.axle, {0, 1, 0}), static_cast<double>(fit.radius), static_cast<double>(fit.half_width), tilt);
         expect(tilt < 0.05, "re-posed model wheel turns about +Y", tilt);
         expect(std::fabs(after.center.x) < 2e-3f && std::fabs(after.center.y) < 2e-3f && std::fabs(after.center.z) < 2e-3f, "re-posed model wheel is centered");
+    }
+    {
+        const WheelPartMasks parts = split_wheel_masks(*loaded.asset, masks);
+        for (std::size_t w = 0; w < 4; ++w) {
+            std::size_t fixed = 0, spinning = 0;
+            for (std::size_t i = 0; i < loaded.asset->instances.size(); ++i) {
+                fixed += parts.fixed[w][i] ? 1 : 0;
+                spinning += parts.spinning[w][i] ? 1 : 0;
+            }
+            std::printf("wheel %zu: %zu spinning instances, %zu hub instances (brake pads)\n", w, spinning, fixed);
+            expect(fixed >= 1, "every wheel of the real model has a brake pad that stays on the hub", static_cast<double>(fixed));
+            expect(spinning >= 2, "and tire and rim that spin", static_cast<double>(spinning));
+        }
     }
     std::printf("%d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

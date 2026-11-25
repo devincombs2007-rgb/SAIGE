@@ -559,7 +559,8 @@ struct CellGpu {
 
 struct CarParts {
     render::GpuModel body, door_l, door_r, hood;
-    std::array<render::GpuModel, 4> wheels;
+    std::array<render::GpuModel, 4> wheels;  // the parts that turn with the axle: tire, rim, brake disc
+    std::array<render::GpuModel, 4> hubs;    // the parts mounted on the hub, which steers with the wheel but never spins: brake pads and calipers
     std::array<Float3, 4> wheel_center{};  // in the corrected car frame (model space)
     Float3 body_lo{}, body_hi{};
     Float3 door_l_hinge{}, door_r_hinge{}, hood_hinge{};
@@ -829,7 +830,11 @@ private:
         car_.door_l = filter_placements(full, door_l, car_.fix);
         car_.door_r = filter_placements(full, door_r, car_.fix);
         car_.hood = filter_placements(full, hood, car_.fix);
-        for (std::size_t w = 0; w < 4; ++w) car_.wheels[w] = filter_placements(full, wheel[w], wheel_to_rig_frame(wheel_fit_[w]) * car_.fix);
+        const WheelPartMasks parts = split_wheel_masks(asset, wheel);
+        for (std::size_t w = 0; w < 4; ++w) {
+            car_.wheels[w] = filter_placements(full, parts.spinning[w], wheel_to_rig_frame(wheel_fit_[w]) * car_.fix);
+            car_.hubs[w] = filter_placements(full, parts.fixed[w], wheel_to_rig_frame(wheel_fit_[w]) * car_.fix);
+        }
         car_.ok = true;
     }
 
@@ -983,8 +988,9 @@ private:
             const VehicleWheelConfig& wc = cfg.wheels[w];
             const VehicleWheelState& ws = st.wheels[w];
             const Float3 center_body{wc.mount.x, wc.mount.y, wc.mount.z - cfg.suspension_travel + ws.compression};
-            Mat4 m = body_world * translation(center_body) * rot_z(ws.steer_angle) * wheel_spin(ws.spin);
-            draws_.push_back({&car_.wheels[w], m});
+            const Mat4 hub = body_world * translation(center_body) * rot_z(ws.steer_angle);
+            draws_.push_back({&car_.wheels[w], hub * wheel_spin(ws.spin)});
+            if (!car_.hubs[w].placements.empty()) draws_.push_back({&car_.hubs[w], hub});  // the brake pads: steered and suspended with the wheel, not spun
         }
     }
 

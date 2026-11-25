@@ -38,11 +38,11 @@ class AuditTests(unittest.TestCase):
     def test_repository_pins_are_found_and_hashed_or_flagged(self):
         rows = audit.audit_pins({})
         names = {r["name"] for r in rows}
-        self.assertTrue({"saige_json", "saige_stb_image", "saige_vulkan_headers"} <= names, names)
+        self.assertTrue({"saige_json", "saige_stb_image", "saige_vulkan_headers_src"} <= names, names)
         by = {r["name"]: r["status"] for r in rows}
         self.assertEqual(by["saige_json"], "ok")      # URL_HASH
         self.assertEqual(by["saige_stb_image"], "ok")  # URL_HASH
-        self.assertNotEqual(by.get("saige_vulkan_headers"), "unpinned")
+        self.assertNotEqual(by.get("saige_vulkan_headers_src"), "unpinned")  # pinned by a commit variable (SAIGE_VULKAN_HEADERS_COMMIT)
 
     def test_policy_is_valid_and_report_fails_on_a_missing_required_tool(self):
         policy = json.loads((Path(__file__).with_name("policy.json")).read_text())

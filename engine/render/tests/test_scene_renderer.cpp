@@ -680,6 +680,64 @@ TEST_CASE("Sun shadows (null device): the shadow block is written once per rende
     CHECK(o.device.validation_error_count() == 0);
 }
 
+TEST_CASE("Draw state cache: primitives that share a material group or buffers do not rebind them, and a pipeline change rebinds everything")
+{
+    const Camera camera = look_at_camera({0, 0, 2}, {10, 0, 2});
+    Offscreen o;
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, RendererSettings{});
+    const GpuModel a = bounded_model(renderer, 1.0f), b = bounded_model(renderer, 1.0f);  // two models: distinct material groups and buffers
+    GpuModel c = a;  // the same buffers as a, with a double-sided material: a different pipeline
+    MaterialData two_sided;
+    two_sided.double_sided = true;
+    c.materials[0] = renderer.model_renderer().create_material(two_sided, {}, {}, "two_sided");
+    struct Counts {
+        std::size_t groups = 0, vertices = 0, indices = 0, draws = 0, pipelines = 0;
+        uint32_t skipped = 0;
+    };
+    const auto measure = [&](std::vector<ModelDraw> draws) {
+        const auto count = [&](std::span<const ModelDraw> d) {
+            Counts k;
+            const FrameStats stats = render_models(o, renderer, camera, d);
+            const auto& cmds = o.device.last_frame_commands();
+            k.groups = of_type(cmds, rhi::CommandType::BindGroup).size();
+            k.vertices = of_type(cmds, rhi::CommandType::BindVertexBuffer).size();
+            k.indices = of_type(cmds, rhi::CommandType::BindIndexBuffer).size();
+            k.draws = of_type(cmds, rhi::CommandType::DrawIndexed).size();
+            k.pipelines = of_type(cmds, rhi::CommandType::BindPipeline).size();
+            k.skipped = stats.model_binds_skipped;
+            return k;
+        };
+        const Counts base = count({}), with = count(draws);  // the ground and cubes' own binds are subtracted
+        return Counts{with.groups - base.groups, with.vertices - base.vertices, with.indices - base.indices, with.draws - base.draws, with.pipelines - base.pipelines, with.skipped};
+    };
+    const Mat4 at = place({10, 0, 2});
+    const auto draw = [&](const GpuModel& m) { return ModelDraw{&m, at}; };
+
+    // Six primitives with one material and one set of buffers: one pipeline, one set-1 group, one set-0 group, one vertex and one index bind.
+    Counts k = measure({draw(a), draw(a), draw(a), draw(a), draw(a), draw(a)});
+    CHECK(k.draws == 6 && k.pipelines == 1 && k.groups == 2 && k.vertices == 1 && k.indices == 1);
+    CHECK(k.skipped == 15);  // three binds saved for each of the five repeats
+    // Alternating two models rebinds the material and both buffers every time: nothing to skip.
+    k = measure({draw(a), draw(b), draw(a), draw(b)});
+    CHECK(k.draws == 4 && k.pipelines == 1 && k.groups == 1 + 4 && k.vertices == 4 && k.indices == 4 && k.skipped == 0);
+    // Grouped by model, only the changes rebind.
+    k = measure({draw(a), draw(a), draw(b), draw(b)});
+    CHECK(k.draws == 4 && k.groups == 1 + 2 && k.vertices == 2 && k.indices == 2 && k.skipped == 6);
+    // The same buffers under another pipeline (a double-sided material): the pipeline change resets the cache, so nothing is skipped across it.
+    k = measure({draw(a), draw(c)});
+    CHECK(k.draws == 2 && k.pipelines == 2 && k.groups == 2 + 2 && k.vertices == 2 && k.indices == 2 && k.skipped == 0);
+    // The same buffers read with another index type must rebind the index buffer (the type is part of the binding), but not the rest.
+    GpuModel narrow = a;
+    narrow.meshes[0][0].index_type = rhi::IndexType::Uint16;
+    k = measure({draw(a), draw(narrow)});
+    CHECK(k.draws == 2 && k.groups == 2 && k.vertices == 1 && k.indices == 2 && k.skipped == 2);
+    // Frustum culling keeps the cache consistent: a culled primitive between two visible ones binds nothing and does not break the run.
+    const ModelDraw behind{&a, place({-10, 0, 2})};
+    k = measure({draw(a), behind, draw(a)});
+    CHECK(k.draws == 2 && k.groups == 2 && k.vertices == 1 && k.indices == 1 && k.skipped == 3);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
 TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be retried")
 {
     Offscreen o;

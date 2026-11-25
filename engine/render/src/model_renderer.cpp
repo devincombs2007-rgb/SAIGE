@@ -840,6 +840,42 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
     uint32_t sequence = 0;
     std::optional<Frustum> frustum;
     if (frustum_culling_) frustum = extract_frustum(view_proj);
+    // What is currently bound, so a primitive that shares the material group or the buffers of the one before it does not rebind them. A new
+    // pipeline resets everything (the contract is that it "starts with nothing bound"), so this only ever removes repeats, never a needed bind.
+    rhi::BindGroupHandle bound_material{};
+    rhi::BufferHandle bound_vertices{}, bound_indices{};
+    rhi::IndexType bound_index_type{};
+    const auto bind_geometry = [&](const GpuPrimitive& prim, rhi::BindGroupHandle material_group) {
+        if (material_group != bound_material) {
+            cmd.bind_group(0, material_group);
+            bound_material = material_group;
+        } else {
+            ++stats.binds_skipped;
+        }
+        if (prim.vertices.handle() != bound_vertices) {
+            cmd.bind_vertex_buffer(prim.vertices.handle());
+            bound_vertices = prim.vertices.handle();
+        } else {
+            ++stats.binds_skipped;
+        }
+        if (prim.indices.handle() != bound_indices || prim.index_type != bound_index_type) {
+            cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+            bound_indices = prim.indices.handle();
+            bound_index_type = prim.index_type;
+        } else {
+            ++stats.binds_skipped;
+        }
+    };
+    const auto bind_pipeline = [&](rhi::PipelineHandle pipeline) {
+        if (pipeline == bound) return;
+        cmd.bind_pipeline(pipeline);
+        cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
+        bound = pipeline;
+        bound_palette = {};
+        bound_material = {};
+        bound_vertices = {};
+        bound_indices = {};
+    };
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
@@ -904,14 +940,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                     blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored, palette});
                     continue;
                 }
-                const rhi::PipelineHandle pipeline = palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)]
-                                                                         : pipeline_for(mirrored, material.double_sided);
-                if (pipeline != bound) {
-                    cmd.bind_pipeline(pipeline);
-                    cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
-                    bound = pipeline;
-                    bound_palette = {};
-                }
+                bind_pipeline(palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)] : pipeline_for(mirrored, material.double_sided));
                 if (palette != nullptr) {
                     const rhi::BindGroupHandle group = palette_group(*palette);
                     if (group != bound_palette) {
@@ -920,9 +949,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                     }
                     ++stats.skinned_draws;
                 }
-                cmd.bind_group(0, material.group.handle());
-                cmd.bind_vertex_buffer(prim.vertices.handle());
-                cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+                bind_geometry(prim, material.group.handle());
                 cmd.push_constant_struct(push);
                 cmd.draw_indexed(prim.index_count);
                 ++stats.draw_calls;
@@ -952,14 +979,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         // against itself; a single-sided one draws its front faces only.
         const int first_pass = item.material->double_sided ? 1 : 0;
         for (int pass = first_pass; pass >= 0; --pass) {
-            const rhi::PipelineHandle pipeline = item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass]
-                                                                         : blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
-            if (pipeline != bound) {
-                cmd.bind_pipeline(pipeline);
-                cmd.bind_group(1, constants_group());
-                bound = pipeline;
-                bound_palette = {};
-            }
+            bind_pipeline(item.palette != nullptr ? skinned_blend_pipelines_[(item.mirrored ? 2 : 0) + pass] : blend_pipelines_[(item.mirrored ? 2 : 0) + pass]);
             if (item.palette != nullptr) {
                 const rhi::BindGroupHandle group = palette_group(*item.palette);
                 if (group != bound_palette) {
@@ -968,9 +988,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                 }
                 ++stats.skinned_draws;
             }
-            cmd.bind_group(0, item.material->group.handle());
-            cmd.bind_vertex_buffer(item.primitive->vertices.handle());
-            cmd.bind_index_buffer(item.primitive->indices.handle(), item.primitive->index_type);
+            bind_geometry(*item.primitive, item.material->group.handle());
             cmd.push_constant_struct(push);
             cmd.draw_indexed(item.primitive->index_count);
             ++stats.draw_calls;

@@ -78,6 +78,7 @@ struct ModelFrameStats {
     uint32_t instances_skipped = 0;  ///< non-finite or degenerate world matrix
     uint32_t blended_primitives = 0; ///< primitives drawn in the sorted blended phase
     uint32_t blended_draws = 0;      ///< draw calls in that phase (two per double-sided primitive)
+    uint32_t binds_skipped = 0;      ///< material-group, vertex-buffer and index-buffer binds left out because the same one was already bound
     uint32_t primitives_culled = 0;  ///< primitives skipped because their bounding sphere is outside the view frustum (see ModelRenderSettings::frustum_culling)
     uint32_t skinned_draws = 0;      ///< draw calls of skinned primitives (opaque, sorted and shadow phases together)
     uint32_t skinned_skipped = 0;    ///< skinned primitives not drawn: skinning is off in this renderer, or the palette has fewer joints than the primitive uses

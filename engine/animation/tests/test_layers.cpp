@@ -237,3 +237,57 @@ TEST_CASE("Stance blend: the weight ramps over the fade time in either direction
     CHECK(crouch_capsule_height(0.2f, 1.52f, 1.7f, 0.6f) == 0.6f);          // never under the minimum
     CHECK(crouch_capsule_height(1.6f, 1.52f, 1.7f, 0.6f) == 1.7f);          // never above standing
 }
+
+TEST_CASE("Additive layer: the layer's change from its reference is added on top of what the body does, scaled by weight and mask, and nothing changes when the layer is its reference") {
+    const fixtures::Biped b = fixtures::make_biped();
+    LocomotionSet set(b.skin, b.map);
+    REQUIRE(set.add_cycle(fixtures::make_gait(b, 3.5f, 0.70f, 0.38f, 0.20f)));
+    set.set_idle(fixtures::make_pose_clip(b, 2.0f, 0.0f, 0.0f));
+    LocomotionController run(set, {});
+    for (int i = 0; i < 90; ++i) run.update(1.0f / 60.0f, {3.5f, true, 0.0f});
+    gfx::Pose base = run.pose();
+    const gfx::Pose rest = gfx::rest_pose(b.skin);
+    // Give the arms their own motion (the fixture's gait has no arm swing): swung 0.5 rad about the vertical.
+    for (const Bone arm : {Bone::LeftUpperArm, Bone::RightUpperArm}) {
+        const std::size_t j = static_cast<std::size_t>(b.map[arm]);
+        base.local[j].rotation = render::normalize(render::from_axis_angle({0, 0, 1}, 0.5f) * base.local[j].rotation);
+    }
+    const gfx::AnimationClip lift = fixtures::make_pose_clip(b, 1.0f, 0.1f, 0.8f);
+    gfx::Pose layer = rest;
+    gfx::evaluate_clip(lift, gfx::bind_clip(lift, b.skin), 1.0f, false, layer);
+    const BoneMask mask = upper_body_mask(b.skin, b.map);
+    // Layer equal to its reference: nothing changes, bit for bit.
+    gfx::Pose same = base;
+    blend_additive(same, rest, rest, mask, 1.0f);
+    CHECK(pose_distance(same, base) == 0.0f);
+    // The arms turn by the layer's own change from the rest pose, on top of the run's arm swing.
+    gfx::Pose full = base, half = base;
+    blend_additive(full, layer, rest, mask, 1.0f);
+    blend_additive(half, layer, rest, mask, 0.5f);
+    for (const Bone arm : {Bone::LeftUpperArm, Bone::RightUpperArm}) {
+        const std::size_t j = static_cast<std::size_t>(b.map[arm]);
+        const float wanted = rotation_angle_between(rest.local[j].rotation, layer.local[j].rotation);
+        const float got = rotation_angle_between(base.local[j].rotation, full.local[j].rotation);
+        const float got_half = rotation_angle_between(base.local[j].rotation, half.local[j].rotation);
+        CHECK(std::fabs(got - wanted) < 2e-3f);
+        CHECK(std::fabs(got_half - 0.5f * wanted) < 5e-3f);
+        CHECK(wanted > 0.5f);
+        // Exactly the base pose with the layer's local delta applied after it: base * conj(rest) * layer.
+        const Quat expected = render::normalize(base.local[j].rotation * render::conjugate(rest.local[j].rotation) * layer.local[j].rotation);
+        CHECK(rotation_angle_between(full.local[j].rotation, expected) < 1e-4f);
+        // Unlike a replacing layer, the run's own arm motion is kept: the result is not the layer's pose.
+        CHECK(rotation_angle_between(full.local[j].rotation, layer.local[j].rotation) > 0.05f);
+    }
+    // The pelvis drop of the layer is masked out (the hips have mask 0), and so are the legs.
+    for (const Bone leg : {Bone::Hips, Bone::LeftUpperLeg, Bone::RightFoot}) {
+        const std::size_t j = static_cast<std::size_t>(b.map[leg]);
+        CHECK(full.local[j].rotation == base.local[j].rotation);
+        CHECK(full.local[j].position == base.local[j].position);
+    }
+    // Weight 0 is bit-identical; sizes are checked.
+    gfx::Pose none = base;
+    blend_additive(none, layer, rest, mask, 0.0f);
+    CHECK(pose_distance(none, base) == 0.0f);
+    gfx::Pose small;
+    CHECK(throws([&] { blend_additive(small, layer, rest, mask, 1.0f); }));
+}

@@ -57,6 +57,11 @@ private:
     return std::clamp(crouched_head_max + above_head, minimum, standing_height);
 }
 
+// An additive layer: what `layer` does relative to `reference` (a flinch, breathing, a lean: the layer's pose against the pose it was authored from, usually the clip's first frame or the rest pose) is
+// applied on top of whatever `dst` already does, by weight * mask. The rotation delta is conj(reference) * layer in each joint's local space, scaled by slerping from the identity, and translations add
+// the difference. A layer equal to its reference changes nothing, and a joint whose mask is 0 is not touched. Throws std::invalid_argument for poses or a mask of different sizes.
+void blend_additive(gfx::Pose& dst, const gfx::Pose& layer, const gfx::Pose& reference, const BoneMask& mask, float weight);
+
 struct LookAtConfig {
     float max_yaw = 1.2217305f;         // radians left or right of the character's facing (70 degrees)
     float max_pitch_up = 0.7853982f;    // 45 degrees

@@ -50,6 +50,22 @@ void blend_masked(gfx::Pose& dst, const gfx::Pose& src, const BoneMask& mask, fl
     }
 }
 
+void blend_additive(gfx::Pose& dst, const gfx::Pose& layer, const gfx::Pose& reference, const BoneMask& mask, float weight) {
+    if (dst.local.size() != layer.local.size() || dst.local.size() != reference.local.size() || mask.weight.size() != dst.local.size()) {
+        throw std::invalid_argument("blend_additive: the poses and the mask must have the same joint count");
+    }
+    const float w = std::clamp(weight, 0.0f, 1.0f);
+    if (!(w > 0.0f)) return;
+    for (std::size_t j = 0; j < dst.local.size(); ++j) {
+        const float t = w * std::clamp(mask.weight[j], 0.0f, 1.0f);
+        if (!(t > 0.0f)) continue;
+        if (layer.local[j].rotation == reference.local[j].rotation && layer.local[j].position == reference.local[j].position) continue;  // nothing to add (and nothing to round)
+        const Quat delta = render::normalize(render::conjugate(reference.local[j].rotation) * layer.local[j].rotation);
+        dst.local[j].rotation = render::normalize(dst.local[j].rotation * render::slerp(Quat{0, 0, 0, 1}, delta, t));
+        dst.local[j].position = dst.local[j].position + (layer.local[j].position - reference.local[j].position) * t;
+    }
+}
+
 namespace {
 
 float yaw_of(Float3 d, const RigInfo& rig) { return std::atan2(render::dot(d, rig.left), render::dot(d, rig.forward)); }

@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -569,4 +570,173 @@ TEST_CASE("SceneRenderer: failed HDR resize preserves the old targets and can be
     o.device.wait_idle();
     CHECK(o.device.live_resource_count() == baseline);
     CHECK(o.device.validation_error_count() == 0);
+}
+
+// ---- Bloom (RendererSettings::bloom) -------------------------------------------------------------------------------------------------------
+
+namespace {
+
+uint32_t scene_pass_count(const std::vector<rhi::RecordedCommand>& cmds)
+{
+    uint32_t n = 0;
+    for (const auto& c : cmds) n += c.type == rhi::CommandType::BeginRendering ? 1u : 0u;
+    return n;
+}
+
+RendererSettings bloom_settings(bool enabled, uint32_t levels = 5)
+{
+    RendererSettings s;
+    s.hdr = true;
+    s.bloom.enabled = enabled;
+    s.bloom.levels = levels;
+    return s;
+}
+
+}  // namespace
+
+TEST_CASE("Bloom (null device): needs HDR and valid settings, refused before anything is created, and ignored (not validated) while disabled")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    const auto refused = [&](const RendererSettings& s) {
+        bool threw = false;
+        try {
+            SceneRenderer r(o.device, rhi::Format::RGBA8_SRGB, s);
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        return threw;
+    };
+    RendererSettings no_hdr;
+    no_hdr.bloom.enabled = true;  // hdr is off
+    CHECK(refused(no_hdr));
+    RendererSettings bad = bloom_settings(true);
+    bad.bloom.levels = 0;
+    CHECK(refused(bad));
+    bad = bloom_settings(true);
+    bad.bloom.threshold = std::numeric_limits<float>::quiet_NaN();
+    CHECK(refused(bad));
+    CHECK(o.device.live_resource_count() == baseline);  // nothing was created for any of them
+    RendererSettings ignored = bloom_settings(false);
+    ignored.bloom.levels = 99;  // disabled bloom is not validated: the values are never used
+    SceneRenderer fine(o.device, rhi::Format::RGBA8_SRGB, ignored);
+    SceneRenderer plain(o.device, rhi::Format::RGBA8_SRGB, RendererSettings{});  // an LDR renderer with the default (disabled) bloom
+}
+
+TEST_CASE("Bloom (null device): off adds no pass and no resource; on adds 2 * levels - 1 draws, one chain and nothing else, and everything is released")
+{
+    Offscreen o;
+    const uint32_t baseline = o.device.live_resource_count();
+    {
+        SceneRenderer off(o.device, rhi::Format::RGBA8_SRGB, bloom_settings(false));
+        const FrameStats off_stats = off.render(o.device.begin_frame(), SceneFrame{}, o.target());
+        (void)o.device.end_frame();
+        const uint32_t off_passes = scene_pass_count(o.device.last_frame_commands());
+        const uint32_t off_count = o.device.live_resource_count() - baseline;
+        CHECK(off_stats.bloom_draw_calls == 0);
+        CHECK(off_passes == 2);  // the scene and the tone map
+
+        for (const uint32_t levels : {1u, 3u, 5u}) {
+            const uint32_t before = o.device.live_resource_count();
+            SceneRenderer on(o.device, rhi::Format::RGBA8_SRGB, bloom_settings(true, levels));
+            const FrameStats stats = on.render(o.device.begin_frame(), SceneFrame{}, o.target());
+            (void)o.device.end_frame();
+            CHECK(stats.bloom_draw_calls == 2 * levels - 1);
+            CHECK(stats.draw_calls == off_stats.draw_calls + 2 * levels - 1);
+            CHECK(scene_pass_count(o.device.last_frame_commands()) == off_passes + 2 * levels - 1);
+            // The same objects as a bloom-free HDR renderer, plus: 3 pipelines + 2 layouts + 5 shaders + a sampler + a second tone-map sampler and 2 more layout entries
+            // for the pass itself (constant), and per level a texture and a bind group on the way down and again on the way up (one fewer).
+            const uint32_t extra = o.device.live_resource_count() - before - off_count;
+            CHECK(extra >= 2 * (2 * levels - 1));
+            if (levels == 5) CHECK(stats.barriers > off_stats.barriers);
+            o.device.wait_idle();
+        }
+    }
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == baseline);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Bloom (null device): a resize rebuilds the chain without leaking, tiny targets reduce the levels, and a failed creation is a failed frame, not a broken renderer")
+{
+    Offscreen o(64, 48);
+    rhi::TextureDesc small = *o.device.texture_desc(o.color);
+    small.width = 6;
+    small.height = 5;
+    RenderTarget small_target = o.target(6, 5);
+    small_target.texture = o.device.create_texture(small);
+    SceneRenderer renderer(o.device, rhi::Format::RGBA8_SRGB, bloom_settings(true, 5));
+    FrameStats stats = renderer.render(o.device.begin_frame(), SceneFrame{}, o.target(64, 48));
+    (void)o.device.end_frame();
+    CHECK(stats.bloom_draw_calls == 2 * 5 - 1);
+    o.device.wait_idle();
+    const uint32_t steady = o.device.live_resource_count();
+    stats = renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+    (void)o.device.end_frame();
+    CHECK(stats.bloom_draw_calls == 2 * bloom_level_count(6, 5, 5) - 1);  // 3 x 2, then 1 x 1: two levels
+    CHECK(bloom_level_count(6, 5, 5) == 2);
+    stats = renderer.render(o.device.begin_frame(), SceneFrame{}, o.target(64, 48));
+    (void)o.device.end_frame();
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == steady);  // back at the first size: the same objects, nothing left over from the small chain
+
+    // Failure injection at every creation of the chain's rebuild: the frame fails, every partial object is released, and the next frame works.
+    uint32_t failures = 0;
+    for (uint32_t n = 1; n < 60; ++n) {
+        o.device.fail_creation_after(n);
+        bool threw = false;
+        try {
+            (void)renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        o.device.fail_creation_after(0);
+        (void)o.device.end_frame();
+        o.device.wait_idle();
+        if (!threw) break;
+        ++failures;
+        CHECK(o.device.live_resource_count() == steady);
+    }
+    CHECK(failures >= 4);  // depth, hdr, the chain's textures and bind groups, the tone-map input
+    stats = renderer.render(o.device.begin_frame(), SceneFrame{}, small_target);
+    (void)o.device.end_frame();
+    CHECK(stats.bloom_draw_calls == 3);
+    CHECK(o.device.validation_error_count() == 0);
+}
+
+TEST_CASE("Bloom (null device): the tone-map pass takes a bloom texture exactly when it was built with bloom")
+{
+    Offscreen o;
+    rhi::TextureDesc td;
+    td.format = rhi::Format::RGBA16_FLOAT;
+    td.width = 8;
+    td.height = 8;
+    td.usage = rhi::TextureUsage::Sampled | rhi::TextureUsage::ColorAttachment;
+    const rhi::TextureHandle hdr = o.device.create_texture(td), glow = o.device.create_texture(td);
+    const uint32_t before = o.device.live_resource_count();
+    {
+        ToneMapper plain(o.device, rhi::Format::RGBA8_SRGB);
+        ToneMapper bloom(o.device, rhi::Format::RGBA8_SRGB, true);
+        std::vector<rhi::BindGroupHandle> groups;
+        const auto refused = [&](ToneMapper& m, rhi::TextureHandle bloom_texture) {
+            try {
+                groups.push_back(m.create_input(hdr, bloom_texture));
+            } catch (const std::invalid_argument&) {
+                return true;
+            }
+            return false;
+        };
+        CHECK(refused(bloom, rhi::TextureHandle{}));  // the bloom permutation needs one
+        CHECK(refused(plain, glow));                  // and the plain one has nowhere to bind it
+        const uint32_t count = o.device.live_resource_count();
+        CHECK(!refused(plain, rhi::TextureHandle{}));
+        CHECK(!refused(bloom, glow));
+        CHECK(o.device.live_resource_count() == count + 2);  // the two groups; the refusals created nothing
+        for (const rhi::BindGroupHandle g : groups) o.device.destroy(g);
+    }
+    o.device.wait_idle();
+    o.device.destroy(glow);
+    o.device.destroy(hdr);
+    o.device.wait_idle();
+    CHECK(o.device.live_resource_count() == before - 2);
 }

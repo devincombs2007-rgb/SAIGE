@@ -49,17 +49,21 @@ inline constexpr float kMaxExposureEv = 64.0f;
 /// sampler and releases them on destruction (destroy it before the device).
 class ToneMapper {
 public:
-    ToneMapper(rhi::Device& device, rhi::Format target_format);
+    /// With `bloom` set the pass is the bloom permutation: `create_input` takes the bloom texture too and `draw` adds `bloom_intensity` times it to the scene before
+    /// exposure and the operator (render/bloom.hpp). Without it nothing about the pass changes.
+    ToneMapper(rhi::Device& device, rhi::Format target_format, bool bloom = false);
     ~ToneMapper();
     ToneMapper(const ToneMapper&) = delete;
     ToneMapper& operator=(const ToneMapper&) = delete;
 
     /// A bind group sampling `hdr` (a 2D texture with Sampled usage, in a floating-point or other filterable format). The caller
     /// owns it and destroys it with the device once no frame uses it.
-    [[nodiscard]] rhi::BindGroupHandle create_input(rhi::TextureHandle hdr);
+    /// With the bloom permutation `bloom_texture` (a linearly filterable 2D texture, any size) is required; without it it must be left invalid.
+    [[nodiscard]] rhi::BindGroupHandle create_input(rhi::TextureHandle hdr, rhi::TextureHandle bloom_texture = {});
 
     /// Binds the pipeline and `input` and draws the triangle. Viewport and scissor are the caller's (they set the output area).
-    void draw(rhi::CommandList& cmd, rhi::BindGroupHandle input, const ToneMapSettings& settings);
+    /// `bloom_intensity` (clamped to 0 to 16, NaN is 0) is used only by the bloom permutation.
+    void draw(rhi::CommandList& cmd, rhi::BindGroupHandle input, const ToneMapSettings& settings, float bloom_intensity = 0.0f);
 
 private:
     void release() noexcept;  ///< destroys whatever has been created; safe at any point of construction
@@ -70,6 +74,8 @@ private:
     rhi::ShaderHandle ps_;
     rhi::PipelineHandle pipeline_;
     rhi::SamplerHandle sampler_;
+    rhi::SamplerHandle bloom_sampler_;  ///< linear, bloom permutation only
+    bool bloom_ = false;
 };
 
 } // namespace saige::render

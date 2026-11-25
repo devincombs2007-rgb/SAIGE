@@ -19,16 +19,24 @@
 // @entry    VSMain vs
 // @entry    PSMain ps
 
+#ifndef SAIGE_BLOOM
+#define SAIGE_BLOOM 0
+#endif
+
 struct ToneMapPush {
     float exposure;    // linear scale, 2^EV
     uint op;
     float white_point; // Reinhard only
-    float pad;
+    float pad;         // SAIGE_BLOOM: the bloom intensity
 };
 [[vk::push_constant]] ConstantBuffer<ToneMapPush> pc;
 
 [[vk::binding(0, 0)]] Texture2D<float4> g_hdr;
 [[vk::binding(1, 0)]] SamplerState g_sampler;
+#if SAIGE_BLOOM
+[[vk::binding(2, 0)]] Texture2D<float4> g_bloom;
+[[vk::binding(3, 0)]] SamplerState g_bloom_sampler;  // linear: the bloom is half the size of the scene
+#endif
 
 struct VSOutput {
     float4 position : SV_Position;
@@ -65,6 +73,10 @@ float3 tone_map(float3 c, uint op, float white)
 
 float4 PSMain(VSOutput input) : SV_Target0
 {
+#if SAIGE_BLOOM
+    const float3 hdr = (g_hdr.Sample(g_sampler, input.uv).rgb + pc.pad * g_bloom.SampleLevel(g_bloom_sampler, input.uv, 0).rgb) * pc.exposure;
+#else
     const float3 hdr = g_hdr.Sample(g_sampler, input.uv).rgb * pc.exposure;
+#endif
     return float4(tone_map(hdr, pc.op, pc.white_point), 1.0);
 }

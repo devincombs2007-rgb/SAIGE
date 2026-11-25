@@ -125,11 +125,31 @@ CubeMesh make_unit_cube()
     return mesh;
 }
 
+namespace {
+
+/// Shadow settings are validated before the renderer acquires anything from the device (a settings error is an exception, not a leak).
+void validate_shadows(const RendererSettings& settings)
+{
+    const SunShadowSettings& sh = settings.shadows;
+    if (!sh.enabled) {
+        return;
+    }
+    const auto finite = [](float v) { return std::isfinite(v); };
+    if (sh.map_size < 16 || sh.map_size > 8192 || !finite(sh.distance) || !(sh.distance > settings.near_plane) || !finite(sh.caster_margin) ||
+        sh.caster_margin < 0.0f || !finite(sh.depth_bias_constant) || !finite(sh.depth_bias_slope) || !finite(sh.normal_offset_texels) ||
+        sh.normal_offset_texels < 0.0f || sh.filter_radius > 8 || sh.cascades < 1 || sh.cascades > kMaxShadowCascades || !finite(sh.split_lambda) ||
+        sh.split_lambda < 0.0f || sh.split_lambda > 1.0f || !finite(sh.cascade_blend) || sh.cascade_blend < 0.0f || sh.cascade_blend > 0.5f) {
+        throw std::invalid_argument("SceneRenderer: invalid sun shadow settings (map size 16..8192, 1 to 4 cascades, split lambda 0..1, blend 0..0.5, distance beyond the near plane, finite non-negative margin and offset, filter radius at most 8)");
+    }
+}
+
+} // namespace
+
 SceneRenderer::SceneRenderer(rhi::Device& device, rhi::Format color_format, RendererSettings settings)
     : device_(device),
       color_format_(color_format),
       scene_format_(settings.hdr ? rhi::Format::RGBA16_FLOAT : color_format),
-      settings_((validate_lighting(settings.lighting), validated_ao(validated_bloom(validated_fxaa(settings))))),
+      settings_((validate_lighting(settings.lighting), validate_shadows(settings), validated_ao(validated_bloom(validated_fxaa(settings))))),
       registry_(device)
 {
     // The destructor does not run when a constructor throws, and the shader, pipeline and buffer handles below are raw: a creation that
@@ -376,6 +396,11 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.lighting = settings_.lighting;
         ms.alpha_blending = settings_.alpha_blending;
         ms.frustum_culling = settings_.frustum_culling;
+        ms.shadows.enabled = settings_.shadows.enabled;
+        ms.shadows.map_size = settings_.shadows.map_size;
+        ms.shadows.cascades = settings_.shadows.cascades;
+        ms.shadows.depth_bias_constant = settings_.shadows.depth_bias_constant;
+        ms.shadows.depth_bias_slope = settings_.shadows.depth_bias_slope;
         models_ = std::make_unique<ModelRenderer>(device_, registry_, scene_format_, depth_format, ms);
     }
     return *models_;
@@ -399,6 +424,54 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     const Float3 eye = camera_eye(frame);
     fill4(constants.camera_fog, eye.x, eye.y, eye.z, settings_.fog_density);
     fill4(constants.fog_color, settings_.sky.r, settings_.sky.g, settings_.sky.b, 1.0f);
+
+    // Sun shadows (imported models only, and only when asked for). The model renderer is created up front when there are models, because
+    // the shadow map's synchronization is part of the graph built below. With shadows off none of this runs: no fit, no pass, no import.
+    ModelRenderer* shadow_models = (settings_.shadows.enabled && !frame.models.empty()) ? &model_renderer() : nullptr;
+    std::optional<ShadowCascades> sun_cascades;
+    if (shadow_models != nullptr) {
+        CascadeCamera cam;
+        cam.position = eye;
+        if (frame.camera != nullptr) {
+            cam.forward = camera_forward(*frame.camera);
+            cam.fov_y_radians = frame.camera->fov_y_radians;
+        } else {
+            cam.forward = normalize(camera_target(frame) - eye);
+            cam.fov_y_radians = settings_.fov_y_radians;
+        }
+        cam.aspect = aspect;
+        CascadeSettings cs;
+        cs.count = settings_.shadows.cascades;
+        cs.split_lambda = settings_.shadows.split_lambda;
+        cs.near_plane = frame.camera != nullptr ? frame.camera->near_plane : settings_.near_plane;
+        cs.shadow_distance = settings_.shadows.distance;
+        cs.resolution = settings_.shadows.map_size;
+        cs.caster_margin = settings_.shadows.caster_margin;
+        // The same normalized direction the lighting constants were built from (SceneLighting::sun_direction), not a copy of it.
+        const ShadowCascades fitted = fit_shadow_cascades(cam, shadow_models->sun_direction(), cs);
+        if (fitted.count == settings_.shadows.cascades) {
+            sun_cascades = fitted;
+        }
+        if (sun_cascades) {
+            ModelShadowFrame sf;
+            sf.light_view_proj = sun_cascades->cascades[0].view_proj;
+            sf.texel_world_size = sun_cascades->cascades[0].texel_world_size;
+            sf.normal_offset_texels = settings_.shadows.normal_offset_texels;
+            sf.filter_radius = settings_.shadows.filter_radius;
+            sf.cascade_count = sun_cascades->count;
+            for (uint32_t i = 1; i < sun_cascades->count; ++i) {
+                sf.more_view_proj[i - 1] = sun_cascades->cascades[i].view_proj;
+                sf.more_texel_world_size[i - 1] = sun_cascades->cascades[i].texel_world_size;
+            }
+            for (uint32_t i = 0; i < sun_cascades->count; ++i) sf.split_far[i] = sun_cascades->cascades[i].split_far;
+            sf.camera_position = cam.position;
+            sf.camera_forward = cam.forward;
+            sf.blend = settings_.shadows.cascade_blend;
+            shadow_models->set_shadow_frame(&sf);
+        } else {
+            shadow_models->set_shadow_frame(nullptr);  // an invalid fit this frame: the sun is not occluded
+        }
+    }
 
     graph_.reset();
     const RGTexture color = graph_.import_texture("SceneColor", *color_desc, target.texture, target.initial_state,
@@ -438,10 +511,62 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                                 : graph_.import_texture("SceneDepth", depth_desc, depth_, depth_state_);
     RGTexture tonemap_input = scene_color;
 
+    // When shadows are on, the map is always bound to the model shader, so it must be in the sampled state when the scene pass draws
+    // models. It is written by the shadow pass when there is a fit; the first frame with models also runs a pass that only clears it, which
+    // takes it from undefined to a valid depth image (a map that was never written must still be a legal descriptor).
+    RGTexture shadow_map_rg{};
+    const bool shadow_pass = shadow_models != nullptr && (sun_cascades.has_value() || !shadow_ready_);
+    if (shadow_models != nullptr) {
+        const std::optional<rhi::TextureDesc> shadow_desc = device_.texture_desc(shadow_models->shadow_map());
+        if (!shadow_desc) {
+            throw std::logic_error("SceneRenderer: the shadow map texture is invalid");
+        }
+        shadow_map_rg = graph_.import_texture("SunShadowMap", *shadow_desc, shadow_models->shadow_map(), shadow_state_, rhi::sampled_texture_state);
+    }
+    if (shadow_pass) {
+        graph_.add_pass(
+            "SunShadow", rhi::QueueType::Graphics, [&](PassBuilder& b) { b.write_depth(shadow_map_rg, LoadOp::Clear); },
+            [&](PassContext& ctx) {
+                rhi::CommandList& c = *ctx.command_list();
+                const uint32_t tile = shadow_models->shadow_map_size();
+                const uint32_t columns = shadow_models->shadow_atlas_columns();
+                const uint32_t atlas_w = shadow_models->shadow_atlas_width(), atlas_h = shadow_models->shadow_atlas_height();
+                rhi::RenderingDesc rd;
+                rhi::DepthAttachment da;
+                da.texture = shadow_models->shadow_map();
+                da.load = rhi::AttachmentLoadOp::Clear;
+                da.store = rhi::AttachmentStoreOp::Store;
+                da.clear_depth = 0.0f;  // reverse-Z far plane: nothing occludes
+                rd.depth = da;
+                rd.area = {0, 0, atlas_w, atlas_h};
+                c.begin_debug_label("SunShadow");
+                c.begin_rendering(rd);
+                if (sun_cascades) {
+                    for (uint32_t i = 0; i < sun_cascades->count; ++i) {  // one tile of the atlas per cascade
+                        const int32_t x = static_cast<int32_t>((i % columns) * tile), y = static_cast<int32_t>((i / columns) * tile);
+                        c.set_viewport({static_cast<float>(x), static_cast<float>(y), static_cast<float>(tile), static_cast<float>(tile), 0.0f, 1.0f});
+                        c.set_scissor({x, y, tile, tile});
+                        ModelFrameStats shadow_stats;
+                        shadow_models->draw_shadow(c, sun_cascades->cascades[i].view_proj, frame.models, shadow_stats);
+                        stats.draw_calls += shadow_stats.draw_calls;
+                        stats.shadow_draw_calls += shadow_stats.draw_calls;
+                    }
+                } else {
+                    c.set_viewport({0.0f, 0.0f, static_cast<float>(atlas_w), static_cast<float>(atlas_h), 0.0f, 1.0f});
+                    c.set_scissor({0, 0, atlas_w, atlas_h});
+                }
+                c.end_rendering();
+                c.end_debug_label();
+            });
+    }
+
     const Float3 ground_center = camera_target(frame);
     graph_.add_pass(
         "Scene", rhi::QueueType::Graphics,
         [&](PassBuilder& b) {
+            if (shadow_models != nullptr) {
+                b.sample(shadow_map_rg, rhi::PipelineStage::PixelShader);
+            }
             b.write_color(scene_color, LoadOp::Clear);
             b.write_depth(depth, LoadOp::Clear);
         },
@@ -696,6 +821,10 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
     };
     graph_.execute(ec);
     depth_state_ = ao_ ? rhi::sampled_texture_state : depth_attachment_state;
+    if (shadow_models != nullptr) {
+        shadow_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
+        shadow_ready_ = true;
+    }
     if (settings_.hdr) {
         hdr_state_ = rhi::sampled_texture_state;  // the graph left it there (its final state)
     }
@@ -707,6 +836,40 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         hdr_ao_state_ = rhi::sampled_texture_state;
     }
     return stats;
+}
+
+} // namespace saige::render
+
+namespace saige::render {
+
+SunShadowSettings shadow_quality_preset(ShadowQuality quality, float distance)
+{
+    SunShadowSettings s;
+    s.enabled = true;
+    s.distance = distance;
+    switch (quality) {
+    case ShadowQuality::Low:
+        s.cascades = 1;
+        s.map_size = 1024;
+        s.filter_radius = 0;
+        break;
+    case ShadowQuality::Medium:
+        s.cascades = 2;
+        s.map_size = 1024;
+        s.filter_radius = 1;
+        break;
+    case ShadowQuality::High:
+        s.cascades = 3;
+        s.map_size = 2048;
+        s.filter_radius = 1;
+        break;
+    case ShadowQuality::Ultra:
+        s.cascades = 4;
+        s.map_size = 2048;
+        s.filter_radius = 2;
+        break;
+    }
+    return s;
 }
 
 } // namespace saige::render

@@ -223,11 +223,16 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     blend.alpha_mode = AlphaMode::Blend;
     blend.normal_texture.texture = 0;  // an unsampled texture slot
     blend.name = "glass";
+    Material foliage = asset.materials[0];
+    foliage.alpha_mode = AlphaMode::Mask;
+    foliage.alpha_cutoff = 0.4f;
+    foliage.name = "foliage";
     asset.materials.push_back(mask);
     asset.materials.push_back(blend);
+    asset.materials.push_back(foliage);
     StageReport report;
     const render::GpuModel model = stage_model(rig.renderer, asset, "materials", {}, &report);
-    REQUIRE(model.materials.size() == 4);
+    REQUIRE(model.materials.size() == 5);
     CHECK_FALSE(model.materials[0].double_sided);
     CHECK(model.materials[1].double_sided);
     // The default renderer has alpha blending off: BLEND draws opaque exactly as in 0.2, with a warning saying so.
@@ -236,6 +241,16 @@ TEST_CASE("Stage: material factors and modes map onto the model's materials, wit
     CHECK_FALSE(model.materials[0].blend);
     CHECK_FALSE(model.materials[1].blend);  // the mask material
     CHECK_FALSE(model.materials[2].blend);  // "glass": glTF BLEND, but blending was not asked for
+    // Shadow casting follows the authored alpha mode, not how the surface is drawn: opaque and MASK materials cast (a MASK with a cutoff
+    // through the alpha-tested variant, one with cutoff 0 solid), a BLEND does not even though it is drawn opaque here.
+    CHECK(model.materials[0].casts_sun_shadow);
+    CHECK_FALSE(model.materials[0].shadow_alpha_test);
+    CHECK(model.materials[1].casts_sun_shadow);
+    CHECK_FALSE(model.materials[1].shadow_alpha_test);  // MASK with cutoff 0 passes everything
+    CHECK_FALSE(model.materials[2].casts_sun_shadow);
+    CHECK_FALSE(model.materials[2].shadow_alpha_test);
+    CHECK(model.materials[3].casts_sun_shadow);
+    CHECK(model.materials[3].shadow_alpha_test);  // "foliage": MASK with cutoff 0.4
     // Every primitive carries a bounding sphere for sorting blended draws (used only when blending is on).
     for (const auto& primitives : model.meshes) {
         for (const render::GpuPrimitive& prim : primitives) {

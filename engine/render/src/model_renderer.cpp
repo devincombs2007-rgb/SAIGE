@@ -2,8 +2,12 @@
 
 #include "saige/render/camera.hpp"
 #include "saige/render/env_brdf.hpp"
+#include "saige/render/shadow_cascades.hpp"
 
 #include "saige/shaders/scene_model.spv.hpp"
+#include "saige/shaders/scene_model_shadowed.spv.hpp"
+#include "saige/shaders/scene_shadow_depth.spv.hpp"
+#include "saige/shaders/scene_shadow_depth_mask.spv.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -36,6 +40,35 @@ struct SceneConstants {
     float ambient_ground[4];
     float flags[4];  ///< x: shading mode
 };
+
+/// Shadow block (set 1, binding 5 of the shadowed permutation), matching `ShadowConstants` in the shader. Rewritten every frame.
+struct ShadowBlock {
+    float light_view_proj[4][16];  ///< world to each cascade's clip space, column-major like Mat4
+    float texel[4];                ///< meters per shadow texel, cascades 0 to 3
+    float splits[4];               ///< view-space depth where cascade 0 to 3 ends
+    float params[4];               ///< normal offset (texels), filter radius (texels), cascade count, 1 when shadows are on
+    float map[4];                  ///< 1 / tile size in texels, blend fraction, atlas tile scale x and y
+    float camera_pos[4];           ///< the view the cascades are selected by
+    float camera_fwd[4];           ///< w: atlas columns
+};
+static_assert(sizeof(ShadowBlock) == 352);
+
+/// The parts of the block that depend only on the renderer: the tile size, the atlas layout, one cascade, shadows off.
+void fill_shadow_layout(ShadowBlock& block, uint32_t tile_size, uint32_t columns, uint32_t rows) noexcept
+{
+    block.map[0] = 1.0f / static_cast<float>(tile_size);
+    block.map[2] = 1.0f / static_cast<float>(columns);
+    block.map[3] = 1.0f / static_cast<float>(rows);
+    block.camera_fwd[3] = static_cast<float>(columns);
+    block.params[2] = 1.0f;
+}
+
+/// Push constants of the shadow pass (shaders/scene/shadow_depth.hlsl).
+struct ShadowPush {
+    Mat4 light_view_proj;
+    float model_row[3][4];
+};
+static_assert(sizeof(ShadowPush) == 112);
 
 /// Material uniform block (set 0, binding 10), matching `Material` in the shader.
 struct MaterialBlock {
@@ -80,7 +113,7 @@ rhi::BufferHandle make_uniform(rhi::Device& device, GpuResourceRegistry& registr
                                std::size_t size, const char* name)
 {
     rhi::BufferDesc ub;
-    ub.size = 256;  // a multiple of every uniform alignment; only `size` bytes are bound
+    ub.size = std::max<std::size_t>(256, (size + 255) / 256 * 256);  // a multiple of every uniform alignment; only `size` bytes are bound
     ub.usage = rhi::BufferUsage::Uniform;
     ub.memory = rhi::MemoryLocation::CpuToGpu;
     ub.debug_name = name;
@@ -142,8 +175,19 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     : device_(device), registry_(registry), shading_(settings.shading)
 {
     validate_lighting(settings.lighting);  // before anything is acquired from the device
+    if (settings.shadows.enabled) {
+        const ModelShadowSettings& sh = settings.shadows;
+        if (sh.map_size < 16 || sh.map_size > 8192 || !std::isfinite(sh.depth_bias_constant) || !std::isfinite(sh.depth_bias_slope)) {
+            throw std::invalid_argument("ModelRenderer: shadow map size must be 16 to 8192 and the depth bias finite");
+        }
+        if (sh.cascades < 1 || sh.cascades > kMaxShadowCascades) {
+            throw std::invalid_argument("ModelRenderer: the number of shadow cascades must be 1 to 4");
+        }
+    }
+    shadows_enabled_ = settings.shadows.enabled;
     // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
-    // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows.
+    // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows. This is
+    // also what makes a failed shadow acquisition (shader, pipeline, map, sampler, ring buffers, groups) leave nothing behind.
     try {
         acquire(color_format, depth_format, settings);
     } catch (...) {
@@ -155,8 +199,10 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
 void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings)
 {
     using namespace saige::shaders;
-    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_vs_main), "VSMain", "SceneModel.VS"});
-    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_model_ps_main), "PSMain", "SceneModel.PS"});
+    vs_ = device_.create_shader({rhi::ShaderStage::Vertex, shadows_enabled_ ? words(scene_model_shadowed_vs_main) : words(scene_model_vs_main), "VSMain",
+                                 shadows_enabled_ ? "SceneModelShadowed.VS" : "SceneModel.VS"});
+    ps_ = device_.create_shader({rhi::ShaderStage::Pixel, shadows_enabled_ ? words(scene_model_shadowed_ps_main) : words(scene_model_ps_main), "PSMain",
+                                 shadows_enabled_ ? "SceneModelShadowed.PS" : "SceneModel.PS"});
 
     rhi::BindGroupLayoutDesc material;
     for (uint32_t slot = 0; slot < kMaterialSlotCount; ++slot) {
@@ -168,6 +214,11 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
     material_layout_ = device_.create_bind_group_layout(material);
     rhi::BindGroupLayoutDesc constants;
     constants.entries = {{0, rhi::BindingType::UniformBuffer}, {1, rhi::BindingType::SampledTexture}, {2, rhi::BindingType::Sampler}};
+    if (shadows_enabled_) {  // the shadowed permutation: the sun shadow map, its comparison sampler and the per-frame shadow block
+        constants.entries.push_back({3, rhi::BindingType::SampledTexture});
+        constants.entries.push_back({4, rhi::BindingType::Sampler});
+        constants.entries.push_back({5, rhi::BindingType::UniformBuffer});
+    }
     constants.debug_name = "ModelConstantsLayout";
     constants_layout_ = device_.create_bind_group_layout(constants);
 
@@ -198,10 +249,41 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         }
     }
 
+    if (shadows_enabled_) {
+        shadow_map_size_ = settings.shadows.map_size;
+        shadow_cascades_ = settings.shadows.cascades;
+        shadow_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_shadow_depth_vs_main), "VSMain", "SceneShadowDepth.VS"});
+        rhi::GraphicsPipelineDesc sp;
+        sp.vertex_shader = shadow_vs_;  // no pixel shader: depth only
+        sp.vertex_layout = pd.vertex_layout;
+        sp.vertex_layout.attributes.resize(1);  // positions only (location 0); the other attributes are not consumed by the depth shader
+        sp.cull_mode = rhi::CullMode::None;  // both sides cast; the bias and the receiver's normal offset handle self-shadowing
+        sp.depth = {true, true, rhi::CompareOp::Greater};
+        sp.depth_format = rhi::Format::D32_FLOAT;
+        sp.depth_bias = {settings.shadows.depth_bias_constant, settings.shadows.depth_bias_slope};
+        sp.push_constant_size = sizeof(ShadowPush);
+        sp.debug_name = "SceneShadowDepth";
+        shadow_pipeline_ = device_.create_graphics_pipeline(sp);
+
+        // The alpha-tested variant for materials with a cutoff: position and uv, a pixel stage that discards below the cutoff, and the
+        // material's own set 0 group (the visible pass's texture, sampler and block).
+        shadow_mask_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_shadow_depth_mask_vs_main), "VSMain", "SceneShadowDepthMask.VS"});
+        shadow_mask_ps_ = device_.create_shader({rhi::ShaderStage::Pixel, words(scene_shadow_depth_mask_ps_main), "PSMain", "SceneShadowDepthMask.PS"});
+        rhi::GraphicsPipelineDesc mp = sp;
+        mp.vertex_shader = shadow_mask_vs_;
+        mp.pixel_shader = shadow_mask_ps_;
+        mp.vertex_layout.attributes = {{0, rhi::Format::RGB32_FLOAT, offsetof(ModelVertex, position)},
+                                       {2, rhi::Format::RG32_FLOAT, offsetof(ModelVertex, uv)}};
+        mp.bind_group_layouts = {material_layout_};
+        mp.debug_name = "SceneShadowDepthMask";
+        shadow_mask_pipeline_ = device_.create_graphics_pipeline(mp);
+    }
+
     // Immutable scene constants. The default lighting is the same sun, ambient and fog as the 0.1 cube and ground shaders.
     const SceneLighting& light = settings.lighting;
     Float3 sun_unit{};
     if (!unit_direction(light.sun_direction, sun_unit)) throw std::invalid_argument("SceneLighting sun direction must not be zero");
+    sun_direction_ = sun_unit;  // the one normalized direction: the lighting constants below and the shadow fit both use it
     SceneConstants sc{};
     sc.fog_color_density[0] = settings.sky.r;
     sc.fog_color_density[1] = settings.sky.g;
@@ -259,15 +341,66 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         env_brdf_sampler_ = registry_.get_sampler(s);
     }
 
-    BindGroupBinding constant_bindings[3];
-    constant_bindings[0].binding = 0;
-    constant_bindings[0].buffer = constants_buffer;
-    constant_bindings[0].size = sizeof(sc);
-    constant_bindings[1].binding = 1;
-    constant_bindings[1].texture = env_brdf_;
-    constant_bindings[2].binding = 2;
-    constant_bindings[2].sampler = env_brdf_sampler_;
-    constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants");
+    if (!shadows_enabled_) {
+        BindGroupBinding constant_bindings[3];
+        constant_bindings[0].binding = 0;
+        constant_bindings[0].buffer = constants_buffer;
+        constant_bindings[0].size = sizeof(sc);
+        constant_bindings[1].binding = 1;
+        constant_bindings[1].texture = env_brdf_;
+        constant_bindings[2].binding = 2;
+        constant_bindings[2].sampler = env_brdf_sampler_;
+        constants_group_ = registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants");
+        return;
+    }
+
+    // Shadows on: the sun shadow map and its comparison sampler.
+    {
+        rhi::TextureDesc d;
+        d.format = rhi::Format::D32_FLOAT;
+        d.width = shadow_atlas_width();  // one tile per cascade
+        d.height = shadow_atlas_height();
+        d.usage = rhi::TextureUsage::DepthStencilAttachment | rhi::TextureUsage::Sampled;
+        d.debug_name = "ModelSunShadowMap";
+        shadow_map_ = registry_.create_texture(d);
+        rhi::SamplerDesc s;
+        s.min_filter = s.mag_filter = rhi::Filter::Nearest;  // linear filtering of depth formats is optional; the shader filters with taps
+        s.mipmap_mode = rhi::MipmapMode::Nearest;
+        s.address_u = s.address_v = rhi::AddressMode::ClampToEdge;
+        s.max_lod = 0.0f;
+        s.compare_enable = true;
+        s.compare_op = rhi::CompareOp::GreaterOrEqual;  // reverse-Z: lit when the receiver is at least as close to the sun as the occluder
+        shadow_sampler_ = registry_.get_sampler(s);
+    }
+
+    // Set 1 exists once per frame slot: the groups are identical except for the buffer that holds the frame's shadow block, which the
+    // CPU rewrites every frame and so must not be shared with a frame the GPU may still be reading.
+    const uint32_t slots = std::max(1u, device_.info().frames_in_flight);
+    ShadowBlock off{};  // params.w = 0: the sun is never occluded
+    fill_shadow_layout(off, shadow_map_size_, shadow_atlas_columns(), shadow_atlas_rows());
+    constants_groups_.reserve(slots);
+    shadow_blocks_.reserve(slots);
+    for (uint32_t i = 0; i < slots; ++i) {
+        BufferRef block;
+        make_uniform(device_, registry_, block, &off, sizeof(off), "ModelShadowBlock");
+        BindGroupBinding constant_bindings[6];
+        constant_bindings[0].binding = 0;
+        constant_bindings[0].buffer = constants_buffer;
+        constant_bindings[0].size = sizeof(sc);
+        constant_bindings[1].binding = 1;
+        constant_bindings[1].texture = env_brdf_;
+        constant_bindings[2].binding = 2;
+        constant_bindings[2].sampler = env_brdf_sampler_;
+        constant_bindings[3].binding = 3;
+        constant_bindings[3].texture = shadow_map_;
+        constant_bindings[4].binding = 4;
+        constant_bindings[4].sampler = shadow_sampler_;
+        constant_bindings[5].binding = 5;
+        constant_bindings[5].buffer = block;
+        constant_bindings[5].size = sizeof(ShadowBlock);
+        constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings, "ModelSceneConstants"));
+        shadow_blocks_.push_back(std::move(block));
+    }
 }
 
 ModelRenderer::~ModelRenderer()
@@ -277,7 +410,11 @@ ModelRenderer::~ModelRenderer()
 
 void ModelRenderer::release() noexcept
 {
+    constants_groups_.clear();
+    shadow_blocks_.clear();
     constants_group_.reset();
+    shadow_sampler_.reset();
+    shadow_map_.reset();
     white_srgb_.reset();
     white_linear_.reset();
     flat_normal_.reset();
@@ -294,6 +431,16 @@ void ModelRenderer::release() noexcept
         }
         blend_pipelines_ready_ = false;
     }
+    if (shadow_mask_pipeline_.is_valid()) device_.destroy(shadow_mask_pipeline_);
+    shadow_mask_pipeline_ = {};
+    if (shadow_mask_ps_.is_valid()) device_.destroy(shadow_mask_ps_);
+    shadow_mask_ps_ = {};
+    if (shadow_mask_vs_.is_valid()) device_.destroy(shadow_mask_vs_);
+    shadow_mask_vs_ = {};
+    if (shadow_pipeline_.is_valid()) device_.destroy(shadow_pipeline_);
+    shadow_pipeline_ = {};
+    if (shadow_vs_.is_valid()) device_.destroy(shadow_vs_);
+    shadow_vs_ = {};
     if (ps_.is_valid()) device_.destroy(ps_);
     ps_ = {};
     if (vs_.is_valid()) device_.destroy(vs_);
@@ -302,6 +449,11 @@ void ModelRenderer::release() noexcept
     material_layout_ = {};
     if (constants_layout_.is_valid()) device_.destroy(constants_layout_);
     constants_layout_ = {};
+}
+
+rhi::BindGroupHandle ModelRenderer::constants_group() const noexcept
+{
+    return shadows_enabled_ ? constants_groups_[active_group_].handle() : constants_group_.handle();
 }
 
 GpuMaterial ModelRenderer::create_material(const MaterialData& data, const TextureRef& base_color, const SamplerRef& sampler,
@@ -349,6 +501,8 @@ GpuMaterial ModelRenderer::create_material(const MaterialData& data, const Mater
     material.group = registry_.create_bind_group(material_layout_, bindings, name);
     material.double_sided = data.double_sided;
     material.blend = blend;
+    material.casts_sun_shadow = data.casts_sun_shadow;
+    material.shadow_alpha_test = data.casts_sun_shadow && data.alpha_cutoff > 0.0f;
     return material;
 }
 
@@ -465,7 +619,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                 const rhi::PipelineHandle pipeline = pipeline_for(mirrored, material.double_sided);
                 if (pipeline != bound) {
                     cmd.bind_pipeline(pipeline);
-                    cmd.bind_group(1, constants_group_.handle());  // a new pipeline starts with nothing bound
+                    cmd.bind_group(1, constants_group());  // a new pipeline starts with nothing bound
                     bound = pipeline;
                 }
                 cmd.bind_group(0, material.group.handle());
@@ -503,7 +657,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             const rhi::PipelineHandle pipeline = blend_pipelines_[(item.mirrored ? 2 : 0) + pass];
             if (pipeline != bound) {
                 cmd.bind_pipeline(pipeline);
-                cmd.bind_group(1, constants_group_.handle());
+                cmd.bind_group(1, constants_group());
                 bound = pipeline;
             }
             cmd.bind_group(0, item.material->group.handle());
@@ -515,6 +669,106 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
             ++stats.blended_draws;
         }
         ++stats.blended_primitives;
+    }
+}
+
+void ModelRenderer::set_shadow_frame(const ModelShadowFrame* frame)
+{
+    if (!shadows_enabled_) {
+        throw std::logic_error("ModelRenderer::set_shadow_frame: shadows are not enabled");
+    }
+    // The frame-slot contract: one write per renderer per frame, checked before anything is modified. A second write in the same frame
+    // would replace the block the first view's draws are going to read.
+    const uint64_t frame_number = device_.frame_number();
+    if (shadow_frame_written_ && shadow_frame_number_ == frame_number) {
+        throw std::logic_error("ModelRenderer::set_shadow_frame: already set for this frame (one write per renderer per frame)");
+    }
+    const uint32_t slot = static_cast<uint32_t>(frame_number % constants_groups_.size());
+    if (frame != nullptr) {  // checked before anything is modified
+        const bool bad = frame->cascade_count < 1 || frame->cascade_count > shadow_cascades_ || !std::isfinite(frame->blend) || frame->blend < 0.0f || frame->blend > 0.5f;
+        if (bad) throw std::invalid_argument("ModelRenderer::set_shadow_frame: the cascade count is outside 1 to the renderer's cascades, or the blend is outside 0 to 0.5");
+    }
+    ShadowBlock block{};
+    fill_shadow_layout(block, shadow_map_size_, shadow_atlas_columns(), shadow_atlas_rows());
+    if (frame != nullptr) {
+        std::memcpy(block.light_view_proj[0], &frame->light_view_proj, sizeof(block.light_view_proj[0]));
+        block.texel[0] = frame->texel_world_size;
+        for (uint32_t i = 1; i < frame->cascade_count; ++i) {
+            std::memcpy(block.light_view_proj[i], &frame->more_view_proj[i - 1], sizeof(block.light_view_proj[i]));
+            block.texel[i] = frame->more_texel_world_size[i - 1];
+        }
+        for (uint32_t i = 0; i < 4; ++i) block.splits[i] = frame->split_far[i];
+        block.params[0] = frame->normal_offset_texels;
+        block.params[1] = static_cast<float>(frame->filter_radius);
+        block.params[2] = static_cast<float>(frame->cascade_count);
+        block.params[3] = 1.0f;
+        block.map[1] = frame->blend;
+        block.camera_pos[0] = frame->camera_position.x;
+        block.camera_pos[1] = frame->camera_position.y;
+        block.camera_pos[2] = frame->camera_position.z;
+        block.camera_fwd[0] = frame->camera_forward.x;
+        block.camera_fwd[1] = frame->camera_forward.y;
+        block.camera_fwd[2] = frame->camera_forward.z;
+    }
+    std::span<std::byte> mapped = device_.map(shadow_blocks_[slot].handle());  // may throw: nothing has been modified yet
+    std::memcpy(mapped.data(), &block, sizeof(block));
+    active_group_ = slot;
+    shadow_frame_written_ = true;
+    shadow_frame_number_ = frame_number;
+}
+
+void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_proj, std::span<const ModelDraw> draws, ModelFrameStats& stats)
+{
+    if (!shadows_enabled_) {
+        throw std::logic_error("ModelRenderer::draw_shadow: shadows are not enabled");
+    }
+    rhi::PipelineHandle bound{};
+    const auto use = [&](rhi::PipelineHandle pipeline) {
+        if (pipeline != bound) {
+            cmd.bind_pipeline(pipeline);
+            bound = pipeline;
+        }
+    };
+    for (const ModelDraw& d : draws) {
+        if (d.model == nullptr) {
+            continue;
+        }
+        for (const GpuPlacement& placement : d.model->placements) {
+            if (placement.mesh >= d.model->meshes.size()) {
+                continue;
+            }
+            const Mat4 world = d.world * placement.local;
+            const float det = determinant3(world);
+            if (!finite_affine(world) || !std::isfinite(det) || std::fabs(det) < 1e-12f) {
+                ++stats.instances_skipped;
+                continue;
+            }
+            ShadowPush push{};
+            push.light_view_proj = light_view_proj;
+            for (int r = 0; r < 3; ++r) {
+                for (int c = 0; c < 4; ++c) {
+                    push.model_row[r][c] = world.at(r, c);
+                }
+            }
+            for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
+                const GpuMaterial& material = d.model->materials[prim.material];
+                if (!material.casts_sun_shadow) {
+                    continue;  // authored BLEND surfaces do not cast
+                }
+                if (material.shadow_alpha_test) {
+                    use(shadow_mask_pipeline_);
+                    cmd.bind_group(0, material.group.handle());  // the visible pass's texture, sampler, factor and cutoff
+                } else {
+                    use(shadow_pipeline_);
+                }
+                cmd.bind_vertex_buffer(prim.vertices.handle());
+                cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+                cmd.push_constant_struct(push);
+                cmd.draw_indexed(prim.index_count);
+                ++stats.draw_calls;
+            }
+            ++stats.instances_drawn;
+        }
     }
 }
 

@@ -13,6 +13,7 @@
 #include "saige/render/model_renderer.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/render_graph.hpp"
+#include "saige/render/shadow_cascades.hpp"
 #include "saige/render/tonemap.hpp"
 #include "saige/rhi/device.hpp"
 
@@ -56,6 +57,35 @@ enum class CameraMode : uint8_t {
     Fixed,   ///< Fixed eye and target (tests and captures).
 };
 
+/// Sun shadows for imported models. Off by default: with `enabled = false` the renderer uses the shadow-free model shader and acquires
+/// nothing for shadows (no map, sampler, pass or per-frame buffers; no sampled-depth or comparison-sampler requirement), so every image is
+/// exactly what it was before they existed. One directional shadow map fitted to the camera's view range [near, distance]: a bounding
+/// sphere around that slice, snapped to whole texels, so shadow edges do not shimmer when the camera moves. The light direction is
+/// `RendererSettings::lighting.sun_direction`, the same normalized vector the lighting uses. Opaque casters only: authored MASK and
+/// BLEND materials do not cast (see docs/rendering/shadows.md).
+struct SunShadowSettings {
+    bool enabled = false;
+    uint32_t map_size = 2048;              ///< texels per side of each cascade, 16 to 8192
+    /// Cascades, 1 to 4 (default 1: the single map of the first slice, unchanged). Several split the view range [near, distance] by the practical
+    /// scheme (`split_lambda`: 0 uniform, 1 logarithmic) into slices that each get a fitted, texel-snapped map of `map_size` (tiles of one atlas
+    /// texture, 2048x2048 each by default), so near shadows are sharp and the range reaches farther. Over the last `cascade_blend` fraction of a
+    /// slice its shadow blends into the next one's.
+    uint32_t cascades = 1;
+    float split_lambda = 0.75f;            ///< 0 to 1
+    float cascade_blend = 0.1f;            ///< 0 to 0.5
+    float distance = 60.0f;                ///< meters of view depth that receive shadows; beyond it the sun is unoccluded
+    float caster_margin = 50.0f;           ///< how far toward the sun the light's near plane is pulled, so off-screen casters still shadow
+    float depth_bias_constant = -1024.0f;  ///< rasterizer depth bias of the shadow pass (reverse-Z: negative moves casters away from the sun)
+    float depth_bias_slope = -1.5f;
+    float normal_offset_texels = 1.5f;     ///< receivers move this many shadow texels along their geometric normal before the lookup
+    uint32_t filter_radius = 1;            ///< percentage-closer filter radius in texels: (2r + 1)^2 taps; 0 = a single tap
+};
+
+/// Named shadow qualities: what a host exposes in a settings menu. The values are the table in docs/rendering/shadows.md; a host that wants other numbers fills
+/// SunShadowSettings itself. `distance` and the bias terms are left at their defaults.
+enum class ShadowQuality : uint8_t { Low, Medium, High, Ultra };
+[[nodiscard]] SunShadowSettings shadow_quality_preset(ShadowQuality quality, float distance = 60.0f);
+
 struct RendererSettings {
     CameraMode camera_mode = CameraMode::Follow;
     Float3 follow_offset{-6.0f, -4.5f, 3.5f};  ///< behind (-X), to the right (-Y) and above the target
@@ -67,6 +97,7 @@ struct RendererSettings {
     float fog_density = 0.012f;                      ///< per meter
     ModelShading model_shading = ModelShading::Legacy;  ///< shading model of imported models (the 0.1 cube and ground are unaffected)
     SceneLighting lighting;                          ///< sun and ground ambient of imported models; defaults are the long-standing look
+    SunShadowSettings shadows;                       ///< sun shadows for imported models; off by default
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     /// Frustum-cull imported-model primitives by their bounding spheres. On by default: it never changes the image (the test is conservative and
@@ -134,6 +165,7 @@ struct FrameStats {
     uint32_t bloom_draw_calls = 0;         ///< draws of the bloom chain (also counted in draw_calls)
     uint32_t fxaa_draw_calls = 0;          ///< 1 when the FXAA pass ran (also counted in draw_calls)
     uint32_t ao_draw_calls = 0;            ///< 2 when the ambient occlusion passes ran (also counted in draw_calls)
+    uint32_t shadow_draw_calls = 0;        ///< draws of the sun shadow pass (also counted in draw_calls)
 };
 
 class SceneRenderer {
@@ -194,6 +226,8 @@ private:
     rhi::BindGroupHandle ao_apply_input_;       ///< the apply pass's view of hdr_, ao_value_ and the depth
     rhi::ResourceState ao_value_state_;
     rhi::ResourceState hdr_ao_state_;
+    rhi::ResourceState shadow_state_;  ///< the sun shadow map's state after the last frame (undefined until its first use)
+    bool shadow_ready_ = false;        ///< the shadow map has been taken out of the undefined layout
     RenderGraph graph_;
     GpuResourceRegistry registry_;            // declared before models_: the model renderer's resources go first
     std::unique_ptr<ModelRenderer> models_;

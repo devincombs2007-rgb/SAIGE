@@ -83,6 +83,13 @@ mip-bias on texture sampling by log2(render/output). Verification: a static scen
 
 ## 7. What was built in this branch (and what was not)
 
+`engine/render_reference` (`saige::render_reference`, 7 tests): the TAA reference of section 5: Halton(2, 3) jitter and its NDC offset, texture LOD bias, YCoCg, and `taa_resolve` (reprojection, variance clipping bounded by the neighbourhood min/max, motion-dependent blend,
+cut and off-screen handling). Verified by nine deliberate defects, each caught (no history clip, flipped reprojection, biased jitter, off-screen history reused, no accumulation, flipped NDC y, wrong YCoCg inverse, unbounded clip box, motion-blind blend); three tests were too weak at
+first (a flat test image let the clip hide an off-screen bug; a huge motion vector saturated the blend; `motion_blend` had no test) and were tightened. The guarantee the tests pin is that the output stays inside the 3x3 neighbourhood's min/max range in YCoCg, not inside the
+tighter variance box (an outlier centre pixel can sit outside it). It is a bilinear-history reference: a production resolve would use a Catmull-Rom history filter and a sharpening pass, which are not here.
+
+`engine/environment` (below) as before.
+
 `engine/environment` (23 tests, built with `-Werror`, Debug, GCC): see its header comments. Verified by 15 deliberate defects, each caught by at least one test (exact-integration wetness, wrong Kelvin angle, foam that never decays, a speed-independent foam
 strength, ignored grass jitter, a region-dependent scatter hash, a sway that does not vanish in still air, rain-blind visibility, rain that jumps at phase changes, popping LOD, a stretching bend, a Clear-to-Storm transition, brightening wet surfaces, puddles below the
 drainage rate and out-of-bounds gusts). Not built: any renderer or shader change, any Vulkan code, any asset, any wiring into a showcase. Not measured: GPU cost of anything. Limits worth stating: the rain extinction law is a published empirical fit used out of its calibration range

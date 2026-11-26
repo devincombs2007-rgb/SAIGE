@@ -117,6 +117,72 @@ bool legacy_face_hidden(const District& d, const Building& b, Leg leg) {
     return inside_other_building(d, b, mx, my);
 }
 
+Box3 building_box(const Building& b) {
+    return {static_cast<float>(b.footprint.x0), static_cast<float>(b.footprint.y0), 0.0f, static_cast<float>(b.footprint.x1), static_cast<float>(b.footprint.y1), static_cast<float>(b.height())};
+}
+
+std::vector<Box3> awning_boxes(const District& d) {
+    std::vector<Box3> out;
+    for (const Building& b : d.buildings) {
+        if (!is_commercial(b.kind) || b.kind == BuildingKind::Offices) continue;
+        const FaceFrame f = face_frame(b.footprint, b.front);
+        // Along the face from u = 0.3 to length - 0.3, out to 1.55 m in front of it.
+        const double ax = f.origin[0] + f.u[0] * 0.3, ay = f.origin[1] + f.u[1] * 0.3;
+        const double bx = f.origin[0] + f.u[0] * (f.length - 0.3) + f.out[0] * 1.55, by = f.origin[1] + f.u[1] * (f.length - 0.3) + f.out[1] * 1.55;
+        out.push_back({static_cast<float>(std::min(ax, bx)), static_cast<float>(std::min(ay, by)), 2.22f, static_cast<float>(std::max(ax, bx)), static_cast<float>(std::max(ay, by)), 3.0f});
+    }
+    return out;
+}
+
+bool tree_clear_of_buildings(const District& d, const StreetProp& tree, float margin) {
+    for (const Building& b : d.buildings)
+        if (canopy_box_clearance(tree, building_box(b)) < margin) return false;
+    for (const Box3& a : awning_boxes(d))
+        if (canopy_box_clearance(tree, a) < margin) return false;
+    return true;
+}
+
+bool view_obstructed(const std::vector<StreetProp>& trees, const std::vector<Box3>& awnings, const std::array<float, 3>& eye, const std::array<float, 3>& look, float fov_deg, float view_len) {
+    const auto norm = [](std::array<float, 3> v) {
+        const float l = std::max(1e-6f, std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]));
+        return std::array<float, 3>{v[0] / l, v[1] / l, v[2] / l};
+    };
+    const std::array<float, 3> f = norm({look[0] - eye[0], look[1] - eye[1], look[2] - eye[2]});
+    const std::array<float, 3> r = norm({f[1], -f[0], 0.0f});   // f x up (0, 0, 1)
+    const std::array<float, 3> u = {r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]};
+    const float th = std::tan(0.5f * fov_deg * 3.14159265f / 180.0f), tw = th * (16.0f / 9.0f);
+    const auto in_box = [](const Box3& b, float x, float y, float z) { return x > b.x0 && x < b.x1 && y > b.y0 && y < b.y1 && z > b.z0 && z < b.z1; };
+    // The eye itself.
+    for (const Box3& a : awnings)
+        if (in_box(a, eye[0], eye[1], eye[2])) return true;
+    for (const StreetProp& t : trees)
+        if (std::hypot(static_cast<float>(t.x) - eye[0], static_cast<float>(t.y) - eye[1]) < 14.0f && canopy_clearance(t, eye[0], eye[1], eye[2]) < 0.0f) return true;
+    int hits = 0;
+    for (int sy = -1; sy <= 1; ++sy) {
+        for (int sx = -1; sx <= 1; ++sx) {
+            const std::array<float, 3> d = norm({f[0] + r[0] * tw * 0.9f * static_cast<float>(sx) + u[0] * th * 0.9f * static_cast<float>(sy), f[1] + r[1] * tw * 0.9f * static_cast<float>(sx) + u[1] * th * 0.9f * static_cast<float>(sy),
+                                                  f[2] + r[2] * tw * 0.9f * static_cast<float>(sx) + u[2] * th * 0.9f * static_cast<float>(sy)});
+            bool hit = false;
+            for (float s = 0.25f; s <= 4.0f && !hit; s += 0.25f) {
+                const float x = eye[0] + d[0] * s, y = eye[1] + d[1] * s, z = eye[2] + d[2] * s;
+                if (s <= 3.0f)
+                    for (const Box3& a : awnings)
+                        if (in_box(a, x, y, z)) { hit = true; break; }
+                if (!hit)
+                    for (const StreetProp& t : trees)
+                        if (std::hypot(static_cast<float>(t.x) - x, static_cast<float>(t.y) - y) < 6.0f && canopy_clearance(t, x, y, z) < 0.0f) { hit = true; break; }
+            }
+            if (hit) ++hits;
+        }
+    }
+    if (hits >= 2) return true;
+    // The centre ray through leaves for the first view_len metres.
+    for (float s = 4.25f; s <= view_len; s += 0.25f)
+        for (const StreetProp& t : trees)
+            if (std::hypot(static_cast<float>(t.x) - eye[0], static_cast<float>(t.y) - eye[1]) < 14.0f && canopy_clearance(t, eye[0] + f[0] * s, eye[1] + f[1] * s, eye[2] + f[2] * s) < 0.0f) return true;
+    return false;
+}
+
 unsigned interior_wall_face_mask(const Rect& fp, const Rect& w, double eps) {
     unsigned mask = 63;
     if (std::abs(w.x0 - fp.x0) < eps) mask &= ~1u;
@@ -216,6 +282,30 @@ ValidationReport validate_district(const District& d) {
             if (area > 1e-3) {
                 add(rep, "PROP_OVERLAP", area > 0.02 ? Severity::Error : Severity::Warning, fmt("two props overlap by %.3f m2", area) + " [" + d.props[a.index].type + " / " + d.props[b.index].type + "]",
                     d.props[a.index].x, d.props[a.index].y, {a.index, b.index});
+            }
+        }
+    }
+    {   // A tree's leaves are solid for the camera and for the eye: they must not pass through a wall or an awning.
+        const std::vector<Box3> awnings = awning_boxes(d);
+        for (std::size_t i = 0; i < d.props.size(); ++i) {
+            const StreetProp& t = d.props[i];
+            if (t.type != "tree") continue;
+            bool reported = false;
+            for (const Building& b : d.buildings) {
+                const float c = canopy_box_clearance(t, building_box(b));
+                if (c < 0.0f) {
+                    add(rep, "TREE_CANOPY_ON_BUILDING", Severity::Error, fmt("a tree's leaves are %.2f m inside a building", -c), t.x, t.y, {static_cast<std::uint32_t>(i), b.id});
+                    reported = true;
+                    break;
+                }
+            }
+            if (reported) continue;
+            for (std::size_t a = 0; a < awnings.size(); ++a) {
+                const float c = canopy_box_clearance(t, awnings[a]);
+                if (c < 0.0f) {
+                    add(rep, "TREE_CANOPY_ON_AWNING", Severity::Error, fmt("a tree's leaves are %.2f m inside an awning", -c), t.x, t.y, {static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(a)});
+                    break;
+                }
             }
         }
     }

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "district.hpp"
+#include "vegetation_shape.hpp"
 
 #include <array>
 #include <cstdint>
@@ -54,6 +55,20 @@ struct FaceFrame {
 // The faces of an interior wall box (bit mask, 1 -x, 2 +x, 4 -y, 8 +y, 16 -z, 32 +z, as MeshBuilder::box takes it) that may be drawn: a face that lies on the building's footprint
 // boundary is the outside of the building and belongs to the facade, so drawing it too puts two different surfaces in one plane (the depth-buffer flicker of Showcase 04).
 [[nodiscard]] unsigned interior_wall_face_mask(const Rect& footprint, const Rect& wall, double eps = 1e-4);
+
+// The awning of a shopfront as the renderer builds it: 1.55 m deep, from 2.22 m to 3.0 m above the sidewalk, across the face with 0.3 m to spare at each end. Awnings are not in the collision set
+// (nothing walks into them) but a camera and a tree's leaves must stay out of them. One box per commercial front.
+[[nodiscard]] std::vector<Box3> awning_boxes(const District& d);
+// A building's volume (footprint, ground to roof).
+[[nodiscard]] Box3 building_box(const Building& b);
+
+// A tree at (x, y) with `scale`: would its canopy clear every building and awning by `margin` meters? (The generator uses this to place trees; the validator reports the ones that do not.)
+[[nodiscard]] bool tree_clear_of_buildings(const District& d, const StreetProp& tree, float margin = 0.3f);
+
+// Is the camera at `eye`, looking at `look` (vertical field of view `fov_deg`, 16:9), obstructed? Nine rays are cast across the frustum (centre, corners and edge midpoints at 90% of the half angle).
+// The camera is obstructed when the eye is inside tree leaves or an awning, or when at least two rays meet an awning within 3 m or tree leaves within 4 m, or the centre ray meets leaves within `view_len`.
+// That is what a viewer perceives as "something in front of the lens": a slab or a leaf mass covering part of the frame. `trees` are the district's tree props, `awnings` its awning boxes.
+[[nodiscard]] bool view_obstructed(const std::vector<StreetProp>& trees, const std::vector<Box3>& awnings, const std::array<float, 3>& eye, const std::array<float, 3>& look, float fov_deg = 55.0f, float view_len = 6.0f);
 
 [[nodiscard]] ValidationReport validate_district(const District& d);
 

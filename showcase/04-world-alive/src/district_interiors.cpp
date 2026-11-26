@@ -1,4 +1,5 @@
 #include "district_detail.hpp"
+#include "district_validate.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -351,6 +352,29 @@ bool prop_free(const District& d, const char* type, double x, double y, double y
     return true;
 }
 
+// Plants a tree where its leaves clear every building and awning: a few orientations and sizes are tried (the canopy is five spheres around the trunk), then a smaller tree, then none.
+bool plant_tree(District& d, Rng& rng, double x, double y) {
+    StreetProp t;
+    t.type = "tree";
+    t.x = x;
+    t.y = y;
+    t.z = ground_height(d, x, y);
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        t.yaw = rng.range(0, 6.28);
+        t.scale = rng.range(0.9, 1.15);
+        if (tree_clear_of_buildings(d, t)) {
+            d.props.push_back(t);
+            return true;
+        }
+    }
+    t.scale = 0.7;
+    if (tree_clear_of_buildings(d, t)) {
+        d.props.push_back(t);
+        return true;
+    }
+    return false;
+}
+
 void build_props(District& d, Rng& rng) {
     auto add = [&](const char* type, double x, double y, double yaw = 0.0, double scale = 1.0) {
         StreetProp p = make(type, x, y, ground_height(d, x, y), yaw, scale);
@@ -380,9 +404,9 @@ void build_props(District& d, Rng& rng) {
             if (near_x || over_water(d, x, y)) continue;
             switch (n % 4) {
             case 0: add("lamp", x, y, horizontal ? (side > 0 ? -kPi * 0.5 : kPi * 0.5) : (side > 0 ? kPi : 0.0)); break;
-            case 1: add("tree", x, y, rng.range(0, 6.28), rng.range(0.9, 1.15)); break;
+            case 1: plant_tree(d, rng, horizontal ? x : x - 0.35 * side, horizontal ? y - 0.35 * side : y); break;
             case 2: add(rng.pick(2) ? "bench" : "bin", x, y, horizontal ? (side > 0 ? kPi : 0.0) : (side > 0 ? kPi * 0.5 : -kPi * 0.5)); break;
-            default: add("tree", x, y, rng.range(0, 6.28), rng.range(0.9, 1.15)); break;
+            default: plant_tree(d, rng, horizontal ? x : x - 0.35 * side, horizontal ? y - 0.35 * side : y); break;
             }
         }
     };
@@ -412,8 +436,7 @@ void build_props(District& d, Rng& rng) {
             for (int attempt = 0; attempt < 24; ++attempt) {
                 const double x = rng.range(p.x0 + 4, p.x1 - 4), y = rng.range(p.y0 + 4, p.y1 - 4);
                 if (!prop_free(d, "tree", x, y, 0.0)) continue;
-                add("tree", x, y, rng.range(0, 6.28), rng.range(0.9, 1.3));
-                break;
+                if (plant_tree(d, rng, x, y)) break;
             }
         }
     }

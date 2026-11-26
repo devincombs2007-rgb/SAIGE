@@ -1,5 +1,6 @@
 #include "director.hpp"
 
+#include "district_validate.hpp"
 #include "vegetation_shape.hpp"
 
 #include <algorithm>
@@ -353,11 +354,64 @@ struct Director::Impl {
         return eye;
     }
     std::vector<StreetProp> trees;
+    std::vector<Box3> awnings;
+
+    // Awnings are not in the collision set. When awnings (or leaves) cover part of the frame the eye steps toward the street side of the awning (away from its building) in 0.3 m steps, never
+    // more than 3 m in all, so the shot keeps its subject; a shot that is still obstructed after that is reported by the film's camera check instead of being dragged away.
+    Float3 clear_of_awnings(Float3 eye, Float3 look, float fov_deg) const {
+        const Float3 start = eye;
+        for (int step = 0; step < 10; ++step) {
+            if (!view_obstructed(trees, awnings, {eye.x, eye.y, eye.z}, {look.x, look.y, look.z}, fov_deg)) break;
+            // Which is nearer, a canopy or an awning? A canopy is pushed away from its nearest sphere's centre (horizontally), an awning toward the street side.
+            {
+                float tbest = 1e9f, tx = 0, ty = 0;
+                for (const StreetProp& t : trees) {
+                    if (std::hypot(static_cast<float>(t.x) - eye.x, static_cast<float>(t.y) - eye.y) > 12.0f) continue;
+                    for (const CanopyBlob& b : tree_blobs(static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z), static_cast<float>(t.yaw), static_cast<float>(t.scale), tree_seed(t))) {
+                        const float c = std::sqrt((eye.x - b.x) * (eye.x - b.x) + (eye.y - b.y) * (eye.y - b.y) + (eye.z - b.z) * (eye.z - b.z)) - b.r;
+                        if (c < tbest) { tbest = c; tx = b.x; ty = b.y; }
+                    }
+                }
+                float abest = 1e9f;
+                for (const Box3& a : awnings) {
+                    const float cx = std::clamp(eye.x, a.x0, a.x1), cy = std::clamp(eye.y, a.y0, a.y1);
+                    abest = std::min(abest, std::hypot(cx - eye.x, cy - eye.y));
+                }
+                if (tbest < 4.0f && tbest <= abest) {
+                    const float hx = eye.x - tx, hy = eye.y - ty, hl = std::max(1e-3f, std::hypot(hx, hy));
+                    eye.x += hx / hl * 0.3f;
+                    eye.y += hy / hl * 0.3f;
+                    if (std::hypot(eye.x - start.x, eye.y - start.y) > 3.0f) break;
+                    continue;
+                }
+            }
+            const Box3* best = nullptr;
+            float bd = 1e9f;
+            for (const Box3& a : awnings) {
+                const float cx = std::clamp(eye.x, a.x0, a.x1), cy = std::clamp(eye.y, a.y0, a.y1), d2 = (cx - eye.x) * (cx - eye.x) + (cy - eye.y) * (cy - eye.y);
+                if (d2 < bd) { bd = d2; best = &a; }
+            }
+            if (best == nullptr || bd > 36.0f) break;
+            // Outward = away from the building the awning belongs to (the nearest footprint centre), along the awning's thin axis.
+            const float cx = 0.5f * (best->x0 + best->x1), cy = 0.5f * (best->y0 + best->y1);
+            float bx = 0, by = 0, bdist = 1e9f;
+            for (const Building& b : d.buildings) {
+                const double dd = std::hypot(b.footprint.cx() - static_cast<double>(cx), b.footprint.cy() - static_cast<double>(cy));
+                if (dd < static_cast<double>(bdist)) { bdist = static_cast<float>(dd); bx = static_cast<float>(b.footprint.cx()); by = static_cast<float>(b.footprint.cy()); }
+            }
+            const bool thin_x = (best->x1 - best->x0) < (best->y1 - best->y0);
+            if (thin_x) eye.x += (cx >= bx ? 1.0f : -1.0f) * 0.3f;
+            else eye.y += (cy >= by ? 1.0f : -1.0f) * 0.3f;
+            if (std::hypot(eye.x - start.x, eye.y - start.y) > 3.0f) break;
+        }
+        return eye;
+    }
 };
 
 Director::Director(const District& district, const ScoutReport& report, double film_seconds, double preroll) : impl_(std::make_unique<Impl>(district, report, film_seconds, preroll)) {
     for (const StreetProp& p : district.props)
         if (p.type == "tree") impl_->trees.push_back(p);
+    impl_->awnings = awning_boxes(district);
 }
 Director::~Director() = default;
 
@@ -368,7 +422,10 @@ Cam Director::camera(double t, double dt, const World& world) {
     Cam c = s->fn(*s, u, dt, world);
     c.eye = impl_->clear_of_geometry(c.eye);
     static const bool no_canopy_clear = std::getenv("SAIGE_ALIVE_NO_CANOPY_CLEAR") != nullptr;   // diagnostics: the film's original behaviour
-    c.eye = no_canopy_clear ? c.eye : impl_->clear_of_geometry(impl_->clear_of_canopy(c.eye, c.look));
+    if (!no_canopy_clear) {
+        // Foliage and awnings both: a move for one can bring the other, so alternate a few times.
+        for (int i = 0; i < 2; ++i) c.eye = impl_->clear_of_geometry(impl_->clear_of_awnings(impl_->clear_of_canopy(c.eye, c.look), c.look, c.fov_deg));
+    }
     return c;
 }
 

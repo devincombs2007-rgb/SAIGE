@@ -4,6 +4,7 @@
 
 #include "district.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -51,6 +52,27 @@ inline constexpr int kTreeBlobs = 5;
         const float d = std::sqrt((x - b.x) * (x - b.x) + (y - b.y) * (y - b.y) + (z - b.z) * (z - b.z)) - b.r;
         best = std::min(best, d);
     }
+    return best;
+}
+
+// An axis-aligned solid in world meters (an awning, a building's volume).
+struct Box3 {
+    float x0, y0, z0, x1, y1, z1;
+};
+
+// Distance from a canopy sphere's centre to a box, minus its radius: negative when the leaves are inside the box.
+[[nodiscard]] inline float blob_box_clearance(const CanopyBlob& b, const Box3& box) {
+    const float dx = std::max({box.x0 - b.x, 0.0f, b.x - box.x1});
+    const float dy = std::max({box.y0 - b.y, 0.0f, b.y - box.y1});
+    const float dz = std::max({box.z0 - b.z, 0.0f, b.z - box.z1});
+    return std::sqrt(dx * dx + dy * dy + dz * dz) - b.r;
+}
+
+// The smallest clearance between any of the tree's canopy spheres and a box (negative: the canopy intersects it).
+[[nodiscard]] inline float canopy_box_clearance(const StreetProp& p, const Box3& box) {
+    float best = 1e9f;
+    for (const CanopyBlob& b : tree_blobs(static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z), static_cast<float>(p.yaw), static_cast<float>(p.scale), tree_seed(p)))
+        best = std::min(best, blob_box_clearance(b, box));
     return best;
 }
 

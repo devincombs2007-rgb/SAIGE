@@ -4,6 +4,7 @@
 #include "city.hpp"
 #include "director.hpp"
 #include "vegetation_shape.hpp"
+#include "district_validate.hpp"
 #include "gfx.hpp"
 #include "scout.hpp"
 #include "world.hpp"
@@ -291,17 +292,17 @@ int main(int argc, char** argv) {
                     if (e.type == TrafficEvent::Type::Impact && e.energy > 2500.0f) actors.impact(world.time_seconds(), e.x, e.y, 0.3, e.energy);
                 const Cam cam = director.camera(tf, dt, world);
                 if (opt.check_camera) {
-                    bool bad = false;
-                    for (const StreetProp& t : district.props) {
-                        if (t.type != "tree" || std::hypot(t.x - static_cast<double>(cam.eye.x), t.y - static_cast<double>(cam.eye.y)) > 14.0) continue;
-                        if (canopy_clearance(t, cam.eye.x, cam.eye.y, cam.eye.z) < 0.0f) bad = true;
-                        const float dx = cam.look.x - cam.eye.x, dy = cam.look.y - cam.eye.y, dz = cam.look.z - cam.eye.z, dl = std::max(1e-6f, std::sqrt(dx * dx + dy * dy + dz * dz));
-                        for (float s = 0.25f; s <= 6.0f && !bad; s += 0.25f)
-                            if (canopy_clearance(t, cam.eye.x + dx / dl * s, cam.eye.y + dy / dl * s, cam.eye.z + dz / dl * s) < 0.0f) bad = true;
-                    }
+                    static const std::vector<Box3> awnings = awning_boxes(district);
+                    static const std::vector<StreetProp> trees = [&] {
+                        std::vector<StreetProp> t;
+                        for (const StreetProp& p : district.props)
+                            if (p.type == "tree") t.push_back(p);
+                        return t;
+                    }();
+                    const bool bad = view_obstructed(trees, awnings, {cam.eye.x, cam.eye.y, cam.eye.z}, {cam.look.x, cam.look.y, cam.look.z}, cam.fov_deg);
                     if (bad) {
                         ++camera_violations;
-                        if (camera_violations <= 10) std::printf("camera in foliage at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
+                        if (camera_violations <= 10) std::printf("camera obstructed at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
                     }
                 }
                 if (f < opt.start_frame) continue;
@@ -385,7 +386,7 @@ int main(int argc, char** argv) {
             if (pipe != nullptr) SAIGE_PCLOSE(pipe);
             if (audio != nullptr) std::fclose(audio);
             std::printf("film: %d frames drawn, %.2f s/frame average\n", drawn, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
-            if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage\n", camera_violations, last);
+            if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage or an awning\n", camera_violations, last);
             return opt.check_camera && camera_violations > 0 ? 3 : 0;
         }
 

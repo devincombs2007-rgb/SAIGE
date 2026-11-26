@@ -6,6 +6,9 @@
 #include "district_detail.hpp"
 #include "vegetation_shape.hpp"
 
+#include <array>
+#include <vector>
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -270,6 +273,59 @@ void test_tree_shape() {
     CHECK(again[2].x == blobs[2].x && again[4].r == blobs[4].r, "a tree's shape is a pure function of the prop");
 }
 
+
+// ---- camera and canopy rules --------------------------------------------------------------------------------------------------------------------------------------------------------------
+void test_trees_and_awnings() {
+    const District& d = base_district();
+    const std::vector<Box3> awnings = awning_boxes(d);
+    CHECK(!awnings.empty(), "commercial fronts have awnings");
+    for (const Box3& a : awnings) CHECK(a.z0 > 2.0f && a.z1 <= 3.01f && a.x1 > a.x0 && a.y1 > a.y0, "an awning is a box 2.2 to 3 m above the sidewalk");
+
+    // A tree planted against a facade has its leaves in the building, and the validator says so.
+    District e = base_district();
+    const Building& b = e.buildings[30];
+    const FaceFrame f = face_frame(b.footprint, b.front);
+    StreetProp tree;
+    tree.type = "tree";
+    tree.x = f.origin[0] + f.u[0] * 0.5 * f.length + f.out[0] * 0.8;
+    tree.y = f.origin[1] + f.u[1] * 0.5 * f.length + f.out[1] * 0.8;
+    tree.z = 0.15;
+    tree.scale = 1.0;
+    CHECK(!tree_clear_of_buildings(e, tree), "a tree 0.8 m from a facade does not clear it");
+    e.props.push_back(tree);
+    const ValidationReport r = validate_district(e);
+    CHECK(blocking_of(r, "TREE_CANOPY_ON_BUILDING") + blocking_of(r, "TREE_CANOPY_ON_AWNING") >= 1, "leaves through a wall or an awning must be reported");
+    // Far from any building the same tree is fine.
+    StreetProp far_tree = tree;
+    far_tree.x = 0.0;
+    far_tree.y = 0.0;   // the middle of the main intersection
+    CHECK(tree_clear_of_buildings(e, far_tree, 0.3f), "a tree in the open clears everything");
+}
+
+void test_view_obstruction() {
+    const District& d = base_district();
+    const std::vector<Box3> awnings = awning_boxes(d);
+    std::vector<StreetProp> trees;
+    for (const StreetProp& p : d.props)
+        if (p.type == "tree") trees.push_back(p);
+    CHECK(!trees.empty(), "the district has trees");
+    // 1. A camera in the open street looking along it is not obstructed.
+    CHECK(!view_obstructed(trees, awnings, {0.0f, 0.0f, 2.0f}, {0.0f, -30.0f, 1.5f}), "open road: not obstructed");
+    // 2. The eye inside a canopy is obstructed; the same camera 8 m away looking away is not.
+    const StreetProp& t = trees.front();
+    const auto blobs = tree_blobs(static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z), static_cast<float>(t.yaw), static_cast<float>(t.scale), tree_seed(t));
+    CHECK(view_obstructed(trees, {}, {blobs[0].x, blobs[0].y, blobs[0].z}, {blobs[0].x + 10.0f, blobs[0].y, blobs[0].z}), "the eye inside leaves is obstructed");
+    // 3. Under a shopfront awning, looking along the street with the awning's edge across the top of the frame: obstructed. The same camera two metres further out: not.
+    const Box3& a = awnings.front();
+    const bool long_x = (a.x1 - a.x0) > (a.y1 - a.y0);
+    const float cx = 0.5f * (a.x0 + a.x1), cy = 0.5f * (a.y0 + a.y1);
+    const std::array<float, 3> under = long_x ? std::array<float, 3>{cx - 3.0f, cy, 2.05f} : std::array<float, 3>{cx, cy - 3.0f, 2.05f};
+    const std::array<float, 3> along = long_x ? std::array<float, 3>{cx + 6.0f, cy, 1.4f} : std::array<float, 3>{cx, cy + 6.0f, 1.4f};
+    CHECK(view_obstructed({}, awnings, under, along, 52.0f), "an awning across the top of the frame obstructs the view");
+    const std::array<float, 3> high = {under[0], under[1], 3.6f};
+    CHECK(!view_obstructed({}, awnings, high, {along[0], along[1], 3.2f}, 52.0f), "above the awning looking along the street is not obstructed");
+}
+
 } // namespace
 
 int main() {
@@ -283,6 +339,8 @@ int main() {
     test_film_rule_dropped_exposed_walls_on_the_film_seed();
     test_interior_wall_face_mask();
     test_tree_shape();
+    test_trees_and_awnings();
+    test_view_obstruction();
     if (failures != 0) {
         std::printf("validate_test: %d failure(s)\n", failures);
         return 1;

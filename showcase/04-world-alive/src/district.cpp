@@ -16,7 +16,7 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double avenue_x[3] = {-90.0, 0.0, 90.0};
 constexpr double street_y[3] = {-60.0, 0.0, 60.0};
-constexpr double boundary_run = 80.0;  // how far a boundary stub runs beyond its intersection
+constexpr double boundary_run = 63.0;  // how far a boundary stub runs beyond its intersection: to 2 m short of the end of the drawn roadway (bounds - 20 m from the outermost avenue or street, 65 m); it was 80 m, so vehicles entered on ground that had no road
 
 std::array<double, 2> right_of(double dx, double dy) { return {dy, -dx}; }
 

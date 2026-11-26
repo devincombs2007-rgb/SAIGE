@@ -48,12 +48,16 @@ struct Damp {
     void reset() { init = false; }
 };
 
+// The most the eye may be moved to clear foliage or an awning (metres): enough to step off a 3.5 m sidewalk into the parking lane, not enough to lose the subject.
+constexpr float kMaxEyeShift = 5.0f;
+
 struct Shot {
     double t0 = 0, t1 = 0;
     std::string name;
     std::function<Cam(Shot&, double u, double dt, const World&)> fn;
     // per-shot state
     std::uint64_t subject = 0;
+    bool tracks_subject = false;   // follows a resident or a vehicle (a place-based shot, an establishing or aerial one, has no subject to hide)
     bool chosen = false;
     Damp eye, look;
 };
@@ -101,6 +105,7 @@ struct Director::Impl {
         s.t0 = t0;
         s.t1 = t1;
         s.name = name;
+        s.tracks_subject = true;
         s.fn = [=](Shot& sh, double, double dt, const World& w) {
             const std::vector<PedView> peds = w.pedestrians();
             if (!sh.chosen) {
@@ -133,6 +138,7 @@ struct Director::Impl {
         s.t0 = t0;
         s.t1 = t1;
         s.name = name;
+        s.tracks_subject = true;
         s.fn = [=](Shot& sh, double, double dt, const World& w) {
             const std::vector<VehicleView> vs = w.vehicles();
             if (!sh.chosen) {
@@ -174,6 +180,7 @@ struct Director::Impl {
         s.t0 = t0;
         s.t1 = t1;
         s.name = name;
+        s.tracks_subject = true;
         s.fn = [=](Shot& sh, double, double dt, const World& w) {
             const std::vector<VehicleView> vs = w.vehicles();
             const VehicleView* v = find_vehicle(vs, id);
@@ -357,10 +364,10 @@ struct Director::Impl {
     std::vector<Box3> awnings;
 
     // Awnings are not in the collision set. When awnings (or leaves) cover part of the frame the eye steps toward the street side of the awning (away from its building) in 0.3 m steps, never
-    // more than 3 m in all, so the shot keeps its subject; a shot that is still obstructed after that is reported by the film's camera check instead of being dragged away.
+    // more than kMaxEyeShift in all, so the shot keeps its subject; a shot that is still obstructed after that is reported by the film's camera check instead of being dragged away.
     Float3 clear_of_awnings(Float3 eye, Float3 look, float fov_deg) const {
         const Float3 start = eye;
-        for (int step = 0; step < 10; ++step) {
+        for (int step = 0; step < 20; ++step) {
             if (!view_obstructed(trees, awnings, {eye.x, eye.y, eye.z}, {look.x, look.y, look.z}, fov_deg)) break;
             // Which is nearer, a canopy or an awning? A canopy is pushed away from its nearest sphere's centre (horizontally), an awning toward the street side.
             {
@@ -381,7 +388,7 @@ struct Director::Impl {
                     const float hx = eye.x - tx, hy = eye.y - ty, hl = std::max(1e-3f, std::hypot(hx, hy));
                     eye.x += hx / hl * 0.3f;
                     eye.y += hy / hl * 0.3f;
-                    if (std::hypot(eye.x - start.x, eye.y - start.y) > 3.0f) break;
+                    if (std::hypot(eye.x - start.x, eye.y - start.y) > kMaxEyeShift) break;
                     continue;
                 }
             }
@@ -402,7 +409,7 @@ struct Director::Impl {
             const bool thin_x = (best->x1 - best->x0) < (best->y1 - best->y0);
             if (thin_x) eye.x += (cx >= bx ? 1.0f : -1.0f) * 0.3f;
             else eye.y += (cy >= by ? 1.0f : -1.0f) * 0.3f;
-            if (std::hypot(eye.x - start.x, eye.y - start.y) > 3.0f) break;
+            if (std::hypot(eye.x - start.x, eye.y - start.y) > kMaxEyeShift) break;
         }
         return eye;
     }
@@ -427,6 +434,12 @@ Cam Director::camera(double t, double dt, const World& world) {
         for (int i = 0; i < 2; ++i) c.eye = impl_->clear_of_geometry(impl_->clear_of_awnings(impl_->clear_of_canopy(c.eye, c.look), c.look, c.fov_deg));
     }
     return c;
+}
+
+bool Director::shot_tracks_subject(double t) const {
+    for (const Shot& s : impl_->shots)
+        if (t >= s.t0 && t < s.t1) return s.tracks_subject;
+    return false;
 }
 
 std::string Director::shot_name(double t) const {

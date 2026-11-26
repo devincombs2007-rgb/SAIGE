@@ -70,6 +70,11 @@ struct FaceFrame {
 // That is what a viewer perceives as "something in front of the lens": a slab or a leaf mass covering part of the frame. `trees` are the district's tree props, `awnings` its awning boxes.
 [[nodiscard]] bool view_obstructed(const std::vector<StreetProp>& trees, const std::vector<Box3>& awnings, const std::array<float, 3>& eye, const std::array<float, 3>& look, float fov_deg = 55.0f, float view_len = 6.0f);
 
+// Framing: is the line from the camera to its subject (the look point) blocked by a building the camera is not inside? A shot inside a building (the cafe interior) is not judged by this.
+[[nodiscard]] bool sightline_blocked_by_building(const District& d, const std::array<float, 3>& eye, const std::array<float, 3>& look);
+// Is the eye inside any solid collision box tall enough to matter (a wall, a prop, a parked car's body is below an eye at 1.7 m and does not count)?
+[[nodiscard]] bool eye_in_solid(const District& d, const std::array<float, 3>& eye);
+
 [[nodiscard]] ValidationReport validate_district(const District& d);
 
 } // namespace saige::alive

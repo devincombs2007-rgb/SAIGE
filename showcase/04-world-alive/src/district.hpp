@@ -124,6 +124,7 @@ struct District {
     std::vector<Rect> roadway;       // asphalt rectangles
     std::vector<Rect> sidewalk;      // paved rectangles
     std::vector<Rect> park;
+    std::vector<Rect> curb_ramps;    // dropped kerbs where a crosswalk meets a sidewalk (none are generated yet: see CROSSWALK_CURB_STEP)
     Rect promenade;
     double quay_y = 0;
     double sea_level = -1.1;

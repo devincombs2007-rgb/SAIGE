@@ -27,6 +27,8 @@ public:
     // The camera at film time `t` (call with increasing t at a fixed step: the follow cameras are smoothed).
     [[nodiscard]] Cam camera(double t, double dt, const World& world);
     [[nodiscard]] std::string shot_name(double t) const;
+    /// Does the shot at `t` follow a resident or a vehicle? (A place-based shot has no subject for a building to hide.)
+    [[nodiscard]] bool shot_tracks_subject(double t) const;
     [[nodiscard]] std::vector<std::pair<double, std::string>> list() const;   // start time and name of every shot
 
 private:

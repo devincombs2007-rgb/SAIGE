@@ -352,6 +352,18 @@ bool prop_free(const District& d, const char* type, double x, double y, double y
     return true;
 }
 
+// Is (x, y) within `r` of the polyline through `pts`?
+template <std::size_t N>
+bool near_polyline(const std::array<std::array<double, 2>, N>& pts, double x, double y, double r) {
+    for (std::size_t i = 0; i + 1 < N; ++i) {
+        const double ax = pts[i][0], ay = pts[i][1], bx = pts[i + 1][0], by = pts[i + 1][1];
+        const double dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+        const double t = l2 > 0.0 ? std::clamp(((x - ax) * dx + (y - ay) * dy) / l2, 0.0, 1.0) : 0.0;
+        if (std::hypot(x - (ax + dx * t), y - (ay + dy * t)) < r) return true;
+    }
+    return false;
+}
+
 // Plants a tree where its leaves clear every building and awning: a few orientations and sizes are tried (the canopy is five spheres around the trunk), then a smaller tree, then none.
 bool plant_tree(District& d, Rng& rng, double x, double y) {
     StreetProp t;
@@ -436,6 +448,7 @@ void build_props(District& d, Rng& rng) {
             for (int attempt = 0; attempt < 24; ++attempt) {
                 const double x = rng.range(p.x0 + 4, p.x1 - 4), y = rng.range(p.y0 + 4, p.y1 - 4);
                 if (!prop_free(d, "tree", x, y, 0.0)) continue;
+                if (near_polyline(park_path_points(p), x, y, 1.6)) continue;   // the path people are routed along stays clear of trunks
                 if (plant_tree(d, rng, x, y)) break;
             }
         }

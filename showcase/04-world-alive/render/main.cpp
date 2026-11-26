@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -63,10 +64,12 @@ struct Options {
     float shadow_distance = 220.0f;
     float far_distance = 260.0f;
     double hour = 17.5;
+    double hour_step = 0.0;   // stills: the hour advances by this much per still (a sun sequence in one run)
     float exposure_bias = 0.45f;
     bool validate = false;
     // Diagnostics: switch one renderer pass off to attribute an artefact to it (shadows, ao, bloom, fxaa).
     bool disable_shadows = false, disable_ao = false, disable_bloom = false, disable_fxaa = false;
+    bool disable_stabilize = false;   // diagnostics: cascades not snapped to texels (what the shadow stability test measures)
     bool check_camera = false;   // film mode: count the frames whose eye is inside tree foliage or whose first 6 m of view pass through leaves (exit status 3 if any)
     std::vector<std::array<double, 7>> stills;
 };
@@ -114,6 +117,7 @@ Options parse(int argc, char** argv) {
             else if (a == "--height") o.height = static_cast<std::uint32_t>(std::stoul(value()));
             else if (a == "--ssaa") o.ssaa = static_cast<std::uint32_t>(std::stoul(value()));
             else if (a == "--hour") o.hour = std::stod(value());
+            else if (a == "--hour-step") o.hour_step = std::stod(value());
             else if (a == "--shadow-map") o.shadow_map = static_cast<std::uint32_t>(std::stoul(value()));
             else if (a == "--shadow-distance") o.shadow_distance = std::stof(value());
             else if (a == "--exposure") o.exposure_bias = std::stof(value());
@@ -127,7 +131,8 @@ Options parse(int argc, char** argv) {
                     else if (tok == "ao") o.disable_ao = true;
                     else if (tok == "bloom") o.disable_bloom = true;
                     else if (tok == "fxaa") o.disable_fxaa = true;
-                    else usage("--disable takes shadows,ao,bloom,fxaa");
+                    else if (tok == "stabilize") o.disable_stabilize = true;
+                    else usage("--disable takes shadows,ao,bloom,fxaa,stabilize");
                 }
             }
             else if (a == "--still") {
@@ -205,6 +210,7 @@ int main(int argc, char** argv) {
         rs.shadows.map_size = opt.shadow_map;
         rs.shadows.distance = opt.shadow_distance;
         rs.shadows.filter_radius = 1;
+        rs.shadows.stabilize = !opt.disable_stabilize;
         rs.bloom.enabled = !opt.disable_bloom;
         rs.ambient_occlusion.enabled = !opt.disable_ao;
         rs.fxaa.enabled = !opt.disable_fxaa;
@@ -282,7 +288,9 @@ int main(int argc, char** argv) {
             FILE* audio = opt.audio_log.empty() ? nullptr : std::fopen(opt.audio_log.string().c_str(), "w");
             double frame_ms = 0.0;
             int drawn = 0;
-            int camera_violations = 0;
+            int camera_violations = 0, cam_obstructed = 0, cam_solid = 0, cam_hidden = 0;
+            std::map<std::string, int> violation_prints;
+            std::map<std::string, std::array<int, 3>> by_shot;   // per shot: frames, obstructed + solid, subject hidden
             for (int f = 0; f < last; ++f) {
                 const double tf = static_cast<double>(f) * dt;
                 world.step(dt);
@@ -299,10 +307,24 @@ int main(int argc, char** argv) {
                             if (p.type == "tree") t.push_back(p);
                         return t;
                     }();
-                    const bool bad = view_obstructed(trees, awnings, {cam.eye.x, cam.eye.y, cam.eye.z}, {cam.look.x, cam.look.y, cam.look.z}, cam.fov_deg);
+                    const std::array<float, 3> eye3{cam.eye.x, cam.eye.y, cam.eye.z}, look3{cam.look.x, cam.look.y, cam.look.z};
+                    const bool obstructed = view_obstructed(trees, awnings, eye3, look3, cam.fov_deg);
+                    const bool solid = eye_in_solid(district, eye3);
+                    const bool hidden = director.shot_tracks_subject(tf) && sightline_blocked_by_building(district, eye3, look3);   // only shots that follow a resident or a vehicle have a subject for a building to hide
+                    if (obstructed) ++cam_obstructed;
+                    if (solid) ++cam_solid;
+                    if (hidden) ++cam_hidden;
+                    const bool bad = obstructed || solid || hidden;
+                    auto& bs = by_shot[director.shot_name(tf)];
+                    ++bs[0];
+                    if (obstructed || solid) ++bs[1];
+                    if (hidden) {
+                        ++bs[2];
+                        if (++violation_prints["hidden:" + director.shot_name(tf)] <= 3) std::printf("subject hidden at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
+                    }
                     if (bad) {
                         ++camera_violations;
-                        if (camera_violations <= 10) std::printf("camera obstructed at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
+                        if (++violation_prints[director.shot_name(tf)] <= 3) std::printf("camera obstructed at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
                     }
                 }
                 if (f < opt.start_frame) continue;
@@ -386,7 +408,10 @@ int main(int argc, char** argv) {
             if (pipe != nullptr) SAIGE_PCLOSE(pipe);
             if (audio != nullptr) std::fclose(audio);
             std::printf("film: %d frames drawn, %.2f s/frame average\n", drawn, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
-            if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage or an awning\n", camera_violations, last);
+            if (opt.check_camera)
+                for (const auto& [name, c] : by_shot)
+                    if (c[1] > 0 || c[2] > 0) std::printf("  shot '%s': %d frames, %d obstructed or in solid, %d with the subject hidden\n", name.c_str(), c[0], c[1], c[2]);
+            if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage or an awning, inside solid geometry, or with a building between it and its subject (obstructed %d, in solid %d, subject hidden %d)\n", camera_violations, last, cam_obstructed, cam_solid, cam_hidden);
             return opt.check_camera && camera_violations > 0 ? 3 : 0;
         }
 
@@ -406,7 +431,7 @@ int main(int argc, char** argv) {
                 const traffic::SignalColor col = ic->signal_for_lane(I.inbound[static_cast<std::size_t>(leg)]);
                 return col == traffic::SignalColor::Green ? 3 : col == traffic::SignalColor::Yellow ? 2 : 1;
             }, [&](std::uint32_t cw) { return world.walk_signal(cw); });
-            const render::SolarPosition sun = render::solar_position(190, opt.hour, 37.0, kPi * 0.5);
+            const render::SolarPosition sun = render::solar_position(190, opt.hour + opt.hour_step * static_cast<double>(index), 37.0, kPi * 0.5);
             const double elev_deg = sun.elevation * 180.0 / kPi;
             render::SceneFrame frame;
             frame.tick = static_cast<std::uint64_t>(index);

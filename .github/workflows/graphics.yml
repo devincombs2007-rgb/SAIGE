@@ -59,7 +59,22 @@ jobs:
           SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
         run: |
           mkdir -p captures
-          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure
+          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure -E alive_visual
+      # Showcase 04 visual regression: it renders real film frames, so it needs the third-party textures and models the renderer reads (Poly Haven CC0, the Khronos Car Concept CC BY 4.0). They are
+      # restored from their owners' servers and every file is checked against showcase/04-world-alive/assets.lock.json (a hash that differs fails the job: an upstream change is reviewed, not
+      # accepted). SAIGE_REQUIRE_VISUAL=1 turns "cannot run" into a failure, so this step cannot be skipped silently.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/showcase_assets
+          key: showcase-assets-${{ hashFiles('showcase/04-world-alive/assets.lock.json') }}
+      - name: Restore the Showcase 04 renderer assets (downloaded and hash-verified)
+        run: python3 showcase/04-world-alive/tools/restore_assets.py --restore "$RUNNER_TEMP/showcase_assets"
+      - name: Showcase 04 visual regression (frames rendered twice with one controlled difference; the film's old behaviours must be caught)
+        env:
+          SAIGE_REQUIRE_VISUAL: "1"
+        run: >
+          xvfb-run -a python3 showcase/04-world-alive/tools/visual_regression.py --app build/showcase/saige_alive --scout-tool build/showcase/alive_scout
+          --assets "$RUNNER_TEMP/showcase_assets" --anim "$RUNNER_TEMP/anim_assets" --mutants
       - name: Upload rendered frames
         if: always()
         uses: actions/upload-artifact@v4

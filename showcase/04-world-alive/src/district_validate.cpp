@@ -183,6 +183,41 @@ bool view_obstructed(const std::vector<StreetProp>& trees, const std::vector<Box
     return false;
 }
 
+bool sightline_blocked_by_building(const District& d, const std::array<float, 3>& eye, const std::array<float, 3>& look) {
+    const float dx = look[0] - eye[0], dy = look[1] - eye[1], dz = look[2] - eye[2];
+    for (const Building& b : d.buildings) {
+        const Box3 bx = building_box(b);
+        const bool eye_inside = eye[0] > bx.x0 && eye[0] < bx.x1 && eye[1] > bx.y0 && eye[1] < bx.y1 && eye[2] > bx.z0 && eye[2] < bx.z1;
+        if (eye_inside) continue;
+        // Slab test of the segment [0, 0.9] (the subject itself may stand against a wall) against the box shrunk by 5 cm.
+        float t0 = 0.0f, t1 = 0.9f;
+        const float lo[3] = {bx.x0 + 0.05f, bx.y0 + 0.05f, bx.z0}, hi[3] = {bx.x1 - 0.05f, bx.y1 - 0.05f, bx.z1};
+        const float o[3] = {eye[0], eye[1], eye[2]}, dir[3] = {dx, dy, dz};
+        bool hit = true;
+        for (int a = 0; a < 3 && hit; ++a) {
+            if (std::abs(dir[a]) < 1e-9f) {
+                if (o[a] < lo[a] || o[a] > hi[a]) hit = false;
+            } else {
+                float ta = (lo[a] - o[a]) / dir[a], tb = (hi[a] - o[a]) / dir[a];
+                if (ta > tb) std::swap(ta, tb);
+                t0 = std::max(t0, ta);
+                t1 = std::min(t1, tb);
+                if (t0 > t1) hit = false;
+            }
+        }
+        if (hit) return true;
+    }
+    return false;
+}
+
+bool eye_in_solid(const District& d, const std::array<float, 3>& eye) {
+    for (const Aabb& c : d.collision) {
+        if (c.max.z < 1.8f) continue;   // lower than an eye: a car roof, a bench, a curb
+        if (eye[0] > c.min.x && eye[0] < c.max.x && eye[1] > c.min.y && eye[1] < c.max.y && eye[2] > c.min.z && eye[2] < c.max.z) return true;
+    }
+    return false;
+}
+
 unsigned interior_wall_face_mask(const Rect& fp, const Rect& w, double eps) {
     unsigned mask = 63;
     if (std::abs(w.x0 - fp.x0) < eps) mask &= ~1u;
@@ -387,6 +422,96 @@ ValidationReport validate_district(const District& d) {
                 if (overlap_area(plan_of(b), top) > 1e-3 || overlap_area(plan_of(b), foot) > 1e-3)
                     add(rep, "STAIR_TOP_BLOCKED", Severity::Error, "furniture blocks the top landing of the staircase [" + in.upper_furniture[i].type + "]", in.upper_furniture[i].x, in.upper_furniture[i].y, {in.building, static_cast<std::uint32_t>(i)});
             }
+        }
+    }
+    // ---- consistency between what is drawn, what blocks and where things walk and drive ---------------------------------------------------------------------------------------------
+    {
+        const auto in_box_xy = [](const Aabb& b, double x, double y, double margin) {
+            return x > static_cast<double>(b.min.x) - margin && x < static_cast<double>(b.max.x) + margin && y > static_cast<double>(b.min.y) - margin && y < static_cast<double>(b.max.y) + margin;
+        };
+        // Every building is solid: its centre and inset corners lie inside a collision box tall enough to matter (a pedestrian or a car cannot enter a building the renderer draws).
+        for (const Building& b : d.buildings) {
+            if (b.interior) continue;   // interiors are walkable: their walls are the collision, not the volume
+            const Rect& f = b.footprint;
+            const double px[5] = {f.cx(), f.x0 + 0.3, f.x1 - 0.3, f.x0 + 0.3, f.x1 - 0.3}, py[5] = {f.cy(), f.y0 + 0.3, f.y0 + 0.3, f.y1 - 0.3, f.y1 - 0.3};
+            for (int i = 0; i < 5; ++i) {
+                bool solid = false;
+                for (const Aabb& c : d.collision)
+                    if (static_cast<double>(c.max.z) >= std::min(3.0, b.height()) && in_box_xy(c, px[i], py[i], 0.0)) { solid = true; break; }
+                if (!solid) {
+                    add(rep, "COLLISION_MISSING_BUILDING", Severity::Error, "a drawn building has no collision at one of its points", px[i], py[i], {b.id});
+                    break;
+                }
+            }
+        }
+        // Pedestrian network.
+        const auto in_interior_building = [&](double x, double y) {
+            for (const Building& b : d.buildings)
+                if (b.interior && b.footprint.contains(x, y)) return true;
+            return false;
+        };
+        for (std::size_t i = 0; i < d.ped_nodes.size(); ++i) {
+            const PedNode& n = d.ped_nodes[i];
+            if (n.layer != 0) continue;
+            for (const Aabb& c : d.collision) {
+                if (static_cast<double>(c.min.z) > 0.5) continue;   // a box above head height does not block (awnings)
+                if (static_cast<double>(c.max.z) <= ground_height(d, n.x, n.y) + 0.05) continue;  // a curb, slab or pier deck the walker stands on
+                if (in_box_xy(c, n.x, n.y, 0.3)) {
+                    add(rep, "NAV_NODE_BLOCKED", Severity::Error, "a pedestrian node is inside (or within 0.3 m of) a collision box", n.x, n.y, {static_cast<std::uint32_t>(i)});
+                    break;
+                }
+            }
+            if (n.crosswalk == 0 && !in_interior_building(n.x, n.y)) {
+                for (const Rect& road : d.roadway) {
+                    if (road.x0 + 0.2 < n.x && n.x < road.x1 - 0.2 && road.y0 + 0.2 < n.y && n.y < road.y1 - 0.2) {
+                        add(rep, "NAV_NODE_ON_ROAD", Severity::Error, "a pedestrian node outside any crosswalk lies on the roadway", n.x, n.y, {static_cast<std::uint32_t>(i)});
+                        break;
+                    }
+                }
+            }
+        }
+        for (std::size_t i = 0; i < d.ped_edges.size(); ++i) {
+            const PedEdge& e = d.ped_edges[i];
+            const PedNode& a = d.ped_nodes[e.a];
+            const PedNode& b = d.ped_nodes[e.b];
+            if (a.layer != 0 || b.layer != 0) continue;
+            const double len = std::hypot(b.x - a.x, b.y - a.y);
+            const int steps = std::max(1, static_cast<int>(len / 0.25));
+            for (int k = 1; k < steps; ++k) {
+                const double t = static_cast<double>(k) / static_cast<double>(steps);
+                const double x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t;
+                if (in_interior_building(x, y)) break;   // an interior's own edges
+                bool through = false;
+                for (const Building& bd : d.buildings)
+                    if (bd.footprint.x0 + 0.1 < x && x < bd.footprint.x1 - 0.1 && bd.footprint.y0 + 0.1 < y && y < bd.footprint.y1 - 0.1) { through = true; break; }
+                if (through) {
+                    add(rep, "NAV_EDGE_THROUGH_BUILDING", Severity::Error, "a pedestrian edge crosses a building", x, y, {static_cast<std::uint32_t>(i)});
+                    break;
+                }
+            }
+        }
+        // Lane paths run on the roadway.
+        for (const District::LanePath& lp : d.lane_paths) {
+            const double len = std::hypot(lp.b[0] - lp.a[0], lp.b[1] - lp.a[1]);
+            const int steps = std::max(1, static_cast<int>(len / 1.0));
+            for (int k = 0; k <= steps; ++k) {
+                const double t = static_cast<double>(k) / static_cast<double>(steps);
+                const double x = lp.a[0] + (lp.b[0] - lp.a[0]) * t, y = lp.a[1] + (lp.b[1] - lp.a[1]) * t;
+                bool on_road = false;
+                for (const Rect& road : d.roadway)
+                    if (road.x0 - 0.5 <= x && x <= road.x1 + 0.5 && road.y0 - 0.5 <= y && y <= road.y1 + 0.5) { on_road = true; break; }
+                if (!on_road) {
+                    add(rep, "LANE_OFF_ROAD", Severity::Error, "a vehicle lane leaves the roadway", x, y, {lp.id});
+                    break;
+                }
+            }
+        }
+        // A crosswalk meets the sidewalk at a kerb 0.15 m high at each end; no ramp exists in the data, so a wheelchair, a pram or a character at speed meets a step. (Reported once per crosswalk.)
+        for (const Crosswalk& c : d.crosswalks) {
+            bool any_ramp = false;
+            for (const Rect& r : d.curb_ramps)
+                if (r.overlaps(c.strip) || r.contains(c.a[0], c.a[1]) || r.contains(c.b[0], c.b[1])) any_ramp = true;
+            if (!any_ramp) add(rep, "CROSSWALK_CURB_STEP", Severity::Warning, "a crosswalk's ends meet the sidewalk at a 0.15 m kerb with no ramp", c.strip.cx(), c.strip.cy(), {c.id});
         }
     }
     return rep;

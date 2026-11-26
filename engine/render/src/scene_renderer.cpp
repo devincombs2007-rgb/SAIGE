@@ -614,6 +614,7 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         cs.near_plane = frame.camera != nullptr ? frame.camera->near_plane : settings_.near_plane;
         cs.shadow_distance = settings_.shadows.distance;
         cs.resolution = settings_.shadows.map_size;
+        cs.stabilize = settings_.shadows.stabilize;
         cs.caster_margin = settings_.shadows.caster_margin;
         // The same normalized direction the lighting constants were built from (SceneLighting::sun_direction), not a copy of it.
         const bool sun_up = !settings_.dynamic_lighting || frame_sun.z > 0.0f;  // a sun below the horizon casts no shadow (and a fit toward it is meaningless)

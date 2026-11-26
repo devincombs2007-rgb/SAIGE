@@ -326,6 +326,53 @@ void test_view_obstruction() {
     CHECK(!view_obstructed({}, awnings, high, {along[0], along[1], 3.2f}, 52.0f), "above the awning looking along the street is not obstructed");
 }
 
+
+// ---- render / collision / navigation consistency --------------------------------------------------------------------------------------------------------------------------------------------
+void test_consistency_rules() {
+    // Generated districts: every lane lies on the drawn roadway (the entry lanes used to start 15 m beyond its end).
+    const District& d = base_district();
+    for (const District::LanePath& lp : d.lane_paths) {
+        bool a = false, b = false;
+        for (const Rect& r : d.roadway) {
+            a = a || (r.x0 - 0.5 <= lp.a[0] && lp.a[0] <= r.x1 + 0.5 && r.y0 - 0.5 <= lp.a[1] && lp.a[1] <= r.y1 + 0.5);
+            b = b || (r.x0 - 0.5 <= lp.b[0] && lp.b[0] <= r.x1 + 0.5 && r.y0 - 0.5 <= lp.b[1] && lp.b[1] <= r.y1 + 0.5);
+        }
+        CHECK(a && b, "lane %u has an end off the roadway", lp.id);
+    }
+    // A lane that leaves the road is reported.
+    District e = base_district();
+    e.lane_paths.push_back({9999, {e.roadway[0].x0 + 3.0, e.roadway[0].y0 - 30.0}, {e.roadway[0].x0 + 3.0, e.roadway[0].y0 - 20.0}, false});
+    CHECK(blocking_of(validate_district(e), "LANE_OFF_ROAD") >= 1, "a lane off the road must be reported");
+    // A pedestrian node on the roadway outside a crosswalk is reported; so is an edge through a building.
+    District f = base_district();
+    PedNode on_road;
+    on_road.x = f.roadway[3].cx();
+    on_road.y = f.roadway[3].cy();
+    f.ped_nodes.push_back(on_road);
+    CHECK(blocking_of(validate_district(f), "NAV_NODE_ON_ROAD") >= 1, "a walker node in the road must be reported");
+    District g = base_district();
+    const Building* bld = nullptr;
+    for (const Building& b : g.buildings)
+        if (!b.interior) { bld = &b; break; }
+    PedNode n1, n2;
+    n1.x = bld->footprint.x0 - 1.0;
+    n1.y = bld->footprint.cy();
+    n2.x = bld->footprint.x1 + 1.0;
+    n2.y = bld->footprint.cy();
+    g.ped_nodes.push_back(n1);
+    g.ped_nodes.push_back(n2);
+    g.ped_edges.push_back({static_cast<std::uint32_t>(g.ped_nodes.size() - 2), static_cast<std::uint32_t>(g.ped_nodes.size() - 1), 0});
+    CHECK(blocking_of(validate_district(g), "NAV_EDGE_THROUGH_BUILDING") >= 1, "an edge through a building must be reported");
+    // A building whose collision is removed is reported (a drawn building the walkers and cars would enter).
+    District h = base_district();
+    const Rect fp = h.buildings[40].footprint;
+    std::erase_if(h.collision, [&](const saige::Aabb& c) { return static_cast<double>(c.min.x) <= fp.cx() && fp.cx() <= static_cast<double>(c.max.x) && static_cast<double>(c.min.y) <= fp.cy() && fp.cy() <= static_cast<double>(c.max.y) && c.max.z > 3.0f; });
+    CHECK(blocking_of(validate_district(h), "COLLISION_MISSING_BUILDING") >= 1, "a building without collision must be reported");
+    // The director's report that crosswalks end at raised kerbs is a fact about the data: every crosswalk is reported until ramps exist (a warning, not blocking).
+    const ValidationReport r = validate_district(d);
+    CHECK(r.count("CROSSWALK_CURB_STEP") == d.crosswalks.size() || !d.curb_ramps.empty(), "every crosswalk without a ramp is reported (%zu of %zu)", r.count("CROSSWALK_CURB_STEP"), d.crosswalks.size());
+}
+
 } // namespace
 
 int main() {
@@ -341,6 +388,7 @@ int main() {
     test_tree_shape();
     test_trees_and_awnings();
     test_view_obstruction();
+    test_consistency_rules();
     if (failures != 0) {
         std::printf("validate_test: %d failure(s)\n", failures);
         return 1;

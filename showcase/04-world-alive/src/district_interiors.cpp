@@ -44,6 +44,28 @@ bool dims_for(const std::string& t, double scale, Dims& out) {
     return false;
 }
 
+double plan_overlap(const Aabb& a, const Rect& r) {
+    const double w = std::min(static_cast<double>(a.max.x), r.x1) - std::max(static_cast<double>(a.min.x), r.x0);
+    const double h = std::min(static_cast<double>(a.max.y), r.y1) - std::max(static_cast<double>(a.min.y), r.y0);
+    return w > 0.0 && h > 0.0 ? w * h : 0.0;
+}
+
+// Furniture layouts are written by hand per building kind, and the buildings vary in size and door position, so a layout can put a piece through a wall, in the doorway or on the stairs.
+// Every layout is pruned against the hard clearance rules (inside the room, off the walls, off the doorway strip, off the staircase and its landings) so that no building can ship with
+// an unusable interior. The same rules are checked by validate_district, which reports a piece this pass would have removed.
+void prune_furniture(std::vector<StreetProp>& list, const Rect& room, const std::vector<Rect>& walls, const std::vector<Rect>& keep_clear) {
+    std::erase_if(list, [&](const StreetProp& p) {
+        Aabb b{};
+        if (!prop_box(p, b)) return false;
+        if (b.min.x < room.x0 - 1e-6 || b.min.y < room.y0 - 1e-6 || b.max.x > room.x1 + 1e-6 || b.max.y > room.y1 + 1e-6) return true;
+        for (const Rect& w : walls)
+            if (plan_overlap(b, w) > 1e-3) return true;
+        for (const Rect& c : keep_clear)
+            if (plan_overlap(b, c) > 1e-3) return true;
+        return false;
+    });
+}
+
 StreetProp make(const char* type, double x, double y, double z, double yaw, double scale = 1.0) {
     StreetProp p;
     p.type = type;
@@ -255,12 +277,19 @@ void build_interiors(District& d, Rng& rng) {
             for (int k = 0; k < 3; ++k) F("shelf", 3.0 + k * 2.2, D * 0.55, kPi * 0.5 * 0 + 0.0, 2.0);
             for (int k = 0; k < 3; ++k) F("shelf", 3.0 + k * 2.2, D * 0.3, 0.0, 2.0);
             F("shelf", W * 0.5, D - 0.6, kPi, W - 3.0);
-            F("counter", W - 3.0, 2.0, 0.0, 2.2);
+            {
+                const double door_u = b.front == Leg::South ? b.door_x - b.footprint.x0 : b.front == Leg::North ? b.footprint.x1 - b.door_x : b.front == Leg::East ? b.door_y - b.footprint.y0 : b.footprint.y1 - b.door_y;
+                F("counter", door_u < 0.5 * W ? W - 3.0 : 3.0, 2.0, 0.0, 2.2);   // on the far side from the door's path
+            }
             F("crate", 1.0, 1.3);
             break;
         }
         case BuildingKind::Bakery: {
-            F("display_case", W * 0.5, 2.6, 0.0, 3.6);
+            {   // beside the door's path, on whichever side has more room
+                const double door_u = b.front == Leg::South ? b.door_x - b.footprint.x0 : b.front == Leg::North ? b.footprint.x1 - b.door_x : b.front == Leg::East ? b.door_y - b.footprint.y0 : b.footprint.y1 - b.door_y;
+                const double u = door_u < 0.5 * W ? std::min(W - 2.3, door_u + 3.4) : std::max(2.3, door_u - 3.4);
+                F("display_case", u, 2.6, 0.0, 3.2);
+            }
             F("counter", W * 0.5, D - 1.8, kPi, 4.0);
             F("shelf", W * 0.25, D - 0.6, kPi, 2.4);
             F("table_square", 1.8, 4.5);
@@ -273,6 +302,7 @@ void build_interiors(District& d, Rng& rng) {
             F("counter", W * 0.5, D - 2.0, kPi, 6.0);
             for (int k = 0; k < 5; ++k) F("stool", W * 0.5 - 2.4 + k * 1.2, D - 3.1);
             for (int k = 0; k < 3; ++k) {
+                if (2.3 + k * 2.8 + 0.8 + 0.23 > W - wall_t - 0.1) continue;   // the right-hand chair must stay inside the wall
                 F("table_round", 2.3 + k * 2.8, 3.0);
                 F("chair", 2.3 + k * 2.8 - 0.8, 3.0, kPi * 0.5);
                 F("chair", 2.3 + k * 2.8 + 0.8, 3.0, -kPi * 0.5);
@@ -287,8 +317,38 @@ void build_interiors(District& d, Rng& rng) {
         }
         default: break;
         }
+        {   // clearance rules: the doorway strip, the staircase and its landings
+            const auto dir = leg_dir(b.front);
+            const double x0 = b.door_x, y0 = b.door_y;
+            const Rect door_strip = std::abs(dir[0]) > 0.5 ? Rect{std::min(x0, x0 - dir[0] * 2.5), y0 - 0.5, std::max(x0, x0 - dir[0] * 2.5), y0 + 0.5} : Rect{x0 - 0.5, std::min(y0, y0 - dir[1] * 2.5), x0 + 0.5, std::max(y0, y0 - dir[1] * 2.5)};
+            std::vector<Rect> clear{door_strip};
+            std::vector<Rect> clear_upper;
+            if (in.has_stairs) {
+                const Rect foot = {in.stair_footprint.x0 - 0.3, in.stair_footprint.y0 - 0.3, in.stair_footprint.x1 + 0.3, in.stair_footprint.y1 + 0.3};
+                clear.push_back(foot);
+                clear.push_back({in.stair_bottom[0] - 0.8, in.stair_bottom[1] - 0.8, in.stair_bottom[0] + 0.8, in.stair_bottom[1] + 0.8});
+                clear_upper.push_back(foot);
+                clear_upper.push_back({in.stair_top[0] - 0.8, in.stair_top[1] - 0.8, in.stair_top[0] + 0.8, in.stair_top[1] + 0.8});
+            }
+            prune_furniture(in.furniture, in.room, in.walls, clear);
+            prune_furniture(in.upper_furniture, in.upper_room, in.upper_walls, clear_upper);
+        }
         d.interiors.push_back(in);
     }
+}
+
+// True when a prop of `type` at (x, y) would not overlap any prop already placed.
+bool prop_free(const District& d, const char* type, double x, double y, double yaw) {
+    StreetProp cand = make(type, x, y, ground_height(d, x, y), yaw);
+    Aabb cb{};
+    if (!prop_box(cand, cb)) return true;
+    for (const StreetProp& q : d.props) {
+        Aabb qb{};
+        if (!prop_box(q, qb)) continue;
+        if (qb.min.z >= cb.max.z || cb.min.z >= qb.max.z) continue;
+        if (plan_overlap(cb, {static_cast<double>(qb.min.x) - 0.15, static_cast<double>(qb.min.y) - 0.15, static_cast<double>(qb.max.x) + 0.15, static_cast<double>(qb.max.y) + 0.15}) > 0.0) return false;
+    }
+    return true;
 }
 
 void build_props(District& d, Rng& rng) {
@@ -321,12 +381,13 @@ void build_props(District& d, Rng& rng) {
             switch (n % 4) {
             case 0: add("lamp", x, y, horizontal ? (side > 0 ? -kPi * 0.5 : kPi * 0.5) : (side > 0 ? kPi : 0.0)); break;
             case 1: add("tree", x, y, rng.range(0, 6.28), rng.range(0.9, 1.15)); break;
-            case 2: add(rng.pick(2) ? "bench" : "bin", x, y, horizontal ? (side > 0 ? kPi * 0.5 : -kPi * 0.5) : (side > 0 ? kPi : 0.0)); break;
+            case 2: add(rng.pick(2) ? "bench" : "bin", x, y, horizontal ? (side > 0 ? kPi : 0.0) : (side > 0 ? kPi * 0.5 : -kPi * 0.5)); break;
             default: add("tree", x, y, rng.range(0, 6.28), rng.range(0.9, 1.15)); break;
             }
         }
     };
     for (const double sy : {-60.0, 0.0, 60.0}) {
+        // The furniture line is 1 m kerbside of the sidewalk's walking line (where the pedestrian nodes are). Benches sit parallel to the kerb: a bench across the line (1.7 m) reached the asphalt.
         along(true, sy + corner_offset - 1.0, -150.0, 150.0, 11.0, 1.0);
         along(true, sy - corner_offset + 1.0, -150.0, 150.0, 11.0, -1.0);
     }
@@ -345,8 +406,16 @@ void build_props(District& d, Rng& rng) {
     add("bin", 25.0, 72.0, 0.0);
     // The park: trees, benches, a fence of breakable rails along the road.
     for (const Rect& p : d.park) {
-        for (int i = 0; i < 18; ++i) add("tree", rng.range(p.x0 + 4, p.x1 - 4), rng.range(p.y0 + 4, p.y1 - 4), rng.range(0, 6.28), rng.range(0.9, 1.3));
         for (double x = p.x0 + 8; x < p.x1 - 8; x += 16.0) add("bench", x, p.cy(), 0.0);
+        for (int i = 0; i < 18; ++i) {
+            // A tree needs room: not on a bench or another prop (a few tries; the park is large).
+            for (int attempt = 0; attempt < 24; ++attempt) {
+                const double x = rng.range(p.x0 + 4, p.x1 - 4), y = rng.range(p.y0 + 4, p.y1 - 4);
+                if (!prop_free(d, "tree", x, y, 0.0)) continue;
+                add("tree", x, y, rng.range(0, 6.28), rng.range(0.9, 1.3));
+                break;
+            }
+        }
     }
     // Pier furniture.
     for (const Pier& pr : d.piers) {
@@ -361,7 +430,9 @@ void build_props(District& d, Rng& rng) {
         const auto dir = leg_dir(b.front);
         for (int k = -1; k <= 1; k += 2) {
             const double px = -dir[1], py = dir[0];
-            const double x = b.door_x + dir[0] * 4.2 + px * 2.6 * k, y = b.door_y + dir[1] * 4.2 + py * 2.6 * k;
+            // The sidewalk is 3.5 m deep from the facade (row_half - road_half). The tables sit against the facade side of it; the street furniture line (lamps, trees, benches) is further out, and neither is
+            // in the parking bay beyond the kerb.
+            const double x = b.door_x + dir[0] * 0.8 + px * 2.6 * k, y = b.door_y + dir[1] * 0.8 + py * 2.6 * k;
             if (over_water(d, x, y)) continue;
             add("cafe_table", x, y, 0.0);
             add("cafe_chair", x + px * 0.7, y + py * 0.7, std::atan2(-py, -px));
@@ -369,9 +440,17 @@ void build_props(District& d, Rng& rng) {
         }
     }
     // A bus stop on Market Street, bike racks near the shops, crates behind the bar.
-    add("bus_stop", -45.0, 0.0 + corner_offset + 1.0, 0.0);
-    add("bike_rack", 30.0, -corner_offset - 1.0, 0.0);
-    add("bike_rack", -30.0, corner_offset + 1.0, 0.0);
+    // Each is placed where it is free: slid along the street away from whatever (a cafe's tables, a lamp) is already there.
+    const auto add_free = [&](const char* type, double x, double y, double yaw) {
+        for (const double dx : {0.0, 3.0, -3.0, 6.0, -6.0, 9.0, -9.0, 12.0, -12.0}) {
+            if (!prop_free(d, type, x + dx, y, yaw)) continue;
+            add(type, x + dx, y, yaw);
+            return;
+        }
+    };
+    add_free("bus_stop", -45.0, 0.0 + corner_offset + 1.0, 0.0);
+    add_free("bike_rack", 30.0, -corner_offset - 1.0, 0.0);
+    add_free("bike_rack", -30.0, corner_offset + 1.0, 0.0);
 }
 
 } // namespace saige::alive

@@ -1,12 +1,16 @@
 #include "city.hpp"
 
 #include "district_detail.hpp"
+#include "district_validate.hpp"
+#include "vegetation_shape.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <set>
+#include <string>
 
 namespace saige::alive::rend {
 
@@ -51,6 +55,17 @@ struct Opening {
     bool pane = true;   // a glass pane (false: an open doorway or an opening onto an interior)
 };
 
+// Diagnostics: SAIGE_ALIVE_SKIP=frames,plinth,cornice,balcony,inner,reveals,glass,roof,interior drops those layers of every building (to attribute an artefact to one of them).
+bool legacy_interior_walls() {   // diagnostics: the film's interior wall boxes (their outer face in the facade's plane)
+    static const bool on = std::getenv("SAIGE_ALIVE_LEGACY_INTERIOR_WALLS") != nullptr;
+    return on;
+}
+
+bool skip_layer(const char* name) {
+    static const std::string list = [] { const char* e = std::getenv("SAIGE_ALIVE_SKIP"); return std::string(e != nullptr ? e : ""); }();
+    return !list.empty() && list.find(name) != std::string::npos;
+}
+
 void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face& f, float H, std::vector<Opening> ops, bool reveals = true) {
     // Horizontal bands from every opening's v range; in each band, wall quads fill what the openings leave.
     std::vector<float> vs{0.0f, H};
@@ -73,7 +88,7 @@ void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face&
         }
         if (cur < f.W - 1e-4f) mb.quad_uv(wall, f.at(cur, va), f.at(f.W, va), f.at(f.W, vb), f.at(cur, vb), {{{cur, va}, {f.W, va}, {f.W, vb}, {cur, vb}}});
     }
-    if (!reveals) return;
+    if (!reveals || skip_layer("reveals")) return;
     for (const Opening& o : ops) {
         const float d = o.depth;
         const Float3 left_n = f.u, right_n = f.u * -1.0f;
@@ -82,8 +97,8 @@ void emit_face(MeshBuilder& mb, Mat wall, Mat reveal, Mat frame_mat, const Face&
         quad_facing(mb, reveal, f.at(o.u1, o.v0), f.at(o.u1, o.v1), f.at(o.u1, o.v1, d), f.at(o.u1, o.v0, d), right_n);
         if (o.v1 < H - 1e-3f) quad_facing(mb, reveal, f.at(o.u0, o.v1), f.at(o.u1, o.v1), f.at(o.u1, o.v1, d), f.at(o.u0, o.v1, d), {0, 0, -1});
         if (o.v0 > 1e-3f) quad_facing(mb, reveal, f.at(o.u0, o.v0), f.at(o.u1, o.v0), f.at(o.u1, o.v0, d), f.at(o.u0, o.v0, d), {0, 0, 1});
-        if (o.pane) quad_facing(mb, o.glass, f.at(o.u0, o.v0, d), f.at(o.u1, o.v0, d), f.at(o.u1, o.v1, d), f.at(o.u0, o.v1, d), f.out);
-        if (o.frame && o.pane) {
+        if (o.pane && !skip_layer("glass")) quad_facing(mb, o.glass, f.at(o.u0, o.v0, d), f.at(o.u1, o.v0, d), f.at(o.u1, o.v1, d), f.at(o.u0, o.v1, d), f.out);
+        if (o.frame && o.pane && !skip_layer("frames")) {
             // A frame: four strips just in front of the wall, and a window sill.
             const float t = 0.07f, e = 0.025f;
             const auto strip = [&](float a0, float b0, float a1, float b1) { quad_facing(mb, frame_mat, f.at(a0, b0, -e), f.at(a1, b0, -e), f.at(a1, b1, -e), f.at(a0, b1, -e), f.out); };
@@ -192,14 +207,6 @@ Style style_for(const Building& b) {
     return s;
 }
 
-[[nodiscard]] bool inside_other(const District& d, const Building& self, double x, double y) {
-    for (const Building& o : d.buildings) {
-        if (o.id == self.id) continue;
-        if (o.footprint.contains(x, y)) return true;
-    }
-    return false;
-}
-
 } // namespace
 
 struct CityScene::Impl {
@@ -237,9 +244,10 @@ struct CityScene::Impl {
 
     Impl(render::SceneRenderer& renderer, const Materials& m, const District& dist, const fs::path& c, std::vector<std::string>& w) : r(renderer), mats(m), d(dist), cache(c), warnings(w) {}
 
-    void add_static(const std::string& name, MeshBuilder& mb, float cx, float cy, float radius) {
+    void add_static(const std::string& name, MeshBuilder& mb, float cx, float cy, float radius, Role role = Role::Both) {
         triangles += mb.triangle_count();
         Placed p;
+        p.role = role;
         p.model = upload_model(r, name, mb.finish(), mats.list());
         p.cx = cx;
         p.cy = cy;
@@ -283,26 +291,38 @@ struct CityScene::Impl {
     }
 
     // ---- ground ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-    void build_ground() {
+    // The scenery's ground ends where the real district's avenues end (local y of the grid tile), so a copy never lays its waterfront, quay or cross-street sidewalks over the real roads.
+    static constexpr float kSceneryYMax = 55.0f;
+
+    void build_ground(bool scenery = false) {
         MeshBuilder mb;
+        clip_y_ = scenery ? kSceneryYMax : 1e9f;
+        const float ymax = clip_y_;
         const float ext = 300.0f;
         // Land base (courtyards, lots): paving; everything else is laid over it.
-        mb.quad(MPaving, {-ext, -ext, 0}, {ext, -ext, 0}, {ext, static_cast<float>(d.quay_y), 0}, {-ext, static_cast<float>(d.quay_y), 0});
+        const float land_y1 = std::min(static_cast<float>(d.quay_y), ymax);
+        mb.quad(MPaving, {-ext, -ext, 0}, {ext, -ext, 0}, {ext, land_y1, 0}, {-ext, land_y1, 0});
         // Beyond the district: a coarse skirt out to the horizon, so that nothing below the skyline shows the sky through.
-        mb.quad(MPaving, {-300000, -300000, -0.05f}, {300000, -300000, -0.05f}, {300000, static_cast<float>(d.quay_y), -0.05f}, {-300000, static_cast<float>(d.quay_y), -0.05f});
-        for (const Rect& rr : d.roadway) mb.quad(MAsphalt, {static_cast<float>(rr.x0), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y1), 0.004f}, {static_cast<float>(rr.x0), static_cast<float>(rr.y1), 0.004f});
+        mb.quad(MPaving, {-300000, -300000, -0.05f}, {300000, -300000, -0.05f}, {300000, land_y1, -0.05f}, {-300000, land_y1, -0.05f});
+        for (const Rect& rr : d.roadway) {
+            if (static_cast<float>(rr.y0) >= ymax) continue;
+            const float ry1 = std::min(static_cast<float>(rr.y1), ymax);
+            mb.quad(MAsphalt, {static_cast<float>(rr.x0), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), static_cast<float>(rr.y0), 0.004f}, {static_cast<float>(rr.x1), ry1, 0.004f}, {static_cast<float>(rr.x0), ry1, 0.004f});
+        }
         // Sidewalks and kerbs
         for (const Rect& rr : d.sidewalk) {
-            const float x0 = static_cast<float>(rr.x0), x1 = static_cast<float>(rr.x1), y0 = static_cast<float>(rr.y0), y1 = static_cast<float>(std::min(rr.y1, d.quay_y));
+            if (static_cast<float>(rr.y0) >= ymax) continue;
+            const float x0 = static_cast<float>(rr.x0), x1 = static_cast<float>(rr.x1), y0 = static_cast<float>(rr.y0), y1 = std::min(static_cast<float>(std::min(rr.y1, d.quay_y)), ymax);
+            const bool top_cut = static_cast<float>(rr.y1) > ymax;
             const bool prom = rr.y0 >= d.promenade.y0 - 1e-6 && rr.y1 <= d.promenade.y1 + 1e-6 && rr.x1 - rr.x0 > 100.0;
             mb.quad(prom ? MPromenade : MSidewalk, {x0, y0, 0.15f}, {x1, y0, 0.15f}, {x1, y1, 0.15f}, {x0, y1, 0.15f});
             mb.quad(MCurb, {x0, y0, 0.0f}, {x1, y0, 0.0f}, {x1, y0, 0.15f}, {x0, y0, 0.15f});
-            mb.quad(MCurb, {x1, y1, 0.0f}, {x0, y1, 0.0f}, {x0, y1, 0.15f}, {x1, y1, 0.15f});
+            if (!top_cut) mb.quad(MCurb, {x1, y1, 0.0f}, {x0, y1, 0.0f}, {x0, y1, 0.15f}, {x1, y1, 0.15f});
             mb.quad(MCurb, {x0, y1, 0.0f}, {x0, y0, 0.0f}, {x0, y0, 0.15f}, {x0, y1, 0.15f});
             mb.quad(MCurb, {x1, y0, 0.0f}, {x1, y1, 0.0f}, {x1, y1, 0.15f}, {x1, y0, 0.15f});
         }
         // The bulkhead of the quay, down to the sea bed.
-        {
+        if (!scenery) {
             const float q = static_cast<float>(d.quay_y);
             mb.quad(MCurb, {ext, q, -8.0f}, {-ext, q, -8.0f}, {-ext, q, 0.15f}, {ext, q, 0.15f});   // faces the water
             // The sea bed.
@@ -310,10 +330,12 @@ struct CityScene::Impl {
         }
         // Park
         for (const Rect& p : d.park) {
+            if (static_cast<float>(p.y1) > ymax) continue;
             mb.quad(MGrass, {static_cast<float>(p.x0), static_cast<float>(p.y0), 0.03f}, {static_cast<float>(p.x1), static_cast<float>(p.y0), 0.03f}, {static_cast<float>(p.x1), static_cast<float>(p.y1), 0.03f}, {static_cast<float>(p.x0), static_cast<float>(p.y1), 0.03f});
         }
         // Piers
         for (const Pier& p : d.piers) {
+            if (scenery) break;
             const float x0 = static_cast<float>(p.deck.x0), x1 = static_cast<float>(p.deck.x1), y0 = static_cast<float>(p.deck.y0), y1 = static_cast<float>(p.deck.y1), z = static_cast<float>(p.z);
             mb.quad(MPier, {x0, y0, z}, {x1, y0, z}, {x1, y1, z}, {x0, y1, z});
             mb.quad(MPier, {x0, y0, z - 0.4f}, {x0, y1, z - 0.4f}, {x0, y1, z}, {x0, y0, z});
@@ -327,10 +349,14 @@ struct CityScene::Impl {
             for (float y = y0 + 0.8f; y < y1; y += 0.8f) mb.quad(MPaintBlack, {x0, y, z + 0.002f}, {x1, y, z + 0.002f}, {x1, y + 0.025f, z + 0.002f}, {x0, y + 0.025f, z + 0.002f});
         }
         build_markings(mb);
-        add_static("ground", mb, 0, 0, 1e9f);
+        add_static(scenery ? "ground (scenery)" : "ground", mb, 0, 0, 1e9f, scenery ? Role::Scenery : Role::District);
+        clip_y_ = 1e9f;
     }
+    float clip_y_ = 1e9f;   // the ground being built is clipped to local y <= clip_y_ (the scenery's)
 
     void stripe(MeshBuilder& mb, Mat m, double x0, double y0, double x1, double y1, float z = 0.012f) {
+        if (y0 >= static_cast<double>(clip_y_)) return;
+        y1 = std::min(y1, static_cast<double>(clip_y_));
         mb.quad(m, {static_cast<float>(x0), static_cast<float>(y0), z}, {static_cast<float>(x1), static_cast<float>(y0), z}, {static_cast<float>(x1), static_cast<float>(y1), z}, {static_cast<float>(x0), static_cast<float>(y1), z});
     }
 
@@ -354,7 +380,7 @@ struct CityScene::Impl {
         }
         // Along the avenues (north-south).
         for (const double ax : av) {
-            std::vector<double> cuts{-141.0};
+            std::vector<double> cuts{std::max(-141.0, d.bounds.y0 - 20.0)};   // the avenue's road ends at bounds.y0 - 20: no lane lines on bare paving beyond it
             for (const double sy : st) {
                 cuts.push_back(sy - c0);
                 cuts.push_back(sy + c0);
@@ -414,11 +440,13 @@ struct CityScene::Impl {
         for (int li = 0; li < 4; ++li) {
             const Leg face_leg = static_cast<Leg>(li);
             const Face f = make_face(fp, face_leg);
-            // Hidden: pressed against a neighbour.
-            const auto dir = leg_dir(face_leg);
-            const double mx = fp.cx() + dir[0] * (fp.w() * 0.5 + 1.0) * (dir[0] != 0 ? 1.0 : 0.0), my = fp.cy() + dir[1] * (fp.h() * 0.5 + 1.0) * (dir[1] != 0 ? 1.0 : 0.0);
-            const bool hidden = inside_other(d, b, mx, my);
-            if (hidden) continue;
+            // The parts of this face a viewer can see: not pressed against a neighbour (exact spans along the face, not one sample point: the old rule dropped a whole wall
+            // wherever its midpoint touched a neighbour, which left the exposed part of a deeper building's side open to the street).
+            static const bool all_faces = std::getenv("SAIGE_ALIVE_ALLFACES") != nullptr;   // diagnostics: every face whole, as if no building touched another
+            static const bool legacy_hidden = std::getenv("SAIGE_ALIVE_LEGACY_HIDDEN") != nullptr;   // the film's rule, to show that the visual test catches it
+            std::vector<std::pair<double, double>> spans = all_faces ? std::vector<std::pair<double, double>>{{0.0, static_cast<double>(f.W)}} : exposed_face_spans(d, b, face_leg);
+            if (legacy_hidden) spans = legacy_face_hidden(d, b, face_leg) ? std::vector<std::pair<double, double>>{} : std::vector<std::pair<double, double>>{{0.0, static_cast<double>(f.W)}};
+            if (spans.empty()) continue;
             const bool is_front = face_leg == b.front;
             std::vector<Opening> ops;
             // The door's u position along this face.
@@ -493,15 +521,35 @@ struct CityScene::Impl {
                 }
             }
             if (interior != nullptr && !is_front) ops.clear();
-            emit_face(mb, face_leg == b.front && commercial ? st.upper_wall : st.wall, MPlasterB, MFrameWhite, f, H, ops);
-            if (interior != nullptr && is_front) emit_inner(mb, MInterior, f, cafe_height(b, interior), ops);
+            const bool full_face = spans.size() == 1 && spans[0].first < 0.1 && spans[0].second > static_cast<double>(f.W) - 0.1;
+            if (full_face) {
+                emit_face(mb, face_leg == b.front && commercial ? st.upper_wall : st.wall, MPlasterB, MFrameWhite, f, H, ops);
+            } else {
+                // A partly covered face: one wall piece per exposed span, with the openings that lie wholly inside it.
+                for (const auto& sp : spans) {
+                    Face g = f;
+                    const float su0 = static_cast<float>(sp.first), su1 = static_cast<float>(sp.second);
+                    g.origin = {f.origin.x + f.u.x * su0, f.origin.y + f.u.y * su0, f.origin.z};
+                    g.W = su1 - su0;
+                    std::vector<Opening> part;
+                    for (Opening o : ops) {
+                        if (o.u0 < su0 + 1e-3f || o.u1 > su1 - 1e-3f) continue;
+                        o.u0 -= su0;
+                        o.u1 -= su0;
+                        part.push_back(o);
+                    }
+                    emit_face(mb, face_leg == b.front && commercial ? st.upper_wall : st.wall, MPlasterB, MFrameWhite, g, H, part);
+                }
+                continue;   // awnings, balconies, signs and the cornice belong to whole faces
+            }
+            if (interior != nullptr && is_front && !skip_layer("inner")) emit_inner(mb, MInterior, f, cafe_height(b, interior), ops);
             // Ground-floor band of the front: a plinth.
-            {   // a plinth, a little proud of the wall
+            if (!skip_layer("plinth")) {   // a plinth, a little proud of the wall
                 const Float3 a = f.at(0.0f, 0.0f, -0.05f), c = f.at(f.W, 0.45f, 0.0f);
                 mb.box(MCurb, {std::min(a.x, c.x) - 0.0f, std::min(a.y, c.y) - 0.0f, 0.0f}, {std::max(a.x, c.x) + 0.0f, std::max(a.y, c.y) + 0.0f, 0.45f}, 0);
             }
             // Cornice
-            {
+            if (!skip_layer("cornice")) {
                 const float cw = 0.22f;
                 const Float3 a = f.at(-cw, H - 0.45f, -cw), c = f.at(f.W + cw, H, 0.0f);
                 mb.box(MStucco, {std::min(a.x, c.x), std::min(a.y, c.y), H - 0.45f}, {std::max(a.x, c.x), std::max(a.y, c.y), H + 0.05f}, 63);
@@ -523,7 +571,7 @@ struct CityScene::Impl {
                 quad_facing(mb, hashf(seed, 7) < 0.5f ? MBulbWarm : MGlassLitCool, e, f.at(su + 1.45f, 3.42f, -0.125f), g, f.at(su - 1.45f, 3.88f, -0.125f), f.out);
             }
             // Balconies on apartments' fronts and sides facing the street.
-            if (b.kind == BuildingKind::Apartments && b.floors >= 3 && (is_front || hashf(seed, 99, static_cast<std::uint32_t>(li)) < 0.3f)) {
+            if (!skip_layer("balcony") && b.kind == BuildingKind::Apartments && b.floors >= 3 && (is_front || hashf(seed, 99, static_cast<std::uint32_t>(li)) < 0.3f)) {
                 for (int fl = 1; fl < b.floors; ++fl)
                     for (int k = 0; k < bays; ++k) {
                         if ((k + fl) % 2) continue;
@@ -544,8 +592,8 @@ struct CityScene::Impl {
                     }
             }
         }
-        build_roof(mb, b, st, H);
-        if (interior != nullptr) build_interior(mb, b, *interior);
+        if (!skip_layer("roof")) build_roof(mb, b, st, H);
+        if (interior != nullptr && !skip_layer("interior")) build_interior(mb, b, *interior);
         const Rect& f2 = b.footprint;
         add_static("building " + std::to_string(b.id), mb, static_cast<float>(f2.cx()), static_cast<float>(f2.cy()), static_cast<float>(0.5 * std::hypot(f2.w(), f2.h()) + 4.0));
     }
@@ -614,7 +662,7 @@ struct CityScene::Impl {
             const Rect& w = in.walls[wi];
             const float a0 = static_cast<float>(w.x0), b0 = static_cast<float>(w.y0), a1 = static_cast<float>(w.x1), b1 = static_cast<float>(w.y1);
             const float top = cafe ? static_cast<float>(b.height()) - 0.25f : ceil_z;
-            mb.box(MInterior, {a0, b0, z0}, {a1, b1, top}, 63);
+            mb.box(MInterior, {a0, b0, z0}, {a1, b1, top}, legacy_interior_walls() ? 63u : interior_wall_face_mask(b.footprint, w));   // not the face on the footprint: that is the facade's, in the same plane
         }
         // Ceiling of the ground floor (with the stair well open in the cafe).
         if (!cafe) {
@@ -725,7 +773,7 @@ struct CityScene::Impl {
                 by_model[p.type].push_back(&p);
                 continue;
             }
-            if (p.type == "tree") build_tree(mb, x, y, z, yaw, static_cast<float>(p.scale), static_cast<std::uint32_t>(p.x * 13 + p.y * 7));
+            if (p.type == "tree") build_tree(mb, x, y, z, yaw, static_cast<float>(p.scale), tree_seed(p));
             else if (p.type == "bollard") {
                 mb.cylinder(MPaintSteel, {x, y, z}, 0.1f, 0.8f, 8, true);
                 mb.cylinder(MEmergencyYellow, {x, y, z + 0.55f}, 0.102f, 0.1f, 8, false);
@@ -801,16 +849,10 @@ struct CityScene::Impl {
     }
 
     void build_tree(MeshBuilder& mb, float x, float y, float z, float yaw, float scale, std::uint32_t seed) {
-        const float h = (4.2f + hashf(seed, 3) * 1.8f) * scale;
+        const float h = tree_height(seed, scale);
         mb.cone(MBark, {x, y, z}, 0.16f * scale, 0.07f * scale, h * 0.62f, 8);
-        const int blobs = 5;
-        for (int i = 0; i < blobs; ++i) {
-            const float a = yaw + static_cast<float>(i) * 1.256f + hashf(seed, static_cast<std::uint32_t>(i)) * 0.6f;
-            const float rr = (i == 0 ? 0.0f : 0.9f + hashf(seed, 10 + static_cast<std::uint32_t>(i)) * 0.6f) * scale;
-            const float cz = z + h * 0.6f + (i == 0 ? 0.9f : hashf(seed, 20 + static_cast<std::uint32_t>(i)) * 1.2f) * scale;
-            const float rad = (1.5f + hashf(seed, 30 + static_cast<std::uint32_t>(i)) * 0.5f) * scale;
-            mb.sphere((i % 2) ? MFoliageDark : MFoliage, {x + std::cos(a) * rr, y + std::sin(a) * rr, cz}, rad, 4, 8);
-        }
+        const auto blobs = tree_blobs(x, y, z, yaw, scale, seed);   // shared with the director and the validator (vegetation_shape.hpp)
+        for (std::size_t i = 0; i < blobs.size(); ++i) mb.sphere((i % 2) ? MFoliageDark : MFoliage, {blobs[i].x, blobs[i].y, blobs[i].z}, blobs[i].r, 4, 8);
     }
 
     // ---- signal heads ------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -883,7 +925,8 @@ struct CityScene::Impl {
 CityScene::CityScene(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, std::vector<std::string>& warnings) : impl_(std::make_unique<Impl>(renderer, materials, district, cache, warnings)) {
     Impl& i = *impl_;
     i.load_props();
-    i.build_ground();
+    i.build_ground(false);
+    i.build_ground(true);
     for (const Building& b : i.d.buildings) i.build_building(b);
     i.build_street_props();
     i.build_signals();
@@ -893,17 +936,25 @@ CityScene::~CityScene() = default;
 void CityScene::collect(std::vector<render::ModelDraw>& out, Float3 eye, float far_distance) const {
     // The district continues beyond its edge as scenery: copies of the same blocks, offset by the grid's period, drawn without any simulation (the roads and streets line up with the district's own).
     static const float offsets[6][2] = {{0, 0}, {270, 0}, {-270, 0}, {0, -180}, {270, -180}, {-270, -180}};
+    static const bool no_copies = std::getenv("SAIGE_ALIVE_NOCOPIES") != nullptr;   // diagnostics: the district alone
+    static const bool legacy_scenery = std::getenv("SAIGE_ALIVE_LEGACY_SCENERY") != nullptr;   // diagnostics: the film's copies, whole (the district's own ground, waterfront included)
     for (const auto& o : offsets) {
+        if (no_copies && (o[0] != 0.0f || o[1] != 0.0f)) continue;
+        const bool is_copy = o[0] != 0.0f || o[1] != 0.0f;
         const Mat4 shift = translation({o[0], o[1], 0.0f});
         for (const Placed& p : impl_->statics) {
+            if (p.role == Role::District && is_copy && !legacy_scenery) continue;
+            if (p.role == Role::Scenery && (!is_copy || legacy_scenery)) continue;
             if (p.radius < 1e8f) {
+                // A copy continues the grid beyond the district; the waterfront (everything north of the avenues' end) is not part of the grid.
+                if (is_copy && p.cy > Impl::kSceneryYMax && !legacy_scenery) continue;
                 const float dx = p.cx + o[0] - eye.x, dy = p.cy + o[1] - eye.y;
                 if (std::sqrt(dx * dx + dy * dy) - p.radius > far_distance) continue;
-            } else if (o[0] != 0.0f || o[1] != 0.0f) {
+            } else if (is_copy) {
                 // The ground model is huge: a copy matters only while the eye is within reach of its district.
                 if (std::fabs(eye.x - o[0]) > 400.0f || std::fabs(eye.y - o[1]) > 400.0f) continue;
             }
-            out.push_back({&p.model, o[0] == 0.0f && o[1] == 0.0f ? p.world : shift * p.world});
+            out.push_back({&p.model, is_copy ? shift * p.world : p.world});
         }
     }
 }

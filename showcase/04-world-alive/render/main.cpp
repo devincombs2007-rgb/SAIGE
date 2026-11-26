@@ -3,6 +3,7 @@
 #include "actors.hpp"
 #include "city.hpp"
 #include "director.hpp"
+#include "vegetation_shape.hpp"
 #include "gfx.hpp"
 #include "scout.hpp"
 #include "world.hpp"
@@ -63,6 +64,9 @@ struct Options {
     double hour = 17.5;
     float exposure_bias = 0.45f;
     bool validate = false;
+    // Diagnostics: switch one renderer pass off to attribute an artefact to it (shadows, ao, bloom, fxaa).
+    bool disable_shadows = false, disable_ao = false, disable_bloom = false, disable_fxaa = false;
+    bool check_camera = false;   // film mode: count the frames whose eye is inside tree foliage or whose first 6 m of view pass through leaves (exit status 3 if any)
     std::vector<std::array<double, 7>> stills;
 };
 
@@ -113,6 +117,18 @@ Options parse(int argc, char** argv) {
             else if (a == "--shadow-distance") o.shadow_distance = std::stof(value());
             else if (a == "--exposure") o.exposure_bias = std::stof(value());
             else if (a == "--validate") o.validate = true;
+            else if (a == "--check-camera") o.check_camera = true;
+            else if (a == "--disable") {
+                std::stringstream ss(value());
+                std::string tok;
+                while (std::getline(ss, tok, ',')) {
+                    if (tok == "shadows") o.disable_shadows = true;
+                    else if (tok == "ao") o.disable_ao = true;
+                    else if (tok == "bloom") o.disable_bloom = true;
+                    else if (tok == "fxaa") o.disable_fxaa = true;
+                    else usage("--disable takes shadows,ao,bloom,fxaa");
+                }
+            }
             else if (a == "--still") {
                 std::array<double, 7> c{};
                 std::stringstream ss(value());
@@ -183,14 +199,14 @@ int main(int argc, char** argv) {
         rs.atmosphere.sun_disc_intensity = 3500.0f;
         rs.atmosphere.moon_intensity = 14.0f;
         rs.atmosphere.star_intensity = 60.0f;
-        rs.shadows.enabled = true;
+        rs.shadows.enabled = !opt.disable_shadows;
         rs.shadows.cascades = 3;
         rs.shadows.map_size = opt.shadow_map;
         rs.shadows.distance = opt.shadow_distance;
         rs.shadows.filter_radius = 1;
-        rs.bloom.enabled = true;
-        rs.ambient_occlusion.enabled = true;
-        rs.fxaa.enabled = true;
+        rs.bloom.enabled = !opt.disable_bloom;
+        rs.ambient_occlusion.enabled = !opt.disable_ao;
+        rs.fxaa.enabled = !opt.disable_fxaa;
 
         Offscreen target(*device, opt.width * opt.ssaa, opt.height * opt.ssaa);
         render::SceneRenderer renderer(*device, rhi::Format::RGBA8_SRGB, rs);
@@ -265,6 +281,7 @@ int main(int argc, char** argv) {
             FILE* audio = opt.audio_log.empty() ? nullptr : std::fopen(opt.audio_log.string().c_str(), "w");
             double frame_ms = 0.0;
             int drawn = 0;
+            int camera_violations = 0;
             for (int f = 0; f < last; ++f) {
                 const double tf = static_cast<double>(f) * dt;
                 world.step(dt);
@@ -273,6 +290,20 @@ int main(int argc, char** argv) {
                 for (const TrafficEvent& e : frame_events)
                     if (e.type == TrafficEvent::Type::Impact && e.energy > 2500.0f) actors.impact(world.time_seconds(), e.x, e.y, 0.3, e.energy);
                 const Cam cam = director.camera(tf, dt, world);
+                if (opt.check_camera) {
+                    bool bad = false;
+                    for (const StreetProp& t : district.props) {
+                        if (t.type != "tree" || std::hypot(t.x - static_cast<double>(cam.eye.x), t.y - static_cast<double>(cam.eye.y)) > 14.0) continue;
+                        if (canopy_clearance(t, cam.eye.x, cam.eye.y, cam.eye.z) < 0.0f) bad = true;
+                        const float dx = cam.look.x - cam.eye.x, dy = cam.look.y - cam.eye.y, dz = cam.look.z - cam.eye.z, dl = std::max(1e-6f, std::sqrt(dx * dx + dy * dy + dz * dz));
+                        for (float s = 0.25f; s <= 6.0f && !bad; s += 0.25f)
+                            if (canopy_clearance(t, cam.eye.x + dx / dl * s, cam.eye.y + dy / dl * s, cam.eye.z + dz / dl * s) < 0.0f) bad = true;
+                    }
+                    if (bad) {
+                        ++camera_violations;
+                        if (camera_violations <= 10) std::printf("camera in foliage at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
+                    }
+                }
                 if (f < opt.start_frame) continue;
                 if (audio != nullptr) {
                     // What the soundtrack needs about this frame: where the listener is, every vehicle, the residents within earshot, and the world's events (each is a real engine fact: a vehicle's rpm, a resident's gait, an impact's energy).
@@ -347,13 +378,15 @@ int main(int argc, char** argv) {
                     std::snprintf(name, sizeof name, "frame_%05d.ppm", f);
                     write_ppm(opt.out / name, img);
                 }
+                if (!opt.only_frames.empty()) std::printf("camera frame %d eye %.4f %.4f %.4f look %.4f %.4f %.4f fov %.2f\n", f, static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y), static_cast<double>(cam.eye.z), static_cast<double>(cam.look.x), static_cast<double>(cam.look.y), static_cast<double>(cam.look.z), static_cast<double>(cam.fov_deg));
                 if (f % 30 == 0) std::printf("frame %d/%d  t=%.1f s  shot '%s'  sun %.1f deg  %.2f s/frame avg\n", f, total, tf, director.shot_name(tf).c_str(), elev_deg, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
                 std::fflush(stdout);
             }
             if (pipe != nullptr) SAIGE_PCLOSE(pipe);
             if (audio != nullptr) std::fclose(audio);
             std::printf("film: %d frames drawn, %.2f s/frame average\n", drawn, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
-            return 0;
+            if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage\n", camera_violations, last);
+            return opt.check_camera && camera_violations > 0 ? 3 : 0;
         }
 
         int index = 0;

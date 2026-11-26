@@ -10,10 +10,15 @@
 
 namespace saige::alive::rend {
 
+// Where a static is drawn: `District` only the real district (its own ground, waterfront, piers), `Scenery` only the copies that continue the grid beyond the district (their ground is
+// clipped so that it never overlaps the real district), `Both` everything else (buildings and props, whose copies are filtered by position).
+enum class Role : std::uint8_t { Both = 0, District = 1, Scenery = 2 };
+
 struct Placed {
     render::GpuModel model;
     Mat4 world = Mat4::identity();
     float cx = 0, cy = 0, radius = 0;   // bounding circle in the plane, for distance culling
+    Role role = Role::Both;
 };
 
 class CityScene {

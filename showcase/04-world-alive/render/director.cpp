@@ -1,7 +1,10 @@
 #include "director.hpp"
 
+#include "vegetation_shape.hpp"
+
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace saige::alive::rend {
 
@@ -306,9 +309,56 @@ struct Director::Impl {
             }
         return eye;
     }
+
+    // Foliage: the collision set only has a tree's trunk, but the leaves are what a camera at human height ends up inside. The eye is pushed out of every canopy sphere (plus a margin),
+    // and when the first metres of the line of sight pass through leaves the eye backs away from the nearest canopy until the view is clear.
+    Float3 clear_of_canopy(Float3 eye, Float3 look) const {
+        constexpr float margin = 0.5f, view_len = 6.0f;
+        for (int pass = 0; pass < 12; ++pass) {
+            bool moved = false;
+            Float3 dir{look.x - eye.x, look.y - eye.y, look.z - eye.z};
+            const float dl = std::max(1e-6f, std::sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z));
+            dir = {dir.x / dl, dir.y / dl, dir.z / dl};
+            for (const StreetProp& t : trees) {
+                if (std::hypot(static_cast<float>(t.x) - eye.x, static_cast<float>(t.y) - eye.y) > 14.0f) continue;
+                const auto blobs = tree_blobs(static_cast<float>(t.x), static_cast<float>(t.y), static_cast<float>(t.z), static_cast<float>(t.yaw), static_cast<float>(t.scale), tree_seed(t));
+                for (const CanopyBlob& b : blobs) {
+                    // The eye inside (or within the margin of) the blob: out along the line from the blob's centre.
+                    Float3 off{eye.x - b.x, eye.y - b.y, eye.z - b.z};
+                    float dist = std::sqrt(off.x * off.x + off.y * off.y + off.z * off.z);
+                    if (dist < b.r + margin) {
+                        if (dist < 1e-3f) { off = {1, 0, 0}; dist = 1.0f; }
+                        const float k = (b.r + margin) / dist;
+                        eye = {b.x + off.x * k, b.y + off.y * k, b.z + off.z * k};
+                        moved = true;
+                        continue;
+                    }
+                    // The line of sight through the blob within view_len: back the eye away from the blob's centre (horizontally) by the penetration.
+                    const Float3 oc{b.x - eye.x, b.y - eye.y, b.z - eye.z};
+                    const float tc = oc.x * dir.x + oc.y * dir.y + oc.z * dir.z;
+                    if (tc <= 0.0f || tc - b.r > view_len) continue;
+                    const Float3 closest{eye.x + dir.x * tc, eye.y + dir.y * tc, eye.z + dir.z * tc};
+                    const float miss = std::sqrt((closest.x - b.x) * (closest.x - b.x) + (closest.y - b.y) * (closest.y - b.y) + (closest.z - b.z) * (closest.z - b.z));
+                    if (miss < b.r) {
+                        const float hx = eye.x - b.x, hy = eye.y - b.y, hl = std::max(1e-3f, std::hypot(hx, hy));
+                        const float push = b.r - miss + 0.3f;
+                        eye.x += hx / hl * push;
+                        eye.y += hy / hl * push;
+                        moved = true;
+                    }
+                }
+            }
+            if (!moved) break;
+        }
+        return eye;
+    }
+    std::vector<StreetProp> trees;
 };
 
-Director::Director(const District& district, const ScoutReport& report, double film_seconds, double preroll) : impl_(std::make_unique<Impl>(district, report, film_seconds, preroll)) {}
+Director::Director(const District& district, const ScoutReport& report, double film_seconds, double preroll) : impl_(std::make_unique<Impl>(district, report, film_seconds, preroll)) {
+    for (const StreetProp& p : district.props)
+        if (p.type == "tree") impl_->trees.push_back(p);
+}
 Director::~Director() = default;
 
 Cam Director::camera(double t, double dt, const World& world) {
@@ -317,6 +367,8 @@ Cam Director::camera(double t, double dt, const World& world) {
     const double u = std::clamp((t - s->t0) / std::max(1e-6, s->t1 - s->t0), 0.0, 1.0);
     Cam c = s->fn(*s, u, dt, world);
     c.eye = impl_->clear_of_geometry(c.eye);
+    static const bool no_canopy_clear = std::getenv("SAIGE_ALIVE_NO_CANOPY_CLEAR") != nullptr;   // diagnostics: the film's original behaviour
+    c.eye = no_canopy_clear ? c.eye : impl_->clear_of_geometry(impl_->clear_of_canopy(c.eye, c.look));
     return c;
 }
 

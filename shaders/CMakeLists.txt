@@ -13,6 +13,7 @@ set(SAIGE_SHADER_SOURCES
     scene/ao_apply.hlsl
     scene/ao_generate.hlsl
     scene/cube.hlsl
+    scene/cull_instances.hlsl
     scene/fxaa.hlsl
     scene/ground.hlsl
     scene/model.hlsl
@@ -27,6 +28,7 @@ set(SAIGE_SHADER_SOURCES
     scene/sky.hlsl
     test/blend_color.hlsl
     test/compute_probe.hlsl
+    test/cull_draw_probe.hlsl
     test/draw_probe.hlsl
     test/depth_only.hlsl
     test/shadow_probe.hlsl

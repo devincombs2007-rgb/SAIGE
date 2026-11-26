@@ -34,4 +34,4 @@ The existing Vulkan suite (175 tests) passes unchanged.
 
 ## Not done
 
-Instanced shadow depth shaders; skinned or blended batching; GPU-driven culling (the next item: a compute pass that writes the visible instances and indirect arguments, checked against the CPU culling above); any measurement on a physical GPU.
+Instanced shadow depth shaders; skinned or blended batching; GPU-driven culling inside the model renderer (the compute pass itself exists and is tested: `docs/rendering/gpu-culling.md`); any measurement on a physical GPU.

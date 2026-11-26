@@ -186,13 +186,26 @@ struct SamplerDesc {
 // Bind groups (plain descriptor sets; bindless is a later, capability-gated optimization)
 // ---------------------------------------------------------------------------------------------------------------------
 
-/// What a binding holds. All bindings are visible to the vertex and pixel stages in 0.2.
+/// What a binding holds. Which shader stages see it is `BindGroupLayoutEntry::visibility` (the vertex and pixel stages by default, as in 0.2).
 enum class BindingType : uint8_t {
     SampledTexture,  ///< A texture (HLSL `Texture2D`); read through a separate `Sampler` binding.
     Sampler,         ///< A sampler (HLSL `SamplerState`). Textures and samplers are separate bindings, as in HLSL.
     UniformBuffer,
     StorageBuffer,
+    StorageTexture,  ///< A texture a shader reads and writes without a sampler (HLSL `RWTexture2D`). Needs `TextureUsage::Storage`; visible to the compute stage only (portable: storage images in the graphics stages are an optional device feature).
 };
+
+/// The shader stages that can see a binding. A set of flags (`StageMask::Vertex | StageMask::Pixel`).
+enum class StageMask : uint8_t {
+    None = 0,
+    Vertex = 1u << 0,
+    Pixel = 1u << 1,
+    Compute = 1u << 2,
+};
+SAIGE_RHI_ENUM_FLAGS(StageMask)
+
+/// What every layout entry sees unless it says otherwise: the two graphics stages, exactly as before compute existed.
+inline constexpr StageMask graphics_stages = StageMask::Vertex | StageMask::Pixel;
 
 inline constexpr uint32_t max_bindings_per_group = 16;
 inline constexpr uint32_t max_bind_groups_per_pipeline = 4;  ///< Vulkan guarantees at least 4 descriptor sets.
@@ -206,6 +219,7 @@ inline constexpr uint64_t max_storage_binding_range = uint64_t{128} << 20;
 struct BindGroupLayoutEntry {
     uint32_t binding = 0;
     BindingType type = BindingType::SampledTexture;
+    StageMask visibility = graphics_stages;  ///< non-empty; `StorageTexture` entries must be exactly `StageMask::Compute`
 
     friend bool operator==(const BindGroupLayoutEntry&, const BindGroupLayoutEntry&) noexcept = default;
 };
@@ -236,11 +250,13 @@ inline constexpr uint32_t max_pipeline_sampled_textures = 16;
 inline constexpr uint32_t max_pipeline_samplers = 16;
 inline constexpr uint32_t max_pipeline_uniform_buffers = 12;
 inline constexpr uint32_t max_pipeline_storage_buffers = 4;
+inline constexpr uint32_t max_pipeline_storage_textures = 4;  ///< Vulkan's guaranteed maxPerStageDescriptorStorageImages
 
-/// Checks the per-pipeline totals above over `layouts` (the pipeline's layouts, in set order).
-[[nodiscard]] ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts) noexcept;
+/// Checks the per-pipeline totals above over `layouts` (the pipeline's layouts, in set order). The limits are per shader stage, so only entries visible to
+/// at least one of `stages` count: a graphics pipeline passes `graphics_stages` (the default, what it always did) and a compute pipeline `StageMask::Compute`.
+[[nodiscard]] ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts, StageMask stages = graphics_stages) noexcept;
 
-/// Backend-independent layout rules: 1..max_bindings_per_group entries and unique binding numbers.
+/// Backend-independent layout rules: 1..max_bindings_per_group entries, unique binding numbers, a non-empty set of known stages for each entry, and storage textures visible to the compute stage only.
 [[nodiscard]] ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept;
 
 /// How a backend looks resources up, so bind group entries are validated by one shared rule set.
@@ -251,7 +267,7 @@ struct BindGroupResolver {
 };
 
 /// Checks `entries` against `layout`: exactly one entry per layout entry (no extras, no repeats), each holding live
-/// resources of the right kind (SampledTexture: a texture with `Sampled` usage and one sample; Sampler: a live sampler;
+/// resources of the right kind (SampledTexture: a texture with `Sampled` usage and one sample; StorageTexture: a texture with `Storage` usage and one sample; Sampler: a live sampler;
 /// buffers: `Uniform` / `Storage` usage, offset aligned to `bind_group_buffer_alignment`, non-empty range inside the
 /// buffer and within `max_uniform_binding_range` / `max_storage_binding_range`; a whole-buffer binding of a larger
 /// buffer is therefore rejected, and the caller must give an explicit size).

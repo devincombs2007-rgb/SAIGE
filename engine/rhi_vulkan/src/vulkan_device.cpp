@@ -1584,6 +1584,7 @@ VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layo
         {VK_DESCRIPTOR_TYPE_SAMPLER, 512},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 512},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 256},
     };
     // Make room to track the pool BEFORE it exists: the native pool is only released through descriptor_pools_, so a push_back that
     // had to grow the vector after vkCreateDescriptorPool and threw would leave a pool nobody can destroy (Core review of #67). With
@@ -1595,7 +1596,7 @@ VkDescriptorSet VulkanDevice::allocate_descriptor_set(VkDescriptorSetLayout layo
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
     pi.maxSets = 256;
-    pi.poolSizeCount = 4;
+    pi.poolSizeCount = 5;
     pi.pPoolSizes = sizes;
     VkDescriptorPool pool = VK_NULL_HANDLE;
     check(vk_.vkCreateDescriptorPool(device_, &pi, nullptr, &pool), "vkCreateDescriptorPool");
@@ -1623,12 +1624,16 @@ BindGroupLayoutHandle VulkanDevice::create_bind_group_layout(const BindGroupLayo
         VkDescriptorSetLayoutBinding b{};
         b.binding = e.binding;
         b.descriptorCount = 1;
-        b.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        b.stageFlags = 0;
+        if (has_any(e.visibility, StageMask::Vertex)) b.stageFlags |= VK_SHADER_STAGE_VERTEX_BIT;
+        if (has_any(e.visibility, StageMask::Pixel)) b.stageFlags |= VK_SHADER_STAGE_FRAGMENT_BIT;
+        if (has_any(e.visibility, StageMask::Compute)) b.stageFlags |= VK_SHADER_STAGE_COMPUTE_BIT;
         switch (e.type) {
         case BindingType::SampledTexture: b.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; break;
         case BindingType::Sampler: b.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER; break;
         case BindingType::UniformBuffer: b.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; break;
         case BindingType::StorageBuffer: b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+        case BindingType::StorageTexture: b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; break;
         }
         bindings.push_back(b);
     }
@@ -1709,6 +1714,12 @@ BindGroupHandle VulkanDevice::create_bind_group(BindGroupLayoutHandle layout, st
                 images[i].imageView = textures_.get(e.texture)->view;
                 images[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                w.pImageInfo = &images[i];
+            } else if (expected.type == BindingType::StorageTexture) {
+                res.textures.push_back(e.texture);
+                images[i].imageView = textures_.get(e.texture)->view;
+                images[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;  // the layout a shader reads and writes in; the caller's barrier puts the texture there
+                w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
                 w.pImageInfo = &images[i];
             } else if (expected.type == BindingType::Sampler) {
                 res.samplers.push_back(e.sampler);

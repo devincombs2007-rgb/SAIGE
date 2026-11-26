@@ -574,7 +574,7 @@ BindGroupHandle NullDevice::create_bind_group(BindGroupLayoutHandle layout, std:
             if (e.binding != expected.binding) {
                 continue;
             }
-            if (expected.type == BindingType::SampledTexture) {
+            if (expected.type == BindingType::SampledTexture || expected.type == BindingType::StorageTexture) {
                 group.textures.push_back(e.texture);
             } else if (expected.type == BindingType::Sampler) {
                 group.samplers.push_back(e.sampler);

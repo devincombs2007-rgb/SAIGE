@@ -45,6 +45,7 @@ if(SAIGE_RHI_BUILD_TESTS)
             tests/test_format.cpp
             tests/test_handle.cpp
             tests/test_resource_desc.cpp
+            tests/test_stage_visibility.cpp
         LINK saige::rhi
     )
 endif()

@@ -188,22 +188,36 @@ ValidationResult validate(const BindGroupLayoutDesc& desc) noexcept
             }
         }
     }
+    constexpr StageMask known = StageMask::Vertex | StageMask::Pixel | StageMask::Compute;
+    for (const BindGroupLayoutEntry& e : desc.entries) {
+        if (e.visibility == StageMask::None || (e.visibility & ~known) != StageMask::None) {
+            return {"A bind group layout entry must be visible to at least one known shader stage"};
+        }
+        if (e.type == BindingType::StorageTexture && e.visibility != StageMask::Compute) {
+            return {"A storage texture binding is visible to the compute stage only"};
+        }
+    }
     return {};
 }
 
-ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts) noexcept
+ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc* const> layouts, StageMask stages) noexcept
 {
     uint32_t textures = 0;
     uint32_t samplers = 0;
     uint32_t uniforms = 0;
     uint32_t storages = 0;
+    uint32_t storage_textures = 0;
     for (const BindGroupLayoutDesc* layout : layouts) {
         for (const BindGroupLayoutEntry& e : layout->entries) {
+            if (!has_any(e.visibility, stages)) {
+                continue;  // the limits are per stage: an entry the pipeline's stages cannot see does not count against them
+            }
             switch (e.type) {
             case BindingType::SampledTexture: ++textures; break;
             case BindingType::Sampler: ++samplers; break;
             case BindingType::UniformBuffer: ++uniforms; break;
             case BindingType::StorageBuffer: ++storages; break;
+            case BindingType::StorageTexture: ++storage_textures; break;
             }
         }
     }
@@ -218,6 +232,9 @@ ValidationResult validate_pipeline_bindings(std::span<const BindGroupLayoutDesc*
     }
     if (storages > max_pipeline_storage_buffers) {
         return {"A pipeline's bind group layouts exceed the portable total of 4 storage buffers"};
+    }
+    if (storage_textures > max_pipeline_storage_textures) {
+        return {"A pipeline's bind group layouts exceed the portable total of 4 storage textures"};
     }
     return {};
 }
@@ -251,6 +268,17 @@ ValidationResult validate(const BindGroupLayoutDesc& layout, std::span<const Bin
             }
             if (t->sample_count != 1) {
                 return {"A sampled-texture binding does not accept multisampled textures"};
+            }
+        } else if (expected.type == BindingType::StorageTexture) {
+            const std::optional<TextureDesc> t = resolver.texture(found->texture);
+            if (!t) {
+                return {"A storage-texture binding refers to an invalid or destroyed texture"};
+            }
+            if (!has_any(t->usage, TextureUsage::Storage)) {
+                return {"A storage-texture binding needs a texture with Storage usage"};
+            }
+            if (t->sample_count != 1) {
+                return {"A storage-texture binding does not accept multisampled textures"};
             }
         } else if (expected.type == BindingType::Sampler) {
             if (!resolver.sampler_exists(found->sampler)) {

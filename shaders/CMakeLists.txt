@@ -16,6 +16,7 @@ set(SAIGE_SHADER_SOURCES
     scene/fxaa.hlsl
     scene/ground.hlsl
     scene/model.hlsl
+    scene/model_instanced.hlsl
     scene/model_shadowed.hlsl
     scene/model_ibl.hlsl
     scene/model_ibl_shadowed.hlsl

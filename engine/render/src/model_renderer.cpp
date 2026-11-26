@@ -7,6 +7,7 @@
 #include "saige/shaders/scene_model.spv.hpp"
 #include "saige/shaders/scene_model_ibl.spv.hpp"
 #include "saige/shaders/scene_model_ibl_shadowed.spv.hpp"
+#include "saige/shaders/scene_model_instanced.spv.hpp"
 #include "saige/shaders/scene_model_shadowed.spv.hpp"
 #include "saige/shaders/scene_model_skinned.spv.hpp"
 #include "saige/shaders/scene_shadow_depth.spv.hpp"
@@ -216,6 +217,11 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     ibl_enabled_ = settings.environment != nullptr;
     skinning_enabled_ = settings.skinning;
     dynamic_lighting_ = settings.dynamic_lighting;
+    if (settings.instancing && (settings.max_instances < 1 || settings.max_instances > (1u << 20))) {
+        throw std::invalid_argument("ModelRenderer: the instance buffer size (max_instances) must be 1 to 1048576 entries");
+    }
+    instancing_enabled_ = settings.instancing;
+    max_instances_ = settings.max_instances;
     // A constructor that throws never runs the destructor, and the shader, layout and pipeline handles below are raw: so every failure
     // after the first acquisition releases whatever exists by this point (the RAII members release themselves), then rethrows. This is
     // also what makes a failed shadow acquisition (shader, pipeline, map, sampler, ring buffers, groups) leave nothing behind.
@@ -300,6 +306,48 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
             pd.cull_mode = two_sided != 0 ? rhi::CullMode::None : rhi::CullMode::Back;
             pd.debug_name = names[mirrored * 2 + two_sided];
             pipelines_[mirrored * 2 + two_sided] = device_.create_graphics_pipeline(pd);
+        }
+    }
+
+    if (instancing_enabled_) {
+        // The instanced vertex stage (the pixel stage is the plain model one, whatever the permutation) and its instance rows at set 2: a ring of storage buffers, one per frame slot.
+        instanced_vs_ = device_.create_shader({rhi::ShaderStage::Vertex, words(scene_model_instanced_vs_main), "VSMain", "SceneModelInstanced.VS"});
+        rhi::BindGroupLayoutDesc instance_layout;
+        rhi::BindGroupLayoutEntry rows;
+        rows.binding = 0;
+        rows.type = rhi::BindingType::StorageBuffer;
+        rows.visibility = rhi::StageMask::Vertex;
+        instance_layout.entries = {rows};
+        instance_layout.debug_name = "ModelInstanceLayout";
+        instance_layout_ = device_.create_bind_group_layout(instance_layout);
+        rhi::GraphicsPipelineDesc id = pd;
+        id.vertex_shader = instanced_vs_;
+        id.bind_group_layouts = {material_layout_, constants_layout_, instance_layout_};
+        static const char* const instanced_names[4] = {"SceneModelInstanced.CCW.Back", "SceneModelInstanced.CCW.None", "SceneModelInstanced.CW.Back", "SceneModelInstanced.CW.None"};
+        for (int mirrored = 0; mirrored < 2; ++mirrored) {
+            for (int two_sided = 0; two_sided < 2; ++two_sided) {
+                id.front_face = mirrored != 0 ? rhi::FrontFace::Clockwise : rhi::FrontFace::CounterClockwise;
+                id.cull_mode = two_sided != 0 ? rhi::CullMode::None : rhi::CullMode::Back;
+                id.debug_name = instanced_names[mirrored * 2 + two_sided];
+                instanced_pipelines_[mirrored * 2 + two_sided] = device_.create_graphics_pipeline(id);
+            }
+        }
+        const uint32_t slots = std::max(1u, device_.info().frames_in_flight);
+        const uint64_t bytes = uint64_t{max_instances_} * 3u * 16u;
+        instance_buffers_.reserve(slots);
+        instance_groups_.reserve(slots);
+        for (uint32_t i = 0; i < slots; ++i) {
+            rhi::BufferDesc bd;
+            bd.size = bytes;
+            bd.usage = rhi::BufferUsage::Storage;
+            bd.memory = rhi::MemoryLocation::CpuToGpu;
+            bd.debug_name = "ModelInstanceRows";
+            instance_buffers_.push_back(registry_.create_buffer(bd));
+            BindGroupBinding binding;
+            binding.binding = 0;
+            binding.buffer = instance_buffers_.back();
+            binding.size = bytes;
+            instance_groups_.push_back(registry_.create_bind_group(instance_layout_, std::span<const BindGroupBinding>(&binding, 1), "ModelInstanceRows"));
         }
     }
 
@@ -570,6 +618,16 @@ ModelRenderer::~ModelRenderer()
 
 void ModelRenderer::release() noexcept
 {
+    instance_groups_.clear();
+    instance_buffers_.clear();
+    for (rhi::PipelineHandle& p : instanced_pipelines_) {
+        if (p.is_valid()) device_.destroy(p);
+        p = {};
+    }
+    if (instance_layout_.is_valid()) device_.destroy(instance_layout_);
+    instance_layout_ = {};
+    if (instanced_vs_.is_valid()) device_.destroy(instanced_vs_);
+    instanced_vs_ = {};
     constants_groups_.clear();
     shadow_blocks_.clear();
     scene_blocks_.clear();
@@ -632,6 +690,15 @@ void ModelRenderer::release() noexcept
     material_layout_ = {};
     if (constants_layout_.is_valid()) device_.destroy(constants_layout_);
     constants_layout_ = {};
+}
+
+void ModelRenderer::check_instances(std::span<const ModelDraw> draws) const
+{
+    for (const ModelDraw& d : draws) {
+        if (d.model != nullptr && d.instance_count > 0 && d.instances == nullptr) {
+            throw std::invalid_argument("ModelRenderer: a ModelDraw has instance_count > 0 but no instances");
+        }
+    }
 }
 
 rhi::BindGroupHandle ModelRenderer::constants_group() const noexcept
@@ -872,6 +939,7 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
                          ModelFrameStats& stats)
 {
     check_palettes_unfrozen(draws);  // before anything is recorded or written
+    check_instances(draws);
     if (dynamic_lighting_) {
         // Complete the frame's slot before anything reads it: lighting that was not published is the construction-time lighting, a shadow
         // frame that was not set is "no shadows", and the draw reads this frame's slot rather than whichever slot was written last.
@@ -922,105 +990,211 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         bound_vertices = {};
         bound_indices = {};
     };
+    const auto draw_placement = [&](const ModelDraw& d, const Mat4& base_world, const GpuPlacement& placement) {
+        if (placement.mesh >= d.model->meshes.size()) {
+            return;
+        }
+        const Mat4 world = base_world * placement.local;
+        const float det = determinant3(world);
+        if (!finite_affine(world) || !std::isfinite(det) || std::fabs(det) < 1e-12f) {
+            ++stats.instances_skipped;  // a non-finite or degenerate transform never reaches the GPU
+            return;
+        }
+        ModelPush push{};
+        push.view_proj = view_proj;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                push.model_row[r][c] = world.at(r, c);
+            }
+        }
+        push.camera_sign[0] = camera_position.x;
+        push.camera_sign[1] = camera_position.y;
+        push.camera_sign[2] = camera_position.z;
+        push.camera_sign[3] = det < 0.0f ? -1.0f : 1.0f;
+        const bool mirrored = det < 0.0f;
+        // The largest axis scale of the instance: a sphere stays a sphere bounded by it under any affine map.
+        float max_scale = 0.0f;
+        if (frustum) {
+            for (int col = 0; col < 3; ++col) {
+                const float sx = world.at(0, col), sy = world.at(1, col), sz = world.at(2, col);
+                max_scale = std::max(max_scale, std::sqrt(sx * sx + sy * sy + sz * sz));
+            }
+        }
+
+        for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
+            if (frustum && prim.skinned) {
+                // A skinned primitive's own bounds are its bind pose's, which say nothing about the posed mesh. With per-joint bounds the pose gives a conservative world box:
+                // the union of each used joint's bind-space box carried by that joint's skin matrix and the instance's world matrix. Without them it is never culled.
+                const SkinPalette* pose = d.palette != nullptr ? d.palette : &identity_palette_;
+                bool culled = false;
+                if (!prim.joint_bounds.empty() && pose->valid() && pose->joint_count() >= prim.joint_limit) {
+                    Float3 lo, hi;
+                    if (posed_world_bounds(prim, *pose, world, lo, hi)) {
+                        culled = !intersects_aabb(*frustum, lo, hi);
+                    } else {
+                        ++stats.skinned_cull_bypassed;
+                    }
+                } else {
+                    ++stats.skinned_cull_bypassed;
+                }
+                if (culled) {
+                    ++stats.primitives_culled;
+                    ++stats.skinned_culled;
+                    continue;
+                }
+            } else if (frustum && prim.bounds_radius > 0.0f) {
+                const Float3 local = prim.bounds_center;
+                const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                    world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                    world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                if (!intersects_sphere(*frustum, center, prim.bounds_radius * max_scale)) {
+                    ++stats.primitives_culled;
+                    continue;
+                }
+            }
+            const GpuMaterial& material = d.model->materials[prim.material];
+            const SkinPalette* palette = nullptr;
+            if (prim.skinned) {
+                palette = d.palette != nullptr ? d.palette : &identity_palette_;
+                if (!skinning_enabled_ || !palette->valid() || palette->joint_count() < prim.joint_limit) {
+                    ++stats.skinned_skipped;  // never read past the palette, never feed skinned vertices to a rigid pipeline
+                    continue;
+                }
+            }
+            if (material.blend && blend_pipelines_ready_) {
+                // Deferred: blended primitives draw after every opaque one, sorted back to front (below).
+                const Float3 local = prim.bounds_center;
+                const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
+                                    world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
+                                    world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
+                blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored, palette});
+                continue;
+            }
+            bind_pipeline(palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)] : pipeline_for(mirrored, material.double_sided));
+            if (palette != nullptr) {
+                const rhi::BindGroupHandle group = palette_group(*palette);
+                if (group != bound_palette) {
+                    cmd.bind_group(2, group);
+                    bound_palette = group;
+                }
+                ++stats.skinned_draws;
+            }
+            bind_geometry(prim, material.group.handle());
+            cmd.push_constant_struct(push);
+            cmd.draw_indexed(prim.index_count);
+            ++stats.draw_calls;
+        }
+        ++stats.instances_drawn;
+    };
+    // Instancing: a placement whose primitives are all rigid and opaque is drawn with one call per primitive and mirror state, its instances' matrices written to this frame's
+    // instance buffer; anything else (and everything when instancing is off) is drawn instance by instance through draw_placement, with the same result.
+    if (instancing_enabled_) {
+        const uint64_t frame_number = device_.frame_number();
+        if (frame_number != instance_frame_) {
+            instance_frame_ = frame_number;
+            instance_cursor_ = 0;
+        }
+    }
+    const auto batchable = [&](const ModelDraw& d, const GpuPlacement& placement) {
+        if (!instancing_enabled_ || placement.mesh >= d.model->meshes.size()) return false;
+        const std::vector<GpuPrimitive>& prims = d.model->meshes[placement.mesh];
+        if (prims.empty()) return false;
+        for (const GpuPrimitive& prim : prims) {
+            if (prim.skinned) return false;
+            if (d.model->materials[prim.material].blend && blend_pipelines_ready_) return false;
+        }
+        return true;
+    };
+    const auto draw_batched = [&](const ModelDraw& d, const GpuPlacement& placement) -> bool {
+        const std::vector<GpuPrimitive>& prims = d.model->meshes[placement.mesh];
+        // Worst case first, so a placement is either batched whole or not at all and nothing is counted twice.
+        if (uint64_t{instance_cursor_} + uint64_t{d.instance_count} * prims.size() > max_instances_) {
+            ++stats.instance_overflow;
+            return false;
+        }
+        batch_.clear();
+        for (uint32_t i = 0; i < d.instance_count; ++i) {
+            BatchEntry e;
+            e.world = d.world * d.instances[i] * placement.local;
+            const float det = determinant3(e.world);
+            if (!finite_affine(e.world) || !std::isfinite(det) || std::fabs(det) < 1e-12f) {
+                ++stats.instances_skipped;
+                continue;
+            }
+            e.mirrored = det < 0.0f;
+            if (frustum) {
+                for (int col = 0; col < 3; ++col) {
+                    const float sx = e.world.at(0, col), sy = e.world.at(1, col), sz = e.world.at(2, col);
+                    e.max_scale = std::max(e.max_scale, std::sqrt(sx * sx + sy * sy + sz * sz));
+                }
+            }
+            batch_.push_back(e);
+        }
+        const std::size_t slot = static_cast<std::size_t>(instance_frame_ % instance_buffers_.size());
+        std::span<std::byte> mapped = device_.map(instance_buffers_[slot].handle());
+        for (const GpuPrimitive& prim : prims) {
+            const GpuMaterial& material = d.model->materials[prim.material];
+            for (int mirrored = 0; mirrored < 2; ++mirrored) {
+                visible_.clear();
+                for (uint32_t k = 0; k < batch_.size(); ++k) {
+                    const BatchEntry& e = batch_[k];
+                    if ((e.mirrored ? 1 : 0) != mirrored) continue;
+                    if (frustum && prim.bounds_radius > 0.0f) {
+                        const Float3 local = prim.bounds_center;
+                        const Float3 center{e.world.at(0, 0) * local.x + e.world.at(0, 1) * local.y + e.world.at(0, 2) * local.z + e.world.at(0, 3),
+                                            e.world.at(1, 0) * local.x + e.world.at(1, 1) * local.y + e.world.at(1, 2) * local.z + e.world.at(1, 3),
+                                            e.world.at(2, 0) * local.x + e.world.at(2, 1) * local.y + e.world.at(2, 2) * local.z + e.world.at(2, 3)};
+                        if (!intersects_sphere(*frustum, center, prim.bounds_radius * e.max_scale)) {
+                            ++stats.primitives_culled;
+                            continue;
+                        }
+                    }
+                    visible_.push_back(k);
+                }
+                if (visible_.empty()) continue;
+                const uint32_t first = instance_cursor_;
+                float* rows = reinterpret_cast<float*>(mapped.data()) + std::size_t{first} * 12u;
+                for (std::size_t n = 0; n < visible_.size(); ++n) {
+                    const Mat4& w = batch_[visible_[n]].world;
+                    for (int r = 0; r < 3; ++r) {
+                        for (int c = 0; c < 4; ++c) rows[n * 12u + static_cast<std::size_t>(r * 4 + c)] = w.at(r, c);
+                    }
+                }
+                instance_cursor_ += static_cast<uint32_t>(visible_.size());
+                bind_pipeline(instanced_pipelines_[(mirrored != 0 ? 2 : 0) + (material.double_sided ? 1 : 0)]);
+                const rhi::BindGroupHandle group = instance_groups_[slot].handle();
+                if (group != bound_palette) {
+                    cmd.bind_group(2, group);
+                    bound_palette = group;
+                }
+                bind_geometry(prim, material.group.handle());
+                ModelPush push{};
+                push.view_proj = view_proj;
+                push.camera_sign[0] = camera_position.x;
+                push.camera_sign[1] = camera_position.y;
+                push.camera_sign[2] = camera_position.z;
+                push.camera_sign[3] = mirrored != 0 ? -1.0f : 1.0f;
+                cmd.push_constant_struct(push);
+                cmd.draw_indexed(prim.index_count, static_cast<uint32_t>(visible_.size()), 0, 0, first);
+                ++stats.draw_calls;
+                ++stats.instanced_draws;
+                stats.instances_batched += static_cast<uint32_t>(visible_.size());
+            }
+        }
+        stats.instances_drawn += static_cast<uint32_t>(batch_.size());
+        return true;
+    };
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
         }
+        if (d.instance_count == 0) {
+            for (const GpuPlacement& placement : d.model->placements) draw_placement(d, d.world, placement);
+            continue;
+        }
         for (const GpuPlacement& placement : d.model->placements) {
-            if (placement.mesh >= d.model->meshes.size()) {
-                continue;
-            }
-            const Mat4 world = d.world * placement.local;
-            const float det = determinant3(world);
-            if (!finite_affine(world) || !std::isfinite(det) || std::fabs(det) < 1e-12f) {
-                ++stats.instances_skipped;  // a non-finite or degenerate transform never reaches the GPU
-                continue;
-            }
-            ModelPush push{};
-            push.view_proj = view_proj;
-            for (int r = 0; r < 3; ++r) {
-                for (int c = 0; c < 4; ++c) {
-                    push.model_row[r][c] = world.at(r, c);
-                }
-            }
-            push.camera_sign[0] = camera_position.x;
-            push.camera_sign[1] = camera_position.y;
-            push.camera_sign[2] = camera_position.z;
-            push.camera_sign[3] = det < 0.0f ? -1.0f : 1.0f;
-            const bool mirrored = det < 0.0f;
-            // The largest axis scale of the instance: a sphere stays a sphere bounded by it under any affine map.
-            float max_scale = 0.0f;
-            if (frustum) {
-                for (int col = 0; col < 3; ++col) {
-                    const float sx = world.at(0, col), sy = world.at(1, col), sz = world.at(2, col);
-                    max_scale = std::max(max_scale, std::sqrt(sx * sx + sy * sy + sz * sz));
-                }
-            }
-
-            for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
-                if (frustum && prim.skinned) {
-                    // A skinned primitive's own bounds are its bind pose's, which say nothing about the posed mesh. With per-joint bounds the pose gives a conservative world box:
-                    // the union of each used joint's bind-space box carried by that joint's skin matrix and the instance's world matrix. Without them it is never culled.
-                    const SkinPalette* pose = d.palette != nullptr ? d.palette : &identity_palette_;
-                    bool culled = false;
-                    if (!prim.joint_bounds.empty() && pose->valid() && pose->joint_count() >= prim.joint_limit) {
-                        Float3 lo, hi;
-                        if (posed_world_bounds(prim, *pose, world, lo, hi)) {
-                            culled = !intersects_aabb(*frustum, lo, hi);
-                        } else {
-                            ++stats.skinned_cull_bypassed;
-                        }
-                    } else {
-                        ++stats.skinned_cull_bypassed;
-                    }
-                    if (culled) {
-                        ++stats.primitives_culled;
-                        ++stats.skinned_culled;
-                        continue;
-                    }
-                } else if (frustum && prim.bounds_radius > 0.0f) {
-                    const Float3 local = prim.bounds_center;
-                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
-                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
-                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
-                    if (!intersects_sphere(*frustum, center, prim.bounds_radius * max_scale)) {
-                        ++stats.primitives_culled;
-                        continue;
-                    }
-                }
-                const GpuMaterial& material = d.model->materials[prim.material];
-                const SkinPalette* palette = nullptr;
-                if (prim.skinned) {
-                    palette = d.palette != nullptr ? d.palette : &identity_palette_;
-                    if (!skinning_enabled_ || !palette->valid() || palette->joint_count() < prim.joint_limit) {
-                        ++stats.skinned_skipped;  // never read past the palette, never feed skinned vertices to a rigid pipeline
-                        continue;
-                    }
-                }
-                if (material.blend && blend_pipelines_ready_) {
-                    // Deferred: blended primitives draw after every opaque one, sorted back to front (below).
-                    const Float3 local = prim.bounds_center;
-                    const Float3 center{world.at(0, 0) * local.x + world.at(0, 1) * local.y + world.at(0, 2) * local.z + world.at(0, 3),
-                                        world.at(1, 0) * local.x + world.at(1, 1) * local.y + world.at(1, 2) * local.z + world.at(1, 3),
-                                        world.at(2, 0) * local.x + world.at(2, 1) * local.y + world.at(2, 2) * local.z + world.at(2, 3)};
-                    blended_.push_back({blend_sort_depth(view_proj, center), sequence++, &prim, &material, world, mirrored, palette});
-                    continue;
-                }
-                bind_pipeline(palette != nullptr ? skinned_pipelines_[(mirrored ? 2 : 0) + (material.double_sided ? 1 : 0)] : pipeline_for(mirrored, material.double_sided));
-                if (palette != nullptr) {
-                    const rhi::BindGroupHandle group = palette_group(*palette);
-                    if (group != bound_palette) {
-                        cmd.bind_group(2, group);
-                        bound_palette = group;
-                    }
-                    ++stats.skinned_draws;
-                }
-                bind_geometry(prim, material.group.handle());
-                cmd.push_constant_struct(push);
-                cmd.draw_indexed(prim.index_count);
-                ++stats.draw_calls;
-            }
-            ++stats.instances_drawn;
+            if (batchable(d, placement) && draw_batched(d, placement)) continue;
+            for (uint32_t i = 0; i < d.instance_count; ++i) draw_placement(d, d.world * d.instances[i], placement);
         }
     }
 
@@ -1177,68 +1351,77 @@ void ModelRenderer::draw_shadow(rhi::CommandList& cmd, const Mat4& light_view_pr
         throw std::logic_error("ModelRenderer::draw_shadow: shadows are not enabled");
     }
     check_palettes_unfrozen(draws);  // before anything is recorded or written
+    check_instances(draws);
     rhi::PipelineHandle bound{};
     rhi::BindGroupHandle bound_palette{};
+    const auto shadow_placement = [&](const ModelDraw& d, const Mat4& base_world, const GpuPlacement& placement) {
+        if (placement.mesh >= d.model->meshes.size()) {
+            return;
+        }
+        const Mat4 world = base_world * placement.local;
+        const float det = determinant3(world);
+        if (!finite_affine(world) || !std::isfinite(det) || std::fabs(det) < 1e-12f) {
+            ++stats.instances_skipped;
+            return;
+        }
+        ShadowPush push{};
+        push.light_view_proj = light_view_proj;
+        for (int r = 0; r < 3; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                push.model_row[r][c] = world.at(r, c);
+            }
+        }
+        for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
+            const GpuMaterial& material = d.model->materials[prim.material];
+            if (!material.casts_sun_shadow) {
+                continue;  // authored BLEND surfaces do not cast
+            }
+            const SkinPalette* palette = nullptr;
+            if (prim.skinned) {
+                palette = d.palette != nullptr ? d.palette : &identity_palette_;
+                if (!skinning_enabled_ || !palette->valid() || palette->joint_count() < prim.joint_limit) {
+                    ++stats.skinned_skipped;
+                    continue;
+                }
+            }
+            // No skinned alpha-tested caster exists yet (neither the mask caster nor the skinned caster was written with the other in mind): a skinned
+            // primitive whose material is alpha-tested casts as if opaque. docs/rendering/shadows.md and the backlog record it.
+            const bool masked = material.shadow_alpha_test && palette == nullptr;
+            const rhi::PipelineHandle pipeline = palette != nullptr ? skin_shadow_pipeline_ : masked ? shadow_mask_pipeline_ : shadow_pipeline_;
+            if (pipeline != bound) {
+                cmd.bind_pipeline(pipeline);
+                bound = pipeline;
+                bound_palette = {};
+            }
+            if (palette != nullptr) {
+                const rhi::BindGroupHandle group = palette_group(*palette);
+                if (group != bound_palette) {
+                    cmd.bind_group(0, group);
+                    bound_palette = group;
+                }
+                ++stats.skinned_draws;
+            } else if (masked) {
+                cmd.bind_group(0, material.group.handle());  // the visible pass's texture, sampler, factor and cutoff
+            }
+            cmd.bind_vertex_buffer(prim.vertices.handle());
+            cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
+            cmd.push_constant_struct(push);
+            cmd.draw_indexed(prim.index_count);
+            ++stats.draw_calls;
+        }
+        ++stats.instances_drawn;
+    };
     for (const ModelDraw& d : draws) {
         if (d.model == nullptr) {
             continue;
         }
+        if (d.instance_count == 0) {
+            for (const GpuPlacement& placement : d.model->placements) shadow_placement(d, d.world, placement);
+            continue;
+        }
+        // The shadow pass draws the instances one by one (placement by placement, as the color pass does).
         for (const GpuPlacement& placement : d.model->placements) {
-            if (placement.mesh >= d.model->meshes.size()) {
-                continue;
-            }
-            const Mat4 world = d.world * placement.local;
-            const float det = determinant3(world);
-            if (!finite_affine(world) || !std::isfinite(det) || std::fabs(det) < 1e-12f) {
-                ++stats.instances_skipped;
-                continue;
-            }
-            ShadowPush push{};
-            push.light_view_proj = light_view_proj;
-            for (int r = 0; r < 3; ++r) {
-                for (int c = 0; c < 4; ++c) {
-                    push.model_row[r][c] = world.at(r, c);
-                }
-            }
-            for (const GpuPrimitive& prim : d.model->meshes[placement.mesh]) {
-                const GpuMaterial& material = d.model->materials[prim.material];
-                if (!material.casts_sun_shadow) {
-                    continue;  // authored BLEND surfaces do not cast
-                }
-                const SkinPalette* palette = nullptr;
-                if (prim.skinned) {
-                    palette = d.palette != nullptr ? d.palette : &identity_palette_;
-                    if (!skinning_enabled_ || !palette->valid() || palette->joint_count() < prim.joint_limit) {
-                        ++stats.skinned_skipped;
-                        continue;
-                    }
-                }
-                // No skinned alpha-tested caster exists yet (neither the mask caster nor the skinned caster was written with the other in mind): a skinned
-                // primitive whose material is alpha-tested casts as if opaque. docs/rendering/shadows.md and the backlog record it.
-                const bool masked = material.shadow_alpha_test && palette == nullptr;
-                const rhi::PipelineHandle pipeline = palette != nullptr ? skin_shadow_pipeline_ : masked ? shadow_mask_pipeline_ : shadow_pipeline_;
-                if (pipeline != bound) {
-                    cmd.bind_pipeline(pipeline);
-                    bound = pipeline;
-                    bound_palette = {};
-                }
-                if (palette != nullptr) {
-                    const rhi::BindGroupHandle group = palette_group(*palette);
-                    if (group != bound_palette) {
-                        cmd.bind_group(0, group);
-                        bound_palette = group;
-                    }
-                    ++stats.skinned_draws;
-                } else if (masked) {
-                    cmd.bind_group(0, material.group.handle());  // the visible pass's texture, sampler, factor and cutoff
-                }
-                cmd.bind_vertex_buffer(prim.vertices.handle());
-                cmd.bind_index_buffer(prim.indices.handle(), prim.index_type);
-                cmd.push_constant_struct(push);
-                cmd.draw_indexed(prim.index_count);
-                ++stats.draw_calls;
-            }
-            ++stats.instances_drawn;
+            for (uint32_t i = 0; i < d.instance_count; ++i) shadow_placement(d, d.world * d.instances[i], placement);
         }
     }
 }

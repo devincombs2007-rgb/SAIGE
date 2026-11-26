@@ -516,6 +516,8 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.alpha_blending = settings_.alpha_blending;
         ms.environment = settings_.environment;
         ms.skinning = settings_.skinning;
+        ms.instancing = settings_.instancing;
+        ms.max_instances = settings_.max_instances;
         ms.frustum_culling = settings_.frustum_culling;
         ms.shadows.enabled = settings_.shadows.enabled;
         ms.shadows.map_size = settings_.shadows.map_size;
@@ -815,6 +817,9 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_binds_skipped += model_stats.binds_skipped;
                 stats.model_skinned_culled += model_stats.skinned_culled;
                 stats.model_skinned_cull_bypassed += model_stats.skinned_cull_bypassed;
+                stats.model_instanced_draws += model_stats.instanced_draws;
+                stats.model_instances_batched += model_stats.instances_batched;
+                stats.model_instance_overflow += model_stats.instance_overflow;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

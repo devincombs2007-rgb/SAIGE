@@ -105,6 +105,11 @@ struct RendererSettings {
     /// GPU skinning for imported models (`ModelRenderSettings::skinning`): skinned primitives, `ModelRenderer::create_skin_palette` and `ModelDraw::palette`.
     /// Off by default, and then nothing is allocated for it.
     bool skinning = false;
+    /// Instanced model draws (`ModelRenderSettings::instancing`): one draw call per primitive for the rigid, opaque primitives of a `ModelDraw` with `instance_count > 0`.
+    /// Off by default, and then nothing is allocated for it and such a draw is drawn instance by instance, with the same result. `max_instances` is the size of the per-frame
+    /// instance buffer (`ModelRenderSettings::max_instances`).
+    bool instancing = false;
+    uint32_t max_instances = 16384;
     /// A single-scattering atmosphere (atmosphere.hpp). Off by default (a flat `sky` clear color, exactly as before). On: a sky pass draws the sky behind everything
     /// from the sun direction of `lighting` (the same normalized vector the lighting uses), and the fog color (and with it the models' ambient sky color) becomes the
     /// horizon color of that sky, so distant things fade into the sky they are seen against. In an LDR scene the radiance goes through 1 - exp(-x); in HDR it is left
@@ -205,6 +210,9 @@ struct FrameStats {
     uint32_t model_skinned_skipped = 0;    ///< skinned primitives not drawn (skinning off, or the palette has too few joints)
     uint32_t model_skinned_cull_bypassed = 0;  ///< skinned primitives drawn without a frustum test (no per-joint bounds)
     uint32_t model_skinned_culled = 0;     ///< skinned primitives skipped because their conservative posed bounds are outside the view (also counted in model_primitives_culled)
+    uint32_t model_instanced_draws = 0;    ///< batched model draw calls: one primitive, several instances (also counted in model draw calls); see RendererSettings::instancing
+    uint32_t model_instances_batched = 0;  ///< instance-primitive pairs those draws covered
+    uint32_t model_instance_overflow = 0;  ///< placements that did not fit the frame's instance buffer and were drawn instance by instance
 };
 
 class SceneRenderer {

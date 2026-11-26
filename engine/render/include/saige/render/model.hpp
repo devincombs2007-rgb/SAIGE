@@ -102,6 +102,14 @@ struct ModelDraw {
     /// The pose of this instance's skinned primitives (null: the bind pose). Rigid primitives ignore it. One palette per animated instance;
     /// several draws of the same model with different palettes are several animated instances.
     const SkinPalette* palette = nullptr;
+    /// Instancing. With `instance_count == 0` (the default) this is one instance of the model at `world`, as always. Otherwise it is `instance_count` instances: the matrices at
+    /// `instances` (engine world space, column-major affines, valid for as long as the draw is used: through the `render` or `draw` call that receives it), each placed at
+    /// `world * instances[i]`, so `world` is a parent transform shared by all. A ModelRenderer created with `ModelRenderSettings::instancing` draws the rigid, opaque primitives of such a
+    /// draw with one draw call per primitive (per mirror state) instead of one per instance; skinned and blended primitives, a renderer without instancing, and the shadow pass draw the
+    /// instances one by one, with the same result. `instance_count > 0` with a null `instances` is a programming error (std::invalid_argument). One palette per draw: every instance of a skinned
+    /// model shares the draw's pose.
+    const Mat4* instances = nullptr;
+    uint32_t instance_count = 0;
 };
 
 } // namespace saige::render

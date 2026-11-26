@@ -84,6 +84,9 @@ struct ModelFrameStats {
     uint32_t skinned_skipped = 0;    ///< skinned primitives not drawn: skinning is off in this renderer, or the palette has fewer joints than the primitive uses
     uint32_t skinned_cull_bypassed = 0;  ///< skinned primitives drawn without a frustum test: they carry no per-joint bounds (hand-built, or weights that do not sum to one)
     uint32_t skinned_culled = 0;         ///< skinned primitives skipped because their conservative posed bounds are outside the frustum (also counted in primitives_culled)
+    uint32_t instanced_draws = 0;        ///< batched draw calls (one primitive, many instances; also counted in draw_calls); see ModelRenderSettings::instancing
+    uint32_t instances_batched = 0;      ///< instance-primitive pairs those draws covered (the draw calls the same frame would have needed without instancing)
+    uint32_t instance_overflow = 0;      ///< placements of an instanced draw that did not fit the frame's instance buffer and were drawn instance by instance instead
 };
 
 /// Renderer-local lighting selection. These values also identify the shader modes.
@@ -180,6 +183,14 @@ struct ModelRenderSettings {
     /// perspective projection times a view (what SceneRenderer builds), which is why this is off here and on in RendererSettings. The test is
     /// conservative (it never culls a visible sphere); a primitive without bounds (radius 0, a hand-built one) is never culled.
     bool frustum_culling = false;
+    /// Draw the instances of a `ModelDraw` (see `ModelDraw::instance_count`) with one draw call per primitive. **Off by default**: off allocates nothing, creates no pipeline, and an
+    /// instanced `ModelDraw` is drawn instance by instance, with the same result. On: an instanced vertex stage (the instance's world matrix comes from a storage buffer indexed by the
+    /// instance, in a ring of `DeviceInfo::frames_in_flight` buffers of `max_instances` entries each, one per frame slot) and four more pipelines are created. A placement whose primitives are
+    /// all rigid and opaque (not skinned, not blended) is batched; anything else is drawn instance by instance. The shadow pass always draws instance by instance.
+    bool instancing = false;
+    /// The most instance entries one frame can hold in the instance buffer (each batched primitive of each placement uses as many entries as it has visible instances; 48 bytes each).
+    /// 1 to 1048576. A placement that does not fit in what is left of the frame's buffer is drawn instance by instance (`ModelFrameStats::instance_overflow`).
+    uint32_t max_instances = 16384;
 };
 
 class ModelRenderer {
@@ -240,6 +251,7 @@ public:
     [[nodiscard]] bool shadows_enabled() const noexcept { return shadows_enabled_; }
     [[nodiscard]] bool ibl_enabled() const noexcept { return ibl_enabled_; }
     [[nodiscard]] bool skinning_enabled() const noexcept { return skinning_enabled_; }
+    [[nodiscard]] bool instancing_enabled() const noexcept { return instancing_enabled_; }
     /// Creates the palette of one animated instance with `joint_count` joints (1 to kMaxSkinJoints), initially the bind pose (identity matrices).
     /// Throws std::logic_error if skinning is off, std::invalid_argument for a bad count. Nothing is leaked on failure.
     [[nodiscard]] SkinPalette create_skin_palette(uint32_t joint_count, const char* name);
@@ -283,6 +295,7 @@ private:
     void ensure_blend_pipelines();
     [[nodiscard]] SkinPalette make_palette(uint32_t joint_count, const char* name);
     [[nodiscard]] rhi::BindGroupHandle palette_group(const SkinPalette& palette);  ///< the palette's bind group for this frame, uploading the pose if stale
+    void check_instances(std::span<const ModelDraw> draws) const;  ///< throws std::invalid_argument for instance_count > 0 without instances (before anything is recorded)
     void acquire(rhi::Format color_format, rhi::Format depth_format, const ModelRenderSettings& settings);
     void release() noexcept;  // everything the constructor may have acquired, in any state of completeness
     [[nodiscard]] rhi::BindGroupHandle constants_group() const noexcept;
@@ -306,6 +319,23 @@ private:
     rhi::PipelineHandle pipelines_[4];  ///< [mirrored][double_sided]
     rhi::GraphicsPipelineDesc pipeline_template_;  ///< everything but cull, winding and blend, kept to create blend variants lazily
     rhi::PipelineHandle blend_pipelines_[4];       ///< [mirrored][pass]: pass 0 culls back faces (draws front faces), pass 1 culls front faces
+    // Instancing (all empty when off).
+    bool instancing_enabled_ = false;
+    uint32_t max_instances_ = 0;
+    rhi::ShaderHandle instanced_vs_;
+    rhi::BindGroupLayoutHandle instance_layout_;
+    rhi::PipelineHandle instanced_pipelines_[4];  ///< [mirrored][double_sided], as pipelines_
+    std::vector<BufferRef> instance_buffers_;     ///< the instance rows (three float4 per instance) per frame slot
+    std::vector<BindGroupRef> instance_groups_;   ///< set 2 of the instanced pipelines, per frame slot
+    uint64_t instance_frame_ = ~uint64_t{0};      ///< the device frame the cursor belongs to
+    uint32_t instance_cursor_ = 0;                ///< entries of the frame's buffer already used by recorded draws
+    struct BatchEntry {
+        Mat4 world;
+        float max_scale = 0.0f;
+        bool mirrored = false;
+    };
+    std::vector<BatchEntry> batch_;               ///< scratch: the valid instances of the placement being batched (cleared, not freed)
+    std::vector<uint32_t> visible_;               ///< scratch: indices into batch_ of the instances that pass the cull for one primitive
     bool blend_pipelines_ready_ = false;
     // Skinning (all empty when off).
     bool skinning_enabled_ = false;

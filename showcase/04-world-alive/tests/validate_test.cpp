@@ -115,21 +115,90 @@ void test_props_on_road_and_in_parking() {
 }
 
 void test_hazard_lamps() {
-    // Each lamp of a disabled vehicle sits at a corner of its chassis box, and the lamp count is the corner count (the delivered placement drew 16 lamps, 12 of them 2 m from their corner).
+    // The lamps sit at the corners of the VISIBLE body (a BodyBox), one per corner, inside it by the stated insets, at the stated height; and in world space, across vehicle poses, they stay
+    // attached: they round-trip through the pose, keep their mutual distances (no scale, shear or mirror) and stay inside the oriented body box. (Delivered: 16 lamps, 12 of them 2 m from their
+    // corner; after the first fix the corners came from the physics box, which is not the visible body, and a rendered frame showed a lamp hanging in the air.)
     static_assert(kHazardLampsPerModel * kHazardCorners == 4, "four hazard lamps in all");
+    std::vector<BodyBox> boxes;
     for (const VehicleKind k : {VehicleKind::Sedan, VehicleKind::Hatchback, VehicleKind::Van, VehicleKind::Taxi, VehicleKind::Ambulance, VehicleKind::FireEngine}) {
         const saige::VehicleConfig cfg = vehicle_config_for(k);
-        const auto offs = hazard_lamp_offsets(cfg);
-        int front_left = 0, front_right = 0, rear_left = 0, rear_right = 0;
-        for (const auto& o : offs) {
-            CHECK(std::fabs(std::fabs(o[0]) - (cfg.half_extents.x + 0.02f)) < 1e-5f, "a lamp is at the end of the box");
-            CHECK(std::fabs(std::fabs(o[1]) - (cfg.half_extents.y - 0.12f)) < 1e-5f, "a lamp is just inside the side of the box");
-            CHECK(std::fabs(o[1]) < cfg.half_extents.y, "a lamp never hovers outside the body side");
-            CHECK(std::fabs(o[2]) < cfg.half_extents.z, "a lamp is within the box height");
-            (o[0] > 0 ? (o[1] > 0 ? front_left : front_right) : (o[1] > 0 ? rear_left : rear_right))++;
-        }
-        CHECK(front_left == 1 && front_right == 1 && rear_left == 1 && rear_right == 1, "one lamp per corner");
+        boxes.push_back({{-cfg.half_extents.x, -cfg.half_extents.y, -cfg.half_extents.z}, {cfg.half_extents.x, cfg.half_extents.y, cfg.half_extents.z}});
     }
+    boxes.push_back({{-2.13f, -0.93f, -0.52f}, {2.07f, 0.95f, 0.71f}});   // a body that is off-centre in x, like a real mesh
+    boxes.push_back({{-1.0f, -0.5f, 0.0f}, {1.0f, 0.5f, 0.4f}});
+    for (const BodyBox& b : boxes) {
+        const auto offs = hazard_lamp_offsets(b);
+        int fl = 0, fr = 0, rl = 0, rr = 0;
+        for (const auto& o : offs) {
+            const bool front = o[0] > 0.5f * (b.lo[0] + b.hi[0]), left = o[1] > 0.5f * (b.lo[1] + b.hi[1]);
+            (front ? (left ? fl : fr) : (left ? rl : rr))++;
+            CHECK(std::fabs((front ? b.hi[0] - o[0] : o[0] - b.lo[0]) - kHazardInsetX) < 1e-5f, "a lamp is the stated inset inside the end of the body");
+            CHECK(std::fabs((left ? b.hi[1] - o[1] : o[1] - b.lo[1]) - kHazardInsetY) < 1e-5f, "a lamp is the stated inset inside the side of the body");
+            CHECK(std::fabs(o[2] - (b.lo[2] + kHazardHeightFrac * (b.hi[2] - b.lo[2]))) < 1e-5f, "a lamp is at the stated height");
+            for (int axis = 0; axis < 3; ++axis) CHECK(o[static_cast<std::size_t>(axis)] > b.lo[static_cast<std::size_t>(axis)] && o[static_cast<std::size_t>(axis)] < b.hi[static_cast<std::size_t>(axis)], "a lamp is inside the body box");
+        }
+        CHECK(fl == 1 && fr == 1 && rl == 1 && rr == 1, "one lamp per corner");
+
+        // World space across poses.
+        for (int i = 0; i < 24; ++i) {
+            const double yaw = 0.27 * i, pitch = 0.05 * (i % 5) - 0.1, roll = 0.04 * (i % 7) - 0.12;
+            const double cy = std::cos(yaw / 2), sy = std::sin(yaw / 2), cp = std::cos(pitch / 2), sp = std::sin(pitch / 2), cr = std::cos(roll / 2), sr = std::sin(roll / 2);
+            const std::array<float, 4> q{static_cast<float>(sr * cp * cy - cr * sp * sy), static_cast<float>(cr * sp * cy + sr * cp * sy), static_cast<float>(cr * cp * sy - sr * sp * cy), static_cast<float>(cr * cp * cy + sr * sp * sy)};
+            const std::array<double, 3> pos{37.0 - 3.1 * i, -51.0 + 2.3 * i, 0.4 + 0.01 * i};
+            std::array<std::array<double, 3>, kHazardCorners> w{};
+            for (std::size_t k = 0; k < offs.size(); ++k) {
+                w[k] = body_point_to_world(pos, q, offs[k]);
+                const auto back = world_point_to_body(pos, q, w[k]);
+                for (std::size_t a = 0; a < 3; ++a) CHECK(std::fabs(back[a] - static_cast<double>(offs[k][a])) < 2e-5, "a lamp round-trips through the vehicle's pose");
+                // inside the oriented body box, 1 cm tolerance
+                for (std::size_t a = 0; a < 3; ++a) CHECK(back[a] > static_cast<double>(b.lo[a]) - 0.01 && back[a] < static_cast<double>(b.hi[a]) + 0.01, "a lamp stays inside the oriented body box");
+            }
+            for (std::size_t k = 0; k < offs.size(); ++k)
+                for (std::size_t m = k + 1; m < offs.size(); ++m) {
+                    double dw = 0, db = 0;
+                    for (std::size_t a = 0; a < 3; ++a) { dw += (w[k][a] - w[m][a]) * (w[k][a] - w[m][a]); db += static_cast<double>((offs[k][a] - offs[m][a]) * (offs[k][a] - offs[m][a])); }
+                    CHECK(std::fabs(std::sqrt(dw) - std::sqrt(db)) < 3e-5, "the lamps keep their mutual distances (rigid transform)");
+                }
+            // a point at the body-frame origin lands on the vehicle position (the transform has no offset of its own)
+            const auto o = body_point_to_world(pos, q, {0, 0, 0});
+            for (std::size_t a = 0; a < 3; ++a) CHECK(std::fabs(o[a] - pos[a]) < 1e-9, "the body origin is the vehicle position");
+        }
+    }
+}
+
+void test_hazard_surface_anchors() {
+    // A rounded body (a superellipse |x/a|^4 + |y/b|^4 = 1 in plan, stacked in z): the bounding-box corner is NOT on it (the second fix put lamps there and one hung in the air in a rendered
+    // frame); the anchors must be vertices of the mesh, at the right corner, in the middle height band, and the farthest toward their corner.
+    const float a = 2.1f, b = 0.95f;
+    std::vector<float> v;
+    for (int zi = 0; zi <= 8; ++zi)
+        for (int k = 0; k < 720; ++k) {
+            const float th = 6.2831853f * static_cast<float>(k) / 720.0f, c = std::cos(th), s = std::sin(th);
+            const float x = a * std::copysign(std::pow(std::fabs(c), 0.5f), c), y = b * std::copysign(std::pow(std::fabs(s), 0.5f), s);   // |x/a|^4 + |y/b|^4 = 1
+            v.insert(v.end(), {x, y, 0.1f * static_cast<float>(zi)});
+        }
+    const auto anchors = hazard_surface_anchors(v);
+    std::size_t idx = 0;
+    for (const float sx : {-1.0f, 1.0f})
+        for (const float sy : {-1.0f, 1.0f}) {
+            const auto& an = anchors[idx++];
+            CHECK(an[0] * sx > 0.0f && an[1] * sy > 0.0f, "an anchor is at its own corner (end and side)");
+            CHECK(an[2] >= 0.2f - 1e-5f && an[2] <= 0.6f + 1e-5f, "an anchor is in the middle height band");
+            const float surf = std::pow(std::fabs(an[0] / a), 4.0f) + std::pow(std::fabs(an[1] / b), 4.0f);
+            CHECK(std::fabs(surf - 1.0f) < 1e-3f, "an anchor lies on the body's surface");
+            bool is_vertex = false;
+            for (std::size_t i = 0; i + 2 < v.size(); i += 3) is_vertex = is_vertex || (v[i] == an[0] && v[i + 1] == an[1] && v[i + 2] == an[2]);
+            CHECK(is_vertex, "an anchor is a vertex of the mesh");
+            // the bounding-box corner (inset like the box rule) is off the surface by far more than a lamp's size
+            const float cx = sx * (a - kHazardInsetX), cyy = sy * (b - kHazardInsetY);
+            const float box_surf = std::pow(std::fabs(cx / a), 4.0f) + std::pow(std::fabs(cyy / b), 4.0f);
+            CHECK(std::fabs(box_surf - 1.0f) > 0.05f, "(test power) a bounding-box corner is not on this body");
+            // brute force: no vertex in the band scores higher
+            float best = -1e30f;
+            for (std::size_t i = 0; i + 2 < v.size(); i += 3) if (v[i + 2] >= 0.2f - 1e-5f && v[i + 2] <= 0.6f + 1e-5f) best = std::max(best, sx * v[i] + 0.6f * sy * v[i + 1]);
+            CHECK(std::fabs((sx * an[0] + 0.6f * sy * an[1]) - best) < 1e-5f, "no vertex of the band lies farther toward the corner");
+        }
+    CHECK(hazard_surface_anchors({})[0][0] == 0.0f, "an empty mesh yields zero anchors, not garbage");
 }
 
 void test_seat_facing() {
@@ -164,13 +233,39 @@ void test_seat_facing() {
         CHECK(blocking_of(validate_district(d), "SEAT_FACING") == 1, "exactly the sideways chair of an interior (or upper floor) must be reported");
     }
     // The generated districts: every chair beside a table faces it, on the street, on the ground floor and upstairs.
+    // World-space check across the four building fronts: the interiors are built in a frame that is rotated and mirrored per front, so a yaw that is right for one front can be wrong for the others.
+    std::array<std::size_t, 4> chairs_by_front{};
     for (const std::uint32_t seed : {8u, 206u, 3u, 4u, 5u, 34u}) {
         const District d = build_district(seed);
         CHECK(blocking_of(validate_district(d), "SEAT_FACING") == 0, "generated chairs must face their tables");
         std::size_t chairs = 0;
+        for (const Interior& in : d.interiors) {
+            std::size_t here = 0;
+            for (const StreetProp& p : in.furniture) here += (p.type == "chair") ? 1u : 0u;
+            for (const StreetProp& p : in.upper_furniture) here += (p.type == "chair") ? 1u : 0u;
+            chairs += here;
+            for (const Building& b : d.buildings)
+                if (b.id == in.building) chairs_by_front[static_cast<std::size_t>(b.front)] += here;
+        }
+        CHECK(chairs >= 10, "the districts have interior chairs (the test would pass vacuously otherwise)");
+    }
+    for (std::size_t f = 0; f < chairs_by_front.size(); ++f) {
+        std::printf("  generated interior chairs on buildings whose front is leg %zu: %zu\n", f, chairs_by_front[f]);
+    }
+    // The generated districts only have seated interiors on two of the four fronts (legs 0 and 2), so the frames of the other two were never exercised by data. Drive the interior generator on every
+    // front: all buildings of a district turned to each leg in turn, the interiors rebuilt, and every chair beside a table must face it, in world space, with chairs present on that front.
+    for (const Leg leg : {Leg::South, Leg::East, Leg::North, Leg::West}) {
+        District d = build_district(8);
+        for (Building& b : d.buildings) b.front = leg;
+        d.interiors.clear();
+        Rng rng(1234);
+        build_interiors(d, rng);
+        std::size_t chairs = 0;
         for (const Interior& in : d.interiors)
             for (const StreetProp& p : in.furniture) chairs += (p.type == "chair") ? 1u : 0u;
-        CHECK(chairs >= 10, "the districts have interior chairs (the test would pass vacuously otherwise)");
+        std::printf("  rebuilt interiors with every front = leg %d: %zu chairs\n", static_cast<int>(leg), chairs);
+        CHECK(chairs >= 6, "the rebuilt interiors have chairs on this front (the check would pass vacuously otherwise)");
+        CHECK(blocking_of(validate_district(d), "SEAT_FACING") == 0, "chairs must face their tables on every building front");
     }
 }
 
@@ -444,6 +539,7 @@ int main() {
     test_prop_in_building();
     test_seat_facing();
     test_hazard_lamps();
+    test_hazard_surface_anchors();
     test_interior_rules();
     test_exposed_face_spans();
     test_film_rule_dropped_exposed_walls_on_the_film_seed();

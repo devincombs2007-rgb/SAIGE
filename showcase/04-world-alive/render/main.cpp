@@ -305,7 +305,19 @@ int main(int argc, char** argv) {
                 const std::vector<TrafficEvent> frame_events = world.take_traffic_events();
                 for (const TrafficEvent& e : frame_events)
                     if (e.type == TrafficEvent::Type::Impact && e.energy > 2500.0f) actors.impact(world.time_seconds(), e.x, e.y, 0.3, e.energy);
-                const Cam cam = director.camera(tf, dt, world);
+                Cam cam = director.camera(tf, dt, world);
+                if (const char* ov = std::getenv("SAIGE_ALIVE_FILM_CAMERA")) {  // diagnostics: "ex,ey,ez,lx,ly,lz,fov" replaces the director's camera for every frame drawn (close-ups of what the simulation placed)
+                    std::array<double, 7> c{};
+                    std::stringstream ss(ov);
+                    std::string tok;
+                    std::size_t k = 0;
+                    while (std::getline(ss, tok, ',') && k < 7) c[k++] = std::stod(tok);
+                    if (k == 7) {
+                        cam.eye = {static_cast<float>(c[0]), static_cast<float>(c[1]), static_cast<float>(c[2])};
+                        cam.look = {static_cast<float>(c[3]), static_cast<float>(c[4]), static_cast<float>(c[5])};
+                        cam.fov_deg = static_cast<float>(c[6]);
+                    }
+                }
                 if (opt.check_camera) {
                     static const std::vector<Box3> awnings = awning_boxes(district);
                     static const std::vector<StreetProp> trees = [&] {

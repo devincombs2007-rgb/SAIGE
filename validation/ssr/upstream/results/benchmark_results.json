@@ -1,0 +1,11 @@
+{
+  "build": 2,
+  "quality_mode": "Performance (50%)",
+  "scenes": [
+    {"name": "moving_vehicle_and_fence", "avg_cpu_ms": 63.814, "bilinear_psnr_db": 24.7541, "bilinear_ssim": 0.69057, "bicubic_psnr_db": 24.5295, "bicubic_ssim": 0.708904, "taau_psnr_db": 25.3658, "taau_ssim": 0.654562, "taau_flicker_rmse": 0.0142482, "ssr_psnr_db": 26.3786, "ssr_ssim": 0.788012, "ssr_flicker_rmse": 0.0129261, "bilinear_flicker_rmse": 0.0471948},
+    {"name": "fine_foliage_and_power_lines", "avg_cpu_ms": 63.9457, "bilinear_psnr_db": 25.8764, "bilinear_ssim": 0.548067, "bicubic_psnr_db": 24.6498, "bicubic_ssim": 0.553882, "taau_psnr_db": 27.7997, "taau_ssim": 0.606982, "taau_flicker_rmse": 0.0229755, "ssr_psnr_db": 27.6711, "ssr_ssim": 0.647467, "ssr_flicker_rmse": 0.0231093, "bilinear_flicker_rmse": 0.0491094},
+    {"name": "nighttime_neon_hdr", "avg_cpu_ms": 62.0988, "bilinear_psnr_db": 28.7732, "bilinear_ssim": 0.988004, "bicubic_psnr_db": 26.6209, "bicubic_ssim": 0.983573, "taau_psnr_db": 29.5354, "taau_ssim": 0.988956, "taau_flicker_rmse": 0.0142827, "ssr_psnr_db": 30.8531, "ssr_ssim": 0.989961, "ssr_flicker_rmse": 0.00827066, "bilinear_flicker_rmse": 0.0319802},
+    {"name": "reflective_road_and_glass", "avg_cpu_ms": 62.4353, "bilinear_psnr_db": 34.8128, "bilinear_ssim": 0.983429, "bicubic_psnr_db": 34.0027, "bicubic_ssim": 0.979675, "taau_psnr_db": 33.7936, "taau_ssim": 0.973723, "taau_flicker_rmse": 0.00948901, "ssr_psnr_db": 37.7366, "ssr_ssim": 0.988103, "ssr_flicker_rmse": 0.00478731, "bilinear_flicker_rmse": 0.021401},
+    {"name": "rapid_camera_pan_and_cut", "avg_cpu_ms": 63.6332, "bilinear_psnr_db": 24.7413, "bilinear_ssim": 0.691447, "bicubic_psnr_db": 24.515, "bicubic_ssim": 0.710295, "taau_psnr_db": 25.2792, "taau_ssim": 0.656869, "taau_flicker_rmse": 0.0778436, "ssr_psnr_db": 26.5703, "ssr_ssim": 0.78919, "ssr_flicker_rmse": 0.0673796, "bilinear_flicker_rmse": 0.0837037}
+  ]
+}

@@ -1,0 +1,148 @@
+#version 460
+// SAIGE Super Resolution (SSR 0.2.1) — Vulkan 1.4 Compute Reconstruction Shader
+// Features: 8x8 tiled execution, 3x3 closest-depth motion dilation, depth-based
+// disocclusion detection, Karis/tone-compressed HDR YCoCg variance clipping,
+// history confidence tracking, reactive/transparency masks, and FP16/FP32 paths.
+
+#ifdef SSR_USE_FP16
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#define ssr_vec3 f16vec3
+#define ssr_float float16_t
+#else
+#define ssr_vec3 vec3
+#define ssr_float float
+#endif
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_color_hdr;
+layout(set = 0, binding = 1) uniform sampler2D u_depth;
+layout(set = 0, binding = 2) uniform sampler2D u_motion_px;
+layout(set = 0, binding = 3) uniform sampler2D u_reactive_mask;
+layout(set = 0, binding = 4) uniform sampler2D u_transparency_mask;
+layout(set = 0, binding = 5) uniform sampler2D u_history_color_in;
+layout(set = 0, binding = 6) uniform sampler2D u_history_depth_in;
+layout(set = 0, binding = 7) uniform sampler2D u_history_conf_in;
+layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D u_history_color_out;
+layout(set = 0, binding = 9, r32f) uniform writeonly image2D u_history_depth_out;
+layout(set = 0, binding = 10, r16f) uniform writeonly image2D u_history_conf_out;
+
+layout(push_constant) uniform SsrPushConstants {
+  uvec2 render_size;
+  uvec2 output_size;
+  vec2 jitter_px;
+  float exposure_ratio;
+  float disocclusion_threshold;
+  uint flags;  // bit 0: camera_cut, bit 1: reversed_z
+} pc;
+
+float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+ssr_vec3 hdr_compress(vec3 c) { return ssr_vec3(c / (1.0 + luminance(c))); }
+vec3 hdr_decompress(ssr_vec3 c) {
+  vec3 cf = vec3(c);
+  return cf / max(1e-3, 1.0 - luminance(cf));
+}
+
+ssr_vec3 rgb_to_ycocg(ssr_vec3 c) {
+  ssr_float co = c.r - c.b;
+  ssr_float tmp = c.b + co * ssr_float(0.5);
+  ssr_float cg = c.g - tmp;
+  ssr_float y = tmp + cg * ssr_float(0.5);
+  return ssr_vec3(y, co, cg);
+}
+
+ssr_vec3 ycocg_to_rgb(ssr_vec3 c) {
+  ssr_float tmp = c.r - c.b * ssr_float(0.5);
+  ssr_float g = c.b + tmp;
+  ssr_float b = tmp - c.g * ssr_float(0.5);
+  ssr_float r = b + c.g;
+  return max(ssr_vec3(0.0), ssr_vec3(r, g, b));
+}
+
+void main() {
+  ivec2 ox = ivec2(gl_GlobalInvocationID.xy);
+  if (ox.x >= int(pc.output_size.x) || ox.y >= int(pc.output_size.y)) return;
+
+  vec2 scale = vec2(pc.render_size) / vec2(pc.output_size);
+  vec2 rf = (vec2(ox) + 0.5) * scale - 0.5 - pc.jitter_px;
+  ivec2 ri = clamp(ivec2(round(rf)), ivec2(0), ivec2(pc.render_size) - 1);
+
+  bool reversed_z = (pc.flags & 2u) != 0u;
+  bool camera_cut = (pc.flags & 1u) != 0u;
+
+  float best_depth = reversed_z ? -1.0 : 2.0;
+  ivec2 best_coord = ri;
+  vec3 yc_sum = vec3(0.0);
+  vec3 yc_sq = vec3(0.0);
+  vec3 yc_min = vec3(1e4);
+  vec3 yc_max = vec3(-1e4);
+
+  for (int ky = -1; ky <= 1; ++ky) {
+    for (int kx = -1; kx <= 1; ++kx) {
+      ivec2 sc = clamp(ri + ivec2(kx, ky), ivec2(0), ivec2(pc.render_size) - 1);
+      vec3 c = max(vec3(0.0), texelFetch(u_color_hdr, sc, 0).rgb);
+      vec3 yc = vec3(rgb_to_ycocg(hdr_compress(c)));
+      yc_sum += yc;
+      yc_sq += yc * yc;
+      yc_min = min(yc_min, yc);
+      yc_max = max(yc_max, yc);
+
+      float d = texelFetch(u_depth, sc, 0).r;
+      if (reversed_z ? (d > best_depth) : (d < best_depth)) {
+        best_depth = d;
+        best_coord = sc;
+      }
+    }
+  }
+
+  float center_depth = texelFetch(u_depth, ri, 0).r;
+  imageStore(u_history_depth_out, ox, vec4(center_depth, 0.0, 0.0, 0.0));
+
+  vec2 curr_uv = (rf + 0.5) / vec2(pc.render_size);
+  vec3 curr_rgb = max(vec3(0.0), texture(u_color_hdr, curr_uv).rgb);
+
+  vec2 mv_out = texelFetch(u_motion_px, best_coord, 0).rg / scale;
+  vec2 hist_px = vec2(ox) + mv_out;
+  bool oob = any(lessThan(hist_px, vec2(0.0))) ||
+             any(greaterThanEqual(hist_px, vec2(pc.output_size)));
+
+  if (camera_cut || oob) {
+    imageStore(u_history_color_out, ox, vec4(curr_rgb, 1.0));
+    imageStore(u_history_conf_out, ox, vec4(0.25, 0.0, 0.0, 0.0));
+    return;
+  }
+
+  vec2 hist_uv = (hist_px + 0.5) / vec2(pc.output_size);
+  float prev_depth = texture(u_history_depth_in, hist_uv).r;
+  bool disoccluded = abs(center_depth - prev_depth) > pc.disocclusion_threshold;
+
+  vec3 hist_rgb = max(vec3(0.0), texture(u_history_color_in, hist_uv).rgb) * pc.exposure_ratio;
+
+  vec3 mean = yc_sum / 9.0;
+  vec3 std_dev = sqrt(max(vec3(0.0), yc_sq / 9.0 - mean * mean));
+  float mv_mag = length(mv_out);
+  float gamma = clamp(1.45 - min(0.45, mv_mag * 0.04), 1.00, 1.50);
+  vec3 c_min = max(yc_min, mean - gamma * std_dev);
+  vec3 c_max = min(yc_max, mean + gamma * std_dev);
+
+  ssr_vec3 hist_yc = rgb_to_ycocg(hdr_compress(hist_rgb));
+  ssr_vec3 clipped_yc = clamp(hist_yc, ssr_vec3(c_min), ssr_vec3(c_max));
+  bool clamped = any(notEqual(vec3(clipped_yc), vec3(hist_yc)));
+
+  float prev_conf = texture(u_history_conf_in, hist_uv).r;
+  float new_conf = disoccluded ? 0.15 : min(1.0, prev_conf + 0.20);
+  if (clamped && !disoccluded) new_conf = max(0.25, new_conf * 0.85);
+
+  float reactive = clamp(texelFetch(u_reactive_mask, ri, 0).r, 0.0, 1.0);
+  float transp = clamp(texelFetch(u_transparency_mask, ri, 0).r, 0.0, 1.0);
+  reactive = max(reactive, transp * 0.7);
+
+  float base_alpha = 0.10 + (1.0 - new_conf) * 0.25 + clamp(mv_mag * 0.015, 0.0, 0.15);
+  float alpha = clamp(base_alpha + reactive * (1.0 - base_alpha), 0.10, 1.0);
+  if (disoccluded) alpha = max(alpha, 0.85);
+
+  ssr_vec3 out_comp = mix(ycocg_to_rgb(clipped_yc), hdr_compress(curr_rgb), ssr_float(alpha));
+  imageStore(u_history_color_out, ox, vec4(hdr_decompress(out_comp), 1.0));
+  imageStore(u_history_conf_out, ox, vec4(new_conf, 0.0, 0.0, 0.0));
+}

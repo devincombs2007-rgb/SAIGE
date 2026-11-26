@@ -305,5 +305,7 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
 endif()
 
 add_subdirectory(showcase)
+# Independent validation of the SSR (SAIGE Super Resolution) delivery: isolated, never linked into the renderer (validation/ssr/README.md).
+add_subdirectory(validation/ssr)
 add_subdirectory(tools/production/inspect)
 add_subdirectory(tools/animation/viewer)

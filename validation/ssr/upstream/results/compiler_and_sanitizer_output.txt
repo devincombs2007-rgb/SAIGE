@@ -1,0 +1,29 @@
+=== Toolchain Check ===
+glslangValidator: NOT FOUND
+glslc: NOT FOUND
+spirv-val: NOT FOUND
+spirv-opt: NOT FOUND
+vulkaninfo: NOT FOUND
+/usr/include/vulkan/vulkan.h: NOT FOUND
+lrwxrwxrwx 1 root root       20 Feb  6  2023 /lib/x86_64-linux-gnu/libvulkan.so.1 -> libvulkan.so.1.3.239
+-rw-r--r-- 1 root root   457224 Feb  6  2023 /lib/x86_64-linux-gnu/libvulkan.so.1.3.239
+-rw-r--r-- 1 root root 11115728 Jun  4 14:25 /lib/x86_64-linux-gnu/libvulkan_intel.so
+-rw-r--r-- 1 root root  8575696 Jun  4 14:25 /lib/x86_64-linux-gnu/libvulkan_intel_hasvk.so
+-rw-r--r-- 1 root root  6918024 Jun  4 14:25 /lib/x86_64-linux-gnu/libvulkan_lvp.so
+-rw-r--r-- 1 root root  8711344 Jun  4 14:25 /lib/x86_64-linux-gnu/libvulkan_radeon.so
+
+=== ASan + UBSan (-std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined) ===
+[bench moving_vehicle_and_fence_360p_perf] avg_ms=321.159 Bil(PSNR=24.7541,SSIM=0.69057,Flicker=0.0471948) Bic(PSNR=24.5295,SSIM=0.708904) TAAU(PSNR=25.3658,SSIM=0.654562,Flicker=0.0142482) SSR0.2.1(PSNR=26.3786,SSIM=0.788012,Flicker=0.0129261)
+[bench fine_foliage_and_power_lines_360p_perf] avg_ms=322.135 Bil(PSNR=25.8764,SSIM=0.548067,Flicker=0.0491094) Bic(PSNR=24.6498,SSIM=0.553882) TAAU(PSNR=27.7997,SSIM=0.606982,Flicker=0.0229755) SSR0.2.1(PSNR=27.6711,SSIM=0.647467,Flicker=0.0231093)
+[bench nighttime_neon_hdr_360p_perf] avg_ms=318.028 Bil(PSNR=28.7732,SSIM=0.988004,Flicker=0.0319802) Bic(PSNR=26.6209,SSIM=0.983573) TAAU(PSNR=29.5354,SSIM=0.988956,Flicker=0.0142827) SSR0.2.1(PSNR=30.8531,SSIM=0.989961,Flicker=0.00827066)
+[bench reflective_road_and_glass_360p_perf] avg_ms=316.828 Bil(PSNR=34.8128,SSIM=0.983429,Flicker=0.021401) Bic(PSNR=34.0027,SSIM=0.979675) TAAU(PSNR=33.7936,SSIM=0.973723,Flicker=0.00948901) SSR0.2.1(PSNR=37.7366,SSIM=0.988103,Flicker=0.00478731)
+[bench rapid_camera_pan_and_cut_360p_perf] avg_ms=317.022 Bil(PSNR=24.7413,SSIM=0.691447,Flicker=0.0837037) Bic(PSNR=24.515,SSIM=0.710295) TAAU(PSNR=25.2792,SSIM=0.656869,Flicker=0.0778436) SSR0.2.1(PSNR=26.5703,SSIM=0.78919,Flicker=0.0673796)
+ssr_test: ALL 4 SUITES PASSED
+
+=== Release (-std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion) ===
+[bench moving_vehicle_and_fence_360p_perf] avg_ms=63.5472 Bil(PSNR=24.7541,SSIM=0.69057,Flicker=0.0471948) Bic(PSNR=24.5295,SSIM=0.708904) TAAU(PSNR=25.3658,SSIM=0.654562,Flicker=0.0142482) SSR0.2.1(PSNR=26.3786,SSIM=0.788012,Flicker=0.0129261)
+[bench fine_foliage_and_power_lines_360p_perf] avg_ms=63.6705 Bil(PSNR=25.8764,SSIM=0.548067,Flicker=0.0491094) Bic(PSNR=24.6498,SSIM=0.553882) TAAU(PSNR=27.7997,SSIM=0.606982,Flicker=0.0229755) SSR0.2.1(PSNR=27.6711,SSIM=0.647467,Flicker=0.0231093)
+[bench nighttime_neon_hdr_360p_perf] avg_ms=61.9493 Bil(PSNR=28.7732,SSIM=0.988004,Flicker=0.0319802) Bic(PSNR=26.6209,SSIM=0.983573) TAAU(PSNR=29.5354,SSIM=0.988956,Flicker=0.0142827) SSR0.2.1(PSNR=30.8531,SSIM=0.989961,Flicker=0.00827066)
+[bench reflective_road_and_glass_360p_perf] avg_ms=62.1805 Bil(PSNR=34.8128,SSIM=0.983429,Flicker=0.021401) Bic(PSNR=34.0027,SSIM=0.979675) TAAU(PSNR=33.7936,SSIM=0.973723,Flicker=0.00948901) SSR0.2.1(PSNR=37.7366,SSIM=0.988103,Flicker=0.00478731)
+[bench rapid_camera_pan_and_cut_360p_perf] avg_ms=63.6643 Bil(PSNR=24.7413,SSIM=0.691447,Flicker=0.0837037) Bic(PSNR=24.515,SSIM=0.710295) TAAU(PSNR=25.2792,SSIM=0.656869,Flicker=0.0778436) SSR0.2.1(PSNR=26.5703,SSIM=0.78919,Flicker=0.0673796)
+ssr_test: ALL 4 SUITES PASSED

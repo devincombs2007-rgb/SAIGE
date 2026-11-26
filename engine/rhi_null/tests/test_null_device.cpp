@@ -1158,3 +1158,163 @@ TEST_CASE("compute: a device without compute refuses every compute use")
     f.device.deny_compute(false);
     CHECK(f.device.info().compute);
 }
+
+// ------------------------------------------------------------------------------------------- indirect draws
+
+namespace {
+
+struct IndirectFixture {
+    PipelineFixture f;  // a graphics pipeline without vertex input, push constants of 16 bytes
+    TextureHandle rt;
+    BufferHandle args, small_args, no_indirect, count, index, tiny;
+
+    IndirectFixture()
+    {
+        rt = f.device.create_texture(color_target());
+        BufferDesc bd;
+        bd.size = 4096;
+        bd.usage = BufferUsage::Indirect | BufferUsage::Storage;
+        bd.memory = MemoryLocation::GpuOnly;
+        args = f.device.create_buffer(bd);
+        bd.size = 40;  // room for two indexed records (20 bytes each), nothing more
+        small_args = f.device.create_buffer(bd);
+        bd.size = 8;   // smaller than any argument record
+        tiny = f.device.create_buffer(bd);
+        bd.size = 4096;
+        bd.usage = BufferUsage::Storage;
+        no_indirect = f.device.create_buffer(bd);
+        bd.size = 16;
+        bd.usage = BufferUsage::Indirect | BufferUsage::Storage;
+        count = f.device.create_buffer(bd);
+        bd.size = 64;
+        bd.usage = BufferUsage::Index;
+        bd.memory = MemoryLocation::CpuToGpu;
+        index = f.device.create_buffer(bd);
+    }
+
+    /// Errors reported while recording `record` inside a rendering scope with the graphics pipeline (and the index buffer, if asked for) bound.
+    template <typename Fn>
+    uint32_t errors(Fn&& record, bool bind_index = true)
+    {
+        const uint32_t before = f.device.validation_error_count();
+        CommandList& cmd = f.device.begin_frame();
+        cmd.begin_rendering({{{rt, AttachmentLoadOp::Clear, AttachmentStoreOp::Store, {0, 0, 0, 1}}}, std::nullopt, {0, 0, 64, 32}});
+        cmd.bind_pipeline(f.pipeline);
+        if (bind_index) cmd.bind_index_buffer(index, IndexType::Uint16);
+        record(cmd);
+        cmd.end_rendering();
+        (void)f.device.end_frame();
+        return f.device.validation_error_count() - before;
+    }
+};
+
+} // namespace
+
+TEST_CASE("indirect draws: the null device reports the capabilities, and valid draws record their arguments")
+{
+    IndirectFixture x;
+    const DeviceInfo& info = x.f.device.info();
+    CHECK(info.multi_draw_indirect);
+    CHECK(info.draw_indirect_first_instance);
+    CHECK(info.draw_indirect_count);
+    CHECK(x.errors([&](CommandList& cmd) {
+        cmd.draw_indirect(x.args, 0, 1, 0);        // one draw: the stride is ignored
+        cmd.draw_indirect(x.args, 16, 3, 16);
+        cmd.draw_indexed_indirect(x.args, 64, 4, 20);
+        cmd.draw_indexed_indirect_count(x.args, 0, x.count, 8, 10, 20);
+        cmd.draw_indirect(x.tiny, 0, 0, 0);  // zero draws: nothing is read, so nothing is checked against the buffer
+    }) == 0);
+    int seen = 0;
+    for (const RecordedCommand& c : x.f.device.last_frame_commands()) {
+        if (c.type == CommandType::DrawIndirect && c.count == 3) {
+            CHECK(c.buffer == x.args);
+            CHECK(c.buffer_offset == 16);
+            CHECK(c.stride == 16);
+            ++seen;
+        }
+        if (c.type == CommandType::DrawIndexedIndirect) {
+            CHECK(c.count == 4);
+            CHECK(c.buffer_offset == 64);
+            CHECK(c.stride == 20);
+            ++seen;
+        }
+        if (c.type == CommandType::DrawIndexedIndirectCount) {
+            CHECK(c.count == 10);  // max draws
+            CHECK(c.count_buffer == x.count);
+            CHECK(c.count_offset == 8);
+            ++seen;
+        }
+    }
+    CHECK(seen == 3);
+}
+
+TEST_CASE("indirect draws: the argument range, usage, alignment and stride are validated")
+{
+    IndirectFixture x;
+    auto one = [&](auto&& call) { return x.errors(call); };
+    CHECK(one([&](CommandList& c) { c.draw_indirect(BufferHandle{}, 0, 1, 0); }) == 1);          // invalid buffer
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.no_indirect, 0, 1, 0); }) == 1);           // no Indirect usage
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 2, 1, 0); }) == 1);                  // misaligned offset
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 4088, 1, 0); }) == 1);               // 4088 + 16 > 4096
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 4080, 1, 0); }) == 0);               // exactly fits
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 0, 2, 12); }) == 1);                 // stride below the record size
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 0, 2, 18); }) == 1);                 // stride not a multiple of 4
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 0, 256, 16); }) == 0);               // 256 * 16 == 4096
+    CHECK(one([&](CommandList& c) { c.draw_indirect(x.args, 0, 257, 16); }) == 1);               // one past the end
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect(x.small_args, 0, 2, 20); }) == 0);   // two indexed records fill 40 bytes
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect(x.small_args, 0, 3, 20); }) == 1);
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect(x.small_args, 0, 2, 16); }) == 1);   // an indexed record is 20 bytes, not 16
+    // The count variant: its own buffer rules.
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, BufferHandle{}, 0, 4, 20); }) == 1);
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.no_indirect, 0, 4, 20); }) == 1);
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.count, 2, 4, 20); }) == 1);
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.count, 16, 4, 20); }) == 1);  // 16 + 4 > 16
+    CHECK(one([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.count, 12, 4, 20); }) == 0);
+}
+
+TEST_CASE("indirect draws: state rules (rendering scope, pipeline kind, index buffer) are validated")
+{
+    IndirectFixture x;
+    // Outside a rendering scope.
+    {
+        const uint32_t before = x.f.device.validation_error_count();
+        CommandList& cmd = x.f.device.begin_frame();
+        cmd.bind_pipeline(x.f.pipeline);
+        cmd.draw_indirect(x.args, 0, 1, 0);
+        (void)x.f.device.end_frame();
+        CHECK(x.f.device.validation_error_count() == before + 1);
+    }
+    // Indexed draws need an index buffer.
+    CHECK(x.errors([&](CommandList& c) { c.draw_indexed_indirect(x.args, 0, 1, 0); }, false) == 1);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.count, 0, 1, 20); }, false) == 1);
+    // A compute pipeline bound.
+    const ShaderHandle cs = x.f.device.create_shader({ShaderStage::Compute, fake_spirv, "CSMain", "cs"});
+    ComputePipelineDesc cd;
+    cd.compute_shader = cs;
+    const PipelineHandle compute = x.f.device.create_compute_pipeline(cd);
+    const uint32_t before = x.f.device.validation_error_count();
+    CommandList& cmd = x.f.device.begin_frame();
+    cmd.begin_rendering({{{x.rt, AttachmentLoadOp::Clear, AttachmentStoreOp::Store, {0, 0, 0, 1}}}, std::nullopt, {0, 0, 64, 32}});
+    cmd.bind_pipeline(compute);
+    cmd.draw_indirect(x.args, 0, 1, 0);
+    cmd.end_rendering();
+    (void)x.f.device.end_frame();
+    CHECK(x.f.device.validation_error_count() == before + 1);
+}
+
+TEST_CASE("indirect draws: multi-draw and count draws are refused on a device without them, single draws are not")
+{
+    IndirectFixture x;
+    x.f.device.set_indirect_draw_support(false, true, false);
+    CHECK_FALSE(x.f.device.info().multi_draw_indirect);
+    CHECK(x.f.device.info().draw_indirect_first_instance);
+    CHECK_FALSE(x.f.device.info().draw_indirect_count);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indirect(x.args, 0, 1, 0); }) == 0);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indexed_indirect(x.args, 0, 1, 0); }) == 0);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indirect(x.args, 0, 2, 16); }) == 1);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indexed_indirect(x.args, 0, 2, 20); }) == 1);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.count, 0, 1, 20); }) == 1);
+    x.f.device.set_indirect_draw_support(true, true, true);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indirect(x.args, 0, 2, 16); }) == 0);
+    CHECK(x.errors([&](CommandList& c) { c.draw_indexed_indirect_count(x.args, 0, x.count, 0, 1, 20); }) == 0);
+}

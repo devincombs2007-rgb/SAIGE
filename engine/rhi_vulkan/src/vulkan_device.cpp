@@ -31,6 +31,7 @@ std::atomic<uint32_t> g_process_validation_errors{0};  // all devices, including
 std::atomic<uint32_t> g_memory_bookkeeping_fault{0};  // test hook: 1-based countdown to an injected failure; 0 = off
 std::atomic<uint32_t> testing_denied_filter_format{0};  // test hook: Format value + 1 that no device may sample with linear filtering; 0 = off
 std::atomic<uint32_t> testing_denied_blend_format{0};  // test hook: Format value + 1 that no device may blend into; 0 = off
+std::atomic<uint32_t> testing_denied_indirect{0};      // test hook: bit 0 = no multi-draw indirect, bit 1 = no indirect draw count; 0 = off
 
 /// True exactly once, for the registration the test asked to fail.
 bool consume_memory_bookkeeping_fault() noexcept
@@ -447,6 +448,9 @@ public:
     void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) override;
     void draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset,
                       uint32_t first_instance) override;
+    void draw_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride) override;
+    void draw_indexed_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride) override;
+    void draw_indexed_indirect_count(BufferHandle args, uint64_t offset, BufferHandle count, uint64_t count_offset, uint32_t max_draws, uint32_t stride) override;
     void dispatch(uint32_t x, uint32_t y, uint32_t z) override;
     void dispatch_indirect(BufferHandle args, uint64_t offset) override;
     void copy_texture_to_buffer(TextureHandle texture, BufferHandle buffer) override;
@@ -456,6 +460,8 @@ public:
 private:
     void check_draw_state(const char* what) const;
     void check_dispatch_state(const char* what) const;
+    /// The rules of an indirect argument range, shared by the three indirect draws; returns the buffer's native handle.
+    VkBuffer check_indirect_args(const char* what, BufferHandle args, uint64_t offset, uint32_t draws, uint32_t stride, uint64_t record_size) const;
 
     VulkanDevice& device_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
@@ -991,10 +997,19 @@ void VulkanDevice::create_logical_device()
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     f2.pNext = &f12;
     {
+        VkPhysicalDeviceVulkan12Features supported12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
         VkPhysicalDeviceFeatures2 supported{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+        supported.pNext = &supported12;
         vk_.vkGetPhysicalDeviceFeatures2(physical_, &supported);
         anisotropy_supported_ = supported.features.samplerAnisotropy == VK_TRUE;
         f2.features.samplerAnisotropy = anisotropy_supported_ ? VK_TRUE : VK_FALSE;
+        // Indirect drawing: each optional feature is enabled only where the device offers it, and reported through DeviceInfo.
+        info_.multi_draw_indirect = supported.features.multiDrawIndirect == VK_TRUE;
+        info_.draw_indirect_first_instance = supported.features.drawIndirectFirstInstance == VK_TRUE;
+        info_.draw_indirect_count = supported12.drawIndirectCount == VK_TRUE;
+        f2.features.multiDrawIndirect = info_.multi_draw_indirect ? VK_TRUE : VK_FALSE;
+        f2.features.drawIndirectFirstInstance = info_.draw_indirect_first_instance ? VK_TRUE : VK_FALSE;
+        f12.drawIndirectCount = info_.draw_indirect_count ? VK_TRUE : VK_FALSE;
     }
 
     std::vector<const char*> extensions;
@@ -2773,6 +2788,83 @@ void VulkanCommandList::check_dispatch_state(const char* what) const
     }
 }
 
+VkBuffer VulkanCommandList::check_indirect_args(const char* what, BufferHandle args, uint64_t offset, uint32_t draws, uint32_t stride, uint64_t record_size) const
+{
+    const std::string name(what);
+    const VkBufferRes* b = device_.buffers_.get(args);
+    if (b == nullptr) {
+        throw std::invalid_argument(name + ": invalid argument buffer");
+    }
+    if (!has_any(b->desc.usage, BufferUsage::Indirect)) {
+        throw std::invalid_argument(name + ": the argument buffer lacks Indirect usage");
+    }
+    if (offset % 4 != 0) {
+        throw std::invalid_argument(name + ": the offset must be a multiple of 4");
+    }
+    if (draws > 1) {
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+        const bool multi_denied = (testing_denied_indirect.load() & 1u) != 0;
+#else
+        const bool multi_denied = false;
+#endif
+        if (!device_.info_.multi_draw_indirect || multi_denied) {
+            throw std::invalid_argument(name + ": more than one indirect draw needs multi-draw indirect, which the device does not support");
+        }
+        if (stride % 4 != 0 || stride < record_size) {
+            throw std::invalid_argument(name + ": the stride must be a multiple of 4 and at least the size of one argument record");
+        }
+    }
+    if (draws > 0) {
+        const uint64_t span = (draws > 1 ? uint64_t{draws - 1} * stride : 0) + record_size;
+        if (offset > b->desc.size || b->desc.size - offset < span) {
+            throw std::invalid_argument(name + ": the argument records do not fit in the buffer");
+        }
+    }
+    return b->buffer;
+}
+
+void VulkanCommandList::draw_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride)
+{
+    check_draw_state("draw_indirect");
+    const VkBuffer buffer = check_indirect_args("draw_indirect", args, offset, draw_count, stride, sizeof(DrawIndirectCommand));
+    device_.vk_.vkCmdDrawIndirect(cmd_, buffer, offset, draw_count, stride);
+}
+
+void VulkanCommandList::draw_indexed_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride)
+{
+    check_draw_state("draw_indexed_indirect");
+    const VkBuffer buffer = check_indirect_args("draw_indexed_indirect", args, offset, draw_count, stride, sizeof(DrawIndexedIndirectCommand));
+    device_.vk_.vkCmdDrawIndexedIndirect(cmd_, buffer, offset, draw_count, stride);
+}
+
+void VulkanCommandList::draw_indexed_indirect_count(BufferHandle args, uint64_t offset, BufferHandle count, uint64_t count_offset, uint32_t max_draws, uint32_t stride)
+{
+    check_draw_state("draw_indexed_indirect_count");
+#if defined(SAIGE_RHI_VULKAN_TESTING)
+    const bool count_denied = (testing_denied_indirect.load() & 2u) != 0;
+#else
+    const bool count_denied = false;
+#endif
+    if (!device_.info_.draw_indirect_count || count_denied) {
+        throw std::invalid_argument("draw_indexed_indirect_count: the device does not support indirect draw counts");
+    }
+    const VkBuffer buffer = check_indirect_args("draw_indexed_indirect_count", args, offset, max_draws, stride, sizeof(DrawIndexedIndirectCommand));
+    const VkBufferRes* c = device_.buffers_.get(count);
+    if (c == nullptr) {
+        throw std::invalid_argument("draw_indexed_indirect_count: invalid count buffer");
+    }
+    if (!has_any(c->desc.usage, BufferUsage::Indirect)) {
+        throw std::invalid_argument("draw_indexed_indirect_count: the count buffer lacks Indirect usage");
+    }
+    if (count_offset % 4 != 0) {
+        throw std::invalid_argument("draw_indexed_indirect_count: the count offset must be a multiple of 4");
+    }
+    if (count_offset > c->desc.size || c->desc.size - count_offset < 4) {
+        throw std::invalid_argument("draw_indexed_indirect_count: the count does not fit in the buffer at that offset");
+    }
+    device_.vk_.vkCmdDrawIndexedIndirectCount(cmd_, buffer, offset, c->buffer, count_offset, max_draws, stride);
+}
+
 void VulkanCommandList::dispatch(uint32_t x, uint32_t y, uint32_t z)
 {
     check_dispatch_state("dispatch");
@@ -2935,6 +3027,11 @@ std::size_t descriptor_sets_in_use(const Device& device)
 void deny_filtered_sampling_of(Format format) noexcept
 {
     testing_denied_filter_format.store(format == Format::Unknown ? 0u : static_cast<uint32_t>(format) + 1u, std::memory_order_relaxed);
+}
+
+void deny_indirect_draw_features(bool multi_draw, bool draw_count) noexcept
+{
+    testing_denied_indirect.store((multi_draw ? 1u : 0u) | (draw_count ? 2u : 0u), std::memory_order_relaxed);
 }
 
 void deny_blending_into(Format format) noexcept

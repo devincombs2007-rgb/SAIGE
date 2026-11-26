@@ -372,6 +372,50 @@ public:
         commands_.push_back(std::move(c));
     }
 
+    void draw_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride) override
+    {
+        check_draw("draw_indirect");
+        check_indirect_args("draw_indirect", args, offset, draw_count, stride, sizeof(DrawIndirectCommand));
+        record_indirect(CommandType::DrawIndirect, args, offset, draw_count, stride, {}, 0);
+    }
+
+    void draw_indexed_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride) override
+    {
+        check_draw("draw_indexed_indirect");
+        if (!index_bound_) {
+            device_.error("draw_indexed_indirect() without an index buffer");
+        }
+        check_indirect_args("draw_indexed_indirect", args, offset, draw_count, stride, sizeof(DrawIndexedIndirectCommand));
+        record_indirect(CommandType::DrawIndexedIndirect, args, offset, draw_count, stride, {}, 0);
+    }
+
+    void draw_indexed_indirect_count(BufferHandle args, uint64_t offset, BufferHandle count, uint64_t count_offset, uint32_t max_draws, uint32_t stride) override
+    {
+        check_draw("draw_indexed_indirect_count");
+        if (!index_bound_) {
+            device_.error("draw_indexed_indirect_count() without an index buffer");
+        }
+        if (!device_.info.draw_indirect_count) {
+            device_.error("draw_indexed_indirect_count(): the device does not support indirect draw counts");
+        }
+        check_indirect_args("draw_indexed_indirect_count", args, offset, max_draws, stride, sizeof(DrawIndexedIndirectCommand));
+        const NullBuffer* c = device_.buffers.get(count);
+        if (c == nullptr) {
+            device_.error("draw_indexed_indirect_count(): invalid count buffer");
+        } else {
+            if (!has_any(c->desc.usage, BufferUsage::Indirect)) {
+                device_.error("draw_indexed_indirect_count(): the count buffer lacks Indirect usage");
+            }
+            if (count_offset % 4 != 0) {
+                device_.error("draw_indexed_indirect_count(): the count offset must be a multiple of 4");
+            }
+            if (count_offset > c->desc.size || c->desc.size - count_offset < 4) {
+                device_.error("draw_indexed_indirect_count(): the count does not fit in the buffer at that offset");
+            }
+        }
+        record_indirect(CommandType::DrawIndexedIndirectCount, args, offset, max_draws, stride, count, count_offset);
+    }
+
     void dispatch(uint32_t x, uint32_t y, uint32_t z) override
     {
         check_dispatch("dispatch");
@@ -462,6 +506,49 @@ private:
         }
     }
 
+    /// The rules of an indirect argument range, shared by the three indirect draws.
+    void check_indirect_args(const char* what, BufferHandle args, uint64_t offset, uint32_t draws, uint32_t stride, uint64_t record_size)
+    {
+        const NullBuffer* b = device_.buffers.get(args);
+        if (b == nullptr) {
+            device_.error(std::string(what) + "(): invalid argument buffer");
+            return;
+        }
+        if (!has_any(b->desc.usage, BufferUsage::Indirect)) {
+            device_.error(std::string(what) + "(): the argument buffer lacks Indirect usage");
+        }
+        if (offset % 4 != 0) {
+            device_.error(std::string(what) + "(): the offset must be a multiple of 4");
+        }
+        if (draws > 1) {
+            if (!device_.info.multi_draw_indirect) {
+                device_.error(std::string(what) + "(): more than one indirect draw needs multi-draw indirect, which the device does not support");
+            }
+            if (stride % 4 != 0 || stride < record_size) {
+                device_.error(std::string(what) + "(): the stride must be a multiple of 4 and at least the size of one argument record");
+            }
+        }
+        if (draws > 0) {
+            const uint64_t span = (draws > 1 ? uint64_t{draws - 1} * stride : 0) + record_size;
+            if (offset > b->desc.size || b->desc.size - offset < span) {
+                device_.error(std::string(what) + "(): the argument records do not fit in the buffer");
+            }
+        }
+    }
+
+    void record_indirect(CommandType type, BufferHandle args, uint64_t offset, uint32_t draws, uint32_t stride, BufferHandle count, uint64_t count_offset)
+    {
+        RecordedCommand c = make(type);
+        c.buffer = args;
+        c.buffer_offset = offset;
+        c.count = draws;
+        c.stride = stride;
+        c.count_buffer = count;
+        c.count_offset = count_offset;
+        c.pipeline = bound_pipeline_;
+        commands_.push_back(std::move(c));
+    }
+
     void check_dispatch(const char* what)
     {
         check_frame(what);
@@ -537,6 +624,9 @@ NullDevice::NullDevice(const DeviceDesc& desc) : impl_(std::make_unique<Impl>())
     impl_->info.presentation_supported = true;
     impl_->info.software_device = true;
     impl_->info.compute = true;
+    impl_->info.multi_draw_indirect = true;
+    impl_->info.draw_indirect_first_instance = true;
+    impl_->info.draw_indirect_count = true;
     impl_->cmd = std::make_unique<NullCommandList>(*impl_);
 }
 
@@ -958,6 +1048,13 @@ void NullDevice::wait_idle()
         impl_->error("wait_idle() inside a frame");
     }
     impl_->pending.drain_all([](std::function<void()>&& fn) { fn(); });
+}
+
+void NullDevice::set_indirect_draw_support(bool multi_draw, bool first_instance, bool count) noexcept
+{
+    impl_->info.multi_draw_indirect = multi_draw;
+    impl_->info.draw_indirect_first_instance = first_instance;
+    impl_->info.draw_indirect_count = count;
 }
 
 void NullDevice::deny_compute(bool deny) noexcept

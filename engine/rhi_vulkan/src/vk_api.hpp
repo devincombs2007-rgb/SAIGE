@@ -125,6 +125,9 @@ namespace saige::rhi::vk {
     X(vkCmdDrawIndexed)                                                                                                \
     X(vkCmdDispatch)                                                                                                   \
     X(vkCmdDispatchIndirect)                                                                                           \
+    X(vkCmdDrawIndirect)                                                                                               \
+    X(vkCmdDrawIndexedIndirect)                                                                                        \
+    X(vkCmdDrawIndexedIndirectCount)                                                                                   \
     X(vkCmdCopyBuffer)                                                                                                 \
     X(vkCmdCopyBufferToImage)                                                                                          \
     X(vkCreateQueryPool)                                                                                               \

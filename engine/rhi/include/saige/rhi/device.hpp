@@ -149,6 +149,22 @@ struct ComputePipelineDesc {
     const char* debug_name = nullptr;
 };
 
+/// The argument records the indirect draw commands read from a buffer, laid out as Vulkan (and every other API) lays them out.
+struct DrawIndirectCommand {
+    uint32_t vertex_count = 0;
+    uint32_t instance_count = 1;
+    uint32_t first_vertex = 0;
+    uint32_t first_instance = 0;  ///< non-zero only on a device with `DeviceInfo::draw_indirect_first_instance`
+};
+struct DrawIndexedIndirectCommand {
+    uint32_t index_count = 0;
+    uint32_t instance_count = 1;
+    uint32_t first_index = 0;
+    int32_t vertex_offset = 0;
+    uint32_t first_instance = 0;  ///< non-zero only on a device with `DeviceInfo::draw_indirect_first_instance`
+};
+static_assert(sizeof(DrawIndirectCommand) == 16 && sizeof(DrawIndexedIndirectCommand) == 20);
+
 /// The largest group count along one axis of a dispatch: the portable minimum of maxComputeWorkGroupCount that every Vulkan device guarantees.
 inline constexpr uint32_t max_dispatch_groups_per_axis = 65535;
 /// Bytes of the argument record `dispatch_indirect` reads: three uint32 group counts (x, y, z).
@@ -194,6 +210,17 @@ public:
     /// Runs the bound compute pipeline over x * y * z workgroups (each at most `max_dispatch_groups_per_axis`; zero in any axis does nothing). Outside a
     /// rendering scope, with a compute pipeline bound and a compatible group at every set. Needs `DeviceInfo::compute`.
     virtual void dispatch(uint32_t x, uint32_t y, uint32_t z) = 0;
+    /// Draws from argument records in `args` (a buffer with `BufferUsage::Indirect`, which cannot be a readback buffer): `draw_count` consecutive `DrawIndirectCommand`s
+    /// `stride` bytes apart starting at `offset` (a multiple of 4). Inside a rendering scope with a graphics pipeline, a compatible group at every set and the vertex
+    /// buffer its layout needs, as for `draw`. `draw_count` above 1 needs `DeviceInfo::multi_draw_indirect` (and a `stride` that is a multiple of 4 and at least 16);
+    /// zero draws nothing. The whole range must lie inside the buffer. The GPU reads the records when the command executes, so whatever wrote them needs a barrier
+    /// (`PipelineStage::DrawIndirect` read, `Access::IndirectCommandRead`).
+    virtual void draw_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride) = 0;
+    /// As `draw_indirect` for `DrawIndexedIndirectCommand`s (at least 20 bytes apart), with an index buffer bound as for `draw_indexed`.
+    virtual void draw_indexed_indirect(BufferHandle args, uint64_t offset, uint32_t draw_count, uint32_t stride) = 0;
+    /// As `draw_indexed_indirect`, but the number of draws is read on the GPU from one uint32 at `count_offset` of `count` (a buffer with `BufferUsage::Indirect`; the
+    /// offset a multiple of 4) and clamped to `max_draws`, which bounds the argument range checked against the buffer. Needs `DeviceInfo::draw_indirect_count`.
+    virtual void draw_indexed_indirect_count(BufferHandle args, uint64_t offset, BufferHandle count, uint64_t count_offset, uint32_t max_draws, uint32_t stride) = 0;
     /// Like `dispatch`, with the counts read on the GPU from three consecutive uint32 at `offset` of `args` (a buffer with `BufferUsage::Indirect`; the
     /// offset a multiple of 4 with `dispatch_indirect_args_size` bytes inside the buffer). Whatever wrote the buffer must be made visible by a barrier
     /// (`PipelineStage::ComputeShader` write to `PipelineStage::DrawIndirect` read, `Access::IndirectCommandRead`).
@@ -287,6 +314,13 @@ struct DeviceInfo {
     /// Compute pipelines and dispatch work (`create_compute_pipeline`, `CommandList::dispatch`) and bind group entries may be visible to the compute stage.
     /// True on the Vulkan 1.3 baseline (compute is mandatory on a graphics queue) and on the null backend. Where false, those calls are refused.
     bool compute = false;
+    /// Indirect drawing capabilities, each probed and enabled where the device offers it. `draw_indirect` and `draw_indexed_indirect` always work for one draw
+    /// with a zero `first_instance`; `multi_draw_indirect` allows `draw_count` above 1, `draw_indirect_first_instance` allows a non-zero `first_instance` in the
+    /// argument records (the GPU's contents cannot be checked by the host: writing one on a device without it is undefined), and `draw_indirect_count` allows
+    /// `draw_indexed_indirect_count`. The null backend reports all three; the Vulkan backend reports the device's own answers.
+    bool multi_draw_indirect = false;
+    bool draw_indirect_first_instance = false;
+    bool draw_indirect_count = false;
     double timestamp_period_ns = 0.0;
     /// Frames the device keeps in flight (DeviceDesc::frames_in_flight, at least 1). `begin_frame` returns once the work of frame
     /// `n - frames_in_flight` is complete, so a per-frame resource can be rewritten safely if it is indexed by

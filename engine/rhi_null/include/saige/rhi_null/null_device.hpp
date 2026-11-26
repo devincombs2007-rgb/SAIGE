@@ -29,6 +29,9 @@ enum class CommandType : uint8_t {
     BindIndexBuffer,
     Draw,
     DrawIndexed,
+    DrawIndirect,              ///< args buffer in `buffer` at `buffer_offset`; `count` draws `stride` bytes apart
+    DrawIndexedIndirect,       ///< as DrawIndirect
+    DrawIndexedIndirectCount,  ///< as DrawIndirect with `count` = max draws; the count read from `count_buffer` at `count_offset`
     Dispatch,          ///< group counts in `group_count`
     DispatchIndirect,  ///< args buffer in `buffer`, byte offset in `buffer_offset`
     CopyTextureToBuffer,
@@ -53,7 +56,10 @@ struct RecordedCommand {
     uint32_t count = 0;           ///< vertex/index count
     uint32_t instance_count = 0;
     uint32_t group_count[3] = {0, 0, 0};  ///< Dispatch: workgroups along x, y, z
-    uint64_t buffer_offset = 0;           ///< DispatchIndirect: offset into `buffer`
+    uint64_t buffer_offset = 0;           ///< DispatchIndirect and the indirect draws: offset into `buffer`
+    BufferHandle count_buffer;            ///< DrawIndexedIndirectCount: the buffer holding the draw count
+    uint64_t count_offset = 0;
+    uint32_t stride = 0;                  ///< the indirect draws: bytes between argument records
     std::string label;
 };
 
@@ -111,6 +117,8 @@ public:
     /// Makes the device report `DeviceInfo::compute == false` from now on, so the refusal paths of compute pipelines, compute-visible bind group layouts and
     /// dispatch can be tested. `false` restores the default (compute supported).
     void deny_compute(bool deny = true) noexcept;
+    /// Sets which indirect drawing capabilities the device reports (all true by default), so the refusal paths of multi-draw, first-instance and count draws can be tested.
+    void set_indirect_draw_support(bool multi_draw, bool first_instance, bool count) noexcept;
     /// Commands recorded in the most recently ended frame.
     [[nodiscard]] const std::vector<RecordedCommand>& last_frame_commands() const noexcept;
     [[nodiscard]] const std::vector<std::string>& validation_messages() const noexcept;

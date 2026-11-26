@@ -24,8 +24,12 @@ using namespace saige::ssr;
 namespace {
 
 int g_failures = 0;
+long g_checks = 0;  // executed checks: the suite reports the count so a run that executed nothing cannot look like a pass
+// With SAIGE_REQUIRE_SSR=1 (hosted CI) a missing device or validation layer is a failure, never a skip.
+int no_device_exit() { const char* r = std::getenv("SAIGE_REQUIRE_SSR"); return (r != nullptr && r[0] == '1') ? 1 : 77; }
 #define CHECK(cond)                                                                      \
   do {                                                                                   \
+    ++g_checks;                                                                          \
     if (!(cond)) {                                                                       \
       std::fprintf(stderr, "CHECK FAILED %s:%d  %s\n", __FILE__, __LINE__, #cond);       \
       ++g_failures;                                                                      \
@@ -33,6 +37,7 @@ int g_failures = 0;
   } while (0)
 #define CHECK_MSG(cond, ...)                                                             \
   do {                                                                                   \
+    ++g_checks;                                                                          \
     if (!(cond)) {                                                                       \
       std::fprintf(stderr, "CHECK FAILED %s:%d  %s : ", __FILE__, __LINE__, #cond);      \
       std::fprintf(stderr, __VA_ARGS__);                                                 \
@@ -577,7 +582,7 @@ int main(int argc, char** argv) {
     g_recon_override = argv[2]; g_sharp_override = argv[3];
     const gpu::VulkanHarnessConfig cfg = base_cfg();
     gpu::SsrVulkanHarness h; std::string st;
-    if (!h.initialize(cfg, st)) { std::printf("mutant: no usable device or layer (%s): skipped\n", st.c_str()); return 77; }
+    if (!h.initialize(cfg, st)) { std::printf("mutant: no usable device or layer (%s): %s\n", st.c_str(), no_device_exit() == 77 ? "skipped" : "FAILED (required)"); return no_device_exit(); }
     const ParityStats a = run_sequence(h, cfg, false);
     h.reset_history();
     const ParityStats t = run_sequence(h, cfg, false, 6.0f, true, true);
@@ -585,9 +590,11 @@ int main(int argc, char** argv) {
     for (const Directed d : {Directed::Disocclusion, Directed::Confidence, Directed::DepthDilation}) { h.reset_history(); dw = std::min(dw, run_directed(h, cfg, d, false)); }
     const bool scaled_ok = a.frames == 9 && a.all_clean && a.all_passed && a.worst_roi_mae <= kScaledRoiMae;
     const bool directed_ok = dw >= kDirectedPsnr;
-    const bool tight_ok = directed_ok && t.frames == 9 && t.all_clean && t.worst_psnr >= kTightPsnr && t.worst_mae <= kTightMae && t.worst_roi_mae <= kTightRoiMae && t.cut_psnr >= kTightCutPsnr;
-    std::printf("mutant: scaled(roi mae %.5f psnr %.2f)%s tight(psnr %.2f mae %.5f roi %.5f cut %.2f) directed %.2f%s -> %s\n", a.worst_roi_mae, a.worst_psnr, scaled_ok ? "" : " FAIL", t.worst_psnr, t.worst_mae, t.worst_roi_mae, t.cut_psnr, dw, tight_ok ? "" : " FAIL", scaled_ok && tight_ok ? "SURVIVED" : "DETECTED");
-    return scaled_ok && tight_ok ? 0 : 1;
+    const bool tight_ok = t.frames == 9 && t.all_clean && t.worst_psnr >= kTightPsnr && t.worst_mae <= kTightMae && t.worst_roi_mae <= kTightRoiMae && t.cut_psnr >= kTightCutPsnr;
+    // The tokens come first so a test can require the gate that must catch this mutant (CMake: the expected reason per mutant), not merely a nonzero exit.
+    std::printf("mutant: scaled=%s tight=%s directed=%s (scaled roi mae %.5f psnr %.2f; tight psnr %.2f mae %.5f roi %.5f cut %.2f; directed %.2f) -> %s\n", scaled_ok ? "ok" : "FAIL", tight_ok ? "ok" : "FAIL",
+                directed_ok ? "ok" : "FAIL", a.worst_roi_mae, a.worst_psnr, t.worst_psnr, t.worst_mae, t.worst_roi_mae, t.cut_psnr, dw, scaled_ok && tight_ok && directed_ok ? "SURVIVED" : "DETECTED");
+    return scaled_ok && tight_ok && directed_ok ? 0 : 1;
   }
   if (argc >= 2 && std::strcmp(argv[1], "--tight") == 0) {
     const gpu::VulkanHarnessConfig c = base_cfg(); gpu::SsrVulkanHarness h; std::string st; if (!h.initialize(c, st)) return 77;
@@ -595,7 +602,7 @@ int main(int argc, char** argv) {
     std::printf("tight: frames=%d worst psnr %.2f mae %.5f roi mae %.5f roi rel %.4f\n", s.frames, s.worst_psnr, s.worst_mae, s.worst_roi_mae, s.worst_roi_rel); return 0; }
   const bool findings = argc >= 2 && std::strcmp(argv[1], "--findings") == 0;
   const gpu::VulkanHarnessConfig cfg = base_cfg();
-  if (!test_init_report(cfg)) return 77;  // no device / layer: reported as skipped, never as a pass
+  if (!test_init_report(cfg)) return no_device_exit();  // no device / layer: skipped (77), or a failure when SAIGE_REQUIRE_SSR=1; never a pass
   test_parity_sequence(false);
   test_parity_sequence(true);
   test_strict_gates();
@@ -607,6 +614,6 @@ int main(int argc, char** argv) {
   test_lifetime_and_errors();
   if (findings) print_findings();
   if (g_failures != 0) { std::fprintf(stderr, "ssr_validation_test: %d FAILED\n", g_failures); return 1; }
-  std::printf("ssr_validation_test: ALL PASSED\n");
+  std::printf("ssr_validation_test: ALL PASSED (%ld checks executed)\n", g_checks);
   return 0;
 }

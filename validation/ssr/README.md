@@ -14,6 +14,11 @@ Integration inputs and a versioned plan: [`docs/rendering/ssr-integration-plan.m
 | `tools/` | `build_ssr_shaders.py` (compile and `spirv-val` every binary, build the 14 shader mutants), `check_spirv_interface.py`, `ssr_visual_dump_main.inc` (visual and measurement tool, appended to a copy of Gemini's own test so the scenes, TAA-U baseline and metrics are the delivered ones), `compose_ssr_evidence.py`. |
 | `CMakeLists.txt` | 20 ctest tests on the existing hosted lavapipe lane: `ssr_validation`, `ssr_upstream_suite`, `ssr_spirv_interface`, 14 `ssr_mutant_*`, 3 `ssr_harness_mutant_*`. Skipped silently where libvulkan, glslang, spirv-tools or Python are missing (ASan and Windows lanes). |
 
+## CI contract (director review 7202180515)
+* The hosted lavapipe lane configures with `-DSAIGE_REQUIRE_SSR_VALIDATION=ON`: a missing libvulkan, glslang, spirv-tools or Python is a **configure error**, not a silent skip, and its test step asserts that exactly 20 `ssr_*` tests are registered and sets `SAIGE_REQUIRE_SSR=1`, which turns a missing Vulkan device or validation layer into a failure (exit 1) instead of a skip (exit 77). Verified locally: the required configure fails with the prerequisite missing, and the unrequired one prints `SSR validation: NOT BUILT, no SSR test coverage on this configuration (...)`.
+* **Unsupported lanes, stated:** the ASan lane (no libvulkan or Vulkan device) and the Windows lane (the harness is Linux-only) do **not** build or run the SSR tests and have **no SSR coverage**; their green status says nothing about SSR.
+* `ssr_validation` must print `ALL PASSED (N checks executed)` with N of at least 100 (204 now); a run that executed nothing cannot pass. `WILL_FAIL` is gone: each shader mutant must be caught by the gate named in `CMakeLists.txt` (`scaled`, `tight` or `directed`, printed as `gate=FAIL ... -> DETECTED`), and each harness mutant by its own reason (`!r.parity_passed` check, the layer's `InvalidImageLayout` error, the injected-error check). A crash or an unrelated nonzero exit is not a detection.
+
 ## Defects found (and what was done)
 
 ### Harness (Gemini's `gpu/ssr_vulkan_harness.*`): corrected in the validation copy

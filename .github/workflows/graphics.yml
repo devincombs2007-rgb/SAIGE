@@ -51,7 +51,7 @@ jobs:
       - name: Configure
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
-          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON
+          -DSAIGE_ENABLE_VULKAN=ON -DSAIGE_VULKAN_FETCH_HEADERS=ON -DSAIGE_GFX_WARNINGS_AS_ERRORS=ON -DSAIGE_REQUIRE_SSR_VALIDATION=ON
       - name: Build
         run: cmake --build build --parallel
       - name: Test (Xvfb)
@@ -59,6 +59,8 @@ jobs:
           SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
         run: |
           mkdir -p captures
+          # The SSR validation tests must exist (20) and must run here: a lane that required them cannot lose them (the configure step also fails without them).
+          test "$(ctest --test-dir build -N -R '^ssr_' | sed -n 's/^Total Tests: //p')" = "20"
           SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure
       - name: Upload rendered frames
         if: always()

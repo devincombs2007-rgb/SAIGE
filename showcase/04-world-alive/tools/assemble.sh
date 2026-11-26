@@ -17,9 +17,9 @@ CARD=11
 TOTAL=$(python3 -c "print($DUR+$CARD)")
 big=$((H/9)); mid=$((H/28)); small=$((H/46))
 L=("A WORLD ALIVE"
-"A coastal district simulated live: 60 residents on daily schedules, traffic on signalled roads, an accident and the emergency response. Every shot is the running engine."
+"A coastal district simulated live: 60 residents, signalled traffic, an accident and the response. Every shot is the engine."
 "$DISC"
-"Video: ${W}x${H}, ${FPS} distinct frames per second, offline capture. Not real-time performance and no 60 FPS claim. Software rendering is not GPU evidence."
+"Video: ${W}x${H}, ${FPS} distinct frames per second, offline capture. Not real-time performance, no 60 FPS claim. Software rendering is not GPU evidence."
 "Car Concept (c) Khronos Group, Eric Chadwick of Darmstadt Graphics Group GmbH, CC BY 4.0"
 "Universal Animation Library, Quaternius, CC0"
 "Textures and props from Poly Haven, CC0 (polyhaven.com)"

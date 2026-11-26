@@ -9,8 +9,8 @@ For every seed: alive_scout finds when that world's accident happens (the direct
 With --mutants the film's behaviour (SAIGE_ALIVE_NO_CANOPY_CLEAR=1, no foliage or awning clearance) is also run and must be caught on at least one seed.
 
 Usage: camera_seeds.py --app saige_alive --scout alive_scout [--seeds 1,2,3,4,5,6] [--mutants]
-A seed passes when at most --budget of its 5400 frames (default 10, 0.2%) are bad. The budget is an honest statement of a known limit, not a threshold chosen to pass: the director clears foliage and awnings by moving the eye at most 5 m,
-and in a tree-lined corner (seed 4, a resident standing at 84 s) that is not always enough (8 frames). The next step is to choose the camera's position by testing candidate offsets for visibility.
+A seed passes when at most --budget of its 5400 frames (default 0) are bad; a seed that needs a budget is an unresolved defect and is printed as one. (This tool and the C++ alive_camera_test judge the same rules; the C++ test also walks
+each seed with a report that has no accident and measures the displacement from the director's own proposal.)
 Exit status: 0 every seed within budget (and the film's behaviour caught on at least one seed with --mutants), 1 otherwise, 77 skipped (no renderer or texture cache; 1 with SAIGE_REQUIRE_VISUAL=1).
 """
 import argparse
@@ -31,8 +31,16 @@ def main():
     ap.add_argument("--anim", default=None)
     ap.add_argument("--seeds", default="1,2,3,4,5,6")
     ap.add_argument("--mutants", action="store_true")
-    ap.add_argument("--budget", type=int, default=10, help="most bad frames (of 5400) a seed may have")
+    ap.add_argument("--budget", type=int, default=0, help="most bad frames (of 5400) a seed may have: 0 means a bad frame is an unresolved defect, not a pass")
     args = ap.parse_args()
+    try:
+        seeds = [int(s) for s in args.seeds.split(",") if s.strip() != ""]
+    except ValueError:
+        print("FAILED: --seeds must be a comma separated list of integers, got '%s'" % args.seeds)
+        return 2
+    if not seeds or len(set(seeds)) != len(seeds):
+        print("FAILED: --seeds is empty or has duplicates ('%s'): a run that checks no seed proves nothing" % args.seeds)
+        return 2
     if not os.path.exists(args.app) or not os.path.exists(args.scout) or not os.path.isdir(os.path.join(args.assets, "polyhaven")):
         if os.environ.get("SAIGE_REQUIRE_VISUAL") == "1":
             print("FAILED: SAIGE_REQUIRE_VISUAL=1 but the renderer, the scout tool or the texture cache is missing")
@@ -41,12 +49,13 @@ def main():
         return 77
     work = tempfile.mkdtemp(prefix="alive_seeds_")
     total_bad, mutant_bad = 0, 0
-    for seed in [int(s) for s in args.seeds.split(",")]:
+    for seed in seeds:
         scout = os.path.join(work, "scout%d.txt" % seed)
         with open(scout, "w") as f:
-            subprocess.run([args.scout, str(seed), "230"], stdout=f, check=True)
+            subprocess.run([args.scout, str(seed), "206"], stdout=f, check=True, env={x: y for x, y in os.environ.items() if not x.startswith("SAIGE_ALIVE_")})
         cmd = [args.app, *FILM, "--seed", str(seed), "--scout-file", scout, "--assets", args.assets] + (["--anim", args.anim] if args.anim else [])
-        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        clean = {x: y for x, y in os.environ.items() if not x.startswith("SAIGE_ALIVE_")}
+        r = subprocess.run(cmd, env=clean, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         line = [l for l in r.stdout.splitlines() if l.startswith("camera check")]
         n = int(re.search(r"(\d+) of (\d+)", line[0]).group(1)) if line else -1
         print("seed %d: %s" % (seed, line[0] if line else r.stdout[-200:]))

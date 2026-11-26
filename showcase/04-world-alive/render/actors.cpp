@@ -58,6 +58,7 @@ struct Actors::Impl {
     const District& d;
     fs::path cache, anim_root;
     std::vector<std::string>& warnings;
+    bool fixtures = false;   // the fixture path: a procedural car and no residents (no third-party model is read)
 
     // cars
     std::vector<CarRig> cars;   // one per paint
@@ -149,6 +150,33 @@ struct Actors::Impl {
             rig.wheel[w] = filter_placements(full, parts.spinning[w], saige::horizon::wheel_to_rig_frame(fit));
             rig.hub[w] = filter_placements(full, parts.fixed[w], saige::horizon::wheel_to_rig_frame(fit));
         }
+        rig.ok = true;
+        return rig;
+    }
+
+    // The fixture car: a procedural sedan in the vehicle frame (boxes and the shared wheel), used by the fixture path (no third-party car model). Same rig contract as stage_car.
+    CarRig stage_fixture_car(int paint_index) {
+        CarRig rig;
+        const VehicleConfig cfg = vehicle_config_for(VehicleKind::Sedan);
+        const float g = cfg.wheels[0].mount.z - cfg.suspension_travel + 0.17f - cfg.wheel_radius;
+        const Mat paint = static_cast<Mat>(static_cast<int>(MCar0) + paint_index % 8);
+        MeshBuilder mb;
+        const float hx = cfg.half_extents.x, hy = cfg.half_extents.y;
+        mb.box(paint, {-hx, -hy, g + 0.30f}, {hx, hy, g + 0.85f}, 63);                               // body
+        mb.box(paint, {-hx * 0.45f, -hy * 0.9f, g + 0.85f}, {hx * 0.40f, hy * 0.9f, g + 1.38f}, 63);   // cabin
+        mb.quad(MGlassDark, {hx * 0.40f, -hy * 0.86f, g + 1.36f}, {hx * 0.40f, hy * 0.86f, g + 1.36f}, {hx * 0.62f, hy * 0.86f, g + 0.87f}, {hx * 0.62f, -hy * 0.86f, g + 0.87f});
+        mb.box(MPaintDarkGrey, {-hx - 0.04f, -hy * 0.98f, g + 0.22f}, {hx + 0.04f, hy * 0.98f, g + 0.34f}, 63);   // bumpers
+        mb.quad(MHeadlight, {hx + 0.041f, -hy * 0.85f, g + 0.55f}, {hx + 0.041f, -hy * 0.55f, g + 0.55f}, {hx + 0.041f, -hy * 0.55f, g + 0.7f}, {hx + 0.041f, -hy * 0.85f, g + 0.7f});
+        mb.quad(MHeadlight, {hx + 0.041f, hy * 0.55f, g + 0.55f}, {hx + 0.041f, hy * 0.85f, g + 0.55f}, {hx + 0.041f, hy * 0.85f, g + 0.7f}, {hx + 0.041f, hy * 0.55f, g + 0.7f});
+        rig.body = upload_model(r, "fixture_car", mb.finish(), mats.list());
+        Truck tmp;
+        build_wheel(tmp, cfg.wheel_radius, 0.24f);
+        for (std::size_t w = 0; w < 4; ++w) {
+            rig.wheel[w] = tmp.wheel;
+            rig.wc[w] = {cfg.wheels[w].mount.x, cfg.wheels[w].mount.y, cfg.wheels[w].mount.z - cfg.suspension_travel};
+        }
+        rig.lo = {-hx, -hy, g};
+        rig.hi = {hx, hy, g + 1.38f};
         rig.ok = true;
         return rig;
     }
@@ -499,7 +527,7 @@ struct Actors::Impl {
 
     void init() {
         sea = std::make_unique<WaterSurface>(harbor_sea_config(d.sea_level));
-        for (int i = 0; i < kPaintCount; ++i) cars.push_back(stage_car(kPaints[i]));
+        for (int i = 0; i < kPaintCount; ++i) cars.push_back(fixtures ? stage_fixture_car(i) : stage_car(kPaints[i]));
         build_trucks();
         boat_models[0] = build_boat(4.6f, 1.8f, MBoatHullWhite, false);
         boat_models[1] = build_boat(5.4f, 2.0f, MBoatHullBlue, false);
@@ -520,7 +548,7 @@ struct Actors::Impl {
             mb.sphere(MSpark, {0, 0, 0}, 0.045f, 3, 5);
             spark = upload_model(r, "spark", mb.finish(), mats.list());
         }
-        stage_people();
+        if (!fixtures) stage_people();
     }
 
     void collect_fx(std::vector<render::ModelDraw>& out, double time) {
@@ -633,6 +661,7 @@ struct Actors::Impl {
     }
 
     void collect_people(std::vector<render::ModelDraw>& out, Float3 eye, float far) {
+        if (fixtures) return;
         // Nearest first, as many as there are palettes.
         std::vector<const PedView*> near;
         for (const PedView& p : last_peds) {
@@ -654,11 +683,15 @@ struct Actors::Impl {
     }
 };
 
-Actors::Actors(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, const fs::path& anim_root, std::vector<std::string>& warnings) : impl_(std::make_unique<Impl>(renderer, materials, district, cache, anim_root, warnings)) { impl_->init(); }
+Actors::Actors(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, const fs::path& anim_root, std::vector<std::string>& warnings, bool fixtures) : impl_(std::make_unique<Impl>(renderer, materials, district, cache, anim_root, warnings)) {
+    impl_->fixtures = fixtures;
+    impl_->init();
+}
 Actors::~Actors() = default;
 
 void Actors::animate(const std::vector<PedView>& peds, double dt) {
     Impl& i = *impl_;
+    if (i.fixtures) return;
     i.last_peds = peds;
     for (const PedView& p : peds) {
         auto it = i.anims.find(p.id);

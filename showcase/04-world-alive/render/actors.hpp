@@ -12,8 +12,9 @@ namespace saige::alive::rend {
 
 class Actors {
 public:
+    // `fixtures`: the fixture path for tests that must run without third-party assets: a procedural car instead of the Khronos car model, and no residents (no humanoid library). Coverage excluded by this are listed in docs/showcase/04-defect-register.md.
     // `cache` is the asset cache root (polyhaven/, khronos/), `anim_root` holds ual/AnimationLibrary_Godot_Standard.glb.
-    Actors(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, const fs::path& anim_root, std::vector<std::string>& warnings);
+    Actors(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, const fs::path& anim_root, std::vector<std::string>& warnings, bool fixtures = false);
     ~Actors();
 
     // Advances the residents' animation by `dt` seconds of video time (call once per rendered frame, with the frame's pedestrian views).

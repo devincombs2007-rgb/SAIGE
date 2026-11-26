@@ -30,6 +30,7 @@ set(SAIGE_SHADER_SOURCES
     test/compute_probe.hlsl
     test/cull_draw_probe.hlsl
     test/draw_probe.hlsl
+    test/local_light_probe.hlsl
     test/depth_only.hlsl
     test/shadow_probe.hlsl
     scene/tonemap.hlsl

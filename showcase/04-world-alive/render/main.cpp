@@ -255,15 +255,16 @@ int main(int argc, char** argv) {
                 if (!in || static_cast<std::size_t>(in.gcount()) != text.size()) throw std::runtime_error("cannot read scout file " + opt.scout_file.string());
                 const ScoutParse pr = parse_scout_report(text, rep, opt.scout_legacy);
                 if (!pr.ok) throw std::runtime_error("scout file " + opt.scout_file.string() + ": " + pr.error);
-                if (pr.has_seed && pr.seed != opt.seed) throw std::runtime_error("scout file " + opt.scout_file.string() + " was made for seed " + std::to_string(pr.seed) + ", this run is seed " + std::to_string(opt.seed));
-                std::printf("scout file %s: %s, %zu events\n", opt.scout_file.string().c_str(), pr.legacy ? "legacy layout (no seed, no end line: truncation cannot be detected)" : "format 1", rep.events.size());
+                std::string mismatch_why;
+                if (!scout_matches_world(pr, wc, mismatch_why)) throw std::runtime_error("scout file " + opt.scout_file.string() + " was " + mismatch_why);
+                std::printf("scout file %s: %s, %zu events\n", opt.scout_file.string().c_str(), pr.legacy ? "legacy layout (no seed, no configuration, no end line: neither truncation nor a different world can be detected)" : "format 2", rep.events.size());
             } else {
                 rep = scout_world(wc, opt.preroll + opt.film_seconds + 1.0);
                 if (!opt.scout_file.empty()) {
                     const fs::path tmp = opt.scout_file.string() + ".tmp";
                     {
                         std::ofstream out(tmp, std::ios::binary);
-                        write_scout_report(out, rep, opt.seed);
+                        write_scout_report(out, rep, wc);
                         out.flush();
                         if (!out) throw std::runtime_error("cannot write scout file " + tmp.string());
                     }

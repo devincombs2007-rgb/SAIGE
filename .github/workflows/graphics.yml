@@ -59,7 +59,7 @@ jobs:
           SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
         run: |
           mkdir -p captures
-          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure -E alive_visual
+          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure -E "alive_visual$"
       # Showcase 04 visual regression on generated fixtures (tools/make_fixtures.py: checker textures, the procedural car, no residents): needs nothing downloaded, so it is REQUIRED and runs before anything that
       # depends on the network. Every intended mutant (the film's old behaviours, a scout summary read as a report) must be caught, an unknown case, an empty selection or zero executed tests fail it, and
       # SAIGE_REQUIRE_VISUAL=1 makes a missing renderer a failure. What it covers and what it does not (the third-party textures' detail, the Khronos car, props, residents) is in the defect register's

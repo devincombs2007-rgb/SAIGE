@@ -102,6 +102,12 @@ if(TARGET saige::core)
                 set_tests_properties(alive_visual PROPERTIES TIMEOUT 1500 SKIP_RETURN_CODE 77)
             endif()
         endif()
+        # The visual runner's own failure modes (corrupt frames, a sweep that fails, the wrong frame count, bad arguments): needs no renderer and no assets.
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        if(Python3_Interpreter_FOUND)
+            add_test(NAME alive_visual_selftest COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/04-world-alive/tools/visual_regression_selftest.py)
+            set_tests_properties(alive_visual_selftest PROPERTIES TIMEOUT 120)
+        endif()
         # The scout file format and the director's use of it. The director is compiled in directly (it needs the renderer's headers, not a GPU).
         if(TARGET saige_alive)
             add_executable(alive_scout_test 04-world-alive/tests/scout_test.cpp 04-world-alive/render/director.cpp)

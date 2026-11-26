@@ -20,6 +20,10 @@ struct Cam {
     // For a shot that follows a resident or a vehicle: the subject itself (not the point the camera looks at, which is ahead of a car and of a walker). Visibility of the subject is judged on this.
     Float3 subject{0, 0, 0};
     bool has_subject = false;
+    // The eye does not continue from the previous frame: the first frame of a shot (a planned cut), or a frame at which the clearance had to jump because the standing offset stopped passing and the nearest passing one was
+    // more than 1.5 m away (a forced cut: counted in ClearanceStats::pops, never silent). Everything else moves continuously.
+    bool cut = false;
+    bool forced_cut = false;
 };
 
 /// The eye is moved from what a shot proposes only inside a bounded search (horizontal 5 m, up to 2.5 m up). `unresolved` counts the frames for which no candidate in that budget passed the rules: they are left at the

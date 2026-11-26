@@ -45,7 +45,8 @@ WorldConfig film_config(std::uint32_t seed) {
 
 std::string serialized(const ScoutReport& r, std::uint32_t seed) {
     std::ostringstream o;
-    write_scout_report(o, r, seed);
+    WorldConfig c = film_config(seed);
+    write_scout_report(o, r, c);
     return o.str();
 }
 
@@ -148,7 +149,7 @@ int main() {
         small.accident_y = -2.5;
         small.accident_vehicle = 3;
         small.onscene_t = 20.0;
-        small.cleared_t = 30.0;
+        small.cleared_t = -1.0;
         small.events.push_back({10.0, TrafficEvent::Type::Accident, 3, 1.5, -2.5, 1000.0f});
         small.events.push_back({20.0, TrafficEvent::Type::EmergencyOnScene, 7, 1.0, 2.0, 0.0f});
         const std::string ok = serialized(small, 5);
@@ -157,10 +158,10 @@ int main() {
             const char* name;
             std::string text;
         };
-        const std::string acc = "accident 10 1.5 -2.5 3 20 30\n";
+        const std::string acc = "accident 10 1.5 -2.5 3 20 -1\n";
         const Bad bad[] = {
-            {"no header", replace_first(ok, "saige-scout 1\n", "")},
-            {"unknown version", replace_first(ok, "saige-scout 1", "saige-scout 2")},
+            {"no header", replace_first(ok, "saige-scout 2\n", "")},
+            {"unknown version", replace_first(ok, "saige-scout 2", "saige-scout 3")},
             {"no seed", replace_first(ok, "seed 5\n", "")},
             {"duplicate seed", replace_first(ok, "seed 5\n", "seed 5\nseed 5\n")},
             {"no end line", replace_first(ok, "end 2\n", "")},
@@ -183,23 +184,96 @@ int main() {
             {"missing field", replace_first(ok, "event 20 3 7 1 2 0", "event 20 3 7 1 2")},
             {"extra field", replace_first(ok, "event 20 3 7 1 2 0", "event 20 3 7 1 2 0 9")},
             {"duplicate end line", ok + "end 2\n"},
-            {"on-scene time zero", replace_first(ok, acc, "accident 10 1.5 -2.5 3 0 30\n")},
+            {"on-scene time zero", replace_first(ok, acc, "accident 10 1.5 -2.5 3 0 -1\n")},
             {"cleared time zero", replace_first(ok, acc, "accident 10 1.5 -2.5 3 20 0\n")},
-            {"accident time zero", replace_first(ok, acc, "accident 0 1.5 -2.5 3 20 30\n")},
-            {"accident time -2", replace_first(ok, acc, "accident -2 1.5 -2.5 3 20 30\n")},
-            {"response before the accident", replace_first(ok, acc, "accident 10 1.5 -2.5 3 5 30\n")},
-            {"cleared before on scene", replace_first(ok, acc, "accident 10 1.5 -2.5 3 20 15\n")},
+            {"accident time zero", replace_first(ok, acc, "accident 0 1.5 -2.5 3 20 -1\n")},
+            {"accident time -2", replace_first(ok, acc, "accident -2 1.5 -2.5 3 20 -1\n")},
+            {"response before the accident", replace_first(ok, acc, "accident 10 1.5 -2.5 3 5 -1\n")},
             {"accident record without an Accident event", replace_first(ok, "event 10 1 3 1.5 -2.5 1000\n", "")},
             {"accident record disagrees with its event", replace_first(ok, "event 10 1 3", "event 10 1 4")},
             {"Accident event but the record says none", replace_first(ok, acc, "accident -1 0 0 0 -1 -1\n")},
             {"unknown record", replace_first(ok, "end 2", "frobnicate 1\nend 2")},
             {"NUL byte", replace_first(ok, "seed 5", std::string("seed 5\0 ", 8))},
             {"seed too large", replace_first(ok, "seed 5", "seed 4294967296")},
+            {"seed 2^64 (wraps to 0)", replace_first(ok, "seed 5", "seed 18446744073709551616")},
+            {"seed 2^64 + 1 (wraps to 1)", replace_first(ok, "seed 5", "seed 18446744073709551617")},
+            {"seed of 20 nines", replace_first(ok, "seed 5", "seed 99999999999999999999")},
+            {"seed UINT32_MAX + 1", replace_first(ok, "seed 5", "seed 4294967296")},
+            {"accident vehicle 2^64", replace_first(ok, acc, "accident 10 1.5 -2.5 18446744073709551616 20 -1\n")},
+            {"event vehicle 2^64 + 3", replace_first(ok, "event 20 3 7 1 2 0", "event 20 3 18446744073709551619 1 2 0")},
+            {"end count 2^64 + 2", replace_first(ok, "end 2", "end 18446744073709551618")},
+            {"config residents 2^64", replace_first(ok, "config 60 ", "config 18446744073709551616 ")},
+            {"accident position contradicts its event", replace_first(ok, "event 10 1 3 1.5 -2.5 1000", "event 10 1 3 9.5 -2.5 1000")},
+            {"on-scene time contradicts its event", replace_first(ok, "event 20 3 7 1 2 0", "event 21 3 7 1 2 0")},
+            {"summary says no response, an on-scene event exists", replace_first(ok, acc, "accident 10 1.5 -2.5 3 -1 -1\n")},
+            {"summary cleared without a Cleared event", replace_first(ok, acc, "accident 10 1.5 -2.5 3 20 30\n")},
+            {"response event in a no-accident report", replace_first(replace_first(replace_first(ok, acc, "accident -1 0 0 0 -1 -1\n"), "event 10 1 3 1.5 -2.5 1000\n", ""), "end 2", "end 1")},
+            {"format 1 header on a format 2 body", replace_first(ok, "saige-scout 2", "saige-scout 1")},
+            {"event time zero", replace_first(replace_first(ok, acc, acc + "event 0 0 1 0 0 0\n"), "end 2", "end 3")},
+            {"no config record", replace_first(ok, "config 60 14 1 1050 47\n", "")},
+            {"duplicate config record", replace_first(ok, "config 60 14 1 1050 47\n", "config 60 14 1 1050 47\nconfig 60 14 1 1050 47\n")},
+            {"config after the accident record", replace_first(replace_first(ok, "config 60 14 1 1050 47\n", ""), acc, acc + "config 60 14 1 1050 47\n")},
+            {"config accidents flag 2", replace_first(ok, "config 60 14 1", "config 60 14 2")},
+            {"config time scale 0", replace_first(ok, "1050 47\n", "1050 0\n")},
         };
         for (const Bad& b : bad) CHECK(!parses(b.text), "'%s' was accepted", b.name);
         // The error names the problem: spot-check a few.
         CHECK(why(replace_first(ok, "end 2", "end 3")).find("declares 3") != std::string::npos, "end-count message: %s", why(replace_first(ok, "end 2", "end 3")).c_str());
-        CHECK(why(replace_first(ok, acc, acc + acc)).find("line 4") != std::string::npos, "duplicate message: %s", why(replace_first(ok, acc, acc + acc)).c_str());
+        CHECK(why(replace_first(ok, acc, acc + acc)).find("line 5") != std::string::npos, "duplicate message: %s", why(replace_first(ok, acc, acc + acc)).c_str());
+
+        // A report with a Cleared event and several incidents is valid: the summary describes the first of each kind, later incidents live in the events.
+        {
+            ScoutReport multi = small;
+            multi.cleared_t = 30.0;
+            multi.events.push_back({30.0, TrafficEvent::Type::Cleared, 3, 1.0, 2.0, 0.0f});
+            multi.events.push_back({50.0, TrafficEvent::Type::Accident, 9, 40.0, -7.0, 500.0f});
+            multi.events.push_back({60.0, TrafficEvent::Type::EmergencyOnScene, 8, 40.0, -7.0, 0.0f});
+            const std::string m = serialized(multi, 5);
+            CHECK(parses(m), "a report with a second incident was refused: %s", why(m).c_str());
+            CHECK(!parses(replace_first(m, "accident 10 1.5 -2.5 3 20 30\n", "accident 10 1.5 -2.5 3 20 15\n")), "cleared before on scene (and not the first Cleared event) was accepted");
+            CHECK(!parses(replace_first(m, "accident 10 1.5 -2.5 3 20 30\n", "accident 50 40 -7 9 60 -1\n")), "a summary that describes the second incident was accepted");
+        }
+        // The configuration is written and read back as it is (not only the film's defaults).
+        {
+            WorldConfig odd;
+            odd.seed = 77;
+            odd.residents = 33;
+            odd.vehicles = 9;
+            odd.accidents = false;
+            odd.start_minute = 512.25;
+            odd.time_scale = 12.5;
+            ScoutReport none;
+            none.accident_t = none.onscene_t = none.cleared_t = -1.0;
+            std::ostringstream o;
+            write_scout_report(o, none, odd);
+            ScoutReport r;
+            const ScoutParse p = parse_scout_report(o.str(), r);
+            CHECK(p.ok, "a no-accident report with a non-default configuration was refused: %s", p.error.c_str());
+            CHECK(p.config.seed == 77 && p.config.residents == 33 && p.config.vehicles == 9 && !p.config.accidents && p.config.start_minute == 512.25 && p.config.time_scale == 12.5, "the configuration did not survive the round trip");
+            std::string reason;
+            CHECK(scout_matches_world(p, odd, reason) && !scout_matches_world(p, film_config(77), reason), "the odd configuration must match itself and not the film's");
+        }
+        // The report is bound to the world it was scouted in.
+        {
+            ScoutReport r;
+            const ScoutParse p = parse_scout_report(ok, r);
+            WorldConfig run = film_config(5);
+            std::string reason;
+            CHECK(p.ok && scout_matches_world(p, run, reason), "the matching world was refused: %s", reason.c_str());
+            const auto mismatch = [&](WorldConfig w) {
+                std::string why_not;
+                return !scout_matches_world(p, w, why_not) && !why_not.empty();
+            };
+            WorldConfig w = run; w.seed = 6; CHECK(mismatch(w), "another seed was accepted");
+            w = run; w.residents = 61; CHECK(mismatch(w), "another resident count was accepted");
+            w = run; w.vehicles = 15; CHECK(mismatch(w), "another vehicle count was accepted");
+            w = run; w.accidents = false; CHECK(mismatch(w), "accidents off was accepted");
+            w = run; w.start_minute += 1.0; CHECK(mismatch(w), "another start time was accepted");
+            w = run; w.time_scale = 20.0; CHECK(mismatch(w), "another time scale was accepted");
+            ScoutReport lr;
+            const ScoutParse lp = parse_scout_report(kFilmLegacy, lr, true);
+            CHECK(scout_matches_world(lp, w, reason), "a legacy file (no configuration) must match any world");
+        }
 
         // Every strict prefix of a valid file is refused (a file cut anywhere is never a smaller valid report); the whole file is not.
         int accepted_prefixes = 0;

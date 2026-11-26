@@ -75,16 +75,52 @@ def app_extra():
     return ["--fixtures"] if FIXTURES else (["--anim", ANIM] if ANIM else [])
 
 
-def read_ppm(path):
-    with open(path, "rb") as f:
-        data = f.read()
-    # P6 width height maxval, whitespace separated, then raw bytes.
-    parts = data.split(maxsplit=4)
-    assert parts[0] == b"P6"
-    w, h = int(parts[1]), int(parts[2])
-    header = len(parts[0]) + len(parts[1]) + len(parts[2]) + len(parts[3]) + 4
-    px = data[header:header + w * h * 3]
-    return w, h, px
+class CorruptImage(Exception):
+    """A frame the renderer wrote that cannot be a frame: refused, never compared."""
+
+
+def parse_ppm(data, expect_size=None):
+    """Binary PPM (P6): 'P6', width, height, maxval 255, ONE whitespace byte, then exactly width * height * 3 bytes. Anything else (a truncated payload, extra bytes, another maxval, zero or absurd dimensions, a different size than
+    expected, a comment line) is a CorruptImage."""
+    if not data.startswith(b"P6"):
+        raise CorruptImage("not a binary PPM (no P6 magic)")
+    pos = 2
+    fields = []
+    while len(fields) < 3:
+        while pos < len(data) and data[pos:pos + 1] in (b" ", b"\t", b"\r", b"\n"):
+            pos += 1
+        start = pos
+        while pos < len(data) and data[pos:pos + 1].isdigit():
+            pos += 1
+        if start == pos or pos - start > 6:
+            raise CorruptImage("malformed PPM header")
+        fields.append(int(data[start:pos]))
+    if pos >= len(data) or data[pos:pos + 1] not in (b" ", b"\t", b"\r", b"\n"):
+        raise CorruptImage("malformed PPM header (no whitespace before the payload)")
+    pos += 1
+    w, h, maxval = fields
+    if w < 1 or h < 1 or w > 16384 or h > 16384:
+        raise CorruptImage("PPM dimensions %dx%d out of range" % (w, h))
+    if maxval != 255:
+        raise CorruptImage("PPM maxval %d (only 255 is written by the renderer)" % maxval)
+    if expect_size is not None and (w, h) != tuple(expect_size):
+        raise CorruptImage("PPM is %dx%d, expected %dx%d" % (w, h, expect_size[0], expect_size[1]))
+    payload = len(data) - pos
+    if payload != w * h * 3:
+        raise CorruptImage("PPM payload is %d bytes, %dx%d needs %d" % (payload, w, h, w * h * 3))
+    return w, h, data[pos:]
+
+
+def read_ppm(path, expect_size=None):
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        raise CorruptImage("cannot read %s: %s" % (path, e))
+    try:
+        return parse_ppm(data, expect_size)
+    except CorruptImage as e:
+        raise CorruptImage("%s: %s" % (path, e))
 
 
 def run_frames(app, assets, scout, frames, env_extra, outdir, width, height):
@@ -97,7 +133,7 @@ def run_frames(app, assets, scout, frames, env_extra, outdir, width, height):
     if r.returncode != 0:
         raise RuntimeError("renderer failed (%d): %s" % (r.returncode, r.stdout[-400:]))
     EXECUTED += 1
-    return {f: read_ppm(os.path.join(outdir, "frame_%05d.ppm" % f)) for f in frames}
+    return {f: read_ppm(os.path.join(outdir, "frame_%05d.ppm" % f), (width, height)) for f in frames}
 
 
 def run_still(app, assets, spec, env_extra, outdir, width, height):
@@ -110,13 +146,15 @@ def run_still(app, assets, spec, env_extra, outdir, width, height):
     if r.returncode != 0:
         raise RuntimeError("renderer failed (%d): %s" % (r.returncode, r.stdout[-400:]))
     EXECUTED += 1
-    return {0: read_ppm(os.path.join(outdir, "still_00.ppm"))}
+    return {0: read_ppm(os.path.join(outdir, "still_00.ppm"), (width, height))}
 
 
 def region_diff(a, b, x0, y0, x1, y1):
     """Fraction of pixels in the region whose channels differ by more than 3/255, and the largest difference."""
     w, h, pa = a
-    _, _, pb = b
+    w2, h2, pb = b
+    if (w, h) != (w2, h2):
+        raise CorruptImage("compared images differ in size: %dx%d against %dx%d" % (w, h, w2, h2))
     bad = 0
     n = 0
     worst = 0
@@ -179,12 +217,41 @@ def temporal_case(args, work, mutant_env=None):
     r = subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", "30", "-i", os.path.join(outdir, "still_%02d.ppm"), "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", clip], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if r.returncode != 0:
         raise RuntimeError("ffmpeg failed: %s" % r.stdout[-300:])
+    for k in range(41):   # every still must exist, be a well-formed 960x540 PPM, before the clip is judged
+        read_ppm(os.path.join(outdir, "still_%02d.ppm" % k), (960, 540))
+    decoded = decoded_frames(clip)
+    if decoded != 41:
+        raise RuntimeError("the clip has %d decoded frames, expected exactly 41" % decoded)
+    n, text = sweep_clip(clip)
+    print("    %s: %s" % ("mutant" if mutant_env else "corrected", text))
+    return n
+
+
+def decoded_frames(clip):
+    """The number of frames ffprobe really decodes from `clip`."""
+    r = subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "default=nokey=1:noprint_wrappers=1", clip], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    if r.returncode != 0 or not r.stdout.strip().isdigit():
+        raise RuntimeError("ffprobe could not count the frames: %s" % r.stdout[-200:])
+    return int(r.stdout.strip())
+
+
+def parse_sweep_output(returncode, output):
+    """The structural flicker count from frame_sweep.py's output, or an error: the sweep must exit 0 and print exactly one well-formed non-negative STRUCTURAL line."""
+    if returncode != 0:
+        raise RuntimeError("frame_sweep exited with status %d: %s" % (returncode, output[-300:]))
+    lines = [l for l in output.splitlines() if l.startswith("STRUCTURAL")]
+    if len(lines) != 1:
+        raise RuntimeError("frame_sweep printed %d STRUCTURAL lines, expected exactly one: %s" % (len(lines), output[-300:]))
+    tail = lines[0].rsplit(":", 1)[1].strip()
+    if not tail.isdigit():
+        raise RuntimeError("frame_sweep's count is not a non-negative integer: '%s'" % tail)
+    return int(tail), lines[0]
+
+
+def sweep_clip(clip):
     sweep = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frame_sweep.py")
     r = subprocess.run([sys.executable, "-I", sweep, clip, "--fps", "30"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    line = [l for l in r.stdout.splitlines() if l.startswith("STRUCTURAL")]
-    n = int(line[0].rsplit(":", 1)[1]) if line else -1
-    print("    %s: %s" % ("mutant" if mutant_env else "corrected", line[0] if line else r.stdout[-200:]))
-    return n
+    return parse_sweep_output(r.returncode, r.stdout)
 
 
 def required():
@@ -338,6 +405,9 @@ def main():
                 failures += 1
         print("visual regression%s: %s (%d renders/checks executed)" % (" (fixtures)" if FIXTURES else "", "ok" if failures == 0 else "%d failure(s)" % failures, EXECUTED))
         return 0 if failures == 0 else 1
+    except (RuntimeError, CorruptImage) as e:
+        print("FAILED: %s" % e)
+        return 1
     finally:
         if args.keep is None:
             shutil.rmtree(work, ignore_errors=True)

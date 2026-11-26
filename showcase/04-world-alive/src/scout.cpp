@@ -63,13 +63,15 @@ bool parse_double(const std::string& tok, double& v) {
     return true;
 }
 
+// Digits only, no sign, value <= limit. The overflow is checked BEFORE the multiply and add (a 20-digit value above 2^64 used to wrap to a small number and pass).
 bool parse_uint(const std::string& tok, std::uint64_t limit, std::uint64_t& v) {
-    if (tok.empty() || tok.size() > 20) return false;
+    if (tok.empty()) return false;
     std::uint64_t r = 0;
     for (char c : tok) {
         if (c < '0' || c > '9') return false;
-        r = r * 10 + static_cast<std::uint64_t>(c - '0');
-        if (r > limit) return false;
+        const std::uint64_t digit = static_cast<std::uint64_t>(c - '0');
+        if (r > limit / 10 || (r == limit / 10 && digit > limit % 10)) return false;
+        r = r * 10 + digit;
     }
     v = r;
     return true;
@@ -99,7 +101,7 @@ ScoutParse parse_scout_report(std::string_view text, ScoutReport& out, bool allo
     std::istringstream in{std::string(text)};
     std::string line;
     int ln = 0;
-    bool header = false, have_accident = false, have_end = false, have_seed = false;
+    bool header = false, have_accident = false, have_end = false, have_seed = false, have_config = false;
     std::uint64_t declared_events = 0;
     double last_event_t = 0.0;
     bool first = true;
@@ -116,11 +118,11 @@ ScoutParse parse_scout_report(std::string_view text, ScoutReport& out, bool allo
             if (tok[0] == "saige-scout") {
                 std::uint64_t ver = 0;
                 if (tok.size() != 2 || !parse_uint(tok[1], 1000, ver)) return fail(ln, "malformed header");
-                if (ver != 1) return fail(ln, "unsupported scout format version " + tok[1]);
+                if (ver != 2) return fail(ln, "unsupported scout format version " + tok[1] + " (this reader reads 2; a file without the world configuration cannot be checked against the run)");
                 header = true;
                 continue;
             }
-            if (!allow_legacy) return fail(ln, "no 'saige-scout 1' header (a headerless legacy file is only read with allow_legacy)");
+            if (!allow_legacy) return fail(ln, "no 'saige-scout 2' header (a headerless legacy file is only read with allow_legacy)");
             res.legacy = true;
         }
         const std::string& tag = tok[0];
@@ -132,9 +134,22 @@ ScoutParse parse_scout_report(std::string_view text, ScoutReport& out, bool allo
             if (tok.size() != 2 || !parse_uint(tok[1], 0xFFFFFFFFull, s)) return fail(ln, "malformed seed record");
             res.seed = static_cast<std::uint32_t>(s);
             res.has_seed = have_seed = true;
+        } else if (tag == "config") {
+            if (!header) return fail(ln, "config record in a file without header");
+            if (have_config) return fail(ln, "duplicate config record");
+            if (!have_seed || have_accident) return fail(ln, "config record must follow the seed record and precede the accident record");
+            std::uint64_t residents = 0, vehicles = 0, accidents = 0;
+            if (tok.size() != 6 || !parse_uint(tok[1], 100000, residents) || !parse_uint(tok[2], 100000, vehicles) || !parse_uint(tok[3], 1, accidents) || !parse_double(tok[4], res.config.start_minute) || !parse_double(tok[5], res.config.time_scale))
+                return fail(ln, "malformed config record (residents vehicles accidents(0|1) start_minute time_scale)");
+            if (!(res.config.start_minute >= 0.0 && res.config.start_minute < 1440.0) || !(res.config.time_scale > 0.0 && res.config.time_scale <= 1000.0)) return fail(ln, "config start_minute or time_scale out of range");
+            res.config.residents = static_cast<int>(residents);
+            res.config.vehicles = static_cast<int>(vehicles);
+            res.config.accidents = accidents == 1;
+            res.config.seed = res.seed;
+            have_config = true;
         } else if (tag == "accident") {
             if (have_accident) return fail(ln, "duplicate accident record");
-            if (header && !have_seed) return fail(ln, "accident record before the seed record");
+            if (header && (!have_seed || !have_config)) return fail(ln, "accident record before the seed and config records");
             if (tok.size() != 7) return fail(ln, "accident record needs 6 fields (t x y vehicle onscene cleared)");
             std::uint64_t veh = 0;
             if (!parse_double(tok[1], rep.accident_t) || !parse_double(tok[2], rep.accident_x) || !parse_double(tok[3], rep.accident_y) || !parse_uint(tok[4], 0xFFFFFFFFull, veh) ||
@@ -156,7 +171,7 @@ ScoutParse parse_scout_report(std::string_view text, ScoutReport& out, bool allo
             double energy = 0.0;
             if (!parse_double(tok[1], e.t) || !parse_uint(tok[2], 4, type) || !parse_uint(tok[3], 0xFFFFFFFFull, veh) || !parse_double(tok[4], e.x) || !parse_double(tok[5], e.y) || (header && !parse_double(tok[6], energy)))
                 return fail(ln, "event record has a non-numeric, non-finite or out-of-range field (type must be 0..4)");
-            if (!(e.t >= 0.0 && e.t <= kMaxScoutTime) || e.t < last_event_t) return fail(ln, "event time out of range or earlier than the previous event");
+            if (!(e.t > 0.0 && e.t <= kMaxScoutTime) || e.t < last_event_t) return fail(ln, "event time out of range (0 is what a failed read leaves) or earlier than the previous event");
             if (std::fabs(e.x) > kMaxScoutCoord || std::fabs(e.y) > kMaxScoutCoord || !(energy >= 0.0 && energy <= kMaxScoutEnergy)) return fail(ln, "event position or energy out of range");
             last_event_t = e.t;
             e.type = static_cast<TrafficEvent::Type>(type);
@@ -174,15 +189,25 @@ ScoutParse parse_scout_report(std::string_view text, ScoutReport& out, bool allo
     if (!have_accident) return fail(0, "no accident record (an intentional no-event report has one with t = -1)");
     if (header && !have_end) return fail(0, "truncated: no end line");
     if (header && declared_events != rep.events.size()) return fail(0, "truncated or edited: end line declares " + std::to_string(declared_events) + " events, the file has " + std::to_string(rep.events.size()));
-    // The accident record must agree with the events: the first Accident event is the accident.
-    const ScoutEvent* first_accident = nullptr;
-    for (const ScoutEvent& e : rep.events)
-        if (e.type == TrafficEvent::Type::Accident) { first_accident = &e; break; }
+    // The summary (accident record) must agree with the events, field by field. Semantics with several incidents: the summary describes the FIRST event of each kind (the first Accident, the first EmergencyOnScene,
+    // the first Cleared, as scout_world records them); later incidents are legal and are in the events. A response event needs an accident: a report without one holds no Accident, EmergencyDispatched, EmergencyOnScene or Cleared event.
+    const ScoutEvent *first_accident = nullptr, *first_onscene = nullptr, *first_cleared = nullptr;
+    for (const ScoutEvent& e : rep.events) {
+        if (e.type == TrafficEvent::Type::Accident && !first_accident) first_accident = &e;
+        if (e.type == TrafficEvent::Type::EmergencyOnScene && !first_onscene) first_onscene = &e;
+        if (e.type == TrafficEvent::Type::Cleared && !first_cleared) first_cleared = &e;
+        if (rep.accident_t < 0.0 && e.type != TrafficEvent::Type::Impact) return fail(0, "a response or accident event in a report that says there was no accident");
+    }
+    const auto near = [](double a, double b) { return std::fabs(a - b) <= 1e-6 * std::max(1.0, std::fabs(b)); };
     if (rep.accident_t > 0.0) {
         if (!first_accident) {
             if (header) return fail(0, "accident record without an Accident event");
-        } else if (std::fabs(first_accident->t - rep.accident_t) > 1e-6 || first_accident->vehicle != rep.accident_vehicle) {
-            return fail(0, "accident record disagrees with the first Accident event");
+        } else if (!near(first_accident->t, rep.accident_t) || first_accident->vehicle != rep.accident_vehicle || !near(first_accident->x, rep.accident_x) || !near(first_accident->y, rep.accident_y)) {
+            return fail(0, "accident record disagrees with the first Accident event (time, vehicle or position)");
+        }
+        if (header) {
+            if (rep.onscene_t > 0.0 ? (!first_onscene || !near(first_onscene->t, rep.onscene_t)) : first_onscene != nullptr) return fail(0, "on-scene time disagrees with the first EmergencyOnScene event");
+            if (rep.cleared_t > 0.0 ? (!first_cleared || !near(first_cleared->t, rep.cleared_t)) : first_cleared != nullptr) return fail(0, "cleared time disagrees with the first Cleared event");
         }
     } else if (first_accident) {
         return fail(0, "Accident event but the accident record says none");
@@ -192,9 +217,19 @@ ScoutParse parse_scout_report(std::string_view text, ScoutReport& out, bool allo
     return res;
 }
 
-void write_scout_report(std::ostream& out, const ScoutReport& rep, std::uint32_t seed) {
+bool scout_matches_world(const ScoutParse& parsed, const WorldConfig& run, std::string& why) {
+    if (!parsed.has_seed) return true;   // a legacy file carries neither seed nor configuration
+    const WorldConfig& f = parsed.config;
+    if (f.seed != run.seed) why = "made for seed " + std::to_string(f.seed) + ", this run is seed " + std::to_string(run.seed);
+    else if (f.residents != run.residents || f.vehicles != run.vehicles) why = "made for " + std::to_string(f.residents) + " residents and " + std::to_string(f.vehicles) + " vehicles, this run has " + std::to_string(run.residents) + " and " + std::to_string(run.vehicles);
+    else if (f.accidents != run.accidents) why = "made with accidents " + std::string(f.accidents ? "on" : "off") + ", this run has them " + (run.accidents ? "on" : "off");
+    else if (std::fabs(f.start_minute - run.start_minute) > 1e-9 || std::fabs(f.time_scale - run.time_scale) > 1e-9) why = "made for another start time or time scale";
+    return why.empty();
+}
+
+void write_scout_report(std::ostream& out, const ScoutReport& rep, const WorldConfig& config) {
     const auto old_precision = out.precision(17);
-    out << "saige-scout 1\nseed " << seed << "\n";
+    out << "saige-scout 2\nseed " << config.seed << "\nconfig " << config.residents << " " << config.vehicles << " " << (config.accidents ? 1 : 0) << " " << config.start_minute << " " << config.time_scale << "\n";
     out << "accident " << rep.accident_t << " " << rep.accident_x << " " << rep.accident_y << " " << rep.accident_vehicle << " " << rep.onscene_t << " " << rep.cleared_t << "\n";
     for (const ScoutEvent& e : rep.events) out << "event " << e.t << " " << static_cast<int>(e.type) << " " << e.vehicle << " " << e.x << " " << e.y << " " << static_cast<double>(e.energy) << "\n";
     out << "end " << rep.events.size() << "\n";

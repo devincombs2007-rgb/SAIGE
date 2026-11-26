@@ -52,7 +52,8 @@ struct Damp {
 
 // The most the eye may be moved to clear foliage or an awning (metres): enough to step off a 3.5 m sidewalk into the parking lane, not enough to lose the subject.
 constexpr float kMaxEyeShift = 5.0f;
-constexpr float kNearWall = 1.2f;   // a wall closer than this straight ahead of the eye is a view of a surface, not of the scene
+constexpr float kNearWall = 1.2f;
+constexpr float kCutStep = 1.5f;    // a change of the clearance offset larger than this between two frames of one shot is a jump of the camera: flagged as a forced cut (Cam::forced_cut) and counted   // a wall closer than this straight ahead of the eye is a view of a surface, not of the scene
 
 struct Shot {
     double t0 = 0, t1 = 0;
@@ -424,12 +425,26 @@ struct Director::Impl {
         f.hidden = tracks_subject && sightline_blocked_by_building(d, {eye.x, eye.y, eye.z}, {target.x, target.y, target.z});
         return f;
     }
-    Float3 resolve_eye(Float3 eye0, Float3 look, Float3 target, float fov_deg, bool tracks_subject, const Shot* shot) {
+    Float3 resolve_eye(Float3 eye0, Float3 look, Float3 target, float fov_deg, bool tracks_subject, const Shot* shot, double dt) {
         first_in_shot = shot != last_shot;
         if (first_in_shot) {   // a cut: the offset starts afresh and its first value is not a camera movement
             last_shot = shot;
             prev_off = {0, 0, 0};
+            have_prev_proposal = false;
         }
+        // The proposal's own velocity (from the last two frames), for a short constant-velocity look-ahead used only when a move has to be chosen: a candidate that passes now but not 0.4 s and 0.8 s from now would force
+        // a second jump almost at once (two cuts a few frames apart on seeds 4 and 34), so candidates that keep passing are preferred.
+        Float3 ve{0, 0, 0}, vl{0, 0, 0}, vt{0, 0, 0};
+        if (have_prev_proposal && dt > 1e-6) {
+            const float inv = static_cast<float>(1.0 / dt);
+            ve = {(eye0.x - prev_eye0.x) * inv, (eye0.y - prev_eye0.y) * inv, (eye0.z - prev_eye0.z) * inv};
+            vl = {(look.x - prev_look.x) * inv, (look.y - prev_look.y) * inv, (look.z - prev_look.z) * inv};
+            vt = {(target.x - prev_target.x) * inv, (target.y - prev_target.y) * inv, (target.z - prev_target.z) * inv};
+        }
+        prev_eye0 = eye0;
+        prev_look = look;
+        prev_target = target;
+        have_prev_proposal = true;
         const auto at = [&](const Float3& o) { return Float3{eye0.x + o.x, eye0.y + o.y, eye0.z + o.z}; };
         const auto dist = [](const Float3& a, const Float3& b) { return std::sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y) + (a.z - b.z) * (a.z - b.z)); };
         const auto fit_at = [&](const Float3& off) { return judge(at(off), look, target, fov_deg, tracks_subject); };
@@ -459,13 +474,21 @@ struct Director::Impl {
         const auto note_bad = [&](const Float3& off, int score, float cost) {
             if (score < least_bad.score || (score == least_bad.score && cost < least_bad.cost)) least_bad = {off, cost, score};
         };
-        const auto search = [&](float limit) {
+        const auto search = [&](float limit, bool lookahead) {
             Cand best{prev_off, 1e30f, 0};
             bool found = false;
             const auto consider = [&](const Float3& off) {
                 if (std::hypot(off.x, off.y) > limit + 1e-3f || off.z > kMaxEyeLift + 1e-3f || off.z < -1e-3f) return;
                 const EyeFit fit = fit_at(off);
                 const float cost = 3.0f * dist(off, prev_off) + dist(off, zero);
+                if (fit.score() == 0 && lookahead) {
+                    for (const float tau : {0.4f, 0.8f}) {
+                        const Float3 pe{eye0.x + ve.x * tau + off.x, eye0.y + ve.y * tau + off.y, eye0.z + ve.z * tau + off.z};
+                        const Float3 pl{look.x + vl.x * tau, look.y + vl.y * tau, look.z + vl.z * tau};
+                        const Float3 pt{target.x + vt.x * tau, target.y + vt.y * tau, target.z + vt.z * tau};
+                        if (judge(pe, pl, pt, fov_deg, tracks_subject).score() != 0) return;   // passes now, not later: not a candidate for this tier
+                    }
+                }
                 if (fit.score() == 0) {
                     if (!found || cost < best.cost) { best = {off, cost, 0}; found = true; }
                 } else {
@@ -494,11 +517,15 @@ struct Director::Impl {
             return std::pair<Cand, bool>{best, found};
         };
         {
-            const auto [best, found] = search(budget);
+            const auto [best, found] = search(budget, true);
             if (found) return commit(best.off), at(best.off);
         }
         {
-            const auto [best, found] = search(kExtendedShift);
+            const auto [best, found] = search(budget, false);
+            if (found) return commit(best.off), at(best.off);
+        }
+        {
+            const auto [best, found] = search(kExtendedShift, false);
             if (found) return commit(best.off), at(best.off);
         }
         if (tracks_subject) {
@@ -539,8 +566,9 @@ struct Director::Impl {
     void commit(const Float3& off, bool reframed = false) {
         const float step = std::sqrt((off.x - prev_off.x) * (off.x - prev_off.x) + (off.y - prev_off.y) * (off.y - prev_off.y) + (off.z - prev_off.z) * (off.z - prev_off.z));
         if (!first_in_shot) stats.max_offset_step = std::max(stats.max_offset_step, step);
-        if (!first_in_shot && step > 1.5f) ++stats.pops;
-        if (!first_in_shot && step > 1.0f && std::getenv("SAIGE_ALIVE_CAMERA_DEBUG") != nullptr)
+        last_forced_cut = !first_in_shot && step > kCutStep;
+        if (last_forced_cut) ++stats.pops;
+        if (!first_in_shot && step > kCutStep && std::getenv("SAIGE_ALIVE_CAMERA_DEBUG") != nullptr)
             std::printf("  offset jump %.2f m in shot '%s': (%.2f %.2f %.2f) -> (%.2f %.2f %.2f)\n", static_cast<double>(step), last_shot != nullptr ? last_shot->name.c_str() : "", static_cast<double>(prev_off.x), static_cast<double>(prev_off.y), static_cast<double>(prev_off.z), static_cast<double>(off.x), static_cast<double>(off.y), static_cast<double>(off.z));
         if (std::getenv("SAIGE_ALIVE_CAMERA_DEBUG") != nullptr && (std::hypot(off.x, off.y) > kMaxEyeShift + 1e-3f || reframed) && last_shot != nullptr) {
             static std::map<std::string, int> counts;
@@ -554,7 +582,10 @@ struct Director::Impl {
         prev_off = off;
     }
     Float3 proposed{0, 0, 0};
+    Float3 prev_eye0{0, 0, 0}, prev_look{0, 0, 0}, prev_target{0, 0, 0};
+    bool have_prev_proposal = false;
     bool first_in_shot = false;
+    bool last_forced_cut = false;
     const Shot* last_shot = nullptr;
     Float3 prev_off{0, 0, 0};
     ClearanceStats stats;
@@ -581,8 +612,11 @@ Cam Director::camera(double t, double dt, const World& world) {
     if (no_clearance) {
         c.eye = impl_->clear_of_geometry(c.eye);
     } else {
-        c.eye = impl_->resolve_eye(c.eye, c.look, c.has_subject ? c.subject : c.look, c.fov_deg, s->tracks_subject, s);
+        impl_->last_forced_cut = false;
+        c.eye = impl_->resolve_eye(c.eye, c.look, c.has_subject ? c.subject : c.look, c.fov_deg, s->tracks_subject, s, dt);
+        c.forced_cut = impl_->last_forced_cut;
     }
+    c.cut = impl_->first_in_shot || c.forced_cut;
     return c;
 }
 

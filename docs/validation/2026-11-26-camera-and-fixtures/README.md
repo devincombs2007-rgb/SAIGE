@@ -13,9 +13,14 @@
 | `scenery_clean_vs_legacy.jpg` | Fixed camera (the film's camera of frame 1170). Left: current renderer. Right: the film's scenery behaviour (`SAIGE_ALIVE_LEGACY_SCENERY=1`): a raised slab covers the avenue and z-fights at its edges. This is the picture the `scenery_does_not_cover_the_road` case guards. | fixture assets, `--still`, with and without the switch |
 | `fixtures_vs_full.jpg` | The same fixed camera with the generated fixture assets (left) and the licensed Poly Haven textures and props (right). Shows what the fixture path does NOT cover: texture detail, props (lamp posts, benches, bins), the car model and the residents. | `--fixtures` against the restored asset cache |
 
+| `seed4_none_cut_2482_2483.jpg` | Seed 4, report without an accident, frames 2482 and 2483 of the shot "follow a resident": the largest forced cut of the 16 films (8.2 m). Left: the camera along a plaster wall with a tree. Right: after the cut, behind the resident's head, which fills a third of the frame, looking at a crosswalk. | `saige_alive --film --seed 4 --scout-file <no-accident report> --frames 2482,2483` |
+| `seed4_real_turn_4530_4531.jpg` | Seed 4, scouted report, frames 4530 and 4531 of "at the scene": the largest view turn outside a cut (23.9 degrees). A near-overhead view of the crashed car, which changes size and angle between the frames. | same, seed 4 real |
+| `seed3_the_wreck_contact_sheet.jpg` | Four frames of the clip below (0.5, 2, 3.5 and 5.5 s). | `ffmpeg -ss <t> -i clip.mp4 -frames:v 1` |
+| `seed3_the_wreck_720p30.mp4` | 6 s, 1280 x 720, 30 fps, H.264 CRF 18, no audio: seed 3, the "the wreck" shot (frames 3318 to 3498) with the final director and the licensed assets. | `saige_alive --film --seed 3 --scout-file s3.txt --start-frame 3318 --end-frame 3498 --video clip.mp4` |
+
 ## Looked at, and by whom
 
-I (Claude Code) opened all four images. The director and the owner have not yet inspected them. In particular, on `camera_s3_f3485` the right-hand image passes every camera rule and still has a plain wall filling the left half of the frame: the rules do not judge composition, only obstruction. That is a limitation, not a pass.
+I (Claude Code) opened all images and the four frames of the contact sheet; I did **not** play the clip (I cannot watch it), so nothing is claimed about its motion beyond the measured numbers below. The director and the owner have not yet inspected them. In particular, on `camera_s3_f3485` the right-hand image passes every camera rule and still has a plain wall filling the left half of the frame: the rules do not judge composition, only obstruction. That is a limitation, not a pass.
 
 A first bounded camera version passed every rule and its frames showed the camera pressed against a wall from under a metre: the rule "a wall within 1.2 m straight ahead" was added because of what the frames showed, not because a number failed (register entry S4-038).
 

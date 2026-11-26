@@ -8,6 +8,7 @@ add_subdirectory(render)
 add_subdirectory(gfx_assets)
 add_subdirectory(gfx_scene)
 add_subdirectory(animation)
+add_subdirectory(environment)
 
 option(SAIGE_ENABLE_VULKAN "Build the Vulkan 1.3 RHI backend (needs Vulkan headers; see engine/rhi_vulkan)" OFF)
 if(SAIGE_ENABLE_VULKAN)

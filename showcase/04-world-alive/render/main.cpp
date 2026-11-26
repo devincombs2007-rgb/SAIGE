@@ -23,6 +23,15 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+// MSVC spells the pipe calls with a leading underscore; the binary mode keeps the frame bytes untouched by newline translation.
+#define SAIGE_POPEN(cmd) _popen(cmd, "wb")
+#define SAIGE_PCLOSE(f) _pclose(f)
+#else
+#define SAIGE_POPEN(cmd) popen(cmd, "w")
+#define SAIGE_PCLOSE(f) pclose(f)
+#endif
+
 using namespace saige;
 using namespace saige::alive;
 using namespace saige::alive::rend;
@@ -244,7 +253,7 @@ int main(int argc, char** argv) {
                 fs::create_directories(opt.video.has_parent_path() ? opt.video.parent_path() : fs::path("."));
                 char cmd[1024];
                 std::snprintf(cmd, sizeof cmd, "ffmpeg -loglevel error -y -f rawvideo -pix_fmt rgba -s %ux%u -r %g -i - -c:v libx264 -preset veryfast -crf %d -pix_fmt yuv420p \"%s\"", opt.width, opt.height, opt.fps, opt.crf, opt.video.string().c_str());
-                pipe = popen(cmd, "w");
+                pipe = SAIGE_POPEN(cmd);
                 if (pipe == nullptr) throw std::runtime_error("cannot start ffmpeg");
             }
             // The world runs from its start: the pre-roll first (the streets fill up), then one step per frame; frames before the requested range are simulated but not drawn, so that any range is exactly what
@@ -341,7 +350,7 @@ int main(int argc, char** argv) {
                 if (f % 30 == 0) std::printf("frame %d/%d  t=%.1f s  shot '%s'  sun %.1f deg  %.2f s/frame avg\n", f, total, tf, director.shot_name(tf).c_str(), elev_deg, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
                 std::fflush(stdout);
             }
-            if (pipe != nullptr) pclose(pipe);
+            if (pipe != nullptr) SAIGE_PCLOSE(pipe);
             if (audio != nullptr) std::fclose(audio);
             std::printf("film: %d frames drawn, %.2f s/frame average\n", drawn, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
             return 0;

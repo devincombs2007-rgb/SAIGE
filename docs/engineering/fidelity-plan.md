@@ -11,7 +11,7 @@ quality reference* only: no code, asset, tuning value or material from any game 
 | Antialiasing | FXAA | **Temporal AA, motion vectors, camera jitter** | no `taa`, `jitter` or velocity buffer in `engine/render` |
 | Materials | metallic-roughness, alpha blend, alpha-tested shadow caster, GPU skinning | clearcoat, transmission, sheen, subsurface, **translucency (foliage)**, wet-surface response in a shader | no `KHR_materials_*` handling in `engine/gfx_assets` |
 | Transparency | sorted alpha blending | order-independent transparency, refraction | `docs/rendering/alpha-blending.md` |
-| Vegetation | procedural low-poly trees in Showcase 04 only | wind animation, instancing, translucency, LOD, real tree assets | Showcase 04 renderer; no `wind` or instancing in the engine |
+| Vegetation | procedural low-poly trees in Showcase 04 only | wind animation, instanced draws in the renderer, translucency, LOD, real tree assets | Showcase 04 renderer; no `wind` in the engine; `ModelDraw` has no instance range (the RHI's `draw_indexed` already takes one) |
 | Weather | ambience *audio* takes a rain input (`ambience_mix`); water takes a wind speed (`waves_from_wind`) | rain, wetness, puddles, fog model, storm transitions, rain particles | `include/saige/audio_model.hpp`, `include/saige/water.hpp` |
 | Particles | none in the engine (Showcase 04 draws smoke and sparks as simple meshes) | a particle system | no `particle` outside destruction hints |
 | Destruction | authored fracture pieces, breakable links, events, persistent damage records (`include/saige/destruction.hpp`) | runtime fracture, deformation | `docs/physics-backends.md` |
@@ -21,7 +21,7 @@ quality reference* only: no code, asset, tuning value or material from any game 
 | GPU-driven rendering | RHI has `QueueType::Compute`, an `Indirect` buffer usage and indirect/compute barrier stages | **compute pipelines and indirect draw commands in the RHI**, GPU culling | `engine/rhi/include` has no compute pipeline or indirect draw call |
 | Streaming | cell streaming and origin migration (Core); prepared-model upload staging; device memory budget reporting | texture streaming, geometry streaming, per-category budgets | `engine/gfx_scene`, `engine/rhi/include/saige/rhi/device.hpp` |
 | Ray tracing | an `AccelerationStructureBuild` pipeline-stage enum only | everything: capability query, acceleration structures, ray queries | `engine/rhi_vulkan/src/vulkan_device.cpp` |
-| Instrumentation | frame-time zones, perf reports, resource diagnostics | per-pass GPU timing, streaming counters | Core perf, `docs/rendering/diagnostics.md` |
+| Instrumentation | frame-time zones, perf reports, resource diagnostics, RHI GPU timestamps (`write_timestamp`, `gpu_timestamps`), scene-pass slots written by `SceneRenderer` | timestamp slots for the other passes, streaming counters | Core perf, `docs/rendering/diagnostics.md`, `engine/rhi/include/saige/rhi/device.hpp` |
 
 Nothing in the requested list is already built except the foundations above. There is no duplicated work to avoid in the new items; the overlaps to respect are `ambience_mix` (rain/wind audio), `waves_from_wind` (wind-driven sea),
 `FloatingBody::wetted()` (the hook for wakes) and the alpha-tested shadow caster (foliage shadows).
@@ -32,13 +32,13 @@ Each item names what must exist first. Items marked CPU can proceed while a rend
 
 1. **CPU models of environment behaviour** (done in this branch, `engine/environment`): weather and transitions, wind with travelling gusts, surface wetness and puddles, wet-material response, vegetation bend and flutter, stable grass scatter with
    non-popping LOD thinning, wake foam. They define the numbers the shaders and passes will reproduce. Needs nothing.
-2. **RHI: compute pipelines, indirect draws, timestamp queries** (GPU; owner of the RHI contract is Graphics). Everything GPU-driven, particles, temporal and volumetric passes need compute or indirect draws. Needs a proposal in issue #43 because it
-   changes a shared interface.
+2. **RHI: compute pipelines, dispatch, indirect draws, compute-visible bindings and storage images** (GPU; owner of the RHI contract is Graphics; the full additive proposal is `docs/rendering/rhi-compute-indirect-proposal.md`). Everything GPU-driven, particles, temporal and volumetric passes need compute or indirect draws. Additive, so no
+   migration for consumers, but proposed in issue #43 first.
 3. **Point and spot lights** (GPU): clustered or tiled forward lighting with a light-count cap and the capability gate. Needed by wet-street reflections at night, vehicle headlights that light the road, lit interiors, lightning. Needs 2 only if
    clustering uses compute; a simple forward loop with a budget does not.
 4. **Motion vectors and camera jitter, then TAA** (GPU). CPU reference first (item 6 below). Needs depth and a velocity target; skinned and animated draws need previous-frame transforms/palettes, which is an interface change in `ModelDraw`.
 5. **Particles** (GPU, with a CPU reference): rain streaks, splashes, spray, smoke, sparks as one system with emitters from the weather, the water module and the vehicle. Needs 2 for GPU simulation; a CPU-simulated instanced draw works first.
-6. **Vegetation rendering**: instanced draws (needs a per-instance transform stream in `ModelDraw`), the wind bend in the vertex stage using the CPU reference as the test oracle, two-sided translucency, alpha-tested shadows (exists). Professional tree assets need licence review.
+6. **Vegetation rendering**: instanced draws (needs `ModelDraw` to carry an instance range and a storage buffer of per-instance data; this is renderer work, not an RHI change), the wind bend in the vertex stage using the CPU reference as the test oracle, two-sided translucency, alpha-tested shadows (exists). Professional tree assets need licence review.
 7. **Wet surfaces in shaders**: the `wet_surface` model as a material modifier (needs the weather state as scene constants and a puddle mask source: a height/noise texture or the decal system), reflections of the sky by IBL (exists) and of the scene by screen-space reflections (needs depth and a colour history).
 8. **Global illumination**: see section 3. Needs 2 and 4 for any screen-space or probe-update technique.
 9. **Volumetrics and clouds**: froxel fog and a ray-marched cloud layer on the existing atmosphere model. Needs 2.
@@ -79,7 +79,7 @@ mip-bias on texture sampling by log2(render/output). Verification: a static scen
 * **GPU-driven rendering**: needs RHI compute and indirect draws (item 2). Without a GPU, correctness is testable on lavapipe; speed claims need hardware.
 * **Streaming and budgets**: a CPU budget ledger (textures, geometry, per-category caps, eviction by distance and recency) is pure accounting and can be built and tested now; the device memory budget the RHI already reports feeds it.
 * **Parallel rendering preparation**: record command buffers per cascade/pass on worker threads once the RHI's thread contract is written down; measure before restructuring (the directive requires representative workloads first).
-* **Instrumentation**: GPU timestamp queries per pass (needs RHI), draw/triangle counters, and streaming counters, written into the existing perf report format.
+* **Instrumentation**: more GPU timestamp slots (the RHI already provides timestamps; the renderer writes only the scene pass), draw/triangle counters, and streaming counters, written into the existing perf report format.
 
 ## 7. What was built in this branch (and what was not)
 

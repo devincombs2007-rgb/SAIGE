@@ -88,6 +88,11 @@ cut and off-screen handling). Verified by nine deliberate defects, each caught (
 first (a flat test image let the clip hide an off-screen bug; a huge motion vector saturated the blend; `motion_blend` had no test) and were tightened. The guarantee the tests pin is that the output stays inside the 3x3 neighbourhood's min/max range in YCoCg, not inside the
 tighter variance box (an outlier centre pixel can sit outside it). It is a bilinear-history reference: a production resolve would use a Catmull-Rom history filter and a sharpening pass, which are not here.
 
+`engine/residency` (`saige::residency`, 8 tests): the CPU residency ledger of section 6, pure accounting for streamed textures (mips) and geometry (LODs): per-category and total byte budgets, pinned resources, an upload allowance per frame, and a deterministic planner
+(evict unrequested resources least recently used first; degrade requested ones one level at a time, least important first, never below the coarsest level while it fits; evict whole requested resources only when even the coarsest levels do not fit; then pace the upgrades by the
+allowance, partially if needed). Verified by eleven deliberate defects, each caught after one test was rewritten (the first LRU test had a single eviction candidate, so the order could not matter). It allocates nothing and knows no device: the renderer maps its plans onto real
+allocations and the device's reported budget. Not built: a texture streamer, mip upload, geometry streaming, or any integration; no GPU or throughput measurement.
+
 `engine/environment` (below) as before.
 
 `engine/environment` (23 tests, built with `-Werror`, Debug, GCC): see its header comments. Verified by 15 deliberate defects, each caught by at least one test (exact-integration wetness, wrong Kelvin angle, foam that never decays, a speed-independent foam

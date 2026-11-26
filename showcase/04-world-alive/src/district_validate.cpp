@@ -28,6 +28,9 @@ namespace {
     return buf;
 }
 
+constexpr double kSeatTableReach = 1.6;           // m, centre to centre: a chair this close to a table belongs to it
+constexpr double kSeatFacingToleranceDeg = 30.0;   // degrees between the chair's front and the direction to its table
+
 void add(ValidationReport& r, const char* code, Severity s, std::string msg, double x, double y, std::vector<std::uint32_t> ids) {
     Finding f;
     f.code = code;
@@ -540,6 +543,36 @@ ValidationReport validate_district(const District& d) {
             if (!any_ramp) add(rep, "CROSSWALK_CURB_STEP", Severity::Warning, "a crosswalk's ends meet the sidewalk at a 0.15 m kerb with no ramp", c.strip.cx(), c.strip.cy(), {c.id});
         }
     }
+    // ---- seating ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    // A chair next to a table must face it. The renderer places a prop at rot_z(yaw), and the importer converts every glTF asset (front +Z) to engine +X, so the front of a chair model is (cos yaw, sin yaw): checked
+    // against the real chair mesh by tools/check_prop_orientation.py (the seat back is on the -X side). Owner-reported defect: "cafe chairs facing incorrect directions".
+    {
+        const auto is_chair = [](const std::string& t) { return t == "chair" || t == "cafe_chair"; };
+        const auto is_table = [](const std::string& t) { return t == "table_round" || t == "table_square" || t == "cafe_table"; };
+        const auto check = [&](const std::vector<StreetProp>& list, const char* where, std::uint32_t id) {
+            for (const StreetProp& c : list) {
+                if (!is_chair(c.type)) continue;
+                const StreetProp* best = nullptr;
+                double bd = 1e9;
+                for (const StreetProp& t : list) {
+                    if (!is_table(t.type)) continue;
+                    const double dd = std::hypot(t.x - c.x, t.y - c.y);
+                    if (dd < bd) { bd = dd; best = &t; }
+                }
+                if (best == nullptr || bd > kSeatTableReach || bd < 1e-6) continue;  // a chair with no table beside it (a waiting seat) is not judged
+                const double cosang = std::clamp(((best->x - c.x) * std::cos(c.yaw) + (best->y - c.y) * std::sin(c.yaw)) / bd, -1.0, 1.0);
+                const double deg = std::acos(cosang) * 180.0 / 3.14159265358979323846;
+                if (deg > kSeatFacingToleranceDeg)
+                    add(rep, "SEAT_FACING", Severity::Error, fmt("a chair faces %.0f degrees away from its table (limit %.0f)", deg, kSeatFacingToleranceDeg) + std::string(" [") + where + "]", c.x, c.y, {id});
+            }
+        };
+        check(d.props, "street", 0);
+        for (const Interior& in : d.interiors) {
+            check(in.furniture, "interior", in.building);
+            check(in.upper_furniture, "upper floor", in.building);
+        }
+    }
+
     return rep;
 }
 

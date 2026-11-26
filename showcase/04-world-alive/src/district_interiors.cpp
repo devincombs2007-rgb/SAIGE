@@ -156,6 +156,14 @@ void add_furniture(const Frame& fr, std::vector<StreetProp>& out, const char* ty
     out.push_back(make(type, w[0], w[1], z, fr.yaw_facing_street() + local_yaw, scale));
 }
 
+// A chair at (u, v) in the building frame, facing the table at (tu, tv). The renderer places a prop's model at rot_z(yaw) and the chair model's front is +X at yaw 0 (the importer turns the asset's +Z front into
+// engine +X; tools/check_prop_orientation.py checks it against the real mesh), so the yaw is the world heading from the chair to the table. The previous "local yaw" values (+-90 degrees, 0, 180) assumed a
+// +Y front and left every interior chair sideways to its table (validator rule SEAT_FACING).
+void add_chair_facing(const Frame& fr, std::vector<StreetProp>& out, double u, double v, double z, double tu, double tv) {
+    const auto c = fr.world(u, v), t = fr.world(tu, tv);
+    out.push_back(make("chair", c[0], c[1], z, std::atan2(t[1] - c[1], t[0] - c[0]), 1.0));
+}
+
 } // namespace
 
 bool prop_box(const StreetProp& p, Aabb& out) {
@@ -249,8 +257,8 @@ void build_interiors(District& d, Rng& rng) {
                     const double u = 2.4 + k * 2.6, v = 3.2 + r * 3.0;
                     if (u > W - 5.5) continue;
                     F("table_round", u, v);
-                    F("chair", u - 0.8, v, kPi * 0.5);
-                    F("chair", u + 0.8, v, -kPi * 0.5);
+                    add_chair_facing(fr, in.furniture, u - 0.8, v, fz, u, v);
+                    add_chair_facing(fr, in.furniture, u + 0.8, v, fz, u, v);
                 }
             }
             F("plant", 0.9, 1.0);
@@ -268,8 +276,8 @@ void build_interiors(District& d, Rng& rng) {
             for (int k = 0; k < 4; ++k) {
                 const double u = 2.2 + k * 2.4, v = 3.2 + (k % 2) * 3.4;
                 add_furniture(fr, in.upper_furniture, "table_round", u, v, in.upper_floor_z, 0.0);
-                add_furniture(fr, in.upper_furniture, "chair", u - 0.8, v, in.upper_floor_z, kPi * 0.5);
-                add_furniture(fr, in.upper_furniture, "chair", u + 0.8, v, in.upper_floor_z, -kPi * 0.5);
+                add_chair_facing(fr, in.upper_furniture, u - 0.8, v, in.upper_floor_z, u, v);
+                add_chair_facing(fr, in.upper_furniture, u + 0.8, v, in.upper_floor_z, u, v);
             }
             add_furniture(fr, in.upper_furniture, "sofa", 2.0, D - 1.3, in.upper_floor_z, kPi);
             break;
@@ -294,8 +302,8 @@ void build_interiors(District& d, Rng& rng) {
             F("counter", W * 0.5, D - 1.8, kPi, 4.0);
             F("shelf", W * 0.25, D - 0.6, kPi, 2.4);
             F("table_square", 1.8, 4.5);
-            F("chair", 1.8, 5.4, kPi);
-            F("chair", 1.8, 3.6, 0.0);
+            add_chair_facing(fr, in.furniture, 1.8, 5.4, fz, 1.8, 4.5);
+            add_chair_facing(fr, in.furniture, 1.8, 3.6, fz, 1.8, 4.5);
             F("plant", W - 0.9, 1.0);
             break;
         }
@@ -305,8 +313,8 @@ void build_interiors(District& d, Rng& rng) {
             for (int k = 0; k < 3; ++k) {
                 if (2.3 + k * 2.8 + 0.8 + 0.23 > W - wall_t - 0.1) continue;   // the right-hand chair must stay inside the wall
                 F("table_round", 2.3 + k * 2.8, 3.0);
-                F("chair", 2.3 + k * 2.8 - 0.8, 3.0, kPi * 0.5);
-                F("chair", 2.3 + k * 2.8 + 0.8, 3.0, -kPi * 0.5);
+                add_chair_facing(fr, in.furniture, 2.3 + k * 2.8 - 0.8, 3.0, fz, 2.3 + k * 2.8, 3.0);
+                add_chair_facing(fr, in.furniture, 2.3 + k * 2.8 + 0.8, 3.0, fz, 2.3 + k * 2.8, 3.0);
             }
             break;
         }

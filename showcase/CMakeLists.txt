@@ -93,6 +93,11 @@ if(TARGET saige::core)
         target_link_libraries(alive_validate_test PRIVATE saige_alive_district)
         add_test(NAME alive_validate COMMAND alive_validate_test)
         set_tests_properties(alive_validate PROPERTIES TIMEOUT 120)
+        # The chair model's front axis against the convention the generator and the SEAT_FACING rule assume (exit 77: the asset is not restored; a failure with SAIGE_REQUIRE_VISUAL=1).
+        if(Python3_FOUND)
+            add_test(NAME alive_prop_orientation COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/04-world-alive/tools/check_prop_orientation.py)
+            set_tests_properties(alive_prop_orientation PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
+        endif()
         # Visual regression: renders real film frames twice with one controlled difference (tools/visual_regression.py). Skipped (77) without the renderer or the texture cache. The fixture run
         # (--fixtures, generated stand-ins, needs no download) is a required step of the Graphics workflow rather than a ctest, because it needs a Vulkan device (the Windows runners have none).
         if(TARGET saige_alive)

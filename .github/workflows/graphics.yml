@@ -79,6 +79,10 @@ jobs:
           key: showcase-assets-${{ hashFiles('showcase/04-world-alive/assets.lock.json') }}
       - name: Restore the Showcase 04 renderer assets (downloaded and hash-verified)
         run: python3 showcase/04-world-alive/tools/restore_assets.py --restore "$RUNNER_TEMP/showcase_assets"
+      - name: Showcase 04 chair front axis (the real mesh against the generator's and the SEAT_FACING rule's convention)
+        env:
+          SAIGE_REQUIRE_VISUAL: "1"
+        run: python3 -I showcase/04-world-alive/tools/check_prop_orientation.py --assets "$RUNNER_TEMP/showcase_assets"
       - name: Showcase 04 visual regression (frames rendered twice with one controlled difference; the film's old behaviours must be caught)
         env:
           SAIGE_REQUIRE_VISUAL: "1"

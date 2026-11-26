@@ -756,4 +756,13 @@ std::vector<std::array<double, 5>> TrafficDriver::obstacles() const {
     return out;
 }
 
+std::array<std::array<float, 3>, kHazardCorners> hazard_lamp_offsets(const VehicleConfig& cfg) {
+    // 2 cm beyond the box at the ends, 12 cm inside the sides, 10 cm below the box centre line: the corner lamps of the body.
+    std::array<std::array<float, 3>, kHazardCorners> out{};
+    std::size_t k = 0;
+    for (const float sx : {-1.0f, 1.0f})
+        for (const float sy : {-1.0f, 1.0f}) out[k++] = {sx * (cfg.half_extents.x + 0.02f), sy * (cfg.half_extents.y - 0.12f), -0.1f};
+    return out;
+}
+
 } // namespace saige::alive

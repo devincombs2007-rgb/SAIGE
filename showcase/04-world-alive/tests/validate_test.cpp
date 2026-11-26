@@ -2,6 +2,7 @@
 // injected into a clean district and must be reported, with the code and ids an editor would act on. Plus the geometry rules the renderer depends on (exposed spans of a wall, the
 // interior wall face mask, the shared tree shape). A passing run of this file does not say the film looks right; the visual regression script does (tools/visual_regression.py).
 #include "district_validate.hpp"
+#include "traffic_driver.hpp"
 
 #include "district_detail.hpp"
 #include "vegetation_shape.hpp"
@@ -111,6 +112,66 @@ void test_props_on_road_and_in_parking() {
     q.z = 0.0;
     e.props.push_back(q);
     CHECK(blocking_of(validate_district(e), "PROP_IN_PARKING") >= 1, "a chair in a parking bay must be reported");
+}
+
+void test_hazard_lamps() {
+    // Each lamp of a disabled vehicle sits at a corner of its chassis box, and the lamp count is the corner count (the delivered placement drew 16 lamps, 12 of them 2 m from their corner).
+    static_assert(kHazardLampsPerModel * kHazardCorners == 4, "four hazard lamps in all");
+    for (const VehicleKind k : {VehicleKind::Sedan, VehicleKind::Hatchback, VehicleKind::Van, VehicleKind::Taxi, VehicleKind::Ambulance, VehicleKind::FireEngine}) {
+        const saige::VehicleConfig cfg = vehicle_config_for(k);
+        const auto offs = hazard_lamp_offsets(cfg);
+        int front_left = 0, front_right = 0, rear_left = 0, rear_right = 0;
+        for (const auto& o : offs) {
+            CHECK(std::fabs(std::fabs(o[0]) - (cfg.half_extents.x + 0.02f)) < 1e-5f, "a lamp is at the end of the box");
+            CHECK(std::fabs(std::fabs(o[1]) - (cfg.half_extents.y - 0.12f)) < 1e-5f, "a lamp is just inside the side of the box");
+            CHECK(std::fabs(o[1]) < cfg.half_extents.y, "a lamp never hovers outside the body side");
+            CHECK(std::fabs(o[2]) < cfg.half_extents.z, "a lamp is within the box height");
+            (o[0] > 0 ? (o[1] > 0 ? front_left : front_right) : (o[1] > 0 ? rear_left : rear_right))++;
+        }
+        CHECK(front_left == 1 && front_right == 1 && rear_left == 1 && rear_right == 1, "one lamp per corner");
+    }
+}
+
+void test_seat_facing() {
+    // A table with chairs: a chair must face the table within 30 degrees. The chair model's front is (cos yaw, sin yaw) (tools/check_prop_orientation.py checks the real mesh).
+    const auto seat_findings = [](double chair_yaw_deg, double dist = 0.8) {
+        District d = base_district();
+        // Stand the set on open sidewalk so only the seating rule can fire.
+        d.props.clear();
+        StreetProp t; t.type = "cafe_table"; t.x = d.buildings[0].footprint.x1 + 20.0; t.y = d.buildings[0].footprint.y1 + 20.0; d.props.push_back(t);
+        StreetProp c; c.type = "cafe_chair"; c.x = t.x - dist; c.y = t.y; c.yaw = chair_yaw_deg * 3.14159265358979323846 / 180.0; d.props.push_back(c);   // west of the table: facing it is +X, yaw 0
+        return blocking_of(validate_district(d), "SEAT_FACING");
+    };
+    CHECK(seat_findings(0.0) == 0, "a chair facing its table must not be reported");
+    CHECK(seat_findings(25.0) == 0, "25 degrees off is within the tolerance");
+    CHECK(seat_findings(-25.0) == 0, "-25 degrees off is within the tolerance");
+    CHECK(seat_findings(35.0) == 1, "35 degrees off must be reported");
+    CHECK(seat_findings(90.0) == 1, "a chair sideways to its table (the delivered interiors) must be reported");
+    CHECK(seat_findings(180.0) == 1, "a chair with its back to the table must be reported");
+    CHECK(seat_findings(90.0, 2.5) == 0, "a chair 2.5 m from the table belongs to no table and is not judged");
+    // Interiors and upper floors are judged the same way (a mutant that skipped them survived the generated-district check once the generator was fixed).
+    for (const bool upper : {false, true}) {
+        District d = base_district();
+        d.props.clear();
+        Interior in;
+        in.building = d.buildings[0].id;
+        StreetProp t; t.type = "table_round"; t.x = 10.0; t.y = 10.0;
+        StreetProp ok; ok.type = "chair"; ok.x = 9.2; ok.y = 10.0; ok.yaw = 0.0;
+        StreetProp bad; bad.type = "chair"; bad.x = 10.8; bad.y = 10.0; bad.yaw = 3.14159265358979323846 * 0.5;
+        auto& list = upper ? in.upper_furniture : in.furniture;
+        list = {t, ok, bad};
+        d.interiors.push_back(in);
+        CHECK(blocking_of(validate_district(d), "SEAT_FACING") == 1, "exactly the sideways chair of an interior (or upper floor) must be reported");
+    }
+    // The generated districts: every chair beside a table faces it, on the street, on the ground floor and upstairs.
+    for (const std::uint32_t seed : {8u, 206u, 3u, 4u, 5u, 34u}) {
+        const District d = build_district(seed);
+        CHECK(blocking_of(validate_district(d), "SEAT_FACING") == 0, "generated chairs must face their tables");
+        std::size_t chairs = 0;
+        for (const Interior& in : d.interiors)
+            for (const StreetProp& p : in.furniture) chairs += (p.type == "chair") ? 1u : 0u;
+        CHECK(chairs >= 10, "the districts have interior chairs (the test would pass vacuously otherwise)");
+    }
 }
 
 void test_prop_in_building() {
@@ -381,6 +442,8 @@ int main() {
     test_coplanar_walls();
     test_props_on_road_and_in_parking();
     test_prop_in_building();
+    test_seat_facing();
+    test_hazard_lamps();
     test_interior_rules();
     test_exposed_face_spans();
     test_film_rule_dropped_exposed_walls_on_the_film_seed();

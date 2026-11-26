@@ -23,6 +23,13 @@ enum class VehicleKind : std::uint8_t { Sedan, Hatchback, Van, Taxi, Ambulance, 
 // The physics configuration of a kind of vehicle (the renderer reads the wheel mounts, the radius and the box from it so that what is drawn sits where the physics puts it).
 [[nodiscard]] VehicleConfig vehicle_config_for(VehicleKind kind);
 
+// Hazard lamps of a disabled vehicle: one small lamp at each of the four corners of the chassis box. The hazard model holds exactly kHazardLampsPerModel lamp and the renderer draws it once per corner
+// (kHazardCorners draws), at hazard_lamp_offsets(), in the chassis frame. The delivered code built a model with a lamp at each of four corners of a 2 m unit box and drew it four times shifted by the
+// opposite corner: 16 lamps, 12 of them 2 m away from where they belong (some hovering 12 cm outside the body side, some mid-body). Owner-reported defect "hazard lights detached from the vehicle body".
+inline constexpr int kHazardLampsPerModel = 1;
+inline constexpr int kHazardCorners = 4;
+[[nodiscard]] std::array<std::array<float, 3>, kHazardCorners> hazard_lamp_offsets(const VehicleConfig& cfg);
+
 struct VehicleView {
     std::uint32_t id = 0;
     VehicleKind kind = VehicleKind::Sedan;

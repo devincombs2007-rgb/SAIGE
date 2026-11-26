@@ -539,8 +539,8 @@ struct Actors::Impl {
         }
         for (int on = 0; on < 2; ++on) {
             MeshBuilder mb;
-            for (const float sx : {-1.0f, 1.0f})
-                for (const float sy : {-1.0f, 1.0f}) mb.box(on ? MSignalAmber : MSignalOff, {sx - 0.03f - (sx > 0 ? 0.0f : 0.0f), sy - 0.03f, -0.03f}, {sx + 0.03f, sy + 0.03f, 0.03f}, 63);
+            static_assert(kHazardLampsPerModel == 1, "the hazard model holds one lamp; it is drawn once per corner");
+            mb.box(on ? MSignalAmber : MSignalOff, {-0.03f, -0.03f, -0.03f}, {0.03f, 0.03f, 0.03f}, 63);   // one lamp at the origin; hazard_lamp_offsets() places it
             hazard[on] = upload_model(r, "hazard", mb.finish(), mats.list());
         }
         {
@@ -644,9 +644,8 @@ struct Actors::Impl {
                 const VehicleConfig cfgv = vehicle_config_for(v.kind);
                 const bool on = static_cast<int>(std::floor(time * 1.6)) % 2 == 0;
                 const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
-                // Hazard lamps at the corners (the unit box scaled by half extents; the lamps are tiny boxes, so scale only their placement).
-                for (const float sx : {-1.0f, 1.0f})
-                    for (const float sy : {-1.0f, 1.0f}) out.push_back({&hazard[on ? 1 : 0], body_world * translation({sx * (cfgv.half_extents.x + 0.02f), sy * (cfgv.half_extents.y - 0.12f), -0.1f}) * scaling(1.0f) * translation({-sx, -sy, 0.0f})});
+                // One hazard lamp at each corner of the chassis box (hazard_lamp_offsets, traffic_driver.hpp).
+                for (const auto& o : hazard_lamp_offsets(cfgv)) out.push_back({&hazard[on ? 1 : 0], body_world * translation({o[0], o[1], o[2]})});
                 // Smoke from under the bonnet: puffs rising and spreading over a few seconds.
                 for (int k = 0; k < 14; ++k) {
                     const float age = std::fmod(static_cast<float>(time) * 0.30f + static_cast<float>(k) / 14.0f, 1.0f);

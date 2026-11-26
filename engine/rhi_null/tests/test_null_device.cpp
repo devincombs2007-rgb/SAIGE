@@ -863,3 +863,298 @@ TEST_CASE("NullDevice: binding a group whose resources were destroyed is an erro
         CHECK(f.device.validation_error_count() == before + 2);
     }
 }
+
+// ---------------------------------------------------------------------------------------------------- compute
+
+namespace {
+
+struct ComputeFixture {
+    NullDevice device;
+    ShaderHandle cs;
+    BindGroupLayoutHandle layout;  // set 0: a storage buffer and a storage texture, both compute-visible
+    PipelineHandle pipeline;
+    BufferHandle storage, indirect;
+    TextureHandle image;
+    BindGroupHandle group;
+
+    ComputeFixture()
+    {
+        cs = device.create_shader({ShaderStage::Compute, fake_spirv, "CSMain", "cs"});
+        BindGroupLayoutDesc ld;
+        BindGroupLayoutEntry buf, img;
+        buf.binding = 0;
+        buf.type = BindingType::StorageBuffer;
+        buf.visibility = StageMask::Compute;
+        img.binding = 1;
+        img.type = BindingType::StorageTexture;
+        img.visibility = StageMask::Compute;
+        ld.entries = {buf, img};
+        layout = device.create_bind_group_layout(ld);
+        ComputePipelineDesc pd;
+        pd.compute_shader = cs;
+        pd.push_constant_size = 16;
+        pd.bind_group_layouts = {layout};
+        pipeline = device.create_compute_pipeline(pd);
+        BufferDesc bd;
+        bd.size = 4096;
+        bd.usage = BufferUsage::Storage;
+        storage = device.create_buffer(bd);
+        BufferDesc id;
+        id.size = 256;
+        id.usage = BufferUsage::Indirect | BufferUsage::Storage;
+        indirect = device.create_buffer(id);
+        TextureDesc td;
+        td.format = Format::RGBA8_UNORM;
+        td.width = td.height = 16;
+        td.usage = TextureUsage::Storage | TextureUsage::Sampled;
+        image = device.create_texture(td);
+        BindGroupEntry e[2];
+        e[0].binding = 0;
+        e[0].buffer = storage;
+        e[0].size = 1024;
+        e[1].binding = 1;
+        e[1].texture = image;
+        group = device.create_bind_group(layout, e);
+    }
+
+    template <typename Fn>
+    uint32_t errors_from(Fn&& record)
+    {
+        const uint32_t before = device.validation_error_count();
+        CommandList& cmd = device.begin_frame();
+        record(cmd);
+        (void)device.end_frame();
+        return device.validation_error_count() - before;
+    }
+};
+
+} // namespace
+
+TEST_CASE("compute: the null device reports compute support and a valid pipeline, group and dispatch record cleanly")
+{
+    ComputeFixture f;
+    CHECK(f.device.info().compute);
+    const uint32_t errors = f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        const std::array<float, 4> pc{1, 2, 3, 4};
+        cmd.push_constant_struct(pc);
+        cmd.dispatch(8, 4, 1);
+        cmd.dispatch(0, 5, 5);  // zero groups on one axis is legal and does nothing
+        cmd.dispatch_indirect(f.indirect, 16);
+    });
+    CHECK(errors == 0);
+    const auto& cmds = f.device.last_frame_commands();
+    int dispatches = 0, indirects = 0;
+    for (const RecordedCommand& c : cmds) {
+        if (c.type == CommandType::Dispatch) {
+            if (dispatches == 0) {
+                CHECK(c.group_count[0] == 8);
+                CHECK(c.group_count[1] == 4);
+                CHECK(c.group_count[2] == 1);
+            }
+            CHECK(c.pipeline == f.pipeline);
+            ++dispatches;
+        }
+        if (c.type == CommandType::DispatchIndirect) {
+            CHECK(c.buffer == f.indirect);
+            CHECK(c.buffer_offset == 16);
+            ++indirects;
+        }
+    }
+    CHECK(dispatches == 2);
+    CHECK(indirects == 1);
+}
+
+TEST_CASE("compute: pipeline creation is validated")
+{
+    ComputeFixture f;
+    const ShaderHandle vs = f.device.create_shader({ShaderStage::Vertex, fake_spirv, "VSMain", "vs"});
+    ComputePipelineDesc base;
+    base.compute_shader = f.cs;
+    base.bind_group_layouts = {f.layout};
+
+    ComputePipelineDesc d = base;
+    d.compute_shader = vs;  // wrong stage
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    d = base;
+    d.compute_shader = ShaderHandle{};
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    d = base;
+    d.push_constant_size = 132;
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    d = base;
+    d.push_constant_size = 6;
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    d = base;
+    d.bind_group_layouts = {f.layout, f.layout, f.layout, f.layout, f.layout};
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    d = base;
+    d.bind_group_layouts = {BindGroupLayoutHandle::from_raw(999)};
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    // Per-stage totals for the compute stage: five storage buffers visible to it are over the portable four.
+    BindGroupLayoutDesc five;
+    for (uint32_t i = 0; i < 5; ++i) {
+        BindGroupLayoutEntry e;
+        e.binding = i;
+        e.type = BindingType::StorageBuffer;
+        e.visibility = StageMask::Compute;
+        five.entries.push_back(e);
+    }
+    d = base;
+    d.bind_group_layouts = {f.device.create_bind_group_layout(five)};
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(d); }));
+    // ...but the same layout in a graphics pipeline costs nothing, since its entries are not visible to the graphics stages.
+    PipelineFixture g;
+    BindGroupLayoutHandle compute_only = g.device.create_bind_group_layout(five);
+    GraphicsPipelineDesc gd;
+    gd.vertex_shader = g.vs;
+    gd.pixel_shader = g.ps;
+    gd.color_formats = {Format::RGBA8_SRGB};
+    gd.bind_group_layouts = {compute_only};
+    CHECK_FALSE(throws_invalid_argument([&] { (void)g.device.create_graphics_pipeline(gd); }));
+    // A pipeline that is valid is created and can be destroyed.
+    CHECK_FALSE(throws_invalid_argument([&] {
+        const PipelineHandle ok = f.device.create_compute_pipeline(base);
+        f.device.destroy(ok);
+    }));
+}
+
+TEST_CASE("compute: dispatch misuse is reported as validation errors")
+{
+    ComputeFixture f;
+    // Nothing bound / a graphics pipeline bound / outside a frame.
+    CHECK(f.errors_from([&](CommandList& cmd) { cmd.dispatch(1, 1, 1); }) == 1);
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.dispatch(1, 1, 1);  // no compatible group bound at set 0
+    }) == 1);
+    // Group counts over the portable limit.
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        cmd.dispatch(65536, 1, 1);
+    }) == 1);
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        cmd.dispatch(65535, 65535, 65535);  // the limit itself is fine
+    }) == 0);
+    // Switching to the same pipeline keeps the group; a different pipeline clears it (the existing rule applies to compute too).
+    // Inside a rendering scope.
+    const TextureHandle rt = f.device.create_texture(color_target());
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.begin_rendering({{{rt, AttachmentLoadOp::Clear, AttachmentStoreOp::Store, {0, 0, 0, 1}}}, std::nullopt, {0, 0, 64, 32}});
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        cmd.dispatch(1, 1, 1);
+        cmd.end_rendering();
+    }) == 1);
+    // A draw while a compute pipeline is bound.
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.begin_rendering({{{rt, AttachmentLoadOp::Clear, AttachmentStoreOp::Store, {0, 0, 0, 1}}}, std::nullopt, {0, 0, 64, 32}});
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        cmd.draw(3);
+        cmd.end_rendering();
+    }) == 1);
+    // A dispatch while a graphics pipeline (of the same device) is bound: exactly the stage error, nothing else.
+    const ShaderHandle vs = f.device.create_shader({ShaderStage::Vertex, fake_spirv, "VSMain", "vs"});
+    const ShaderHandle ps = f.device.create_shader({ShaderStage::Pixel, fake_spirv, "PSMain", "ps"});
+    GraphicsPipelineDesc gd;
+    gd.vertex_shader = vs;
+    gd.pixel_shader = ps;
+    gd.color_formats = {Format::RGBA8_SRGB};
+    const PipelineHandle graphics = f.device.create_graphics_pipeline(gd);
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(graphics);
+        cmd.dispatch(1, 1, 1);
+    }) == 1);
+}
+
+TEST_CASE("compute: indirect dispatch arguments are validated")
+{
+    ComputeFixture f;
+    auto run = [&](BufferHandle b, uint64_t offset) {
+        return f.errors_from([&](CommandList& cmd) {
+            cmd.bind_pipeline(f.pipeline);
+            cmd.bind_group(0, f.group);
+            cmd.dispatch_indirect(b, offset);
+        });
+    };
+    CHECK(run(f.indirect, 0) == 0);
+    CHECK(run(f.indirect, 244) == 0);   // 244 + 12 == 256: the last record that fits
+    CHECK(run(f.indirect, 248) == 1);   // runs past the end
+    CHECK(run(f.indirect, 2) == 1);     // not a multiple of 4
+    CHECK(run(f.indirect, 100000) == 1);
+    CHECK(run(f.storage, 0) == 1);      // no Indirect usage
+    CHECK(run(BufferHandle{}, 0) == 1); // invalid buffer
+}
+
+TEST_CASE("compute: storage textures bind and a destroyed one cannot be bound again")
+{
+    ComputeFixture f;
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        cmd.dispatch(2, 2, 1);
+    }) == 0);
+    f.device.destroy(f.image);
+    f.device.wait_idle();
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);  // the group refers to a destroyed texture
+        cmd.dispatch(1, 1, 1);
+    }) >= 1);
+    // A storage texture needs Storage usage, and its layout entry must be compute-only.
+    BindGroupEntry e[2];
+    e[0].binding = 0;
+    e[0].buffer = f.storage;
+    e[0].size = 1024;
+    TextureDesc sampled;
+    sampled.format = Format::RGBA8_UNORM;
+    sampled.width = sampled.height = 8;
+    sampled.usage = TextureUsage::Sampled;
+    e[1].binding = 1;
+    e[1].texture = f.device.create_texture(sampled);
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_bind_group(f.layout, e); }));
+    BindGroupLayoutDesc bad;
+    BindGroupLayoutEntry be;
+    be.binding = 0;
+    be.type = BindingType::StorageTexture;  // default (graphics) visibility
+    bad.entries = {be};
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_bind_group_layout(bad); }));
+}
+
+TEST_CASE("compute: a device without compute refuses every compute use")
+{
+    ComputeFixture f;
+    f.device.deny_compute();
+    CHECK_FALSE(f.device.info().compute);
+    ComputePipelineDesc pd;
+    pd.compute_shader = f.cs;
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_compute_pipeline(pd); }));
+    BindGroupLayoutDesc ld;
+    BindGroupLayoutEntry e;
+    e.binding = 0;
+    e.type = BindingType::UniformBuffer;
+    e.visibility = StageMask::Compute;
+    ld.entries = {e};
+    CHECK(throws_invalid_argument([&] { (void)f.device.create_bind_group_layout(ld); }));
+    CHECK(f.errors_from([&](CommandList& cmd) {
+        cmd.bind_pipeline(f.pipeline);
+        cmd.bind_group(0, f.group);
+        cmd.dispatch(1, 1, 1);
+    }) >= 1);
+    // The graphics path is unaffected.
+    PipelineFixture g;
+    g.device.deny_compute();
+    BindGroupLayoutDesc gl;
+    BindGroupLayoutEntry ge;
+    ge.binding = 0;
+    ge.type = BindingType::UniformBuffer;
+    gl.entries = {ge};
+    CHECK_FALSE(throws_invalid_argument([&] { (void)g.device.create_bind_group_layout(gl); }));
+    f.device.deny_compute(false);
+    CHECK(f.device.info().compute);
+}

@@ -25,6 +25,7 @@ set(SAIGE_SHADER_SOURCES
     scene/shadow_depth_skinned.hlsl
     scene/sky.hlsl
     test/blend_color.hlsl
+    test/compute_probe.hlsl
     test/depth_only.hlsl
     test/shadow_probe.hlsl
     scene/tonemap.hlsl

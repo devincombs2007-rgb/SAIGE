@@ -29,6 +29,8 @@ enum class CommandType : uint8_t {
     BindIndexBuffer,
     Draw,
     DrawIndexed,
+    Dispatch,          ///< group counts in `group_count`
+    DispatchIndirect,  ///< args buffer in `buffer`, byte offset in `buffer_offset`
     CopyTextureToBuffer,
     BeginDebugLabel,
     EndDebugLabel,
@@ -50,6 +52,8 @@ struct RecordedCommand {
     uint32_t push_offset = 0;
     uint32_t count = 0;           ///< vertex/index count
     uint32_t instance_count = 0;
+    uint32_t group_count[3] = {0, 0, 0};  ///< Dispatch: workgroups along x, y, z
+    uint64_t buffer_offset = 0;           ///< DispatchIndirect: offset into `buffer`
     std::string label;
 };
 
@@ -70,6 +74,7 @@ public:
     void destroy(BindGroupHandle handle) override;
     ShaderHandle create_shader(const ShaderDesc& desc) override;
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
+    PipelineHandle create_compute_pipeline(const ComputePipelineDesc& desc) override;
     void destroy(BufferHandle handle) override;
     void destroy(TextureHandle handle) override;
     void destroy(SamplerHandle handle) override;
@@ -103,6 +108,9 @@ public:
     void fail_creation_after(uint32_t n) noexcept;
     /// Makes supports_filtered_sampling(format) answer false (Format::Unknown cancels), to test the renderer's refusal.
     void deny_filtered_sampling(Format format) noexcept;
+    /// Makes the device report `DeviceInfo::compute == false` from now on, so the refusal paths of compute pipelines, compute-visible bind group layouts and
+    /// dispatch can be tested. `false` restores the default (compute supported).
+    void deny_compute(bool deny = true) noexcept;
     /// Commands recorded in the most recently ended frame.
     [[nodiscard]] const std::vector<RecordedCommand>& last_frame_commands() const noexcept;
     [[nodiscard]] const std::vector<std::string>& validation_messages() const noexcept;

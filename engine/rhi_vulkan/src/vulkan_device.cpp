@@ -378,6 +378,7 @@ struct VkShaderRes {
 };
 
 struct VkPipelineRes {
+    bool compute = false;  ///< a compute pipeline (bound at the compute bind point, push constants for the compute stage)
     VkPipeline pipeline = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     uint32_t push_constant_size = 0;
@@ -428,6 +429,8 @@ public:
         written_timestamps_ = 0;
         bound_pipeline_ = {};
         bound_groups_.fill({});
+        bound_compute_ = false;
+        in_rendering_ = false;
     }
 
     void barrier(std::span<const TextureBarrier> textures, std::span<const BufferBarrier> buffers) override;
@@ -444,12 +447,15 @@ public:
     void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) override;
     void draw_indexed(uint32_t index_count, uint32_t instance_count, uint32_t first_index, int32_t vertex_offset,
                       uint32_t first_instance) override;
+    void dispatch(uint32_t x, uint32_t y, uint32_t z) override;
+    void dispatch_indirect(BufferHandle args, uint64_t offset) override;
     void copy_texture_to_buffer(TextureHandle texture, BufferHandle buffer) override;
     void begin_debug_label(const char* name) override;
     void end_debug_label() override;
 
 private:
     void check_draw_state(const char* what) const;
+    void check_dispatch_state(const char* what) const;
 
     VulkanDevice& device_;
     VkCommandBuffer cmd_ = VK_NULL_HANDLE;
@@ -457,6 +463,8 @@ private:
     VkPipelineLayout bound_layout_ = VK_NULL_HANDLE;
     uint32_t bound_push_size_ = 0;
     PipelineHandle bound_pipeline_;
+    bool bound_compute_ = false;  // the bound pipeline is a compute pipeline
+    bool in_rendering_ = false;   // between begin_rendering and end_rendering
     std::array<BindGroupHandle, max_bind_groups_per_pipeline> bound_groups_{};
 };
 
@@ -482,6 +490,7 @@ public:
     void destroy(BindGroupHandle handle) override;
     ShaderHandle create_shader(const ShaderDesc& desc) override;
     PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) override;
+    PipelineHandle create_compute_pipeline(const ComputePipelineDesc& desc) override;
     void destroy(BufferHandle handle) override;
     void destroy(TextureHandle handle) override;
     void destroy(ShaderHandle handle) override;
@@ -879,6 +888,7 @@ void VulkanDevice::pick_physical_device()
     vk_.vkGetPhysicalDeviceMemoryProperties(physical_, &memory_props_);
     info_.backend = Backend::Vulkan;
     info_.presentation_supported = swapchain_extension_;
+    info_.compute = true;  // compute is mandatory on a graphics-capable queue family, and the device is created on one
     probe_capabilities();
 }
 
@@ -1981,6 +1991,62 @@ PipelineHandle VulkanDevice::create_graphics_pipeline(const GraphicsPipelineDesc
     return pipelines_.emplace(std::move(res));
 }
 
+PipelineHandle VulkanDevice::create_compute_pipeline(const ComputePipelineDesc& desc)
+{
+    if (!info_.compute) {
+        throw std::invalid_argument("create_compute_pipeline: the device does not support compute");
+    }
+    const VkShaderRes* cs = shaders_.get(desc.compute_shader);
+    if (cs == nullptr || cs->stage != ShaderStage::Compute) {
+        throw std::invalid_argument("create_compute_pipeline: invalid compute shader");
+    }
+    if (desc.push_constant_size > max_push_constants || desc.push_constant_size % 4 != 0) {
+        throw std::invalid_argument("create_compute_pipeline: push constant size must be a multiple of 4 and <= 128");
+    }
+    if (desc.bind_group_layouts.size() > max_bind_groups_per_pipeline) {
+        throw std::invalid_argument("create_compute_pipeline: too many bind group layouts");
+    }
+    std::vector<VkDescriptorSetLayout> set_layouts;
+    std::vector<const BindGroupLayoutDesc*> layout_descs;
+    for (const BindGroupLayoutHandle h : desc.bind_group_layouts) {
+        const VkBindGroupLayoutRes* l = bind_group_layouts_.get(h);
+        if (l == nullptr) {
+            throw std::invalid_argument("create_compute_pipeline: invalid bind group layout");
+        }
+        set_layouts.push_back(l->layout);
+        layout_descs.push_back(&l->desc);
+    }
+    // The per-stage limits are checked for the compute stage over the pipeline's totals.
+    if (const ValidationResult v = validate_pipeline_bindings(layout_descs, StageMask::Compute); !v) {
+        throw std::invalid_argument(std::string("create_compute_pipeline: ") + v.error);
+    }
+    VkPipelineRes res;
+    res.compute = true;
+    res.push_constant_size = desc.push_constant_size;
+    res.bind_group_layouts = desc.bind_group_layouts;
+    VkPushConstantRange range{VK_SHADER_STAGE_COMPUTE_BIT, 0, desc.push_constant_size};
+    VkPipelineLayoutCreateInfo lci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    lci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    lci.pSetLayouts = set_layouts.data();
+    lci.pushConstantRangeCount = desc.push_constant_size > 0 ? 1u : 0u;
+    lci.pPushConstantRanges = &range;
+    check(vk_.vkCreatePipelineLayout(device_, &lci, nullptr, &res.layout), "vkCreatePipelineLayout");
+
+    VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    ci.stage.module = cs->module;
+    ci.stage.pName = cs->entry.c_str();
+    ci.layout = res.layout;
+    const VkResult r = vk_.vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &res.pipeline);
+    if (r != VK_SUCCESS) {
+        vk_.vkDestroyPipelineLayout(device_, res.layout, nullptr);
+        fail("vkCreateComputePipelines", r);
+    }
+    set_name(VK_OBJECT_TYPE_PIPELINE, reinterpret_cast<uint64_t>(res.pipeline), desc.debug_name);
+    return pipelines_.emplace(std::move(res));
+}
+
 void VulkanDevice::destroy(BufferHandle handle)
 {
     std::optional<VkBufferRes> res = buffers_.release(handle);
@@ -2582,11 +2648,13 @@ void VulkanCommandList::begin_rendering(const RenderingDesc& desc)
     ri.pColorAttachments = colors.data();
     ri.pDepthAttachment = desc.depth ? &depth : nullptr;
     ri.pStencilAttachment = has_stencil_aspect ? &depth : nullptr;
+    in_rendering_ = true;
     device_.vk_.vkCmdBeginRendering(cmd_, &ri);
 }
 
 void VulkanCommandList::end_rendering()
 {
+    in_rendering_ = false;
     device_.vk_.vkCmdEndRendering(cmd_);
 }
 
@@ -2609,13 +2677,14 @@ void VulkanCommandList::bind_pipeline(PipelineHandle pipeline)
     if (p == nullptr) {
         throw std::invalid_argument("bind_pipeline: invalid pipeline");
     }
-    device_.vk_.vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
+    device_.vk_.vkCmdBindPipeline(cmd_, p->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, p->pipeline);
     if (pipeline != bound_pipeline_) {
         // Descriptor compatibility also depends on push constant ranges and every lower set's layout, so a different
         // pipeline starts with nothing bound: the caller rebinds its groups (same-handle rebinds keep them).
         bound_groups_.fill({});
     }
     bound_pipeline_ = pipeline;
+    bound_compute_ = p->compute;
     bound_layout_ = p->layout;
     bound_push_size_ = p->push_constant_size;
 }
@@ -2661,7 +2730,8 @@ void VulkanCommandList::bind_group(uint32_t set, BindGroupHandle group)
         throw std::invalid_argument("bind_group: the group refers to a resource that has been destroyed; rebuild the group");
     }
     bound_groups_[set] = group;
-    device_.vk_.vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_GRAPHICS, bound_layout_, set, 1, &g->set, 0, nullptr);
+    device_.vk_.vkCmdBindDescriptorSets(cmd_, bound_compute_ ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, bound_layout_, set, 1, &g->set, 0,
+                                        nullptr);
 }
 
 /// A pipeline that declares descriptor sets can only draw once a compatible group is bound at every one of them.
@@ -2671,6 +2741,9 @@ void VulkanCommandList::check_draw_state(const char* what) const
     if (p == nullptr) {
         throw std::invalid_argument(std::string(what) + ": no pipeline bound");
     }
+    if (p->compute) {
+        throw std::invalid_argument(std::string(what) + ": a compute pipeline is bound");
+    }
     for (std::size_t set = 0; set < p->bind_group_layouts.size(); ++set) {
         const VkBindGroupRes* g = device_.bind_groups_.get(bound_groups_[set]);
         if (g == nullptr || g->layout_handle != p->bind_group_layouts[set]) {
@@ -2679,12 +2752,61 @@ void VulkanCommandList::check_draw_state(const char* what) const
     }
 }
 
+/// A dispatch needs a compute pipeline, no open rendering scope, and a compatible group at every set the pipeline declares.
+void VulkanCommandList::check_dispatch_state(const char* what) const
+{
+    if (in_rendering_) {
+        throw std::invalid_argument(std::string(what) + ": inside begin_rendering()/end_rendering()");
+    }
+    const VkPipelineRes* p = device_.pipelines_.get(bound_pipeline_);
+    if (p == nullptr) {
+        throw std::invalid_argument(std::string(what) + ": no pipeline bound");
+    }
+    if (!p->compute) {
+        throw std::invalid_argument(std::string(what) + ": no compute pipeline bound");
+    }
+    for (std::size_t set = 0; set < p->bind_group_layouts.size(); ++set) {
+        const VkBindGroupRes* g = device_.bind_groups_.get(bound_groups_[set]);
+        if (g == nullptr || g->layout_handle != p->bind_group_layouts[set]) {
+            throw std::invalid_argument(std::string(what) + ": no compatible bind group at set " + std::to_string(set));
+        }
+    }
+}
+
+void VulkanCommandList::dispatch(uint32_t x, uint32_t y, uint32_t z)
+{
+    check_dispatch_state("dispatch");
+    if (x > max_dispatch_groups_per_axis || y > max_dispatch_groups_per_axis || z > max_dispatch_groups_per_axis) {
+        throw std::invalid_argument("dispatch: a group count exceeds the portable per-axis limit of 65535");
+    }
+    device_.vk_.vkCmdDispatch(cmd_, x, y, z);
+}
+
+void VulkanCommandList::dispatch_indirect(BufferHandle args, uint64_t offset)
+{
+    check_dispatch_state("dispatch_indirect");
+    const VkBufferRes* b = device_.buffers_.get(args);
+    if (b == nullptr) {
+        throw std::invalid_argument("dispatch_indirect: invalid argument buffer");
+    }
+    if (!has_any(b->desc.usage, BufferUsage::Indirect)) {
+        throw std::invalid_argument("dispatch_indirect: the argument buffer lacks Indirect usage");
+    }
+    if (offset % 4 != 0) {
+        throw std::invalid_argument("dispatch_indirect: the offset must be a multiple of 4");
+    }
+    if (offset > b->desc.size || b->desc.size - offset < dispatch_indirect_args_size) {
+        throw std::invalid_argument("dispatch_indirect: the three group counts do not fit in the buffer at that offset");
+    }
+    device_.vk_.vkCmdDispatchIndirect(cmd_, b->buffer, offset);
+}
+
 void VulkanCommandList::push_constants(std::span<const std::byte> data, uint32_t offset)
 {
     if (bound_layout_ == VK_NULL_HANDLE || offset + data.size() > bound_push_size_) {
         throw std::invalid_argument("push_constants: no pipeline bound or range exceeded");
     }
-    device_.vk_.vkCmdPushConstants(cmd_, bound_layout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, offset,
+    device_.vk_.vkCmdPushConstants(cmd_, bound_layout_, bound_compute_ ? VK_SHADER_STAGE_COMPUTE_BIT : (VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT), offset,
                                    static_cast<uint32_t>(data.size()), data.data());
 }
 

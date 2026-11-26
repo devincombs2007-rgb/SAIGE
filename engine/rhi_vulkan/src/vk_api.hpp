@@ -99,6 +99,7 @@ namespace saige::rhi::vk {
     X(vkCreatePipelineLayout)                                                                                          \
     X(vkDestroyPipelineLayout)                                                                                         \
     X(vkCreateGraphicsPipelines)                                                                                       \
+    X(vkCreateComputePipelines)                                                                                        \
     X(vkDestroyPipeline)                                                                                               \
     X(vkCreateCommandPool)                                                                                             \
     X(vkDestroyCommandPool)                                                                                            \
@@ -122,6 +123,8 @@ namespace saige::rhi::vk {
     X(vkCmdBindIndexBuffer)                                                                                            \
     X(vkCmdDraw)                                                                                                       \
     X(vkCmdDrawIndexed)                                                                                                \
+    X(vkCmdDispatch)                                                                                                   \
+    X(vkCmdDispatchIndirect)                                                                                           \
     X(vkCmdCopyBuffer)                                                                                                 \
     X(vkCmdCopyBufferToImage)                                                                                          \
     X(vkCreateQueryPool)                                                                                               \

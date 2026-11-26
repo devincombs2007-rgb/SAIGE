@@ -48,7 +48,8 @@ struct NullShader {
 };
 
 struct NullPipeline {
-    GraphicsPipelineDesc desc;
+    GraphicsPipelineDesc desc;  ///< for a compute pipeline only `bind_group_layouts`, `push_constant_size` and `debug_name` are meaningful
+    bool compute = false;
 };
 
 struct NullSwapchain {
@@ -371,6 +372,44 @@ public:
         commands_.push_back(std::move(c));
     }
 
+    void dispatch(uint32_t x, uint32_t y, uint32_t z) override
+    {
+        check_dispatch("dispatch");
+        if (x > max_dispatch_groups_per_axis || y > max_dispatch_groups_per_axis || z > max_dispatch_groups_per_axis) {
+            device_.error("dispatch(): a group count exceeds the portable per-axis limit of 65535");
+        }
+        RecordedCommand c = make(CommandType::Dispatch);
+        c.group_count[0] = x;
+        c.group_count[1] = y;
+        c.group_count[2] = z;
+        c.pipeline = bound_pipeline_;
+        commands_.push_back(std::move(c));
+    }
+
+    void dispatch_indirect(BufferHandle args, uint64_t offset) override
+    {
+        check_dispatch("dispatch_indirect");
+        const NullBuffer* b = device_.buffers.get(args);
+        if (b == nullptr) {
+            device_.error("dispatch_indirect(): invalid argument buffer");
+        } else {
+            if (!has_any(b->desc.usage, BufferUsage::Indirect)) {
+                device_.error("dispatch_indirect(): the argument buffer lacks Indirect usage");
+            }
+            if (offset % 4 != 0) {
+                device_.error("dispatch_indirect(): the offset must be a multiple of 4");
+            }
+            if (offset > b->desc.size || b->desc.size - offset < dispatch_indirect_args_size) {
+                device_.error("dispatch_indirect(): the three group counts do not fit in the buffer at that offset");
+            }
+        }
+        RecordedCommand c = make(CommandType::DispatchIndirect);
+        c.buffer = args;
+        c.buffer_offset = offset;
+        c.pipeline = bound_pipeline_;
+        commands_.push_back(std::move(c));
+    }
+
     void copy_texture_to_buffer(TextureHandle texture, BufferHandle buffer) override
     {
         check_frame("copy_texture_to_buffer");
@@ -423,6 +462,30 @@ private:
         }
     }
 
+    void check_dispatch(const char* what)
+    {
+        check_frame(what);
+        if (!device_.info.compute) {
+            device_.error(std::string(what) + "(): the device does not support compute");
+        }
+        if (in_rendering_) {
+            device_.error(std::string(what) + "() inside begin_rendering()/end_rendering()");
+        }
+        const NullPipeline* p = device_.pipelines.get(bound_pipeline_);
+        if (p == nullptr) {
+            device_.error(std::string(what) + "() without a bound pipeline");
+        } else if (!p->compute) {
+            device_.error(std::string(what) + "() without a compute pipeline bound");
+        } else {
+            for (std::size_t set = 0; set < p->desc.bind_group_layouts.size(); ++set) {
+                const NullBindGroup* g = device_.bind_groups.get(bound_groups_[set]);
+                if (g == nullptr || g->layout != p->desc.bind_group_layouts[set]) {
+                    device_.error(std::string(what) + "() without a compatible bind group at set " + std::to_string(set));
+                }
+            }
+        }
+    }
+
     void check_draw(const char* what)
     {
         check_frame(what);
@@ -432,6 +495,8 @@ private:
         const NullPipeline* p = device_.pipelines.get(bound_pipeline_);
         if (p == nullptr) {
             device_.error(std::string(what) + "() without a bound pipeline");
+        } else if (p->compute) {
+            device_.error(std::string(what) + "() with a compute pipeline bound");
         } else {
             if (!p->desc.vertex_layout.attributes.empty() && !vertex_bound_) {
                 device_.error(std::string(what) + "() without a vertex buffer for a pipeline with vertex input");
@@ -471,6 +536,7 @@ NullDevice::NullDevice(const DeviceDesc& desc) : impl_(std::make_unique<Impl>())
     impl_->info.validation_enabled = true;
     impl_->info.presentation_supported = true;
     impl_->info.software_device = true;
+    impl_->info.compute = true;
     impl_->cmd = std::make_unique<NullCommandList>(*impl_);
 }
 
@@ -541,6 +607,13 @@ BindGroupLayoutHandle NullDevice::create_bind_group_layout(const BindGroupLayout
     impl_->maybe_fail_creation("bind group layout");
     if (const ValidationResult v = validate(desc); !v) {
         throw std::invalid_argument(std::string("create_bind_group_layout: ") + v.error);
+    }
+    if (!impl_->info.compute) {
+        for (const BindGroupLayoutEntry& e : desc.entries) {
+            if (has_any(e.visibility, StageMask::Compute)) {
+                throw std::invalid_argument("create_bind_group_layout: an entry is visible to the compute stage but the device does not support compute");
+            }
+        }
     }
     NullBindGroupLayout layout{desc};
     layout.desc.debug_name = nullptr;
@@ -678,7 +751,41 @@ PipelineHandle NullDevice::create_graphics_pipeline(const GraphicsPipelineDesc& 
     if (const ValidationResult v = validate_blend_state(desc.blend, desc.color_formats); !v) {
         throw std::invalid_argument(std::string("create_graphics_pipeline: ") + v.error);
     }
-    return impl_->pipelines.emplace(NullPipeline{desc});
+    return impl_->pipelines.emplace(NullPipeline{desc, false});
+}
+
+PipelineHandle NullDevice::create_compute_pipeline(const ComputePipelineDesc& desc)
+{
+    impl_->maybe_fail_creation("compute pipeline");
+    if (!impl_->info.compute) {
+        throw std::invalid_argument("create_compute_pipeline: the device does not support compute");
+    }
+    const NullShader* cs = impl_->shaders.get(desc.compute_shader);
+    if (cs == nullptr || cs->desc.stage != ShaderStage::Compute) {
+        throw std::invalid_argument("create_compute_pipeline: invalid compute shader");
+    }
+    if (desc.push_constant_size > max_push_constant_size || desc.push_constant_size % 4 != 0) {
+        throw std::invalid_argument("create_compute_pipeline: push constant size must be a multiple of 4 and <= 128");
+    }
+    if (desc.bind_group_layouts.size() > max_bind_groups_per_pipeline) {
+        throw std::invalid_argument("create_compute_pipeline: too many bind group layouts");
+    }
+    std::vector<const BindGroupLayoutDesc*> layout_descs;
+    for (const BindGroupLayoutHandle layout : desc.bind_group_layouts) {
+        const NullBindGroupLayout* l = impl_->bind_group_layouts.get(layout);
+        if (l == nullptr) {
+            throw std::invalid_argument("create_compute_pipeline: invalid bind group layout");
+        }
+        layout_descs.push_back(&l->desc);
+    }
+    if (const ValidationResult v = validate_pipeline_bindings(layout_descs, StageMask::Compute); !v) {
+        throw std::invalid_argument(std::string("create_compute_pipeline: ") + v.error);
+    }
+    NullPipeline p;
+    p.compute = true;
+    p.desc.bind_group_layouts = desc.bind_group_layouts;
+    p.desc.push_constant_size = desc.push_constant_size;
+    return impl_->pipelines.emplace(std::move(p));
 }
 
 void NullDevice::destroy(BufferHandle handle)
@@ -851,6 +958,11 @@ void NullDevice::wait_idle()
         impl_->error("wait_idle() inside a frame");
     }
     impl_->pending.drain_all([](std::function<void()>&& fn) { fn(); });
+}
+
+void NullDevice::deny_compute(bool deny) noexcept
+{
+    impl_->info.compute = !deny;
 }
 
 void NullDevice::deny_filtered_sampling(Format format) noexcept

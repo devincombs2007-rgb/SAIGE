@@ -138,6 +138,22 @@ struct Viewport {
     float max_depth = 1.0f;
 };
 
+/// A compute pipeline: one compute shader, push constants visible to the compute stage, and the descriptor sets it reads and writes. Created with
+/// `Device::create_compute_pipeline`; bound with `CommandList::bind_pipeline` like a graphics pipeline, and run with `dispatch`.
+struct ComputePipelineDesc {
+    ShaderHandle compute_shader;  ///< a shader created with `ShaderStage::Compute`
+    uint32_t push_constant_size = 0;  ///< Bytes visible to the compute stage (a multiple of 4, <= 128).
+    /// Descriptor set layouts; the position in this list is the set index. At most `max_bind_groups_per_pipeline`. Dispatching requires a compatible
+    /// group bound to every set. The per-stage totals of `validate_pipeline_bindings` are checked for `StageMask::Compute`.
+    std::vector<BindGroupLayoutHandle> bind_group_layouts;
+    const char* debug_name = nullptr;
+};
+
+/// The largest group count along one axis of a dispatch: the portable minimum of maxComputeWorkGroupCount that every Vulkan device guarantees.
+inline constexpr uint32_t max_dispatch_groups_per_axis = 65535;
+/// Bytes of the argument record `dispatch_indirect` reads: three uint32 group counts (x, y, z).
+inline constexpr uint32_t dispatch_indirect_args_size = 12;
+
 struct RenderingDesc {
     std::vector<ColorAttachment> colors;
     std::optional<DepthAttachment> depth;
@@ -175,6 +191,13 @@ public:
                       uint32_t first_instance = 0) = 0;
     virtual void draw_indexed(uint32_t index_count, uint32_t instance_count = 1, uint32_t first_index = 0,
                               int32_t vertex_offset = 0, uint32_t first_instance = 0) = 0;
+    /// Runs the bound compute pipeline over x * y * z workgroups (each at most `max_dispatch_groups_per_axis`; zero in any axis does nothing). Outside a
+    /// rendering scope, with a compute pipeline bound and a compatible group at every set. Needs `DeviceInfo::compute`.
+    virtual void dispatch(uint32_t x, uint32_t y, uint32_t z) = 0;
+    /// Like `dispatch`, with the counts read on the GPU from three consecutive uint32 at `offset` of `args` (a buffer with `BufferUsage::Indirect`; the
+    /// offset a multiple of 4 with `dispatch_indirect_args_size` bytes inside the buffer). Whatever wrote the buffer must be made visible by a barrier
+    /// (`PipelineStage::ComputeShader` write to `PipelineStage::DrawIndirect` read, `Access::IndirectCommandRead`).
+    virtual void dispatch_indirect(BufferHandle args, uint64_t offset = 0) = 0;
     /// Copies mip 0 / layer 0 of `texture` (in TransferSrc layout) into `buffer`, tightly packed rows.
     virtual void copy_texture_to_buffer(TextureHandle texture, BufferHandle buffer) = 0;
     virtual void begin_debug_label(const char* name) = 0;
@@ -261,6 +284,9 @@ struct DeviceInfo {
     bool presentation_supported = false;
     bool software_device = false;  ///< CPU implementation (e.g. lavapipe).
     bool gpu_timestamps = false;   ///< write_timestamp / completed_timestamps measure GPU work; false = unavailable
+    /// Compute pipelines and dispatch work (`create_compute_pipeline`, `CommandList::dispatch`) and bind group entries may be visible to the compute stage.
+    /// True on the Vulkan 1.3 baseline (compute is mandatory on a graphics queue) and on the null backend. Where false, those calls are refused.
+    bool compute = false;
     double timestamp_period_ns = 0.0;
     /// Frames the device keeps in flight (DeviceDesc::frames_in_flight, at least 1). `begin_frame` returns once the work of frame
     /// `n - frames_in_flight` is complete, so a per-frame resource can be rewritten safely if it is indexed by
@@ -349,6 +375,8 @@ public:
     virtual void destroy(BindGroupHandle handle) = 0;
     virtual ShaderHandle create_shader(const ShaderDesc& desc) = 0;
     virtual PipelineHandle create_graphics_pipeline(const GraphicsPipelineDesc& desc) = 0;
+    /// Throws std::invalid_argument for an invalid description or where `DeviceInfo::compute` is false. The handle is destroyed like any pipeline.
+    virtual PipelineHandle create_compute_pipeline(const ComputePipelineDesc& desc) = 0;
     virtual void destroy(BufferHandle handle) = 0;
     virtual void destroy(TextureHandle handle) = 0;
     virtual void destroy(SamplerHandle handle) = 0;

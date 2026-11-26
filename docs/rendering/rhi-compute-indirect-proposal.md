@@ -1,6 +1,11 @@
 # RHI proposal: compute pipelines, dispatch, indirect draws and storage images
 
-Status: proposal for review in issue #43 (2026-11-26). Nothing here is implemented. It is additive: no existing signature, default or behaviour changes. `engine/rhi` is graphics architecture (Claude Code's area in `AGENTS.md`); Core consumes
+Status (2026-11-26): **approved by the project owner for implementation, subject to compatibility and regression testing** (priority: compute pipelines, dispatch, storage images and indirect drawing, then renderer-level instancing and GPU-driven culling).
+Implemented on `claude/fidelity-dev`: step 1 (stage visibility, `StorageTexture`, per-stage totals; commit `dd95c66`) and step 2 (`ComputePipelineDesc`, `create_compute_pipeline`, `dispatch`, `dispatch_indirect`, `DeviceInfo::compute`; null device and Vulkan backend, with lavapipe correctness tests: a fill compared with the CPU, a GPU-written indirect dispatch,
+a storage-image write, misuse rejection). Not yet implemented: indirect draws and their capability bits (step 3), then instancing and GPU culling. Two details differ from the sketch below: the dispatch limit is a named constant (`max_dispatch_groups_per_axis`, 65535) checked by both backends, and the storage-image test
+uses RGBA32F because the shader toolchain (glslang HLSL) maps `RWTexture2D<unorm float4>` to an `Rgba32f` image and the backend does not enable `shaderStorageImageWriteWithoutFormat`.
+
+Original status line follows. It is additive: no existing signature, default or behaviour changes. `engine/rhi` is graphics architecture (Claude Code's area in `AGENTS.md`); Core consumes
 it through `render_sink` and `include/saige` and is not affected by an additive change, but the item is posted for visibility because every later GPU-driven feature depends on it.
 
 ## What the RHI already has (verified in `engine/rhi/include/saige/rhi`)

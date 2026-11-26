@@ -218,6 +218,32 @@ bool eye_in_solid(const District& d, const std::array<float, 3>& eye) {
     return false;
 }
 
+bool view_into_solid(const District& d, const std::array<float, 3>& eye, const std::array<float, 3>& look, float distance) {
+    float dir[3] = {look[0] - eye[0], look[1] - eye[1], look[2] - eye[2]};
+    const float len = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+    if (!(len > 1e-6f) || !(distance > 0.0f)) return false;
+    for (float& v : dir) v /= len;
+    for (const Aabb& c : d.collision) {
+        if (c.max.z < 1.8f) continue;
+        const float lo[3] = {c.min.x, c.min.y, c.min.z}, hi[3] = {c.max.x, c.max.y, c.max.z};
+        float t0 = 0.0f, t1 = distance;
+        bool hit = true;
+        for (int a = 0; a < 3 && hit; ++a) {
+            if (std::abs(dir[a]) < 1e-9f) {
+                if (eye[static_cast<std::size_t>(a)] < lo[a] || eye[static_cast<std::size_t>(a)] > hi[a]) hit = false;
+            } else {
+                float ta = (lo[a] - eye[static_cast<std::size_t>(a)]) / dir[a], tb = (hi[a] - eye[static_cast<std::size_t>(a)]) / dir[a];
+                if (ta > tb) std::swap(ta, tb);
+                t0 = std::max(t0, ta);
+                t1 = std::min(t1, tb);
+                if (t0 > t1) hit = false;
+            }
+        }
+        if (hit) return true;
+    }
+    return false;
+}
+
 unsigned interior_wall_face_mask(const Rect& fp, const Rect& w, double eps) {
     unsigned mask = 63;
     if (std::abs(w.x0 - fp.x0) < eps) mask &= ~1u;

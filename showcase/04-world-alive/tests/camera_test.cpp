@@ -69,7 +69,7 @@ Result walk(const Case& cs) {
         const rend::Float3 p = director.last_proposed_eye();
         const std::array<float, 3> eye{cam.eye.x, cam.eye.y, cam.eye.z}, look{cam.look.x, cam.look.y, cam.look.z};
         const bool obstructed = view_obstructed(trees, awnings, eye, look, cam.fov_deg);
-        const bool solid = eye_in_solid(d, eye);
+        const bool solid = eye_in_solid(d, eye) || view_into_solid(d, eye, look, 1.2f);   // inside a wall, or a wall within 1.2 m straight ahead
         const std::array<float, 3> target = cam.has_subject ? std::array<float, 3>{cam.subject.x, cam.subject.y, cam.subject.z} : look;
         const bool hidden = director.shot_tracks_subject(tf) && sightline_blocked_by_building(d, eye, target);
         ++r.frames;
@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
     for (const Case& cs : cases) {
         const Result r = walk(cs);
         ++walked;
-        std::printf("seed %2u %s: %d frames, bad %d (obstructed %d, solid %d, hidden %d), displaced %d, shift %.2f m horizontal %.2f m up, beyond budget %d, unresolved %d, largest change of the shift %.2f m, %d jumps over 1.5 m (%s)\n", cs.seed, cs.real ? "real " : "none ", r.frames, r.bad, r.obstructed, r.solid, r.hidden, r.stats.displaced_frames, r.max_h, r.max_lift, r.stats.over_budget, r.stats.unresolved, r.max_jump, r.pops, r.worst_jump.c_str());
+        std::printf("seed %2u %s: %d frames, bad %d (obstructed %d, solid %d, hidden %d), displaced %d, shift %.2f m horizontal %.2f m up, beyond budget %d, re-framed %d, unresolved %d, largest change of the shift %.2f m, %d jumps over 1.5 m (%s)\n", cs.seed, cs.real ? "real " : "none ", r.frames, r.bad, r.obstructed, r.solid, r.hidden, r.stats.displaced_frames, r.max_h, r.max_lift, r.stats.over_budget, r.stats.reframed, r.stats.unresolved, r.max_jump, r.pops, r.worst_jump.c_str());
         CHECK(r.frames == 5400, "walked %d frames", r.frames);
         // Nothing fails silently: every failing frame is one the director counted as unresolved.
         CHECK(r.bad <= r.stats.unresolved, "seed %u %s: %d frames fail a rule but the director counted only %d as unresolved", cs.seed, cs.real ? "real" : "none", r.bad, r.stats.unresolved);
@@ -144,13 +144,13 @@ int main(int argc, char** argv) {
         // The camera that this slice's check accepts: no frame fails a rule.
         CHECK(r.bad == 0, "seed %u %s: %d frames fail (obstructed %d, solid %d, hidden %d)", cs.seed, cs.real ? "real" : "none", r.bad, r.obstructed, r.solid, r.hidden);
         CHECK(r.stats.unresolved == 0, "seed %u %s: %d frames had no passing candidate within the budget", cs.seed, cs.real ? "real" : "none", r.stats.unresolved);
-        // How far past the budget the eye may go, and for how many frames: only to leave a wall, and bounded (the worst observed is 76 frames of 5400 and 6.0 m).
-        CHECK(r.stats.over_budget <= 200 && r.max_h <= 8.0 + 1e-3, "seed %u %s: %d frames beyond the budget, largest shift %.2f m", cs.seed, cs.real ? "real" : "none", r.stats.over_budget, r.max_h);
+        // The budget is met, not exceeded and then reported: no frame is beyond 5 m / 2.5 m (the director counts none beyond it, and the independent measurement above agrees) and none had to be re-framed on an arc.
+        CHECK(r.stats.over_budget == 0 && r.stats.reframed == 0 && r.max_h <= 5.0 + 1e-3 && r.max_lift <= 2.5 + 1e-3, "seed %u %s: %d frames beyond the budget, %d re-framed, largest shift %.2f m, %.2f m up", cs.seed, cs.real ? "real" : "none", r.stats.over_budget, r.stats.reframed, r.max_h, r.max_lift);
         // Continuity, measured independently of the director's bookkeeping: the change of (final eye - proposed eye) between two frames of one shot. It is a KNOWN LIMIT, not a pass: when the standing offset stops
-        // passing and the nearest passing one is far away the eye jumps (up to 7.3 m on seed 4, in a follow shot of a resident). The test bounds it so that it cannot get worse unnoticed: at most 7.5 m in one frame
-        // and at most 8 jumps over 1.5 m in a film. The director's own count must agree with the test's.
-        CHECK(r.max_jump <= 7.5, "seed %u %s: the clearance moved the eye by %.2f m in one frame (%s)", cs.seed, cs.real ? "real" : "none", r.max_jump, r.worst_jump.c_str());
-        CHECK(r.pops <= 8 && r.pops == r.stats.pops, "seed %u %s: %d jumps over 1.5 m in this film (the director counted %d)", cs.seed, cs.real ? "real" : "none", r.pops, r.stats.pops);
+        // passing and the nearest passing one is far away the eye jumps (5.6 m on seed 4, in a follow shot of a resident). The test bounds it so that it cannot get worse unnoticed: at most 6 m in one frame
+        // and at most 3 jumps over 1.5 m in a film (measured: at most 2 per film and 5.6 m). The director's own count must agree with the test's.
+        CHECK(r.max_jump <= 6.0, "seed %u %s: the clearance moved the eye by %.2f m in one frame (%s)", cs.seed, cs.real ? "real" : "none", r.max_jump, r.worst_jump.c_str());
+        CHECK(r.pops <= 3 && r.pops == r.stats.pops, "seed %u %s: %d jumps over 1.5 m in this film (the director counted %d)", cs.seed, cs.real ? "real" : "none", r.pops, r.stats.pops);
     }
     CHECK(walked > 0, "no case was walked");
     if (failures == 0) std::printf("camera tests passed (%d cases)\n", walked);

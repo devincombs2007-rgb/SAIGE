@@ -315,7 +315,7 @@ int main(int argc, char** argv) {
                     }();
                     const std::array<float, 3> eye3{cam.eye.x, cam.eye.y, cam.eye.z}, look3{cam.look.x, cam.look.y, cam.look.z};
                     const bool obstructed = view_obstructed(trees, awnings, eye3, look3, cam.fov_deg);
-                    const bool solid = eye_in_solid(district, eye3);
+                    const bool solid = eye_in_solid(district, eye3) || view_into_solid(district, eye3, look3, 1.2f);   // inside a wall, or a wall within 1.2 m straight ahead
                     const bool hidden = director.shot_tracks_subject(tf) && sightline_blocked_by_building(district, eye3, cam.has_subject ? std::array<float, 3>{cam.subject.x, cam.subject.y, cam.subject.z} : look3);   // only shots that follow a resident or a vehicle have a subject for a building to hide
                     if (solid && std::getenv("SAIGE_ALIVE_CAMERA_DEBUG") != nullptr) {
                         for (const Aabb& c : district.collision)
@@ -431,7 +431,7 @@ int main(int argc, char** argv) {
             if (opt.check_camera) {
                 std::printf("world check: %d vehicle-frames with the centre inside a building volume\n", vehicle_in_building);
                 const ClearanceStats cs = director.clearance_stats();
-                std::printf("camera clearance: displaced %d frames, largest horizontal shift %.2f m, lift %.2f m, largest change of the shift between two frames %.2f m (%d jumps over 1.5 m), %d frames with no passing candidate in the budget, %d frames beyond the budget (to leave a wall)\n", cs.displaced_frames, static_cast<double>(cs.max_offset_horizontal), static_cast<double>(cs.max_offset_lift), static_cast<double>(cs.max_offset_step), cs.pops, cs.unresolved, cs.over_budget);
+                std::printf("camera clearance: displaced %d frames, largest horizontal shift %.2f m, lift %.2f m, largest change of the shift between two frames %.2f m (%d jumps over 1.5 m), %d frames with no passing candidate, %d frames beyond the 5 m budget (up to 12 m), %d frames re-framed on an arc around the subject\n", cs.displaced_frames, static_cast<double>(cs.max_offset_horizontal), static_cast<double>(cs.max_offset_lift), static_cast<double>(cs.max_offset_step), cs.pops, cs.unresolved, cs.over_budget, cs.reframed);
             }
             if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage or an awning, inside solid geometry, or with a building between it and its subject (obstructed %d, in solid %d, subject hidden %d)\n", camera_violations, last, cam_obstructed, cam_solid, cam_hidden);
             return opt.check_camera && camera_violations > 0 ? 3 : 0;

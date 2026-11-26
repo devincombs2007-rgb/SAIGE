@@ -26,6 +26,7 @@ struct Cam {
 /// least-bad candidate and are reported by the film's camera check, never hidden. `max_offset_step` is the largest change of the offset between two consecutive frames (a jump of the camera that is not the shot's).
 struct ClearanceStats {
     int unresolved = 0;
+    int reframed = 0;      // frames where the eye moved along an arc around the subject (bearing up to 120 degrees, 0.7 to 1.3 times the distance) because no eye within 12 m passed: the subject keeps its distance and the viewing angle changes
     int over_budget = 0;   // frames where only an eye beyond the budget (up to 12 m) cleared a wall or prop: the budget is exceeded for those frames, and counted here
     int displaced_frames = 0;
     int pops = 0;   // changes of the offset larger than 1.5 m between two consecutive frames of one shot: the eye had to jump because the standing offset stopped passing and the nearest passing one was far (a cut the shot did not ask for)

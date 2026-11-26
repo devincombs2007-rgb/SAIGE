@@ -74,6 +74,9 @@ struct FaceFrame {
 [[nodiscard]] bool sightline_blocked_by_building(const District& d, const std::array<float, 3>& eye, const std::array<float, 3>& look);
 // Is the eye inside any solid collision box tall enough to matter (a wall, a prop, a parked car's body is below an eye at 1.7 m and does not count)?
 [[nodiscard]] bool eye_in_solid(const District& d, const std::array<float, 3>& eye);
+/// Is a wall or tall prop (a collision box taller than an eye) within `distance` metres straight ahead of the eye, towards `look`? A camera that passes eye_in_solid can still stare at a brick wall from 30 cm: the picture is then a
+/// close-up of a surface, whatever the other rules say. (Found by looking at the frames, not by the rules: S4-038.)
+[[nodiscard]] bool view_into_solid(const District& d, const std::array<float, 3>& eye, const std::array<float, 3>& look, float distance);
 
 [[nodiscard]] ValidationReport validate_district(const District& d);
 

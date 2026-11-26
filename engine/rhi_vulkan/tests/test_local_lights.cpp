@@ -4,6 +4,7 @@
 
 #include "saige/gfx_test/brdf_reference.hpp"
 #include "saige/gfx_test/saige_test.hpp"
+#include "saige/render/local_light.hpp"
 #include "saige/render_reference/lights.hpp"
 
 #include "saige/shaders/test_local_light_probe.spv.hpp"
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <functional>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 using namespace saige;
@@ -191,7 +193,8 @@ struct Result {
     std::vector<std::array<float, 4>> values;
 };
 
-Result run_gpu(rhi::Device& device, const Scene& scene)
+/// `raw`: pack the lights with the test's own packer instead of render::LocalLightSet (only for a light the set would refuse, such as a radius of 0, to see what the shader does with it).
+Result run_gpu(rhi::Device& device, const Scene& scene, bool raw = false)
 {
     Result out;
     out.values.resize(scene.probes.size());
@@ -222,7 +225,25 @@ Result run_gpu(rhi::Device& device, const Scene& scene)
         d[8] = p.view[0]; d[9] = p.view[1]; d[10] = p.view[2]; d[11] = 0;
         d[12] = p.base_color[0]; d[13] = p.base_color[1]; d[14] = p.base_color[2]; d[15] = 0;
     }
-    for (size_t i = 0; i < scene.lights.size(); ++i) pack_light(scene.lights[i], &light_data[i * 16u]);
+    if (raw) {
+        for (size_t i = 0; i < scene.lights.size(); ++i) pack_light(scene.lights[i], &light_data[i * 16u]);
+    } else {
+        // The bytes the engine writes: render::LocalLightSet validates and packs the lights (its 64-byte record is what the shader reads).
+        render::LocalLightSet set(static_cast<uint32_t>(std::max<size_t>(scene.lights.size(), 1)));
+        for (const Light& l : scene.lights) {
+            if (l.kind == Kind::Point) {
+                render::PointLightDesc d;
+                d.position = l.position; d.color = l.color; d.intensity = l.intensity; d.radius = l.radius;
+                set.add_point(d);
+            } else {
+                render::SpotLightDesc d;
+                d.position = l.position; d.direction = l.direction; d.color = l.color; d.intensity = l.intensity; d.radius = l.radius; d.inner_angle = l.inner; d.outer_angle = l.outer;
+                set.add_spot(d);
+            }
+        }
+        if (set.size() != scene.lights.size()) throw std::runtime_error("the light set refused a test light");
+        std::memcpy(light_data.data(), set.bytes().data(), set.bytes().size());
+    }
     const auto make = [&](std::span<const float> data, uint64_t bytes, const char* name) {
         rhi::BufferDesc bd;
         bd.size = bytes;
@@ -340,7 +361,7 @@ TEST_CASE("Local lights on the GPU: exact cases (outside the radius, outside the
         dead.radius = 0.0f;
         scene.lights = {dead};
         scene.probes = {probe({0, 0, 5}, {0, 0, 1}), probe({0, 0, 4}, {0, 0, 1})};
-        const Result none = run_gpu(*device, scene);
+        const Result none = run_gpu(*device, scene, true);
         for (size_t i = 0; i < scene.probes.size(); ++i) CHECK(none.values[i][0] == 0.0f && none.values[i][1] == 0.0f && none.values[i][2] == 0.0f && none.values[i][3] == 0.0f);
         scene.lights = {point};
     }

@@ -12,12 +12,12 @@ option(SAIGE_RENDER_REFERENCE_BUILD_TESTS "Build saige::render_reference tests" 
 
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/SaigeGraphics.cmake)
 
-add_library(saige_render_reference STATIC src/taa.cpp src/lights.cpp)
+add_library(saige_render_reference STATIC src/taa.cpp src/lights.cpp src/light_culling.cpp)
 add_library(saige::render_reference ALIAS saige_render_reference)
 target_include_directories(saige_render_reference PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 saige_gfx_configure_target(saige_render_reference)
 
 if(SAIGE_RENDER_REFERENCE_BUILD_TESTS)
     enable_testing()
-    saige_gfx_add_test(saige_render_reference_tests SOURCES tests/test_taa.cpp tests/test_lights.cpp LINK saige::render_reference)
+    saige_gfx_add_test(saige_render_reference_tests SOURCES tests/test_taa.cpp tests/test_lights.cpp tests/test_light_culling.cpp LINK saige::render_reference)
 endif()

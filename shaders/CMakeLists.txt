@@ -14,6 +14,7 @@ set(SAIGE_SHADER_SOURCES
     scene/ao_generate.hlsl
     scene/cube.hlsl
     scene/cull_instances.hlsl
+    scene/cull_lights.hlsl
     scene/fxaa.hlsl
     scene/ground.hlsl
     scene/model.hlsl

@@ -54,6 +54,7 @@ struct Options {
     int start_frame = 0, end_frame = -1;
     fs::path video;
     fs::path scout_file;
+    bool scout_legacy = false;   // read a headerless (pre-format-1) scout file, such as the one the delivered film was shot from
     fs::path audio_log;
     bool no_render = false;
     std::vector<int> only_frames;
@@ -100,6 +101,7 @@ Options parse(int argc, char** argv) {
             else if (a == "--end-frame") o.end_frame = std::stoi(value());
             else if (a == "--video") o.video = value();
             else if (a == "--scout-file") o.scout_file = value();
+            else if (a == "--scout-legacy") o.scout_legacy = true;
             else if (a == "--audio-log") o.audio_log = value();
             else if (a == "--no-render") o.no_render = true;
             else if (a == "--frames") {
@@ -244,25 +246,26 @@ int main(int argc, char** argv) {
         if (opt.film) {
             ScoutReport rep;
             if (!opt.scout_file.empty() && fs::exists(opt.scout_file)) {
-                std::ifstream in(opt.scout_file);
-                std::string tag;
-                while (in >> tag) {
-                    if (tag == "accident") in >> rep.accident_t >> rep.accident_x >> rep.accident_y >> rep.accident_vehicle >> rep.onscene_t >> rep.cleared_t;
-                    else if (tag == "event") {
-                        ScoutEvent e;
-                        int type = 0;
-                        in >> e.t >> type >> e.vehicle >> e.x >> e.y;
-                        e.type = static_cast<TrafficEvent::Type>(type);
-                        rep.events.push_back(e);
-                    }
-                }
+                // An existing file is read strictly and never silently replaced: a file that cannot be read is an error, not a reason to scout again.
+                std::ifstream in(opt.scout_file, std::ios::binary);
+                std::string text(static_cast<std::size_t>(fs::file_size(opt.scout_file)), '\0');
+                in.read(text.data(), static_cast<std::streamsize>(text.size()));
+                if (!in || static_cast<std::size_t>(in.gcount()) != text.size()) throw std::runtime_error("cannot read scout file " + opt.scout_file.string());
+                const ScoutParse pr = parse_scout_report(text, rep, opt.scout_legacy);
+                if (!pr.ok) throw std::runtime_error("scout file " + opt.scout_file.string() + ": " + pr.error);
+                if (pr.has_seed && pr.seed != opt.seed) throw std::runtime_error("scout file " + opt.scout_file.string() + " was made for seed " + std::to_string(pr.seed) + ", this run is seed " + std::to_string(opt.seed));
+                std::printf("scout file %s: %s, %zu events\n", opt.scout_file.string().c_str(), pr.legacy ? "legacy layout (no seed, no end line: truncation cannot be detected)" : "format 1", rep.events.size());
             } else {
                 rep = scout_world(wc, opt.preroll + opt.film_seconds + 1.0);
                 if (!opt.scout_file.empty()) {
-                    std::ofstream out(opt.scout_file);
-                    out.precision(17);
-                    out << "accident " << rep.accident_t << " " << rep.accident_x << " " << rep.accident_y << " " << rep.accident_vehicle << " " << rep.onscene_t << " " << rep.cleared_t << "\n";
-                    for (const ScoutEvent& e : rep.events) out << "event " << e.t << " " << static_cast<int>(e.type) << " " << e.vehicle << " " << e.x << " " << e.y << "\n";
+                    const fs::path tmp = opt.scout_file.string() + ".tmp";
+                    {
+                        std::ofstream out(tmp, std::ios::binary);
+                        write_scout_report(out, rep, opt.seed);
+                        out.flush();
+                        if (!out) throw std::runtime_error("cannot write scout file " + tmp.string());
+                    }
+                    fs::rename(tmp, opt.scout_file);
                 }
             }
             std::printf("scout (seed %u): accident at %.1f s sim (film %.1f), response on scene at %.1f, cleared %.1f\n", opt.seed, rep.accident_t, rep.accident_t - opt.preroll, rep.onscene_t, rep.cleared_t);

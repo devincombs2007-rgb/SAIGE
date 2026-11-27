@@ -36,6 +36,9 @@
 #ifndef SAIGE_SKINNING
 #define SAIGE_SKINNING 0
 #endif
+#ifndef SAIGE_LOCAL_LIGHTS
+#define SAIGE_LOCAL_LIGHTS 0
+#endif
 
 struct ModelPush {
     column_major float4x4 view_proj;
@@ -103,6 +106,16 @@ float3 ibl_specular(float3 r, float roughness)
     const float2 uv = float2(atan2(r.y, r.x) * 0.15915494309189535 + 0.5, acos(clamp(r.z, -1.0, 1.0)) * 0.3183098861837907);
     return g_ibl_env.SampleLevel(g_ibl_sampler, uv, saturate(roughness) * ibl_params.x).rgb * ibl_params.y;
 }
+#endif
+#if SAIGE_LOCAL_LIGHTS
+// Local point and spot lights (metallic-roughness shading only; model_lit.hlsl): the frame's light records (docs/rendering/local-lights.md, 64 bytes each, a StructuredBuffer<float4> with
+// four entries per light) and the count. A forward loop over every light; no shadows, IBL, skinning or instancing with it in this version.
+#include "local_lights.hlsli"
+[[vk::binding(9, 1)]] StructuredBuffer<float4> g_local_lights;
+[[vk::binding(10, 1)]] cbuffer LocalLightConstants
+{
+    float4 ll_params;  // x: lights in this frame's buffer (written by the renderer, never above the capacity), y: the buffer's capacity
+};
 #endif
 #if SAIGE_SUN_SHADOWS
 [[vk::binding(3, 1)]] Texture2D<float> g_shadow_map;            // sun depth, reverse-Z (1 nearest the light)
@@ -380,6 +393,12 @@ float4 PSMain(VSOutput input, bool front : SV_IsFrontFace) : SV_Target0
 #else
             lit = shade_directional(surface, v, sc_sun_direction.xyz, SUN_RADIANCE) +
                   shade_ambient(surface, env_brdf, ambient_radiance(mapped), ambient_radiance(r)) + surface.emissive;
+#endif
+#if SAIGE_LOCAL_LIGHTS
+            const uint light_count = min(uint(ll_params.x), uint(ll_params.y));
+            for (uint li = 0u; li < light_count; ++li) {
+                lit += shade_local_light(surface, input.world_pos, v, load_local_light(g_local_lights, li));
+            }
 #endif
         } else {
             lit = base.rgb * (ambient_radiance(n) * surface.occlusion + sc_sun_color.rgb * n_dot_l) + surface.emissive;

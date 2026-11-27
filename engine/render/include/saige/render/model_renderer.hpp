@@ -15,6 +15,7 @@
 
 #include "saige/render/environment_lighting.hpp"
 #include "saige/render/gpu_resources.hpp"
+#include "saige/render/local_light.hpp"
 #include "saige/render/math.hpp"
 #include "saige/render/model.hpp"
 #include "saige/render/skin_palette.hpp"
@@ -87,6 +88,8 @@ struct ModelFrameStats {
     uint32_t instanced_draws = 0;        ///< batched draw calls (one primitive, many instances; also counted in draw_calls); see ModelRenderSettings::instancing
     uint32_t instances_batched = 0;      ///< instance-primitive pairs those draws covered (the draw calls the same frame would have needed without instancing)
     uint32_t instance_overflow = 0;      ///< placements of an instanced draw that did not fit the frame's instance buffer and were drawn instance by instance instead
+    uint32_t local_lights_drawn = 0;     ///< lights in this frame's buffer (see ModelRenderSettings::local_light_capacity)
+    uint32_t local_lights_dropped = 0;   ///< lights submitted beyond the capacity this frame: never written to the buffer, counted here
 };
 
 /// Renderer-local lighting selection. These values also identify the shader modes.
@@ -156,6 +159,13 @@ struct ModelLightingFrame {
     Float3 sky_color{0.30f, 0.50f, 0.82f};  ///< linear, finite and not negative
 };
 
+/// The largest `ModelRenderSettings::local_light_capacity` (the forward loop has no culling in this version).
+inline constexpr uint32_t kMaxLocalLights = 256;
+
+/// Checks every record of a frame's local lights (finite, radius in (0, 1e5], colour and intensity not negative, a sane spot cone); throws std::invalid_argument naming the first fault.
+/// `ModelRenderer::set_local_lights` runs it before writing anything; `SceneRenderer::render` runs it before it creates, records or writes anything.
+void validate_local_light_records(std::span<const LocalLightGpu> lights);
+
 struct ModelRenderSettings {
     ModelShading shading = ModelShading::Legacy;
     /// Image-based lighting (see environment_lighting.hpp). Null (the default) is off: the shader, layout and resources are exactly the ones without it. With an
@@ -168,6 +178,11 @@ struct ModelRenderSettings {
     /// `DeviceInfo::frames_in_flight` buffers (with their bind groups), one per frame slot, and `set_lighting_frame` publishes a frame's lighting. A frame that
     /// publishes nothing draws with the construction-time lighting. Costs one small uniform buffer and one bind group per slot.
     bool dynamic_lighting = false;
+    /// Local point and spot lights (docs/rendering/local-lights.md): the most lights one frame can hold (0 to 256). **0 is off**: the shader, layout and resources are exactly the ones
+    /// without it. Above 0 the renderer uses the local-light shader permutation (a forward loop over the frame's lights, added to the sun and the ambient term) with a ring of light buffers,
+    /// one per frame slot, written by `set_local_lights`. First version: needs `shading == MetallicRoughness` and `dynamic_lighting` (the ring), and does not combine with shadows, an
+    /// environment, skinning or instancing: each combination throws std::invalid_argument at construction (nothing is acquired). The records are validated on every `set_local_lights`.
+    uint32_t local_light_capacity = 0;
     ModelShadowSettings shadows;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a
     /// BLEND material draws opaque exactly as in 0.2, so saved 0.2 scenes look as they did until a host opts in.
@@ -252,6 +267,13 @@ public:
     [[nodiscard]] bool ibl_enabled() const noexcept { return ibl_enabled_; }
     [[nodiscard]] bool skinning_enabled() const noexcept { return skinning_enabled_; }
     [[nodiscard]] bool instancing_enabled() const noexcept { return instancing_enabled_; }
+    [[nodiscard]] uint32_t local_light_capacity() const noexcept { return local_light_capacity_; }
+    /// Publishes this frame's local lights: validated first (std::invalid_argument for a non-finite value, a radius outside (0, 1e5], a negative colour or intensity, or a bad cone, with
+    /// nothing written), then the first `local_light_capacity` records are copied into the frame slot's buffer; the rest are dropped and counted (`ModelFrameStats::local_lights_dropped`).
+    /// One publication per renderer per device frame, before the frame's first `draw`; a second one, or one after a draw, throws std::logic_error before anything is written. A frame that
+    /// publishes nothing draws zero lights. Throws std::logic_error if local lights are off (capacity 0). The buffer of frame slot `slot` is `local_light_buffer(slot)` for tests.
+    void set_local_lights(std::span<const LocalLightGpu> lights);
+    [[nodiscard]] rhi::BufferHandle local_light_buffer(uint32_t slot) const noexcept { return slot < light_buffers_.size() ? light_buffers_[slot].handle() : rhi::BufferHandle{}; }
     /// Creates the palette of one animated instance with `joint_count` joints (1 to kMaxSkinJoints), initially the bind pose (identity matrices).
     /// Throws std::logic_error if skinning is off, std::invalid_argument for a bad count. Nothing is leaked on failure.
     [[nodiscard]] SkinPalette create_skin_palette(uint32_t joint_count, const char* name);
@@ -377,6 +399,15 @@ private:
     uint64_t lighting_frame_number_ = 0;      ///< the device frame the slot was last written for
     bool lighting_written_ = false;
     Float3 frame_sun_{};
+    // Local lights (empty when off): per frame slot, the light records (storage) and the count block (uniform).
+    uint32_t local_light_capacity_ = 0;
+    std::vector<BufferRef> light_buffers_;
+    std::vector<BufferRef> light_counts_;
+    uint64_t lights_frame_number_ = 0;
+    bool lights_written_ = false;
+    uint32_t frame_light_count_ = 0;
+    uint32_t frame_light_dropped_ = 0;
+    void write_light_block(std::span<const LocalLightGpu> lights);
     void write_scene_block(const float* constants, Float3 sun);
     TextureRef white_srgb_, white_linear_, flat_normal_;  ///< neutral textures: base/emissive, metallic-roughness/occlusion, normal
     TextureRef env_brdf_;                                 ///< split-sum table (set 1); a single zero texel in Legacy shading

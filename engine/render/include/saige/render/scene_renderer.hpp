@@ -121,6 +121,10 @@ struct RendererSettings {
     /// that supplies nothing uses `lighting`. Costs one small uniform buffer and bind group per frame in flight in the model renderer. Composes with shadows, IBL, skinning and HDR.
     /// With the sun at or below the horizon (`z <= 0`) no cascades are fitted that frame: nothing is shadowed by a sun that is not up. See docs/rendering/dynamic-lighting.md.
     bool dynamic_lighting = false;
+    /// Local point and spot lights for imported models (`ModelRenderSettings::local_light_capacity`): 0 is off and changes nothing (the shaders, bindings and image are those of 0.2);
+    /// 1 to 256 needs `model_shading == MetallicRoughness` and `dynamic_lighting`, and cannot yet combine with shadows, an environment, skinning or instancing (the constructor of the
+    /// model renderer throws std::invalid_argument). Each frame's lights come in `SceneFrame::local_lights`; records beyond the capacity are dropped and counted, never written.
+    uint32_t local_light_capacity = 0;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;
     /// Frustum-cull imported-model primitives by their bounding spheres. On by default: it never changes the image (the test is conservative and
@@ -168,6 +172,11 @@ struct SceneFrame {
     /// like the settings' lighting, before anything is recorded or written: `render` throws std::invalid_argument for a bad value and std::logic_error if the renderer
     /// was not built with dynamic lighting, and nothing has changed when it does.
     const SceneLighting* lighting = nullptr;
+    /// This frame's local lights for imported models (needs `RendererSettings::local_light_capacity > 0`; not retained). Empty: no local light this frame. Validated before anything is
+    /// created, recorded or written (`validate_local_light_records`); `render` throws std::invalid_argument for a bad record and std::logic_error for a renderer without the capacity,
+    /// and nothing has changed when it does. Beyond the capacity the surplus is dropped and counted (`ModelFrameStats::local_lights_dropped`). A second view of the same device frame
+    /// that supplies lights is refused (one publication per frame); it should pass none.
+    std::span<const LocalLightGpu> local_lights;
     /// This frame's exposure in stops (HDR only; not retained): replaces `RendererSettings::tone_map.exposure_ev` for this frame's tone map, so a host can adapt the exposure over time
     /// (day to night). Unset: the construction-time value. Clamped by the tone mapper like the setting.
     std::optional<float> exposure_ev;
@@ -213,6 +222,8 @@ struct FrameStats {
     uint32_t model_instanced_draws = 0;    ///< batched model draw calls: one primitive, several instances (also counted in model draw calls); see RendererSettings::instancing
     uint32_t model_instances_batched = 0;  ///< instance-primitive pairs those draws covered
     uint32_t model_instance_overflow = 0;  ///< placements that did not fit the frame's instance buffer and were drawn instance by instance
+    uint32_t model_local_lights_drawn = 0;    ///< local lights the model pass evaluated this frame (the published count, at most the capacity)
+    uint32_t model_local_lights_dropped = 0;  ///< published local lights beyond the capacity: not written, not drawn
 };
 
 class SceneRenderer {
@@ -264,6 +275,8 @@ private:
     uint64_t lighting_snapshot_frame_ = ~uint64_t{0};
     LightingSnapshot lighting_snapshot_;
     uint64_t lighting_published_frame_ = ~uint64_t{0};  ///< the device frame for which this renderer published the models' lighting
+    uint64_t lights_models_frame_ = ~uint64_t{0};       ///< the device frame whose model view has already been recorded (its local lights are then fixed)
+    uint64_t lights_published_frame_ = ~uint64_t{0};    ///< the device frame for which this renderer published the models' local lights
     [[nodiscard]] Camera sky_camera(const SceneFrame& frame) const;  ///< the camera the frame is drawn with (the explicit one, or the follow/fixed camera's)
     [[nodiscard]] Float3 atmosphere_fog(Float3 to_sun) const;  ///< the horizon color the fog fades to when the atmosphere is on, display-referred in an LDR scene
     rhi::BufferHandle cube_vertices_, cube_indices_;

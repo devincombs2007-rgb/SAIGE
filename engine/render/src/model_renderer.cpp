@@ -7,6 +7,7 @@
 #include "saige/shaders/scene_model.spv.hpp"
 #include "saige/shaders/scene_model_ibl.spv.hpp"
 #include "saige/shaders/scene_model_ibl_shadowed.spv.hpp"
+#include "saige/shaders/scene_model_lit.spv.hpp"
 #include "saige/shaders/scene_model_instanced.spv.hpp"
 #include "saige/shaders/scene_model_shadowed.spv.hpp"
 #include "saige/shaders/scene_model_skinned.spv.hpp"
@@ -217,6 +218,15 @@ ModelRenderer::ModelRenderer(rhi::Device& device, GpuResourceRegistry& registry,
     ibl_enabled_ = settings.environment != nullptr;
     skinning_enabled_ = settings.skinning;
     dynamic_lighting_ = settings.dynamic_lighting;
+    if (settings.local_light_capacity > 0) {  // the first version's combinations are refused before anything is acquired
+        if (settings.local_light_capacity > kMaxLocalLights) throw std::invalid_argument("ModelRenderer: local_light_capacity must be 0 to 256");
+        if (settings.shading != ModelShading::MetallicRoughness) throw std::invalid_argument("ModelRenderer: local lights need metallic-roughness shading (the other modes would ignore them)");
+        if (!settings.dynamic_lighting) throw std::invalid_argument("ModelRenderer: local lights need dynamic_lighting (the per-frame ring their buffers live in)");
+        if (settings.shadows.enabled || settings.environment || settings.skinning || settings.instancing) {
+            throw std::invalid_argument("ModelRenderer: local lights do not yet combine with shadows, an environment, skinning or instancing");
+        }
+    }
+    local_light_capacity_ = settings.local_light_capacity;
     if (settings.instancing && (settings.max_instances < 1 || settings.max_instances > (1u << 20))) {
         throw std::invalid_argument("ModelRenderer: the instance buffer size (max_instances) must be 1 to 1048576 entries");
     }
@@ -255,6 +265,11 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         ps_words = words(scene_model_ibl_ps_main);
         vs_name = "SceneModelIbl.VS";
         ps_name = "SceneModelIbl.PS";
+    } else if (local_light_capacity_ > 0) {
+        vs_words = words(scene_model_lit_vs_main);
+        ps_words = words(scene_model_lit_ps_main);
+        vs_name = "SceneModelLit.VS";
+        ps_name = "SceneModelLit.PS";
     }
     vs_ = device_.create_shader({rhi::ShaderStage::Vertex, vs_words, "VSMain", vs_name});
     ps_ = device_.create_shader({rhi::ShaderStage::Pixel, ps_words, "PSMain", ps_name});
@@ -278,6 +293,10 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
         constants.entries.push_back({6, rhi::BindingType::SampledTexture});
         constants.entries.push_back({7, rhi::BindingType::Sampler});
         constants.entries.push_back({8, rhi::BindingType::UniformBuffer});
+    }
+    if (local_light_capacity_ > 0) {  // the local-light permutation: the frame's light records and the count block, read by the pixel stage only
+        constants.entries.push_back({9, rhi::BindingType::StorageBuffer, rhi::StageMask::Pixel});
+        constants.entries.push_back({10, rhi::BindingType::UniformBuffer, rhi::StageMask::Pixel});
     }
     constants.debug_name = "ModelConstantsLayout";
     constants_layout_ = device_.create_bind_group_layout(constants);
@@ -567,8 +586,36 @@ void ModelRenderer::acquire(rhi::Format color_format, rhi::Format depth_format, 
 
     if (!shadows_enabled_ && dynamic_lighting_) {
         constants_groups_.reserve(light_slots);
+        if (local_light_capacity_ > 0) {  // one record buffer and one count block per frame slot, zero lights until a frame publishes some
+            light_buffers_.reserve(light_slots);
+            light_counts_.reserve(light_slots);
+        }
         for (uint32_t i = 0; i < light_slots; ++i) {
-            constants_groups_.push_back(registry_.create_bind_group(constants_layout_, constant_bindings_for(nullptr, scene_blocks_[i]), "ModelSceneConstants"));
+            std::vector<BindGroupBinding> bindings = constant_bindings_for(nullptr, scene_blocks_[i]);
+            if (local_light_capacity_ > 0) {
+                rhi::BufferDesc lb;
+                lb.size = uint64_t{local_light_capacity_} * sizeof(LocalLightGpu);
+                lb.usage = rhi::BufferUsage::Storage;
+                lb.memory = rhi::MemoryLocation::CpuToGpu;
+                lb.debug_name = "ModelLocalLights";
+                light_buffers_.push_back(registry_.create_buffer(lb));
+                std::span<std::byte> mapped = device_.map(light_buffers_.back().handle());
+                if (mapped.size() < lb.size) throw std::runtime_error("ModelRenderer: the local light buffer is not host visible");
+                std::memset(mapped.data(), 0, static_cast<std::size_t>(lb.size));
+                const float params[4] = {0.0f, static_cast<float>(local_light_capacity_), 0.0f, 0.0f};
+                BufferRef count;
+                make_uniform(device_, registry_, count, params, sizeof(params), "ModelLocalLightCount");
+                light_counts_.push_back(std::move(count));
+                BindGroupBinding b9, b10;
+                b9.binding = 9;
+                b9.buffer = light_buffers_.back();
+                b9.size = lb.size;
+                b10.binding = 10;
+                b10.buffer = light_counts_.back();
+                b10.size = sizeof(params);
+                bindings.insert(bindings.end(), {b9, b10});
+            }
+            constants_groups_.push_back(registry_.create_bind_group(constants_layout_, bindings, "ModelSceneConstants"));
         }
         return;
     }
@@ -631,6 +678,8 @@ void ModelRenderer::release() noexcept
     constants_groups_.clear();
     shadow_blocks_.clear();
     scene_blocks_.clear();
+    light_counts_.clear();
+    light_buffers_.clear();
     constants_group_.reset();
     ibl_block_.reset();
     ibl_sampler_.reset();
@@ -946,7 +995,12 @@ void ModelRenderer::draw(rhi::CommandList& cmd, const Mat4& view_proj, Float3 ca
         const uint64_t frame_number = device_.frame_number();
         if (!(lighting_written_ && lighting_frame_number_ == frame_number)) write_scene_block(scene_default_.data(), sun_direction_);
         if (shadows_enabled_ && !(shadow_frame_written_ && shadow_frame_number_ == frame_number)) set_shadow_frame(nullptr);
+        if (local_light_capacity_ > 0 && !(lights_written_ && lights_frame_number_ == frame_number)) write_light_block({});  // a frame that published no lights draws none
         active_group_ = static_cast<uint32_t>(frame_number % constants_groups_.size());
+        if (local_light_capacity_ > 0) {
+            stats.local_lights_drawn = frame_light_count_;
+            stats.local_lights_dropped = frame_light_dropped_;
+        }
     }
     rhi::PipelineHandle bound{};
     rhi::BindGroupHandle bound_palette{};  // set 2 of the bound skinned pipeline
@@ -1247,6 +1301,53 @@ void ModelRenderer::write_scene_block(const float* constants, Float3 sun)
     lighting_frame_number_ = frame_number;
     lighting_written_ = true;
     frame_sun_ = sun;
+}
+
+void validate_local_light_records(std::span<const LocalLightGpu> lights)
+{
+    for (const LocalLightGpu& l : lights) {
+        const float* f = reinterpret_cast<const float*>(&l);
+        for (std::size_t i = 0; i < sizeof(LocalLightGpu) / sizeof(float); ++i) {
+            if (!std::isfinite(f[i])) throw std::invalid_argument("local lights: a light record has a non-finite value");
+        }
+        const float radius = l.position_radius[3], intensity = l.color_intensity[3], cos_outer = l.direction_outer[3];
+        const bool point = cos_outer == -2.0f;
+        if (!(radius > 0.0f && radius <= 1.0e5f)) throw std::invalid_argument("local lights: a light's radius must be in (0, 1e5]");
+        if (l.color_intensity[0] < 0.0f || l.color_intensity[1] < 0.0f || l.color_intensity[2] < 0.0f || intensity < 0.0f) {
+            throw std::invalid_argument("local lights: a light's colour and intensity must not be negative");
+        }
+        if (!point && !(cos_outer >= -1.0f && cos_outer <= 1.0f && l.cone[1] >= 0.0f)) throw std::invalid_argument("local lights: a spot light's cone is invalid");
+    }
+}
+
+void ModelRenderer::write_light_block(std::span<const LocalLightGpu> lights)
+{
+    const uint64_t frame_number = device_.frame_number();
+    const std::size_t slot = static_cast<std::size_t>(frame_number % light_buffers_.size());
+    const uint32_t written = static_cast<uint32_t>(std::min<std::size_t>(lights.size(), local_light_capacity_));
+    std::span<std::byte> mapped = device_.map(light_buffers_[slot].handle());  // may throw: nothing has been recorded as written
+    std::span<std::byte> count_mapped = device_.map(light_counts_[slot].handle());
+    if (written > 0) std::memcpy(mapped.data(), lights.data(), std::size_t{written} * sizeof(LocalLightGpu));
+    const float params[4] = {static_cast<float>(written), static_cast<float>(local_light_capacity_), 0.0f, 0.0f};
+    std::memcpy(count_mapped.data(), params, sizeof(params));
+    lights_frame_number_ = frame_number;
+    lights_written_ = true;
+    frame_light_count_ = written;
+    frame_light_dropped_ = static_cast<uint32_t>(lights.size()) - written;
+}
+
+void ModelRenderer::set_local_lights(std::span<const LocalLightGpu> lights)
+{
+    if (local_light_capacity_ == 0) {
+        throw std::logic_error("ModelRenderer::set_local_lights: local lights are off (ModelRenderSettings::local_light_capacity is 0)");
+    }
+    const uint64_t frame_number = device_.frame_number();
+    // The frame-slot contract: one write of the slot per renderer per frame, checked before anything changes; a draw completes an unpublished slot with zero lights.
+    if (lights_written_ && lights_frame_number_ == frame_number) {
+        throw std::logic_error("ModelRenderer::set_local_lights: this frame's slot is already written (one publication per renderer per frame, before its first draw)");
+    }
+    validate_local_light_records(lights);  // every record, including the ones beyond the capacity, is validated before anything is written
+    write_light_block(lights);
 }
 
 bool ModelRenderer::lighting_written_this_frame() const noexcept

@@ -513,6 +513,7 @@ ModelRenderer& SceneRenderer::model_renderer()
         ms.shading = settings_.model_shading;
         ms.lighting = settings_.lighting;
         ms.dynamic_lighting = settings_.dynamic_lighting;
+        ms.local_light_capacity = settings_.local_light_capacity;
         ms.alpha_blending = settings_.alpha_blending;
         ms.environment = settings_.environment;
         ms.skinning = settings_.skinning;
@@ -550,6 +551,15 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         }
         validate_lighting(*frame.lighting);
         frame_lighting = *frame.lighting;
+    }
+    if (!frame.local_lights.empty()) {
+        if (settings_.local_light_capacity == 0) {
+            throw std::logic_error("SceneRenderer::render: SceneFrame::local_lights needs RendererSettings::local_light_capacity");
+        }
+        validate_local_light_records(frame.local_lights);
+        if (lights_published_frame_ == device_.frame_number() || lights_models_frame_ == device_.frame_number()) {
+            throw std::logic_error("SceneRenderer::render: this device frame's local lights are already fixed (one publication per frame, by the frame's first view that draws models; a later view passes none)");
+        }
     }
     Float3 frame_sun{};
     (void)unit_sun_direction(frame_lighting.sun_direction, frame_sun);  // validated non-zero: the one direction the sky, fog, lighting and shadow fit all read
@@ -597,6 +607,13 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
         lf.sky_color = {clear.r, clear.g, clear.b};
         mr.set_lighting_frame(&lf);
         lighting_published_frame_ = device_frame;
+    }
+    if (settings_.local_light_capacity > 0 && !frame.models.empty()) {
+        if (!frame.local_lights.empty()) {
+            model_renderer().set_local_lights(frame.local_lights);  // the frame's one publication, before the first draw reads the slot
+            lights_published_frame_ = device_frame;
+        }  // else the model renderer completes the slot with zero lights when it draws
+        lights_models_frame_ = device_frame;
     }
     std::optional<ShadowCascades> sun_cascades;
     if (shadow_models != nullptr) {
@@ -820,6 +837,8 @@ FrameStats SceneRenderer::render(rhi::CommandList& cmd, const SceneFrame& frame,
                 stats.model_instanced_draws += model_stats.instanced_draws;
                 stats.model_instances_batched += model_stats.instances_batched;
                 stats.model_instance_overflow += model_stats.instance_overflow;
+                stats.model_local_lights_drawn = model_stats.local_lights_drawn;  // the frame's one publication, not a per-draw sum
+                stats.model_local_lights_dropped = model_stats.local_lights_dropped;
             }
             c.end_rendering();
             c.write_timestamp(timestamp_scene_end);

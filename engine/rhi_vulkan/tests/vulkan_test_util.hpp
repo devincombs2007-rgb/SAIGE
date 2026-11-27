@@ -55,10 +55,12 @@ public:
     /// Renders one frame and returns it. Animation is derived from `tick`, so a fixed tick is deterministic.
     Image render(render::SceneRenderer& renderer, const std::vector<render::SceneInstance>& instances,
                  const render::Camera& camera, uint64_t tick = 0, std::span<const render::ModelDraw> models = {},
-                 render::FrameStats* stats_out = nullptr, const render::SceneLighting* lighting = nullptr)
+                 render::FrameStats* stats_out = nullptr, const render::SceneLighting* lighting = nullptr,
+                 std::span<const render::LocalLightGpu> local_lights = {})
     {
         render::SceneFrame frame;
         frame.lighting = lighting;
+        frame.local_lights = local_lights;
         frame.tick = tick;
         frame.instances = instances;
         frame.camera = &camera;

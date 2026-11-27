@@ -1,0 +1,2645 @@
+--- a/source/include/saige/ssr.hpp
++++ b/source/include/saige/ssr.hpp
+@@ -0,0 +1,122 @@
++#pragma once
++
++#include <cstdint>
++#include <vector>
++
++namespace saige::ssr {
++
++inline constexpr std::uint32_t kSsrContractVersion = 2;
++
++enum class SsrQualityMode : std::uint8_t {
++  NativeAA = 0,          // 100% per axis
++  UltraQuality = 1,      // 77% per axis
++  Quality = 2,           // 67% per axis
++  Balanced = 3,          // 58% per axis
++  Performance = 4,       // 50% per axis
++  UltraPerformance = 5,  // 33% per axis
++};
++
++struct ColorRgb {
++  float r = 0.0f;
++  float g = 0.0f;
++  float b = 0.0f;
++};
++
++struct Vec2f {
++  float x = 0.0f;
++  float y = 0.0f;
++};
++
++struct SsrResolution {
++  std::uint32_t width = 0;
++  std::uint32_t height = 0;
++};
++
++struct SsrInitConfig {
++  std::uint32_t max_output_width = 3840;
++  std::uint32_t max_output_height = 2160;
++  SsrQualityMode quality_mode = SsrQualityMode::Quality;
++  bool enable_sharpening = true;
++  float sharpness = 0.25f;  // [0.0, 1.0]
++  float disocclusion_depth_threshold = 0.05f;
++};
++
++// Versioned per-frame dispatch contract between Claude's Vulkan RHI and SSR.
++// Coordinate & Input Conventions:
++// - Right-handed Z-up world; screen-space UV/pixel origin at top-left (0, 0).
++// - motion_vectors_px: (prev_render_px - curr_render_px), i.e., adding MV
++//   to current pixel coordinate yields previous frame's sample coordinate.
++// - jitter_offset_px: subpixel camera jitter in [-0.5, 0.5] render pixels.
++// - depth: normalized [0, 1]; reversed_z = true means 1.0 = near, 0.0 = far.
++// - pre_exposure: linear multiplier applied to scene color prior to SSR.
++struct SsrDispatchInputs {
++  std::uint32_t render_width = 0;
++  std::uint32_t render_height = 0;
++  std::uint32_t output_width = 0;
++  std::uint32_t output_height = 0;
++
++  const ColorRgb* color_hdr = nullptr;       // size = render_width * render_height
++  const float* depth = nullptr;              // size = render_width * render_height
++  const Vec2f* motion_vectors_px = nullptr;  // size = render_width * render_height
++  const float* reactive_mask = nullptr;      // optional [0, 1]
++  const float* transparency_mask = nullptr;  // optional [0, 1]
++
++  Vec2f jitter_offset_px{};
++  float pre_exposure = 1.0f;
++  bool camera_cut = false;
++  bool reversed_z = true;
++};
++
++struct SsrDispatchMetrics {
++  bool valid = false;
++  std::uint32_t history_reset_pixels = 0;
++  std::uint32_t disoccluded_pixels = 0;
++  std::uint32_t clamped_pixels = 0;
++  std::uint32_t sanitized_invalid_inputs = 0;
++  double cpu_time_ms = 0.0;
++};
++
++class SsrContext {
++ public:
++  explicit SsrContext(const SsrInitConfig& config = {});
++
++  [[nodiscard]] static float scale_for_mode(SsrQualityMode mode) noexcept;
++  [[nodiscard]] static SsrResolution compute_render_resolution(
++      std::uint32_t output_width, std::uint32_t output_height,
++      SsrQualityMode mode) noexcept;
++  [[nodiscard]] static Vec2f halton_jitter_px(std::uint32_t frame_index,
++                                              std::uint32_t phase_count = 16) noexcept;
++
++  void reset_history() noexcept;
++  SsrDispatchMetrics reconstruct(const SsrDispatchInputs& inputs,
++                                 std::vector<ColorRgb>& out_color);
++
++  [[nodiscard]] const std::vector<ColorRgb>& history() const noexcept {
++    return history_color_;
++  }
++  [[nodiscard]] std::size_t estimated_memory_bytes() const noexcept;
++
++ private:
++  SsrInitConfig config_{};
++  std::uint32_t history_width_ = 0;
++  std::uint32_t history_height_ = 0;
++  float prev_exposure_ = 1.0f;
++  bool has_history_ = false;
++  std::vector<ColorRgb> history_color_;
++  std::vector<float> history_depth_;
++  std::vector<float> history_confidence_;
++  std::vector<ColorRgb> accum_scratch_;
++  std::vector<float> depth_scratch_;
++  std::vector<float> conf_scratch_;
++  std::vector<ColorRgb> ren_ycocg_scratch_;
++  std::vector<float> ren_depth_scratch_;
++};
++
++void upscale_bilinear(const ColorRgb* src, std::uint32_t src_w, std::uint32_t src_h,
++                      std::uint32_t dst_w, std::uint32_t dst_h,
++                      std::vector<ColorRgb>& out);
++void upscale_bicubic(const ColorRgb* src, std::uint32_t src_w, std::uint32_t src_h,
++                     std::uint32_t dst_w, std::uint32_t dst_h,
++                     std::vector<ColorRgb>& out);
++
++}  // namespace saige::ssr
+--- a/source/src/ssr.cpp
++++ b/source/src/ssr.cpp
+@@ -0,0 +1,579 @@
++#include "saige/ssr.hpp"
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++
++namespace saige::ssr {
++
++namespace {
++
++[[nodiscard]] float clampf(float v, float lo, float hi) noexcept {
++  if (!std::isfinite(v) || v < lo) return lo;
++  if (v > hi) return hi;
++  return v;
++}
++
++[[nodiscard]] ColorRgb sanitize_rgb(ColorRgb c,
++                                    std::uint32_t& invalid_count) noexcept {
++  if (!std::isfinite(c.r) || !std::isfinite(c.g) || !std::isfinite(c.b)) {
++    ++invalid_count;
++    return {0.0f, 0.0f, 0.0f};
++  }
++  return {std::max(0.0f, c.r), std::max(0.0f, c.g), std::max(0.0f, c.b)};
++}
++
++[[nodiscard]] float luminance(ColorRgb c) noexcept {
++  return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
++}
++
++// Reversible Karis/tone-compression for HDR highlight stability
++[[nodiscard]] ColorRgb hdr_compress(ColorRgb c) noexcept {
++  const float inv = 1.0f / (1.0f + luminance(c));
++  return {c.r * inv, c.g * inv, c.b * inv};
++}
++
++[[nodiscard]] ColorRgb hdr_decompress(ColorRgb c) noexcept {
++  const float l = std::min(0.999f, luminance(c));
++  const float inv = 1.0f / (1.0f - l);
++  return {c.r * inv, c.g * inv, c.b * inv};
++}
++
++[[nodiscard]] ColorRgb rgb_to_ycocg(ColorRgb c) noexcept {
++  const float co = c.r - c.b;
++  const float tmp = c.b + co * 0.5f;
++  const float cg = c.g - tmp;
++  const float y = tmp + cg * 0.5f;
++  return {y, co, cg};
++}
++
++[[nodiscard]] ColorRgb ycocg_to_rgb(ColorRgb c) noexcept {
++  const float tmp = c.r - c.b * 0.5f;
++  const float g = c.b + tmp;
++  const float b = tmp - c.g * 0.5f;
++  const float r = b + c.g;
++  return {std::max(0.0f, r), std::max(0.0f, g), std::max(0.0f, b)};
++}
++
++[[nodiscard]] float halton(std::uint32_t index, std::uint32_t base) noexcept {
++  float f = 1.0f;
++  float r = 0.0f;
++  while (index > 0) {
++    f /= static_cast<float>(base);
++    r += f * static_cast<float>(index % base);
++    index /= base;
++  }
++  return r;
++}
++
++[[nodiscard]] ColorRgb sample_clamped(const ColorRgb* buf, std::uint32_t w,
++                                      std::uint32_t h, int x, int y) noexcept {
++  const int cx = std::clamp(x, 0, static_cast<int>(w) - 1);
++  const int cy = std::clamp(y, 0, static_cast<int>(h) - 1);
++  return buf[static_cast<std::size_t>(cy) * w + static_cast<std::size_t>(cx)];
++}
++
++[[nodiscard]] float sample_depth_bilinear(const float* buf, std::uint32_t w,
++                                          std::uint32_t h, float fx,
++                                          float fy) noexcept {
++  const int x0 = static_cast<int>(std::floor(fx));
++  const int y0 = static_cast<int>(std::floor(fy));
++  const float tx = clampf(fx - static_cast<float>(x0), 0.0f, 1.0f);
++  const float ty = clampf(fy - static_cast<float>(y0), 0.0f, 1.0f);
++  auto at = [&](int x, int y) {
++    const int cx = std::clamp(x, 0, static_cast<int>(w) - 1);
++    const int cy = std::clamp(y, 0, static_cast<int>(h) - 1);
++    return buf[static_cast<std::size_t>(cy) * w + static_cast<std::size_t>(cx)];
++  };
++  const float a = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx;
++  const float b = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
++  return a + (b - a) * ty;
++}
++
++[[nodiscard]] ColorRgb sample_bilinear(const ColorRgb* buf, std::uint32_t w,
++                                       std::uint32_t h, float fx,
++                                       float fy) noexcept {
++  const int x0 = static_cast<int>(std::floor(fx));
++  const int y0 = static_cast<int>(std::floor(fy));
++  const float tx = clampf(fx - static_cast<float>(x0), 0.0f, 1.0f);
++  const float ty = clampf(fy - static_cast<float>(y0), 0.0f, 1.0f);
++
++  const ColorRgb c00 = sample_clamped(buf, w, h, x0, y0);
++  const ColorRgb c10 = sample_clamped(buf, w, h, x0 + 1, y0);
++  const ColorRgb c01 = sample_clamped(buf, w, h, x0, y0 + 1);
++  const ColorRgb c11 = sample_clamped(buf, w, h, x0 + 1, y0 + 1);
++
++  auto lerp = [](float a, float b, float t) { return a + (b - a) * t; };
++  return {
++      lerp(lerp(c00.r, c10.r, tx), lerp(c01.r, c11.r, tx), ty),
++      lerp(lerp(c00.g, c10.g, tx), lerp(c01.g, c11.g, tx), ty),
++      lerp(lerp(c00.b, c10.b, tx), lerp(c01.b, c11.b, tx), ty),
++  };
++}
++
++[[nodiscard]] float catmull_rom_weight(float x) noexcept {
++  const float ax = std::abs(x);
++  if (ax < 1.0f) return (1.5f * ax - 2.5f) * ax * ax + 1.0f;
++  if (ax < 2.0f) return ((-0.5f * ax + 2.5f) * ax - 4.0f) * ax + 2.0f;
++  return 0.0f;
++}
++
++[[nodiscard]] ColorRgb sample_catmull_rom(const ColorRgb* buf, std::uint32_t w,
++                                          std::uint32_t h, float fx,
++                                          float fy) noexcept {
++  const int ix = static_cast<int>(std::floor(fx));
++  const int iy = static_cast<int>(std::floor(fy));
++  const float dx = fx - static_cast<float>(ix);
++  const float dy = fy - static_cast<float>(iy);
++
++  ColorRgb sum{0.0f, 0.0f, 0.0f};
++  float wsum = 0.0f;
++  for (int oy = -1; oy <= 2; ++oy) {
++    const float wy = catmull_rom_weight(static_cast<float>(oy) - dy);
++    for (int ox = -1; ox <= 2; ++ox) {
++      const float wx = catmull_rom_weight(static_cast<float>(ox) - dx);
++      const float wt = wx * wy;
++      const ColorRgb c = sample_clamped(buf, w, h, ix + ox, iy + oy);
++      sum.r += c.r * wt;
++      sum.g += c.g * wt;
++      sum.b += c.b * wt;
++      wsum += wt;
++    }
++  }
++  if (std::abs(wsum) > 1e-5f) {
++    const float inv = 1.0f / wsum;
++    sum.r = std::max(0.0f, sum.r * inv);
++    sum.g = std::max(0.0f, sum.g * inv);
++    sum.b = std::max(0.0f, sum.b * inv);
++  }
++  return sum;
++}
++
++}  // namespace
++
++SsrContext::SsrContext(const SsrInitConfig& config) : config_(config) {}
++
++float SsrContext::scale_for_mode(SsrQualityMode mode) noexcept {
++  switch (mode) {
++    case SsrQualityMode::NativeAA:
++      return 1.00f;
++    case SsrQualityMode::UltraQuality:
++      return 0.77f;
++    case SsrQualityMode::Quality:
++      return 0.67f;
++    case SsrQualityMode::Balanced:
++      return 0.58f;
++    case SsrQualityMode::Performance:
++      return 0.50f;
++    case SsrQualityMode::UltraPerformance:
++      return 0.33f;
++  }
++  return 0.67f;
++}
++
++SsrResolution SsrContext::compute_render_resolution(
++    std::uint32_t output_width, std::uint32_t output_height,
++    SsrQualityMode mode) noexcept {
++  const float s = scale_for_mode(mode);
++  const auto rw = std::max<std::uint32_t>(
++      1u, static_cast<std::uint32_t>(
++              std::lround(static_cast<float>(output_width) * s)));
++  const auto rh = std::max<std::uint32_t>(
++      1u, static_cast<std::uint32_t>(
++              std::lround(static_cast<float>(output_height) * s)));
++  return {rw, rh};
++}
++
++Vec2f SsrContext::halton_jitter_px(std::uint32_t frame_index,
++                                   std::uint32_t phase_count) noexcept {
++  const std::uint32_t p = std::max<std::uint32_t>(1u, phase_count);
++  const std::uint32_t idx = (frame_index % p) + 1u;
++  return {halton(idx, 2u) - 0.5f, halton(idx, 3u) - 0.5f};
++}
++
++void SsrContext::reset_history() noexcept {
++  has_history_ = false;
++  history_width_ = 0;
++  history_height_ = 0;
++  history_color_.clear();
++  history_depth_.clear();
++  history_confidence_.clear();
++}
++
++std::size_t SsrContext::estimated_memory_bytes() const noexcept {
++  return (history_color_.capacity() + accum_scratch_.capacity() +
++          ren_ycocg_scratch_.capacity()) *
++             sizeof(ColorRgb) +
++         (history_depth_.capacity() + history_confidence_.capacity() +
++          depth_scratch_.capacity() + conf_scratch_.capacity() +
++          ren_depth_scratch_.capacity()) *
++             sizeof(float);
++}
++
++SsrDispatchMetrics SsrContext::reconstruct(const SsrDispatchInputs& inputs,
++                                           std::vector<ColorRgb>& out_color) {
++  const auto t0 = std::chrono::steady_clock::now();
++  SsrDispatchMetrics metrics{};
++
++  if (inputs.render_width == 0 || inputs.render_height == 0 ||
++      inputs.output_width == 0 || inputs.output_height == 0 ||
++      inputs.render_width > inputs.output_width ||
++      inputs.render_height > inputs.output_height ||
++      inputs.color_hdr == nullptr || inputs.depth == nullptr ||
++      inputs.motion_vectors_px == nullptr) {
++    return metrics;
++  }
++
++  const std::size_t out_count =
++      static_cast<std::size_t>(inputs.output_width) * inputs.output_height;
++  accum_scratch_.resize(out_count);
++  depth_scratch_.resize(out_count);
++  conf_scratch_.resize(out_count);
++  out_color.resize(out_count);
++
++  const bool resolution_changed = (history_width_ != inputs.output_width ||
++                                   history_height_ != inputs.output_height);
++  const bool reset_all = !has_history_ || inputs.camera_cut || resolution_changed;
++  if (reset_all) {
++    history_color_.assign(out_count, ColorRgb{0.0f, 0.0f, 0.0f});
++    history_depth_.assign(out_count, inputs.reversed_z ? 0.0f : 1.0f);
++    history_confidence_.assign(out_count, 0.0f);
++    history_width_ = inputs.output_width;
++    history_height_ = inputs.output_height;
++  }
++
++  const float safe_exp =
++      (std::isfinite(inputs.pre_exposure) && inputs.pre_exposure > 1e-4f)
++          ? inputs.pre_exposure
++          : 1.0f;
++  const float prev_exp =
++      (std::isfinite(prev_exposure_) && prev_exposure_ > 1e-4f)
++          ? prev_exposure_
++          : 1.0f;
++  const float exp_ratio = clampf(safe_exp / prev_exp, 0.01f, 100.0f);
++
++  const float scale_x = static_cast<float>(inputs.render_width) /
++                        static_cast<float>(inputs.output_width);
++  const float scale_y = static_cast<float>(inputs.render_height) /
++                        static_cast<float>(inputs.output_height);
++  const float inv_scale_x = 1.0f / scale_x;
++  const float inv_scale_y = 1.0f / scale_y;
++
++  const float jitter_x =
++      std::isfinite(inputs.jitter_offset_px.x) ? inputs.jitter_offset_px.x : 0.0f;
++  const float jitter_y =
++      std::isfinite(inputs.jitter_offset_px.y) ? inputs.jitter_offset_px.y : 0.0f;
++
++  // Precompute tone-compressed YCoCg and sanitized depth once per render pixel
++  const std::size_t ren_count =
++      static_cast<std::size_t>(inputs.render_width) * inputs.render_height;
++  ren_ycocg_scratch_.resize(ren_count);
++  ren_depth_scratch_.resize(ren_count);
++  for (std::size_t i = 0; i < ren_count; ++i) {
++    const ColorRgb c_rgb =
++        sanitize_rgb(inputs.color_hdr[i], metrics.sanitized_invalid_inputs);
++    ren_ycocg_scratch_[i] = rgb_to_ycocg(hdr_compress(c_rgb));
++    float d = inputs.depth[i];
++    if (!std::isfinite(d)) {
++      ++metrics.sanitized_invalid_inputs;
++      d = inputs.reversed_z ? 0.0f : 1.0f;
++    }
++    ren_depth_scratch_[i] = d;
++  }
++
++  for (std::uint32_t oy = 0; oy < inputs.output_height; ++oy) {
++    for (std::uint32_t ox = 0; ox < inputs.output_width; ++ox) {
++      const float rx = (static_cast<float>(ox) + 0.5f) * scale_x - 0.5f - jitter_x;
++      const float ry = (static_cast<float>(oy) + 0.5f) * scale_y - 0.5f - jitter_y;
++      const int ix = std::clamp(static_cast<int>(std::lround(rx)), 0,
++                                static_cast<int>(inputs.render_width) - 1);
++      const int iy = std::clamp(static_cast<int>(std::lround(ry)), 0,
++                                static_cast<int>(inputs.render_height) - 1);
++
++      // 1. 3x3 Closest-depth motion vector dilation + tone-compressed YCoCg stats
++      int best_dx = ix;
++      int best_dy = iy;
++      float best_depth = inputs.reversed_z ? -1.0f : 2.0f;
++      ColorRgb ycocg_sum{0.0f, 0.0f, 0.0f};
++      ColorRgb ycocg_sq_sum{0.0f, 0.0f, 0.0f};
++      ColorRgb ycocg_min{1e9f, 1e9f, 1e9f};
++      ColorRgb ycocg_max{-1e9f, -1e9f, -1e9f};
++
++      for (int ky = -1; ky <= 1; ++ky) {
++        const int sy =
++            std::clamp(iy + ky, 0, static_cast<int>(inputs.render_height) - 1);
++        for (int kx = -1; kx <= 1; ++kx) {
++          const int sx =
++              std::clamp(ix + kx, 0, static_cast<int>(inputs.render_width) - 1);
++          const std::size_t r_idx =
++              static_cast<std::size_t>(sy) * inputs.render_width +
++              static_cast<std::size_t>(sx);
++
++          const ColorRgb c_yc = ren_ycocg_scratch_[r_idx];
++          ycocg_sum.r += c_yc.r;
++          ycocg_sum.g += c_yc.g;
++          ycocg_sum.b += c_yc.b;
++          ycocg_sq_sum.r += c_yc.r * c_yc.r;
++          ycocg_sq_sum.g += c_yc.g * c_yc.g;
++          ycocg_sq_sum.b += c_yc.b * c_yc.b;
++          ycocg_min.r = std::min(ycocg_min.r, c_yc.r);
++          ycocg_min.g = std::min(ycocg_min.g, c_yc.g);
++          ycocg_min.b = std::min(ycocg_min.b, c_yc.b);
++          ycocg_max.r = std::max(ycocg_max.r, c_yc.r);
++          ycocg_max.g = std::max(ycocg_max.g, c_yc.g);
++          ycocg_max.b = std::max(ycocg_max.b, c_yc.b);
++
++          const float d = ren_depth_scratch_[r_idx];
++          const bool closer = inputs.reversed_z ? (d > best_depth) : (d < best_depth);
++          if (closer) {
++            best_depth = d;
++            best_dx = sx;
++            best_dy = sy;
++          }
++        }
++      }
++
++      const std::size_t best_r_idx =
++          static_cast<std::size_t>(best_dy) * inputs.render_width +
++          static_cast<std::size_t>(best_dx);
++      Vec2f mv = inputs.motion_vectors_px[best_r_idx];
++      if (!std::isfinite(mv.x) || !std::isfinite(mv.y)) {
++        ++metrics.sanitized_invalid_inputs;
++        mv = {0.0f, 0.0f};
++      }
++      const float mv_out_x = mv.x * inv_scale_x;
++      const float mv_out_y = mv.y * inv_scale_y;
++
++      const std::size_t c_r_idx =
++          static_cast<std::size_t>(iy) * inputs.render_width +
++          static_cast<std::size_t>(ix);
++      float center_depth = inputs.depth[c_r_idx];
++      if (!std::isfinite(center_depth)) {
++        center_depth = inputs.reversed_z ? 0.0f : 1.0f;
++      }
++
++      const ColorRgb curr_rgb = sample_catmull_rom(
++          inputs.color_hdr, inputs.render_width, inputs.render_height, rx, ry);
++      const ColorRgb curr_safe =
++          sanitize_rgb(curr_rgb, metrics.sanitized_invalid_inputs);
++
++      const std::size_t o_idx =
++          static_cast<std::size_t>(oy) * inputs.output_width + ox;
++      depth_scratch_[o_idx] = center_depth;
++
++      if (reset_all) {
++        accum_scratch_[o_idx] = curr_safe;
++        conf_scratch_[o_idx] = 0.25f;
++        ++metrics.history_reset_pixels;
++        continue;
++      }
++
++      const float hist_x = static_cast<float>(ox) + mv_out_x;
++      const float hist_y = static_cast<float>(oy) + mv_out_y;
++      const bool out_of_bounds =
++          (hist_x < 0.0f || hist_y < 0.0f ||
++           hist_x >= static_cast<float>(inputs.output_width) ||
++           hist_y >= static_cast<float>(inputs.output_height));
++
++      if (out_of_bounds) {
++        accum_scratch_[o_idx] = curr_safe;
++        conf_scratch_[o_idx] = 0.25f;
++        ++metrics.history_reset_pixels;
++        continue;
++      }
++
++      // 2. Depth-based disocclusion detection
++      const float prev_depth = sample_depth_bilinear(
++          history_depth_.data(), inputs.output_width, inputs.output_height,
++          hist_x, hist_y);
++      const float depth_diff = std::abs(center_depth - prev_depth);
++      const bool disoccluded =
++          depth_diff > config_.disocclusion_depth_threshold;
++      if (disoccluded) {
++        ++metrics.disoccluded_pixels;
++      }
++
++      ColorRgb hist_rgb = sample_catmull_rom(
++          history_color_.data(), inputs.output_width, inputs.output_height,
++          hist_x, hist_y);
++      hist_rgb.r *= exp_ratio;
++      hist_rgb.g *= exp_ratio;
++      hist_rgb.b *= exp_ratio;
++
++      // 3. Variance-guided YCoCg neighborhood clipping in tone-compressed HDR space
++      constexpr float kInv9 = 1.0f / 9.0f;
++      const ColorRgb mean{ycocg_sum.r * kInv9, ycocg_sum.g * kInv9,
++                          ycocg_sum.b * kInv9};
++      const ColorRgb std_dev{
++          std::sqrt(std::max(0.0f, ycocg_sq_sum.r * kInv9 - mean.r * mean.r)),
++          std::sqrt(std::max(0.0f, ycocg_sq_sum.g * kInv9 - mean.g * mean.g)),
++          std::sqrt(std::max(0.0f, ycocg_sq_sum.b * kInv9 - mean.b * mean.b)),
++      };
++      const float mv_mag = std::sqrt(mv_out_x * mv_out_x + mv_out_y * mv_out_y);
++      // Adaptive gamma: slightly wider on static high-contrast thin features, tighter in motion
++      const float gamma =
++          clampf(1.45f - std::min(0.45f, mv_mag * 0.04f), 1.00f, 1.50f);
++
++      const ColorRgb clip_min{
++          std::max(ycocg_min.r, mean.r - gamma * std_dev.r),
++          std::max(ycocg_min.g, mean.g - gamma * std_dev.g),
++          std::max(ycocg_min.b, mean.b - gamma * std_dev.b),
++      };
++      const ColorRgb clip_max{
++          std::min(ycocg_max.r, mean.r + gamma * std_dev.r),
++          std::min(ycocg_max.g, mean.g + gamma * std_dev.g),
++          std::min(ycocg_max.b, mean.b + gamma * std_dev.b),
++      };
++
++      const ColorRgb hist_comp_yc = rgb_to_ycocg(hdr_compress(hist_rgb));
++      const ColorRgb clipped_yc{
++          std::clamp(hist_comp_yc.r, clip_min.r, clip_max.r),
++          std::clamp(hist_comp_yc.g, clip_min.g, clip_max.g),
++          std::clamp(hist_comp_yc.b, clip_min.b, clip_max.b),
++      };
++      const bool was_clamped =
++          (clipped_yc.r != hist_comp_yc.r || clipped_yc.g != hist_comp_yc.g ||
++           clipped_yc.b != hist_comp_yc.b);
++      if (was_clamped) {
++        ++metrics.clamped_pixels;
++      }
++
++      // 4. Confidence-based & mask-aware temporal accumulation in compressed HDR space
++      const float prev_conf = sample_depth_bilinear(
++          history_confidence_.data(), inputs.output_width, inputs.output_height,
++          hist_x, hist_y);
++      float new_conf = disoccluded ? 0.15f : std::min(1.0f, prev_conf + 0.20f);
++      if (was_clamped && !disoccluded) new_conf = std::max(0.25f, new_conf * 0.85f);
++
++      float reactive =
++          inputs.reactive_mask ? clampf(inputs.reactive_mask[c_r_idx], 0.0f, 1.0f)
++                               : 0.0f;
++      const float transp =
++          inputs.transparency_mask
++              ? clampf(inputs.transparency_mask[c_r_idx], 0.0f, 1.0f)
++              : 0.0f;
++      reactive = std::max(reactive, transp * 0.7f);
++
++      const float base_alpha = 0.10f + (1.0f - new_conf) * 0.25f +
++                               clampf(mv_mag * 0.015f, 0.0f, 0.15f);
++      float alpha = std::clamp(base_alpha + reactive * (1.0f - base_alpha),
++                               0.10f, 1.0f);
++      if (disoccluded) {
++        alpha = std::max(alpha, 0.85f);
++      }
++
++      const ColorRgb hist_comp_rgb = ycocg_to_rgb(clipped_yc);
++      const ColorRgb curr_comp_rgb = hdr_compress(curr_safe);
++      const ColorRgb blended_comp{
++          hist_comp_rgb.r * (1.0f - alpha) + curr_comp_rgb.r * alpha,
++          hist_comp_rgb.g * (1.0f - alpha) + curr_comp_rgb.g * alpha,
++          hist_comp_rgb.b * (1.0f - alpha) + curr_comp_rgb.b * alpha,
++      };
++      accum_scratch_[o_idx] = hdr_decompress(blended_comp);
++      conf_scratch_[o_idx] = new_conf;
++    }
++  }
++
++  // Persist unsharpened temporal history (O(1) swap)
++  std::swap(history_color_, accum_scratch_);
++  std::swap(history_depth_, depth_scratch_);
++  std::swap(history_confidence_, conf_scratch_);
++  prev_exposure_ = safe_exp;
++  has_history_ = true;
++
++  // 5. Separated post-history edge-adaptive RCAS-style sharpening with anti-ringing
++  if (config_.enable_sharpening && config_.sharpness > 1e-4f) {
++    const float k = clampf(config_.sharpness, 0.0f, 1.0f) * 0.25f;
++    for (std::uint32_t oy = 0; oy < inputs.output_height; ++oy) {
++      for (std::uint32_t ox = 0; ox < inputs.output_width; ++ox) {
++        const std::size_t idx =
++            static_cast<std::size_t>(oy) * inputs.output_width + ox;
++        const ColorRgb c = history_color_[idx];
++        const ColorRgb n = sample_clamped(history_color_.data(),
++                                          inputs.output_width,
++                                          inputs.output_height,
++                                          static_cast<int>(ox),
++                                          static_cast<int>(oy) - 1);
++        const ColorRgb s = sample_clamped(history_color_.data(),
++                                          inputs.output_width,
++                                          inputs.output_height,
++                                          static_cast<int>(ox),
++                                          static_cast<int>(oy) + 1);
++        const ColorRgb w = sample_clamped(history_color_.data(),
++                                          inputs.output_width,
++                                          inputs.output_height,
++                                          static_cast<int>(ox) - 1,
++                                          static_cast<int>(oy));
++        const ColorRgb e = sample_clamped(history_color_.data(),
++                                          inputs.output_width,
++                                          inputs.output_height,
++                                          static_cast<int>(ox) + 1,
++                                          static_cast<int>(oy));
++
++        const float min_r = std::min({c.r, n.r, s.r, w.r, e.r});
++        const float max_r = std::max({c.r, n.r, s.r, w.r, e.r});
++        const float min_g = std::min({c.g, n.g, s.g, w.g, e.g});
++        const float max_g = std::max({c.g, n.g, s.g, w.g, e.g});
++        const float min_b = std::min({c.b, n.b, s.b, w.b, e.b});
++        const float max_b = std::max({c.b, n.b, s.b, w.b, e.b});
++
++        const ColorRgb blur{(n.r + s.r + w.r + e.r) * 0.25f,
++                            (n.g + s.g + w.g + e.g) * 0.25f,
++                            (n.b + s.b + w.b + e.b) * 0.25f};
++        out_color[idx] = {
++            std::clamp(c.r + (c.r - blur.r) * k, min_r, max_r),
++            std::clamp(c.g + (c.g - blur.g) * k, min_g, max_g),
++            std::clamp(c.b + (c.b - blur.b) * k, min_b, max_b),
++        };
++      }
++    }
++  } else {
++    out_color = history_color_;
++  }
++
++  metrics.valid = true;
++  const auto t1 = std::chrono::steady_clock::now();
++  metrics.cpu_time_ms =
++      std::chrono::duration<double, std::milli>(t1 - t0).count();
++  return metrics;
++}
++
++void upscale_bilinear(const ColorRgb* src, std::uint32_t src_w, std::uint32_t src_h,
++                      std::uint32_t dst_w, std::uint32_t dst_h,
++                      std::vector<ColorRgb>& out) {
++  out.resize(static_cast<std::size_t>(dst_w) * dst_h);
++  if (src == nullptr || src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0) {
++    return;
++  }
++  const float sx = static_cast<float>(src_w) / static_cast<float>(dst_w);
++  const float sy = static_cast<float>(src_h) / static_cast<float>(dst_h);
++  for (std::uint32_t y = 0; y < dst_h; ++y) {
++    for (std::uint32_t x = 0; x < dst_w; ++x) {
++      const float fx = (static_cast<float>(x) + 0.5f) * sx - 0.5f;
++      const float fy = (static_cast<float>(y) + 0.5f) * sy - 0.5f;
++      out[static_cast<std::size_t>(y) * dst_w + x] =
++          sample_bilinear(src, src_w, src_h, fx, fy);
++    }
++  }
++}
++
++void upscale_bicubic(const ColorRgb* src, std::uint32_t src_w, std::uint32_t src_h,
++                     std::uint32_t dst_w, std::uint32_t dst_h,
++                     std::vector<ColorRgb>& out) {
++  out.resize(static_cast<std::size_t>(dst_w) * dst_h);
++  if (src == nullptr || src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0) {
++    return;
++  }
++  const float sx = static_cast<float>(src_w) / static_cast<float>(dst_w);
++  const float sy = static_cast<float>(src_h) / static_cast<float>(dst_h);
++  for (std::uint32_t y = 0; y < dst_h; ++y) {
++    for (std::uint32_t x = 0; x < dst_w; ++x) {
++      const float fx = (static_cast<float>(x) + 0.5f) * sx - 0.5f;
++      const float fy = (static_cast<float>(y) + 0.5f) * sy - 0.5f;
++      out[static_cast<std::size_t>(y) * dst_w + x] =
++          sample_catmull_rom(src, src_w, src_h, fx, fy);
++    }
++  }
++}
++
++}  // namespace saige::ssr
+--- a/shaders/ssr_reconstruct.comp
++++ b/shaders/ssr_reconstruct.comp
+@@ -0,0 +1,148 @@
++#version 460
++// SAIGE Super Resolution (SSR 0.2.1) — Vulkan 1.4 Compute Reconstruction Shader
++// Features: 8x8 tiled execution, 3x3 closest-depth motion dilation, depth-based
++// disocclusion detection, Karis/tone-compressed HDR YCoCg variance clipping,
++// history confidence tracking, reactive/transparency masks, and FP16/FP32 paths.
++
++#ifdef SSR_USE_FP16
++#extension GL_EXT_shader_16bit_storage : require
++#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
++#define ssr_vec3 f16vec3
++#define ssr_float float16_t
++#else
++#define ssr_vec3 vec3
++#define ssr_float float
++#endif
++
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++
++layout(set = 0, binding = 0) uniform sampler2D u_color_hdr;
++layout(set = 0, binding = 1) uniform sampler2D u_depth;
++layout(set = 0, binding = 2) uniform sampler2D u_motion_px;
++layout(set = 0, binding = 3) uniform sampler2D u_reactive_mask;
++layout(set = 0, binding = 4) uniform sampler2D u_transparency_mask;
++layout(set = 0, binding = 5) uniform sampler2D u_history_color_in;
++layout(set = 0, binding = 6) uniform sampler2D u_history_depth_in;
++layout(set = 0, binding = 7) uniform sampler2D u_history_conf_in;
++layout(set = 0, binding = 8, rgba16f) uniform writeonly image2D u_history_color_out;
++layout(set = 0, binding = 9, r32f) uniform writeonly image2D u_history_depth_out;
++layout(set = 0, binding = 10, r16f) uniform writeonly image2D u_history_conf_out;
++
++layout(push_constant) uniform SsrPushConstants {
++  uvec2 render_size;
++  uvec2 output_size;
++  vec2 jitter_px;
++  float exposure_ratio;
++  float disocclusion_threshold;
++  uint flags;  // bit 0: camera_cut, bit 1: reversed_z
++} pc;
++
++float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
++ssr_vec3 hdr_compress(vec3 c) { return ssr_vec3(c / (1.0 + luminance(c))); }
++vec3 hdr_decompress(ssr_vec3 c) {
++  vec3 cf = vec3(c);
++  return cf / max(1e-3, 1.0 - luminance(cf));
++}
++
++ssr_vec3 rgb_to_ycocg(ssr_vec3 c) {
++  ssr_float co = c.r - c.b;
++  ssr_float tmp = c.b + co * ssr_float(0.5);
++  ssr_float cg = c.g - tmp;
++  ssr_float y = tmp + cg * ssr_float(0.5);
++  return ssr_vec3(y, co, cg);
++}
++
++ssr_vec3 ycocg_to_rgb(ssr_vec3 c) {
++  ssr_float tmp = c.r - c.b * ssr_float(0.5);
++  ssr_float g = c.b + tmp;
++  ssr_float b = tmp - c.g * ssr_float(0.5);
++  ssr_float r = b + c.g;
++  return max(ssr_vec3(0.0), ssr_vec3(r, g, b));
++}
++
++void main() {
++  ivec2 ox = ivec2(gl_GlobalInvocationID.xy);
++  if (ox.x >= int(pc.output_size.x) || ox.y >= int(pc.output_size.y)) return;
++
++  vec2 scale = vec2(pc.render_size) / vec2(pc.output_size);
++  vec2 rf = (vec2(ox) + 0.5) * scale - 0.5 - pc.jitter_px;
++  ivec2 ri = clamp(ivec2(round(rf)), ivec2(0), ivec2(pc.render_size) - 1);
++
++  bool reversed_z = (pc.flags & 2u) != 0u;
++  bool camera_cut = (pc.flags & 1u) != 0u;
++
++  float best_depth = reversed_z ? -1.0 : 2.0;
++  ivec2 best_coord = ri;
++  vec3 yc_sum = vec3(0.0);
++  vec3 yc_sq = vec3(0.0);
++  vec3 yc_min = vec3(1e4);
++  vec3 yc_max = vec3(-1e4);
++
++  for (int ky = -1; ky <= 1; ++ky) {
++    for (int kx = -1; kx <= 1; ++kx) {
++      ivec2 sc = clamp(ri + ivec2(kx, ky), ivec2(0), ivec2(pc.render_size) - 1);
++      vec3 c = max(vec3(0.0), texelFetch(u_color_hdr, sc, 0).rgb);
++      vec3 yc = vec3(rgb_to_ycocg(hdr_compress(c)));
++      yc_sum += yc;
++      yc_sq += yc * yc;
++      yc_min = min(yc_min, yc);
++      yc_max = max(yc_max, yc);
++
++      float d = texelFetch(u_depth, sc, 0).r;
++      if (reversed_z ? (d > best_depth) : (d < best_depth)) {
++        best_depth = d;
++        best_coord = sc;
++      }
++    }
++  }
++
++  float center_depth = texelFetch(u_depth, ri, 0).r;
++  imageStore(u_history_depth_out, ox, vec4(center_depth, 0.0, 0.0, 0.0));
++
++  vec2 curr_uv = (rf + 0.5) / vec2(pc.render_size);
++  vec3 curr_rgb = max(vec3(0.0), texture(u_color_hdr, curr_uv).rgb);
++
++  vec2 mv_out = texelFetch(u_motion_px, best_coord, 0).rg / scale;
++  vec2 hist_px = vec2(ox) + mv_out;
++  bool oob = any(lessThan(hist_px, vec2(0.0))) ||
++             any(greaterThanEqual(hist_px, vec2(pc.output_size)));
++
++  if (camera_cut || oob) {
++    imageStore(u_history_color_out, ox, vec4(curr_rgb, 1.0));
++    imageStore(u_history_conf_out, ox, vec4(0.25, 0.0, 0.0, 0.0));
++    return;
++  }
++
++  vec2 hist_uv = (hist_px + 0.5) / vec2(pc.output_size);
++  float prev_depth = texture(u_history_depth_in, hist_uv).r;
++  bool disoccluded = abs(center_depth - prev_depth) > pc.disocclusion_threshold;
++
++  vec3 hist_rgb = max(vec3(0.0), texture(u_history_color_in, hist_uv).rgb) * pc.exposure_ratio;
++
++  vec3 mean = yc_sum / 9.0;
++  vec3 std_dev = sqrt(max(vec3(0.0), yc_sq / 9.0 - mean * mean));
++  float mv_mag = length(mv_out);
++  float gamma = clamp(1.45 - min(0.45, mv_mag * 0.04), 1.00, 1.50);
++  vec3 c_min = max(yc_min, mean - gamma * std_dev);
++  vec3 c_max = min(yc_max, mean + gamma * std_dev);
++
++  ssr_vec3 hist_yc = rgb_to_ycocg(hdr_compress(hist_rgb));
++  ssr_vec3 clipped_yc = clamp(hist_yc, ssr_vec3(c_min), ssr_vec3(c_max));
++  bool clamped = any(notEqual(vec3(clipped_yc), vec3(hist_yc)));
++
++  float prev_conf = texture(u_history_conf_in, hist_uv).r;
++  float new_conf = disoccluded ? 0.15 : min(1.0, prev_conf + 0.20);
++  if (clamped && !disoccluded) new_conf = max(0.25, new_conf * 0.85);
++
++  float reactive = clamp(texelFetch(u_reactive_mask, ri, 0).r, 0.0, 1.0);
++  float transp = clamp(texelFetch(u_transparency_mask, ri, 0).r, 0.0, 1.0);
++  reactive = max(reactive, transp * 0.7);
++
++  float base_alpha = 0.10 + (1.0 - new_conf) * 0.25 + clamp(mv_mag * 0.015, 0.0, 0.15);
++  float alpha = clamp(base_alpha + reactive * (1.0 - base_alpha), 0.10, 1.0);
++  if (disoccluded) alpha = max(alpha, 0.85);
++
++  ssr_vec3 out_comp = mix(ycocg_to_rgb(clipped_yc), hdr_compress(curr_rgb), ssr_float(alpha));
++  imageStore(u_history_color_out, ox, vec4(hdr_decompress(out_comp), 1.0));
++  imageStore(u_history_conf_out, ox, vec4(new_conf, 0.0, 0.0, 0.0));
++}
+--- a/shaders/ssr_sharpen.comp
++++ b/shaders/ssr_sharpen.comp
+@@ -0,0 +1,33 @@
++#version 460
++// SAIGE Super Resolution (SSR 0.2) — Separated Post-History RCAS Sharpening Pass
++// Reads unsharpened temporal history and writes final output with anti-ringing clamp.
++
++layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
++
++layout(set = 0, binding = 0) uniform sampler2D u_history_color;
++layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_final_output;
++
++layout(push_constant) uniform SharpenPushConstants {
++  uvec2 output_size;
++  float sharpness;
++} pc;
++
++void main() {
++  ivec2 ox = ivec2(gl_GlobalInvocationID.xy);
++  if (ox.x >= int(pc.output_size.x) || ox.y >= int(pc.output_size.y)) return;
++
++  ivec2 max_c = ivec2(pc.output_size) - 1;
++  vec3 c = texelFetch(u_history_color, ox, 0).rgb;
++  vec3 n = texelFetch(u_history_color, clamp(ox + ivec2(0, -1), ivec2(0), max_c), 0).rgb;
++  vec3 s = texelFetch(u_history_color, clamp(ox + ivec2(0,  1), ivec2(0), max_c), 0).rgb;
++  vec3 w = texelFetch(u_history_color, clamp(ox + ivec2(-1, 0), ivec2(0), max_c), 0).rgb;
++  vec3 e = texelFetch(u_history_color, clamp(ox + ivec2( 1, 0), ivec2(0), max_c), 0).rgb;
++
++  vec3 mn = min(c, min(min(n, s), min(w, e)));
++  vec3 mx = max(c, max(max(n, s), max(w, e)));
++  vec3 blur = (n + s + w + e) * 0.25;
++  float k = clamp(pc.sharpness, 0.0, 1.0) * 0.25;
++
++  vec3 out_rgb = clamp(c + (c - blur) * k, mn, mx);
++  imageStore(u_final_output, ox, vec4(out_rgb, 1.0));
++}
+--- a/gpu/ssr_vulkan_harness.hpp
++++ b/gpu/ssr_vulkan_harness.hpp
+@@ -0,0 +1,74 @@
++#pragma once
++
++#include "saige/ssr.hpp"
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace saige::ssr::gpu {
++
++struct VulkanHarnessConfig {
++  bool enable_validation_layers = true;
++  bool prefer_software_vulkan = true;  // Allows Lavapipe correctness testing
++  bool prefer_fp16 = true;
++  std::string reconstruct_spv_path = "shaders/ssr_reconstruct.spv";
++  std::string reconstruct_fp16_spv_path = "shaders/ssr_reconstruct_fp16.spv";
++  std::string sharpen_spv_path = "shaders/ssr_sharpen.spv";
++  float sharpness = 0.5f;
++  float disocclusion_depth_threshold = 0.05f;
++  // Parity tolerances: GPU uses RGBA16F history/output + bilinear texture
++  // sampling, whereas CPU reference uses FP32 + Catmull-Rom; >=35 dB PSNR and
++  // <=0.025 MAE in tone-mapped sRGB [0,1] ensure algorithmic equivalence.
++  double min_parity_psnr_db = 35.0;
++  double max_parity_mae = 0.025;
++};
++
++struct VulkanParityReport {
++  bool executed = false;
++  bool validation_clean = false;
++  bool fp16_active = false;
++  bool parity_passed = false;
++  std::string device_name;
++  bool is_software_device = false;
++  double reconstruct_gpu_ms = 0.0;
++  double sharpen_gpu_ms = 0.0;
++  double gpu_time_ms = 0.0;
++  double cpu_vs_gpu_psnr_db = 0.0;
++  double cpu_vs_gpu_mae = 0.0;
++  double cpu_vs_gpu_max_abs_err = 0.0;
++  std::string status_message;
++};
++
++// Stateful Vulkan 1.4 compute execution harness supporting persistent
++// multi-frame ping-pong history, timestamps, readback, and CPU/GPU parity.
++class SsrVulkanHarness {
++ public:
++  SsrVulkanHarness() = default;
++  ~SsrVulkanHarness();
++
++  SsrVulkanHarness(const SsrVulkanHarness&) = delete;
++  SsrVulkanHarness& operator=(const SsrVulkanHarness&) = delete;
++
++  [[nodiscard]] bool initialize(const VulkanHarnessConfig& cfg,
++                                std::string& out_status);
++  void reset_history() noexcept;
++  void destroy() noexcept;
++
++  [[nodiscard]] VulkanParityReport execute_frame(
++      const SsrDispatchInputs& inputs,
++      const std::vector<ColorRgb>& cpu_reference_output,
++      std::vector<ColorRgb>& out_gpu_color);
++
++  // Single-frame convenience wrapper
++  [[nodiscard]] static VulkanParityReport run_parity_test(
++      const VulkanHarnessConfig& cfg,
++      const SsrDispatchInputs& inputs,
++      const std::vector<ColorRgb>& cpu_reference_output);
++
++ private:
++  struct Impl;
++  Impl* impl_ = nullptr;
++};
++
++}  // namespace saige::ssr::gpu
+--- a/gpu/ssr_vulkan_harness.cpp
++++ b/gpu/ssr_vulkan_harness.cpp
+@@ -0,0 +1,1020 @@
++#include "ssr_vulkan_harness.hpp"
++
++#include <algorithm>
++#include <cmath>
++#include <cstring>
++
++#if defined(SAIGE_SSR_ENABLE_VULKAN) && SAIGE_SSR_ENABLE_VULKAN
++#include <vulkan/vulkan.h>
++#include <fstream>
++#endif
++
++namespace saige::ssr::gpu {
++
++namespace {
++
++[[nodiscard]] [[maybe_unused]] ColorRgb tonemap_srgb(ColorRgb hdr) noexcept {
++  auto tm = [](float v) -> float {
++    const float mapped = v / (1.0f + std::max(0.0f, v));
++    return std::pow(std::clamp(mapped, 0.0f, 1.0f), 1.0f / 2.2f);
++  };
++  return {tm(hdr.r), tm(hdr.g), tm(hdr.b)};
++}
++
++[[maybe_unused]] void compute_parity_metrics(const std::vector<ColorRgb>& cpu_ref,
++                            const std::vector<ColorRgb>& gpu_out,
++                            VulkanParityReport& report) noexcept {
++  if (cpu_ref.empty() || cpu_ref.size() != gpu_out.size()) return;
++  double mse = 0.0;
++  double mae = 0.0;
++  double max_err = 0.0;
++  for (std::size_t i = 0; i < cpu_ref.size(); ++i) {
++    const ColorRgb a = tonemap_srgb(cpu_ref[i]);
++    const ColorRgb b = tonemap_srgb(gpu_out[i]);
++    const double dr = std::abs(static_cast<double>(a.r - b.r));
++    const double dg = std::abs(static_cast<double>(a.g - b.g));
++    const double db = std::abs(static_cast<double>(a.b - b.b));
++    mae += (dr + dg + db) / 3.0;
++    mse += (dr * dr + dg * dg + db * db) / 3.0;
++    max_err = std::max({max_err, dr, dg, db});
++  }
++  const double n = static_cast<double>(cpu_ref.size());
++  mae /= n;
++  mse /= n;
++  report.cpu_vs_gpu_mae = mae;
++  report.cpu_vs_gpu_max_abs_err = max_err;
++  report.cpu_vs_gpu_psnr_db = (mse <= 1e-12) ? 99.0 : (10.0 * std::log10(1.0 / mse));
++}
++
++#if defined(SAIGE_SSR_ENABLE_VULKAN) && SAIGE_SSR_ENABLE_VULKAN
++
++float f16_to_f32(std::uint16_t h) noexcept {
++  const std::uint32_t sign = (static_cast<std::uint32_t>(h) & 0x8000u) << 16;
++  const std::uint32_t exp = (static_cast<std::uint32_t>(h) & 0x7C00u) >> 10;
++  const std::uint32_t mant = static_cast<std::uint32_t>(h) & 0x03FFu;
++  std::uint32_t bits = 0;
++  if (exp == 0) {
++    if (mant == 0) {
++      bits = sign;
++    } else {
++      std::uint32_t m = mant;
++      std::uint32_t e = 127 - 14;
++      while ((m & 0x0400u) == 0) {
++        m <<= 1;
++        --e;
++      }
++      m &= 0x03FFu;
++      bits = sign | (e << 23) | (m << 13);
++    }
++  } else if (exp == 31) {
++    bits = sign | 0x7F800000u | (mant << 13);
++  } else {
++    bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
++  }
++  float out = 0.0f;
++  std::memcpy(&out, &bits, sizeof(float));
++  return out;
++}
++
++std::vector<std::uint32_t> load_spv(const std::string& path) {
++  std::ifstream f(path, std::ios::binary | std::ios::ate);
++  if (!f.is_open()) return {};
++  const auto sz = static_cast<std::size_t>(f.tellg());
++  if (sz == 0 || (sz % 4) != 0) return {};
++  std::vector<std::uint32_t> words(sz / 4);
++  f.seekg(0);
++  f.read(reinterpret_cast<char*>(words.data()), static_cast<std::streamsize>(sz));
++  return words;
++}
++
++struct ReconstructPushConstants {
++  std::uint32_t render_w, render_h;
++  std::uint32_t output_w, output_h;
++  float jitter_x, jitter_y;
++  float exposure_ratio;
++  float disocclusion_threshold;
++  std::uint32_t flags;
++};
++
++struct SharpenPushConstants {
++  std::uint32_t output_w, output_h;
++  float sharpness;
++};
++
++struct GpuImage {
++  VkImage image = VK_NULL_HANDLE;
++  VkDeviceMemory memory = VK_NULL_HANDLE;
++  VkImageView view = VK_NULL_HANDLE;
++  VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
++  std::uint32_t width = 0;
++  std::uint32_t height = 0;
++  VkFormat format = VK_FORMAT_UNDEFINED;
++};
++
++struct GpuBuffer {
++  VkBuffer buffer = VK_NULL_HANDLE;
++  VkDeviceMemory memory = VK_NULL_HANDLE;
++  VkDeviceSize size = 0;
++};
++
++VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
++    VkDebugUtilsMessageSeverityFlagBitsEXT severity,
++    VkDebugUtilsMessageTypeFlagsEXT,
++    const VkDebugUtilsMessengerCallbackDataEXT*,
++    void* user_data) {
++  if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT && user_data) {
++    auto* clean_flag = static_cast<bool*>(user_data);
++    *clean_flag = false;
++  }
++  return VK_FALSE;
++}
++
++#endif  // SAIGE_SSR_ENABLE_VULKAN
++
++}  // namespace
++
++struct SsrVulkanHarness::Impl {
++#if defined(SAIGE_SSR_ENABLE_VULKAN) && SAIGE_SSR_ENABLE_VULKAN
++  VulkanHarnessConfig cfg{};
++  VkInstance instance = VK_NULL_HANDLE;
++  VkDebugUtilsMessengerEXT messenger = VK_NULL_HANDLE;
++  bool validation_clean = true;
++  VkPhysicalDevice physical_device = VK_NULL_HANDLE;
++  VkDevice device = VK_NULL_HANDLE;
++  std::uint32_t compute_queue_family = 0;
++  VkQueue compute_queue = VK_NULL_HANDLE;
++  float timestamp_period_ns = 1.0f;
++  std::string device_name;
++  bool is_software_device = false;
++  bool fp16_active = false;
++
++  VkCommandPool cmd_pool = VK_NULL_HANDLE;
++  VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
++  VkFence fence = VK_NULL_HANDLE;
++  VkSampler linear_sampler = VK_NULL_HANDLE;
++  VkQueryPool query_pool = VK_NULL_HANDLE;
++
++  VkDescriptorSetLayout recon_set_layout = VK_NULL_HANDLE;
++  VkPipelineLayout recon_pipe_layout = VK_NULL_HANDLE;
++  VkPipeline recon_pipeline = VK_NULL_HANDLE;
++
++  VkDescriptorSetLayout sharp_set_layout = VK_NULL_HANDLE;
++  VkPipelineLayout sharp_pipe_layout = VK_NULL_HANDLE;
++  VkPipeline sharp_pipeline = VK_NULL_HANDLE;
++
++  VkDescriptorPool desc_pool = VK_NULL_HANDLE;
++  VkDescriptorSet recon_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
++  VkDescriptorSet sharp_sets[2] = {VK_NULL_HANDLE, VK_NULL_HANDLE};
++
++  GpuImage color_hdr{};
++  GpuImage depth{};
++  GpuImage motion_px{};
++  GpuImage reactive_mask{};
++  GpuImage transparency_mask{};
++
++  GpuImage hist_color[2]{};
++  GpuImage hist_depth[2]{};
++  GpuImage hist_conf[2]{};
++  GpuImage final_output{};
++
++  GpuBuffer upload_staging{};
++  GpuBuffer readback_staging{};
++
++  std::uint32_t alloc_ren_w = 0, alloc_ren_h = 0;
++  std::uint32_t alloc_out_w = 0, alloc_out_h = 0;
++  int ping_pong = 0;
++  bool has_history = false;
++  float prev_exposure = 1.0f;
++  bool initialized = false;
++
++  std::uint32_t find_memory_type(std::uint32_t type_filter,
++                                 VkMemoryPropertyFlags props) const {
++    VkPhysicalDeviceMemoryProperties mem_props{};
++    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
++    for (std::uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
++      if ((type_filter & (1u << i)) &&
++          (mem_props.memoryTypes[i].propertyFlags & props) == props) {
++        return i;
++      }
++    }
++    return UINT32_MAX;
++  }
++
++  bool create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
++                     VkMemoryPropertyFlags props, GpuBuffer& out) {
++    VkBufferCreateInfo bci{};
++    bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
++    bci.size = size;
++    bci.usage = usage;
++    bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++    if (vkCreateBuffer(device, &bci, nullptr, &out.buffer) != VK_SUCCESS)
++      return false;
++
++    VkMemoryRequirements req{};
++    vkGetBufferMemoryRequirements(device, out.buffer, &req);
++    const std::uint32_t mt = find_memory_type(req.memoryTypeBits, props);
++    if (mt == UINT32_MAX) return false;
++
++    VkMemoryAllocateInfo mai{};
++    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++    mai.allocationSize = req.size;
++    mai.memoryTypeIndex = mt;
++    if (vkAllocateMemory(device, &mai, nullptr, &out.memory) != VK_SUCCESS)
++      return false;
++    if (vkBindBufferMemory(device, out.buffer, out.memory, 0) != VK_SUCCESS)
++      return false;
++    out.size = size;
++    return true;
++  }
++
++  void destroy_buffer(GpuBuffer& b) {
++    if (b.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device, b.buffer, nullptr);
++    if (b.memory != VK_NULL_HANDLE) vkFreeMemory(device, b.memory, nullptr);
++    b = {};
++  }
++
++  bool create_image(std::uint32_t w, std::uint32_t h, VkFormat fmt,
++                    VkImageUsageFlags usage, GpuImage& out) {
++    VkImageCreateInfo ici{};
++    ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
++    ici.imageType = VK_IMAGE_TYPE_2D;
++    ici.format = fmt;
++    ici.extent = {w, h, 1};
++    ici.mipLevels = 1;
++    ici.arrayLayers = 1;
++    ici.samples = VK_SAMPLE_COUNT_1_BIT;
++    ici.tiling = VK_IMAGE_TILING_OPTIMAL;
++    ici.usage = usage;
++    ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++    if (vkCreateImage(device, &ici, nullptr, &out.image) != VK_SUCCESS)
++      return false;
++
++    VkMemoryRequirements req{};
++    vkGetImageMemoryRequirements(device, out.image, &req);
++    const std::uint32_t mt =
++        find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
++    if (mt == UINT32_MAX) return false;
++
++    VkMemoryAllocateInfo mai{};
++    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
++    mai.allocationSize = req.size;
++    mai.memoryTypeIndex = mt;
++    if (vkAllocateMemory(device, &mai, nullptr, &out.memory) != VK_SUCCESS)
++      return false;
++    if (vkBindImageMemory(device, out.image, out.memory, 0) != VK_SUCCESS)
++      return false;
++
++    VkImageViewCreateInfo ivci{};
++    ivci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
++    ivci.image = out.image;
++    ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
++    ivci.format = fmt;
++    ivci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
++    if (vkCreateImageView(device, &ivci, nullptr, &out.view) != VK_SUCCESS)
++      return false;
++
++    out.layout = VK_IMAGE_LAYOUT_UNDEFINED;
++    out.width = w;
++    out.height = h;
++    out.format = fmt;
++    return true;
++  }
++
++  void destroy_image(GpuImage& im) {
++    if (im.view != VK_NULL_HANDLE) vkDestroyImageView(device, im.view, nullptr);
++    if (im.image != VK_NULL_HANDLE) vkDestroyImage(device, im.image, nullptr);
++    if (im.memory != VK_NULL_HANDLE) vkFreeMemory(device, im.memory, nullptr);
++    im = {};
++  }
++
++  void transition_image(VkCommandBuffer cmd, GpuImage& im,
++                        VkImageLayout new_layout, VkPipelineStageFlags2 src_stage,
++                        VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage,
++                        VkAccessFlags2 dst_access) {
++    VkImageMemoryBarrier2 b{};
++    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
++    b.srcStageMask = src_stage;
++    b.srcAccessMask = src_access;
++    b.dstStageMask = dst_stage;
++    b.dstAccessMask = dst_access;
++    b.oldLayout = im.layout;
++    b.newLayout = new_layout;
++    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++    b.image = im.image;
++    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
++
++    VkDependencyInfo dep{};
++    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
++    dep.imageMemoryBarrierCount = 1;
++    dep.pImageMemoryBarriers = &b;
++    vkCmdPipelineBarrier2(cmd, &dep);
++    im.layout = new_layout;
++  }
++
++  void update_descriptors() {
++    for (int pp = 0; pp < 2; ++pp) {
++      const int in_idx = pp;
++      const int out_idx = 1 - pp;
++
++      VkDescriptorImageInfo sampled[8] = {
++          {linear_sampler, color_hdr.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, depth.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, motion_px.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, reactive_mask.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, transparency_mask.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, hist_color[in_idx].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, hist_depth[in_idx].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++          {linear_sampler, hist_conf[in_idx].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
++      };
++      VkDescriptorImageInfo storage[3] = {
++          {VK_NULL_HANDLE, hist_color[out_idx].view, VK_IMAGE_LAYOUT_GENERAL},
++          {VK_NULL_HANDLE, hist_depth[out_idx].view, VK_IMAGE_LAYOUT_GENERAL},
++          {VK_NULL_HANDLE, hist_conf[out_idx].view, VK_IMAGE_LAYOUT_GENERAL},
++      };
++      VkWriteDescriptorSet writes[11]{};
++      for (std::uint32_t i = 0; i < 8; ++i) {
++        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++        writes[i].dstSet = recon_sets[pp];
++        writes[i].dstBinding = i;
++        writes[i].descriptorCount = 1;
++        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++        writes[i].pImageInfo = &sampled[i];
++      }
++      for (std::uint32_t i = 0; i < 3; ++i) {
++        writes[8 + i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++        writes[8 + i].dstSet = recon_sets[pp];
++        writes[8 + i].dstBinding = 8 + i;
++        writes[8 + i].descriptorCount = 1;
++        writes[8 + i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++        writes[8 + i].pImageInfo = &storage[i];
++      }
++      vkUpdateDescriptorSets(device, 11, writes, 0, nullptr);
++
++      VkDescriptorImageInfo s_in{linear_sampler, hist_color[out_idx].view,
++                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++      VkDescriptorImageInfo s_out{VK_NULL_HANDLE, final_output.view,
++                                  VK_IMAGE_LAYOUT_GENERAL};
++      VkWriteDescriptorSet sw[2]{};
++      sw[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      sw[0].dstSet = sharp_sets[pp];
++      sw[0].dstBinding = 0;
++      sw[0].descriptorCount = 1;
++      sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
++      sw[0].pImageInfo = &s_in;
++      sw[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      sw[1].dstSet = sharp_sets[pp];
++      sw[1].dstBinding = 1;
++      sw[1].descriptorCount = 1;
++      sw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
++      sw[1].pImageInfo = &s_out;
++      vkUpdateDescriptorSets(device, 2, sw, 0, nullptr);
++    }
++  }
++#endif
++};
++
++SsrVulkanHarness::~SsrVulkanHarness() { destroy(); }
++
++void SsrVulkanHarness::destroy() noexcept {
++  if (!impl_) return;
++#if defined(SAIGE_SSR_ENABLE_VULKAN) && SAIGE_SSR_ENABLE_VULKAN
++  if (impl_->device != VK_NULL_HANDLE) {
++    vkDeviceWaitIdle(impl_->device);
++    impl_->destroy_buffer(impl_->upload_staging);
++    impl_->destroy_buffer(impl_->readback_staging);
++    impl_->destroy_image(impl_->color_hdr);
++    impl_->destroy_image(impl_->depth);
++    impl_->destroy_image(impl_->motion_px);
++    impl_->destroy_image(impl_->reactive_mask);
++    impl_->destroy_image(impl_->transparency_mask);
++    for (int i = 0; i < 2; ++i) {
++      impl_->destroy_image(impl_->hist_color[i]);
++      impl_->destroy_image(impl_->hist_depth[i]);
++      impl_->destroy_image(impl_->hist_conf[i]);
++    }
++    impl_->destroy_image(impl_->final_output);
++    if (impl_->desc_pool) vkDestroyDescriptorPool(impl_->device, impl_->desc_pool, nullptr);
++    if (impl_->sharp_pipeline) vkDestroyPipeline(impl_->device, impl_->sharp_pipeline, nullptr);
++    if (impl_->sharp_pipe_layout) vkDestroyPipelineLayout(impl_->device, impl_->sharp_pipe_layout, nullptr);
++    if (impl_->sharp_set_layout) vkDestroyDescriptorSetLayout(impl_->device, impl_->sharp_set_layout, nullptr);
++    if (impl_->recon_pipeline) vkDestroyPipeline(impl_->device, impl_->recon_pipeline, nullptr);
++    if (impl_->recon_pipe_layout) vkDestroyPipelineLayout(impl_->device, impl_->recon_pipe_layout, nullptr);
++    if (impl_->recon_set_layout) vkDestroyDescriptorSetLayout(impl_->device, impl_->recon_set_layout, nullptr);
++    if (impl_->query_pool) vkDestroyQueryPool(impl_->device, impl_->query_pool, nullptr);
++    if (impl_->linear_sampler) vkDestroySampler(impl_->device, impl_->linear_sampler, nullptr);
++    if (impl_->fence) vkDestroyFence(impl_->device, impl_->fence, nullptr);
++    if (impl_->cmd_pool) vkDestroyCommandPool(impl_->device, impl_->cmd_pool, nullptr);
++    vkDestroyDevice(impl_->device, nullptr);
++  }
++  if (impl_->messenger && impl_->instance) {
++    auto fn = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
++        vkGetInstanceProcAddr(impl_->instance, "vkDestroyDebugUtilsMessengerEXT"));
++    if (fn) fn(impl_->instance, impl_->messenger, nullptr);
++  }
++  if (impl_->instance) vkDestroyInstance(impl_->instance, nullptr);
++#endif
++  delete impl_;
++  impl_ = nullptr;
++}
++
++void SsrVulkanHarness::reset_history() noexcept {
++#if defined(SAIGE_SSR_ENABLE_VULKAN) && SAIGE_SSR_ENABLE_VULKAN
++  if (impl_) {
++    impl_->has_history = false;
++    impl_->prev_exposure = 1.0f;
++  }
++#endif
++}
++
++bool SsrVulkanHarness::initialize(const VulkanHarnessConfig& cfg,
++                                  std::string& out_status) {
++  destroy();
++#if !defined(SAIGE_SSR_ENABLE_VULKAN) || !SAIGE_SSR_ENABLE_VULKAN
++  (void)cfg;
++  out_status =
++      "BLOCKED: Compiled without SAIGE_SSR_ENABLE_VULKAN=1 "
++      "(vulkan.h / glslangValidator unavailable in build environment).";
++  return false;
++#else
++  impl_ = new Impl();
++  impl_->cfg = cfg;
++
++  VkApplicationInfo app_info{};
++  app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
++  app_info.pApplicationName = "SAIGE_SSR_Harness";
++  app_info.apiVersion = VK_API_VERSION_1_4;
++
++  const char* layers[] = {"VK_LAYER_KHRONOS_validation"};
++  const char* exts[] = {VK_EXT_DEBUG_UTILS_EXTENSION_NAME};
++
++  VkInstanceCreateInfo ici{};
++  ici.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
++  ici.pApplicationInfo = &app_info;
++  if (cfg.enable_validation_layers) {
++    ici.enabledLayerCount = 1;
++    ici.ppEnabledLayerNames = layers;
++    ici.enabledExtensionCount = 1;
++    ici.ppEnabledExtensionNames = exts;
++  }
++  if (vkCreateInstance(&ici, nullptr, &impl_->instance) != VK_SUCCESS) {
++    out_status = "vkCreateInstance failed.";
++    destroy();
++    return false;
++  }
++
++  if (cfg.enable_validation_layers) {
++    auto fn = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
++        vkGetInstanceProcAddr(impl_->instance, "vkCreateDebugUtilsMessengerEXT"));
++    if (fn) {
++      VkDebugUtilsMessengerCreateInfoEXT dci{};
++      dci.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
++      dci.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
++                            VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
++      dci.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
++                        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
++                        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
++      dci.pfnUserCallback = debug_callback;
++      dci.pUserData = &impl_->validation_clean;
++      fn(impl_->instance, &dci, nullptr, &impl_->messenger);
++    }
++  }
++
++  std::uint32_t dev_count = 0;
++  vkEnumeratePhysicalDevices(impl_->instance, &dev_count, nullptr);
++  if (dev_count == 0) {
++    out_status = "No Vulkan physical devices available.";
++    destroy();
++    return false;
++  }
++  std::vector<VkPhysicalDevice> devs(dev_count);
++  vkEnumeratePhysicalDevices(impl_->instance, &dev_count, devs.data());
++
++  impl_->physical_device = devs[0];
++  for (VkPhysicalDevice d : devs) {
++    VkPhysicalDeviceProperties props{};
++    vkGetPhysicalDeviceProperties(d, &props);
++    const bool is_cpu = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU);
++    if ((cfg.prefer_software_vulkan && is_cpu) ||
++        (!cfg.prefer_software_vulkan && !is_cpu)) {
++      impl_->physical_device = d;
++      break;
++    }
++  }
++
++  VkPhysicalDeviceProperties props{};
++  vkGetPhysicalDeviceProperties(impl_->physical_device, &props);
++  impl_->device_name = props.deviceName;
++  impl_->is_software_device = (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU);
++  impl_->timestamp_period_ns = props.limits.timestampPeriod;
++
++  VkPhysicalDeviceVulkan13Features f13{};
++  f13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
++  VkPhysicalDeviceVulkan12Features f12{};
++  f12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++  f12.pNext = &f13;
++  VkPhysicalDeviceFeatures2 f2{};
++  f2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
++  f2.pNext = &f12;
++  vkGetPhysicalDeviceFeatures2(impl_->physical_device, &f2);
++
++  std::vector<std::uint32_t> recon_spv;
++  if (cfg.prefer_fp16 && f12.shaderFloat16 == VK_TRUE) {
++    recon_spv = load_spv(cfg.reconstruct_fp16_spv_path);
++    impl_->fp16_active = !recon_spv.empty();
++  }
++  if (recon_spv.empty()) {
++    recon_spv = load_spv(cfg.reconstruct_spv_path);
++    impl_->fp16_active = false;
++  }
++  const auto sharp_spv = load_spv(cfg.sharpen_spv_path);
++  if (recon_spv.empty() || sharp_spv.empty()) {
++    out_status = "Missing compiled SPIR-V binaries (.spv); compile GLSL shaders first.";
++    destroy();
++    return false;
++  }
++
++  std::uint32_t qf_count = 0;
++  vkGetPhysicalDeviceQueueFamilyProperties(impl_->physical_device, &qf_count, nullptr);
++  std::vector<VkQueueFamilyProperties> qfs(qf_count);
++  vkGetPhysicalDeviceQueueFamilyProperties(impl_->physical_device, &qf_count, qfs.data());
++  bool found_qf = false;
++  for (std::uint32_t i = 0; i < qf_count; ++i) {
++    if (qfs[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
++      impl_->compute_queue_family = i;
++      found_qf = true;
++      break;
++    }
++  }
++  if (!found_qf) {
++    out_status = "No Vulkan compute queue family found.";
++    destroy();
++    return false;
++  }
++
++  const float prio = 1.0f;
++  VkDeviceQueueCreateInfo qci{};
++  qci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
++  qci.queueFamilyIndex = impl_->compute_queue_family;
++  qci.queueCount = 1;
++  qci.pQueuePriorities = &prio;
++
++  VkPhysicalDeviceVulkan13Features en13{};
++  en13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
++  en13.synchronization2 = VK_TRUE;
++  VkPhysicalDeviceVulkan12Features en12{};
++  en12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++  en12.pNext = &en13;
++  en12.shaderFloat16 = impl_->fp16_active ? VK_TRUE : VK_FALSE;
++
++  VkDeviceCreateInfo dci{};
++  dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
++  dci.pNext = &en12;
++  dci.queueCreateInfoCount = 1;
++  dci.pQueueCreateInfos = &qci;
++  if (vkCreateDevice(impl_->physical_device, &dci, nullptr, &impl_->device) != VK_SUCCESS) {
++    out_status = "vkCreateDevice failed.";
++    destroy();
++    return false;
++  }
++  vkGetDeviceQueue(impl_->device, impl_->compute_queue_family, 0, &impl_->compute_queue);
++
++  VkCommandPoolCreateInfo cpci{};
++  cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
++  cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
++  cpci.queueFamilyIndex = impl_->compute_queue_family;
++  if (vkCreateCommandPool(impl_->device, &cpci, nullptr, &impl_->cmd_pool) != VK_SUCCESS) {
++    out_status = "vkCreateCommandPool failed.";
++    destroy();
++    return false;
++  }
++
++  VkCommandBufferAllocateInfo cbai{};
++  cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
++  cbai.commandPool = impl_->cmd_pool;
++  cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
++  cbai.commandBufferCount = 1;
++  vkAllocateCommandBuffers(impl_->device, &cbai, &impl_->cmd_buf);
++
++  VkFenceCreateInfo fci{};
++  fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
++  vkCreateFence(impl_->device, &fci, nullptr, &impl_->fence);
++
++  VkSamplerCreateInfo sci{};
++  sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
++  sci.magFilter = VK_FILTER_LINEAR;
++  sci.minFilter = VK_FILTER_LINEAR;
++  sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
++  sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
++  sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
++  vkCreateSampler(impl_->device, &sci, nullptr, &impl_->linear_sampler);
++
++  VkQueryPoolCreateInfo qpci{};
++  qpci.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++  qpci.queryType = VK_QUERY_TYPE_TIMESTAMP;
++  qpci.queryCount = 4;
++  vkCreateQueryPool(impl_->device, &qpci, nullptr, &impl_->query_pool);
++
++  // Descriptor set layout for reconstruct (8 sampled + 3 storage)
++  VkDescriptorSetLayoutBinding r_binds[11]{};
++  for (std::uint32_t i = 0; i < 8; ++i) {
++    r_binds[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
++                  VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
++  }
++  for (std::uint32_t i = 0; i < 3; ++i) {
++    r_binds[8 + i] = {8 + i, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
++                      VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
++  }
++  VkDescriptorSetLayoutCreateInfo r_dsl{
++      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, nullptr, 0, 11, r_binds};
++  vkCreateDescriptorSetLayout(impl_->device, &r_dsl, nullptr, &impl_->recon_set_layout);
++
++  VkPushConstantRange r_pcr{VK_SHADER_STAGE_COMPUTE_BIT, 0,
++                            sizeof(ReconstructPushConstants)};
++  VkPipelineLayoutCreateInfo r_pli{
++      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, nullptr, 0, 1,
++      &impl_->recon_set_layout, 1, &r_pcr};
++  vkCreatePipelineLayout(impl_->device, &r_pli, nullptr, &impl_->recon_pipe_layout);
++
++  // Descriptor set layout for sharpen (1 sampled + 1 storage)
++  VkDescriptorSetLayoutBinding s_binds[2] = {
++      {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
++      {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
++  };
++  VkDescriptorSetLayoutCreateInfo s_dsl{
++      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, nullptr, 0, 2, s_binds};
++  vkCreateDescriptorSetLayout(impl_->device, &s_dsl, nullptr, &impl_->sharp_set_layout);
++
++  VkPushConstantRange s_pcr{VK_SHADER_STAGE_COMPUTE_BIT, 0,
++                            sizeof(SharpenPushConstants)};
++  VkPipelineLayoutCreateInfo s_pli{
++      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, nullptr, 0, 1,
++      &impl_->sharp_set_layout, 1, &s_pcr};
++  vkCreatePipelineLayout(impl_->device, &s_pli, nullptr, &impl_->sharp_pipe_layout);
++
++  // Compute pipelines
++  auto create_comp_pipe = [&](const std::vector<std::uint32_t>& code,
++                              VkPipelineLayout layout, VkPipeline& out_pipe) {
++    VkShaderModuleCreateInfo smci{
++        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO, nullptr, 0,
++        code.size() * sizeof(std::uint32_t), code.data()};
++    VkShaderModule mod = VK_NULL_HANDLE;
++    if (vkCreateShaderModule(impl_->device, &smci, nullptr, &mod) != VK_SUCCESS)
++      return false;
++    VkComputePipelineCreateInfo cp{};
++    cp.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
++    cp.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
++                VK_SHADER_STAGE_COMPUTE_BIT, mod, "main", nullptr};
++    cp.layout = layout;
++    const VkResult r = vkCreateComputePipelines(impl_->device, VK_NULL_HANDLE,
++                                                1, &cp, nullptr, &out_pipe);
++    vkDestroyShaderModule(impl_->device, mod, nullptr);
++    return r == VK_SUCCESS;
++  };
++  if (!create_comp_pipe(recon_spv, impl_->recon_pipe_layout, impl_->recon_pipeline) ||
++      !create_comp_pipe(sharp_spv, impl_->sharp_pipe_layout, impl_->sharp_pipeline)) {
++    out_status = "vkCreateComputePipelines failed.";
++    destroy();
++    return false;
++  }
++
++  VkDescriptorPoolSize pool_sizes[2] = {
++      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 18},
++      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 8},
++  };
++  VkDescriptorPoolCreateInfo dpci{
++      VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, nullptr, 0, 4, 2, pool_sizes};
++  vkCreateDescriptorPool(impl_->device, &dpci, nullptr, &impl_->desc_pool);
++
++  VkDescriptorSetLayout set_layouts[4] = {
++      impl_->recon_set_layout, impl_->recon_set_layout,
++      impl_->sharp_set_layout, impl_->sharp_set_layout};
++  VkDescriptorSet sets[4]{};
++  VkDescriptorSetAllocateInfo dsai{
++      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, nullptr,
++      impl_->desc_pool, 4, set_layouts};
++  vkAllocateDescriptorSets(impl_->device, &dsai, sets);
++  impl_->recon_sets[0] = sets[0];
++  impl_->recon_sets[1] = sets[1];
++  impl_->sharp_sets[0] = sets[2];
++  impl_->sharp_sets[1] = sets[3];
++
++  impl_->initialized = true;
++  out_status = "Initialized Vulkan 1.4 SSR harness on " + impl_->device_name;
++  return true;
++#endif
++}
++
++VulkanParityReport SsrVulkanHarness::execute_frame(
++    const SsrDispatchInputs& inputs,
++    const std::vector<ColorRgb>& cpu_reference_output,
++    std::vector<ColorRgb>& out_gpu_color) {
++  VulkanParityReport report{};
++#if !defined(SAIGE_SSR_ENABLE_VULKAN) || !SAIGE_SSR_ENABLE_VULKAN
++  (void)inputs;
++  (void)cpu_reference_output;
++  (void)out_gpu_color;
++  report.executed = false;
++  report.status_message =
++      "BLOCKED: Compiled without SAIGE_SSR_ENABLE_VULKAN=1 "
++      "(vulkan.h / glslangValidator unavailable in build environment).";
++  return report;
++#else
++  if (!impl_ || !impl_->initialized) {
++    report.status_message = "Harness not initialized.";
++    return report;
++  }
++  report.device_name = impl_->device_name;
++  report.is_software_device = impl_->is_software_device;
++  report.fp16_active = impl_->fp16_active;
++
++  if (inputs.render_width == 0 || inputs.render_height == 0 ||
++      inputs.output_width == 0 || inputs.output_height == 0 ||
++      inputs.render_width > inputs.output_width ||
++      inputs.render_height > inputs.output_height ||
++      !inputs.color_hdr || !inputs.depth || !inputs.motion_vectors_px) {
++    report.status_message = "Invalid SSR dispatch inputs.";
++    return report;
++  }
++
++  const std::uint32_t rw = inputs.render_width;
++  const std::uint32_t rh = inputs.render_height;
++  const std::uint32_t ow = inputs.output_width;
++  const std::uint32_t oh = inputs.output_height;
++  const std::size_t ren_n = static_cast<std::size_t>(rw) * rh;
++  const std::size_t out_n = static_cast<std::size_t>(ow) * oh;
++
++  bool need_desc_update = false;
++  if (rw != impl_->alloc_ren_w || rh != impl_->alloc_ren_h) {
++    impl_->destroy_image(impl_->color_hdr);
++    impl_->destroy_image(impl_->depth);
++    impl_->destroy_image(impl_->motion_px);
++    impl_->destroy_image(impl_->reactive_mask);
++    impl_->destroy_image(impl_->transparency_mask);
++    impl_->destroy_buffer(impl_->upload_staging);
++
++    const VkImageUsageFlags in_usage =
++        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
++    impl_->create_image(rw, rh, VK_FORMAT_R32G32B32A32_SFLOAT, in_usage, impl_->color_hdr);
++    impl_->create_image(rw, rh, VK_FORMAT_R32_SFLOAT, in_usage, impl_->depth);
++    impl_->create_image(rw, rh, VK_FORMAT_R32G32_SFLOAT, in_usage, impl_->motion_px);
++    impl_->create_image(rw, rh, VK_FORMAT_R32_SFLOAT, in_usage, impl_->reactive_mask);
++    impl_->create_image(rw, rh, VK_FORMAT_R32_SFLOAT, in_usage, impl_->transparency_mask);
++
++    // Total staging bytes: rgba32f(16) + r32f(4) + rg32f(8) + r32f(4) + r32f(4) = 36 bytes/px
++    impl_->create_buffer(ren_n * 36ull, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
++                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
++                         impl_->upload_staging);
++    impl_->alloc_ren_w = rw;
++    impl_->alloc_ren_h = rh;
++    need_desc_update = true;
++  }
++
++  if (ow != impl_->alloc_out_w || oh != impl_->alloc_out_h) {
++    for (int i = 0; i < 2; ++i) {
++      impl_->destroy_image(impl_->hist_color[i]);
++      impl_->destroy_image(impl_->hist_depth[i]);
++      impl_->destroy_image(impl_->hist_conf[i]);
++    }
++    impl_->destroy_image(impl_->final_output);
++    impl_->destroy_buffer(impl_->readback_staging);
++
++    const VkImageUsageFlags hist_usage =
++        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
++    for (int i = 0; i < 2; ++i) {
++      impl_->create_image(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT, hist_usage, impl_->hist_color[i]);
++      impl_->create_image(ow, oh, VK_FORMAT_R32_SFLOAT, hist_usage, impl_->hist_depth[i]);
++      impl_->create_image(ow, oh, VK_FORMAT_R16_SFLOAT, hist_usage, impl_->hist_conf[i]);
++    }
++    impl_->create_image(ow, oh, VK_FORMAT_R16G16B16A16_SFLOAT,
++                        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
++                        impl_->final_output);
++    impl_->create_buffer(out_n * 8ull, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
++                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
++                         impl_->readback_staging);
++    impl_->alloc_out_w = ow;
++    impl_->alloc_out_h = oh;
++    impl_->has_history = false;
++    need_desc_update = true;
++  }
++
++  if (need_desc_update) impl_->update_descriptors();
++
++  // Pack staging upload buffer
++  void* mapped = nullptr;
++  vkMapMemory(impl_->device, impl_->upload_staging.memory, 0,
++              impl_->upload_staging.size, 0, &mapped);
++  auto* base = static_cast<std::uint8_t*>(mapped);
++  const std::size_t off_col = 0;
++  const std::size_t off_dep = ren_n * 16ull;
++  const std::size_t off_mv = off_dep + ren_n * 4ull;
++  const std::size_t off_react = off_mv + ren_n * 8ull;
++  const std::size_t off_transp = off_react + ren_n * 4ull;
++
++  auto* p_col = reinterpret_cast<float*>(base + off_col);
++  for (std::size_t i = 0; i < ren_n; ++i) {
++    p_col[i * 4 + 0] = std::isfinite(inputs.color_hdr[i].r) ? std::max(0.0f, inputs.color_hdr[i].r) : 0.0f;
++    p_col[i * 4 + 1] = std::isfinite(inputs.color_hdr[i].g) ? std::max(0.0f, inputs.color_hdr[i].g) : 0.0f;
++    p_col[i * 4 + 2] = std::isfinite(inputs.color_hdr[i].b) ? std::max(0.0f, inputs.color_hdr[i].b) : 0.0f;
++    p_col[i * 4 + 3] = 1.0f;
++  }
++  auto* p_dep = reinterpret_cast<float*>(base + off_dep);
++  for (std::size_t i = 0; i < ren_n; ++i) {
++    p_dep[i] = std::isfinite(inputs.depth[i]) ? inputs.depth[i] : (inputs.reversed_z ? 0.0f : 1.0f);
++  }
++  auto* p_mv = reinterpret_cast<float*>(base + off_mv);
++  for (std::size_t i = 0; i < ren_n; ++i) {
++    p_mv[i * 2 + 0] = std::isfinite(inputs.motion_vectors_px[i].x) ? inputs.motion_vectors_px[i].x : 0.0f;
++    p_mv[i * 2 + 1] = std::isfinite(inputs.motion_vectors_px[i].y) ? inputs.motion_vectors_px[i].y : 0.0f;
++  }
++  auto* p_react = reinterpret_cast<float*>(base + off_react);
++  auto* p_transp = reinterpret_cast<float*>(base + off_transp);
++  for (std::size_t i = 0; i < ren_n; ++i) {
++    p_react[i] = inputs.reactive_mask ? std::clamp(inputs.reactive_mask[i], 0.0f, 1.0f) : 0.0f;
++    p_transp[i] = inputs.transparency_mask ? std::clamp(inputs.transparency_mask[i], 0.0f, 1.0f) : 0.0f;
++  }
++  vkUnmapMemory(impl_->device, impl_->upload_staging.memory);
++
++  const int pp = impl_->ping_pong;
++  const int in_idx = pp;
++  const int out_idx = 1 - pp;
++  const bool do_cut = !impl_->has_history || inputs.camera_cut;
++
++  const float safe_exp = (std::isfinite(inputs.pre_exposure) && inputs.pre_exposure > 1e-4f)
++                             ? inputs.pre_exposure : 1.0f;
++  const float prev_exp = (std::isfinite(impl_->prev_exposure) && impl_->prev_exposure > 1e-4f)
++                             ? impl_->prev_exposure : 1.0f;
++  const float exp_ratio = std::clamp(safe_exp / prev_exp, 0.01f, 100.0f);
++
++  vkResetFences(impl_->device, 1, &impl_->fence);
++  vkResetCommandBuffer(impl_->cmd_buf, 0);
++  VkCommandBufferBeginInfo cbbi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr,
++                                VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr};
++  vkBeginCommandBuffer(impl_->cmd_buf, &cbbi);
++  vkCmdResetQueryPool(impl_->cmd_buf, impl_->query_pool, 0, 4);
++
++  auto upload_img = [&](GpuImage& im, std::size_t offset) {
++    impl_->transition_image(impl_->cmd_buf, im, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++                          VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
++                          VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
++    VkBufferImageCopy region{};
++    region.bufferOffset = offset;
++    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++    region.imageExtent = {rw, rh, 1};
++    vkCmdCopyBufferToImage(impl_->cmd_buf, impl_->upload_staging.buffer, im.image,
++                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
++    impl_->transition_image(impl_->cmd_buf, im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++                          VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
++  };
++  upload_img(impl_->color_hdr, off_col);
++  upload_img(impl_->depth, off_dep);
++  upload_img(impl_->motion_px, off_mv);
++  upload_img(impl_->reactive_mask, off_react);
++  upload_img(impl_->transparency_mask, off_transp);
++
++  if (impl_->hist_color[in_idx].layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
++    impl_->transition_image(impl_->cmd_buf, impl_->hist_color[in_idx],
++                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
++    impl_->transition_image(impl_->cmd_buf, impl_->hist_depth[in_idx],
++                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
++    impl_->transition_image(impl_->cmd_buf, impl_->hist_conf[in_idx],
++                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
++                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
++  }
++
++  impl_->transition_image(impl_->cmd_buf, impl_->hist_color[out_idx], VK_IMAGE_LAYOUT_GENERAL,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
++  impl_->transition_image(impl_->cmd_buf, impl_->hist_depth[out_idx], VK_IMAGE_LAYOUT_GENERAL,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
++  impl_->transition_image(impl_->cmd_buf, impl_->hist_conf[out_idx], VK_IMAGE_LAYOUT_GENERAL,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
++
++  const std::uint32_t gx = (ow + 7u) / 8u;
++  const std::uint32_t gy = (oh + 7u) / 8u;
++
++  ReconstructPushConstants rpc{
++      rw, rh, ow, oh,
++      inputs.jitter_offset_px.x, inputs.jitter_offset_px.y,
++      exp_ratio, impl_->cfg.disocclusion_depth_threshold,
++      (do_cut ? 1u : 0u) | (inputs.reversed_z ? 2u : 0u)};
++
++  vkCmdWriteTimestamp(impl_->cmd_buf, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, impl_->query_pool, 0);
++  vkCmdBindPipeline(impl_->cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->recon_pipeline);
++  vkCmdBindDescriptorSets(impl_->cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE,
++                          impl_->recon_pipe_layout, 0, 1, &impl_->recon_sets[pp], 0, nullptr);
++  vkCmdPushConstants(impl_->cmd_buf, impl_->recon_pipe_layout,
++                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(rpc), &rpc);
++  vkCmdDispatch(impl_->cmd_buf, gx, gy, 1);
++  vkCmdWriteTimestamp(impl_->cmd_buf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, impl_->query_pool, 1);
++
++  // Transition unsharpened history_color_out -> SHADER_READ_ONLY_OPTIMAL for sharpen pass
++  impl_->transition_image(impl_->cmd_buf, impl_->hist_color[out_idx],
++                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
++  impl_->transition_image(impl_->cmd_buf, impl_->final_output, VK_IMAGE_LAYOUT_GENERAL,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, 0,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
++
++  SharpenPushConstants spc{ow, oh, impl_->cfg.sharpness};
++  vkCmdWriteTimestamp(impl_->cmd_buf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, impl_->query_pool, 2);
++  vkCmdBindPipeline(impl_->cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->sharp_pipeline);
++  vkCmdBindDescriptorSets(impl_->cmd_buf, VK_PIPELINE_BIND_POINT_COMPUTE,
++                          impl_->sharp_pipe_layout, 0, 1, &impl_->sharp_sets[pp], 0, nullptr);
++  vkCmdPushConstants(impl_->cmd_buf, impl_->sharp_pipe_layout,
++                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(spc), &spc);
++  vkCmdDispatch(impl_->cmd_buf, gx, gy, 1);
++  vkCmdWriteTimestamp(impl_->cmd_buf, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, impl_->query_pool, 3);
++
++  impl_->transition_image(impl_->cmd_buf, impl_->final_output, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
++                        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
++  VkBufferImageCopy rb_region{};
++  rb_region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
++  rb_region.imageExtent = {ow, oh, 1};
++  vkCmdCopyImageToBuffer(impl_->cmd_buf, impl_->final_output.image,
++                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                         impl_->readback_staging.buffer, 1, &rb_region);
++  vkEndCommandBuffer(impl_->cmd_buf);
++
++  VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO, nullptr, 0, nullptr, nullptr,
++                  1, &impl_->cmd_buf, 0, nullptr};
++  if (vkQueueSubmit(impl_->compute_queue, 1, &si, impl_->fence) != VK_SUCCESS) {
++    report.status_message = "vkQueueSubmit failed.";
++    return report;
++  }
++  vkWaitForFences(impl_->device, 1, &impl_->fence, VK_TRUE, UINT64_MAX);
++
++  std::uint64_t ts[4]{};
++  if (vkGetQueryPoolResults(impl_->device, impl_->query_pool, 0, 4, sizeof(ts), ts,
++                            sizeof(std::uint64_t),
++                            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT) == VK_SUCCESS) {
++    const double ns_to_ms = static_cast<double>(impl_->timestamp_period_ns) * 1e-6;
++    report.reconstruct_gpu_ms = static_cast<double>(ts[1] - ts[0]) * ns_to_ms;
++    report.sharpen_gpu_ms = static_cast<double>(ts[3] - ts[2]) * ns_to_ms;
++    report.gpu_time_ms = report.reconstruct_gpu_ms + report.sharpen_gpu_ms;
++  }
++
++  // Read back RGBA16F output into ColorRgb
++  void* rb_ptr = nullptr;
++  vkMapMemory(impl_->device, impl_->readback_staging.memory, 0,
++              impl_->readback_staging.size, 0, &rb_ptr);
++  const auto* h16 = static_cast<const std::uint16_t*>(rb_ptr);
++  out_gpu_color.resize(out_n);
++  for (std::size_t i = 0; i < out_n; ++i) {
++    out_gpu_color[i] = {
++        f16_to_f32(h16[i * 4 + 0]),
++        f16_to_f32(h16[i * 4 + 1]),
++        f16_to_f32(h16[i * 4 + 2]),
++    };
++  }
++  vkUnmapMemory(impl_->device, impl_->readback_staging.memory);
++
++  impl_->ping_pong = out_idx;
++  impl_->has_history = true;
++  impl_->prev_exposure = safe_exp;
++
++  compute_parity_metrics(cpu_reference_output, out_gpu_color, report);
++  report.executed = true;
++  report.validation_clean = impl_->validation_clean;
++  report.parity_passed =
++      report.validation_clean &&
++      (cpu_reference_output.empty() ||
++       (report.cpu_vs_gpu_psnr_db >= impl_->cfg.min_parity_psnr_db &&
++        report.cpu_vs_gpu_mae <= impl_->cfg.max_parity_mae));
++  report.status_message = report.parity_passed
++                              ? "Vulkan compute parity PASSED"
++                              : "Vulkan compute parity FAILED";
++  return report;
++#endif
++}
++
++VulkanParityReport SsrVulkanHarness::run_parity_test(
++    const VulkanHarnessConfig& cfg,
++    const SsrDispatchInputs& inputs,
++    const std::vector<ColorRgb>& cpu_reference_output) {
++  SsrVulkanHarness harness;
++  std::string status;
++  if (!harness.initialize(cfg, status)) {
++    VulkanParityReport r{};
++    r.executed = false;
++    r.status_message = status;
++    return r;
++  }
++  std::vector<ColorRgb> gpu_out;
++  return harness.execute_frame(inputs, cpu_reference_output, gpu_out);
++}
++
++}  // namespace saige::ssr::gpu
+--- a/tests/ssr_test.cpp
++++ b/tests/ssr_test.cpp
+@@ -0,0 +1,648 @@
++#include "saige/ssr.hpp"
++#include "../gpu/ssr_vulkan_harness.hpp"
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <fstream>
++#include <iostream>
++#include <limits>
++#include <string>
++#include <vector>
++
++#define SAIGE_CHECK(cond)                                                     \
++  do {                                                                        \
++    if (!(cond)) {                                                            \
++      std::cerr << "SAIGE_CHECK FAILED at " << __FILE__ << ":" << __LINE__    \
++                << " (" << #cond << ")\n";                                    \
++      std::exit(1);                                                           \
++    }                                                                         \
++  } while (false)
++
++using namespace saige::ssr;
++
++namespace {
++
++enum class SceneKind {
++  MovingVehicleAndFence = 0,
++  FineFoliageAndPowerLines = 1,
++  NighttimeNeonHdr = 2,
++  ReflectiveRoadAndGlass = 3,
++  RapidCameraPanAndCut = 4,
++};
++
++[[nodiscard]] ColorRgb tonemap_srgb(ColorRgb hdr) noexcept {
++  auto tm = [](float v) -> float {
++    const float mapped = v / (1.0f + std::max(0.0f, v));
++    return std::pow(std::clamp(mapped, 0.0f, 1.0f), 1.0f / 2.2f);
++  };
++  return {tm(hdr.r), tm(hdr.g), tm(hdr.b)};
++}
++
++[[nodiscard]] double compute_psnr_db(const std::vector<ColorRgb>& ref,
++                                     const std::vector<ColorRgb>& test) noexcept {
++  double mse = 0.0;
++  for (std::size_t i = 0; i < ref.size(); ++i) {
++    const ColorRgb a = tonemap_srgb(ref[i]);
++    const ColorRgb b = tonemap_srgb(test[i]);
++    const double dr = static_cast<double>(a.r - b.r);
++    const double dg = static_cast<double>(a.g - b.g);
++    const double db = static_cast<double>(a.b - b.b);
++    mse += (dr * dr + dg * dg + db * db) / 3.0;
++  }
++  mse /= static_cast<double>(ref.size());
++  if (mse <= 1e-12) return 99.0;
++  return 10.0 * std::log10(1.0 / mse);
++}
++
++[[nodiscard]] double compute_ssim(const std::vector<ColorRgb>& ref,
++                                  const std::vector<ColorRgb>& test,
++                                  std::uint32_t w, std::uint32_t h) noexcept {
++  auto luma = [](ColorRgb c) {
++    const ColorRgb s = tonemap_srgb(c);
++    return 0.2126 * s.r + 0.7152 * s.g + 0.0722 * s.b;
++  };
++  constexpr double C1 = 0.01 * 0.01;
++  constexpr double C2 = 0.03 * 0.03;
++  double ssim_sum = 0.0;
++  std::uint64_t patches = 0;
++  for (std::uint32_t y = 0; y + 8 <= h; y += 8) {
++    for (std::uint32_t x = 0; x + 8 <= w; x += 8) {
++      double mx = 0.0, my = 0.0;
++      for (std::uint32_t py = 0; py < 8; ++py) {
++        for (std::uint32_t px = 0; px < 8; ++px) {
++          const std::size_t idx = static_cast<std::size_t>(y + py) * w + (x + px);
++          mx += luma(ref[idx]);
++          my += luma(test[idx]);
++        }
++      }
++      mx /= 64.0;
++      my /= 64.0;
++      double vx = 0.0, vy = 0.0, cov = 0.0;
++      for (std::uint32_t py = 0; py < 8; ++py) {
++        for (std::uint32_t px = 0; px < 8; ++px) {
++          const std::size_t idx = static_cast<std::size_t>(y + py) * w + (x + px);
++          const double dx = luma(ref[idx]) - mx;
++          const double dy = luma(test[idx]) - my;
++          vx += dx * dx;
++          vy += dy * dy;
++          cov += dx * dy;
++        }
++      }
++      vx /= 63.0;
++      vy /= 63.0;
++      cov /= 63.0;
++      ssim_sum += ((2.0 * mx * my + C1) * (2.0 * cov + C2)) /
++                  ((mx * mx + my * my + C1) * (vx + vy + C2));
++      ++patches;
++    }
++  }
++  return patches > 0 ? (ssim_sum / static_cast<double>(patches)) : 0.0;
++}
++
++[[nodiscard]] double compute_temporal_flicker_rmse(
++    const std::vector<ColorRgb>& prev_out, const std::vector<ColorRgb>& curr_out,
++    const std::vector<ColorRgb>& prev_gt, const std::vector<ColorRgb>& curr_gt) noexcept {
++  double mse = 0.0;
++  for (std::size_t i = 0; i < curr_out.size(); ++i) {
++    const ColorRgb do_c = tonemap_srgb(curr_out[i]);
++    const ColorRgb do_p = tonemap_srgb(prev_out[i]);
++    const ColorRgb dg_c = tonemap_srgb(curr_gt[i]);
++    const ColorRgb dg_p = tonemap_srgb(prev_gt[i]);
++    const double diff_r = static_cast<double>((do_c.r - do_p.r) - (dg_c.r - dg_p.r));
++    const double diff_g = static_cast<double>((do_c.g - do_p.g) - (dg_c.g - dg_p.g));
++    const double diff_b = static_cast<double>((do_c.b - do_p.b) - (dg_c.b - dg_p.b));
++    mse += (diff_r * diff_r + diff_g * diff_g + diff_b * diff_b) / 3.0;
++  }
++  return std::sqrt(mse / static_cast<double>(curr_out.size()));
++}
++
++struct SyntheticFrame {
++  std::vector<ColorRgb> gt_color;
++  std::vector<ColorRgb> low_color;
++  std::vector<float> low_depth;
++  std::vector<Vec2f> low_mv;
++  std::vector<float> low_reactive;
++  std::vector<float> low_transp;
++};
++
++SyntheticFrame render_scene(SceneKind kind, std::uint32_t out_w, std::uint32_t out_h,
++                            std::uint32_t ren_w, std::uint32_t ren_h,
++                            std::uint32_t f, Vec2f jitter_px, float exposure) {
++  SyntheticFrame s{};
++  const std::size_t out_n = static_cast<std::size_t>(out_w) * out_h;
++  const std::size_t ren_n = static_cast<std::size_t>(ren_w) * ren_h;
++  s.gt_color.resize(out_n);
++  s.low_color.resize(ren_n);
++  s.low_depth.resize(ren_n);
++  s.low_mv.resize(ren_n);
++  s.low_reactive.assign(ren_n, 0.0f);
++  s.low_transp.assign(ren_n, 0.0f);
++
++  const float cam_dx = (kind == SceneKind::RapidCameraPanAndCut) ? 6.0f : 0.0f;
++  const float cam_off_x = static_cast<float>(f) * cam_dx;
++  const float prev_cam_off_x = static_cast<float>(f > 0 ? f - 1 : 0) * cam_dx;
++
++  const float box_cx = 120.0f + static_cast<float>(f) * 4.5f;
++  const float prev_box_cx = 120.0f + static_cast<float>(f > 0 ? f - 1 : 0) * 4.5f;
++  const float box_cy = static_cast<float>(out_h) * 0.5f;
++
++  auto eval = [&](float ox, float oy, float& depth, Vec2f& mv, float& react, float& transp) -> ColorRgb {
++    react = 0.0f;
++    transp = 0.0f;
++
++    if (kind == SceneKind::MovingVehicleAndFence || kind == SceneKind::RapidCameraPanAndCut) {
++      if (std::abs(ox - box_cx) < 38.0f && std::abs(oy - box_cy) < 22.0f) {
++        depth = 0.85f;
++        mv = {prev_box_cx - box_cx, 0.0f};
++        const float stripe = std::sin((ox - box_cx) * 0.35f) * 0.5f + 0.5f;
++        return {1.8f * exposure, (0.25f + 0.6f * stripe) * exposure, 0.15f * exposure};
++      }
++      depth = 0.25f;
++      mv = {cam_off_x - prev_cam_off_x, 0.0f};
++      const float wx = ox + cam_off_x;
++      const float fine = std::sin(wx * 0.45f + oy * 0.35f) > 0.85f ? 1.4f : 0.0f;
++      const float gx = std::abs(std::fmod(wx, 24.0f)) < 1.5f ? 0.9f : 0.0f;
++      const float gy = std::abs(std::fmod(oy, 24.0f)) < 1.5f ? 0.9f : 0.0f;
++      const float base = 0.18f + 0.35f * std::max(fine, std::max(gx, gy));
++      return {base * exposure, (base + 0.04f) * exposure, (base + 0.12f) * exposure};
++    }
++
++    if (kind == SceneKind::FineFoliageAndPowerLines) {
++      depth = 0.40f;
++      mv = {0.0f, 0.0f};
++      // Thin subpixel power lines + swaying foliage pattern
++      const float line1 = std::abs(oy - (80.0f + 0.08f * ox)) < 0.9f ? 1.5f : 0.0f;
++      const float line2 = std::abs(oy - (95.0f + 0.08f * ox)) < 0.9f ? 1.5f : 0.0f;
++      const float sway = std::sin(static_cast<float>(f) * 0.25f + ox * 0.1f) * 1.5f;
++      const float leaf = (std::sin((ox + sway) * 0.7f) * std::cos(oy * 0.7f)) > 0.3f ? 0.6f : 0.0f;
++      if (leaf > 0.0f) mv = {-std::cos(static_cast<float>(f) * 0.25f) * 0.35f, 0.0f};
++      return {(0.12f + line1 + line2) * exposure,
++              (0.18f + 0.55f * leaf + line1) * exposure,
++              (0.14f + line2) * exposure};
++    }
++
++    if (kind == SceneKind::NighttimeNeonHdr) {
++      depth = 0.30f;
++      mv = {0.0f, 0.0f};
++      // Bright HDR neon sign (12.0 linear) + moving headlight
++      const bool in_neon = (ox > 60.0f && ox < 180.0f && oy > 40.0f && oy < 70.0f);
++      const float neon = in_neon && (std::sin(ox * 0.5f) > 0.4f) ? 12.0f : 0.0f;
++      const float hl_dx = ox - box_cx;
++      const float hl_dy = oy - box_cy;
++      const float hl = std::exp(-(hl_dx * hl_dx + hl_dy * hl_dy) / 180.0f) * 15.0f;
++      if (hl > 0.5f) mv = {prev_box_cx - box_cx, 0.0f};
++      return {(0.03f + neon + hl) * exposure,
++              (0.03f + 0.2f * neon + 0.9f * hl) * exposure,
++              (0.06f + 0.8f * neon + 0.5f * hl) * exposure};
++    }
++
++    // ReflectiveRoadAndGlass
++    depth = 0.50f;
++    mv = {0.0f, 0.0f};
++    const bool in_glass = (ox > 150.0f && ox < 300.0f && oy > 80.0f && oy < 220.0f);
++    if (in_glass) {
++      transp = 0.8f;
++      react = 0.6f;
++    }
++    const float road_mark = (std::abs(oy - static_cast<float>(out_h) * 0.75f) < 3.0f &&
++                             std::fmod(ox, 30.0f) < 15.0f)
++                                ? 1.2f
++                                : 0.0f;
++    const float refl = in_glass ? (0.4f + 0.4f * std::sin((ox + static_cast<float>(f) * 2.0f) * 0.2f)) : 0.0f;
++    return {(0.15f + road_mark + refl) * exposure,
++            (0.16f + road_mark + 0.8f * refl) * exposure,
++            (0.20f + road_mark + 1.1f * refl) * exposure};
++  };
++
++  for (std::uint32_t y = 0; y < out_h; ++y) {
++    for (std::uint32_t x = 0; x < out_w; ++x) {
++      float d = 0.0f, r = 0.0f, tr = 0.0f;
++      Vec2f mv{};
++      s.gt_color[static_cast<std::size_t>(y) * out_w + x] =
++          eval(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f, d, mv, r, tr);
++    }
++  }
++
++  const float sx = static_cast<float>(out_w) / static_cast<float>(ren_w);
++  const float sy = static_cast<float>(out_h) / static_cast<float>(ren_h);
++  for (std::uint32_t y = 0; y < ren_h; ++y) {
++    for (std::uint32_t x = 0; x < ren_w; ++x) {
++      const float ox = (static_cast<float>(x) + 0.5f + jitter_px.x) * sx;
++      const float oy = (static_cast<float>(y) + 0.5f + jitter_px.y) * sy;
++      float d = 0.0f, r = 0.0f, tr = 0.0f;
++      Vec2f mv_out{};
++      const std::size_t idx = static_cast<std::size_t>(y) * ren_w + x;
++      s.low_color[idx] = eval(ox, oy, d, mv_out, r, tr);
++      s.low_depth[idx] = d;
++      s.low_mv[idx] = {mv_out.x / sx, mv_out.y / sy};
++      s.low_reactive[idx] = r;
++      s.low_transp[idx] = tr;
++    }
++  }
++  return s;
++}
++
++
++// Conventional 1st-gen temporal reconstruction baseline (TAA-U):
++// bilinear reprojection + basic 3x3 RGB min/max clamp + fixed alpha=0.15,
++// without closest-depth MV dilation, depth disocclusion, HDR Karis compression,
++// confidence tracking, or separated post-history RCAS sharpening.
++struct TaauBaselineContext {
++  std::vector<ColorRgb> hist;
++  std::uint32_t hw = 0, hh = 0;
++  bool has = false;
++
++  void run(const SsrDispatchInputs& in, std::vector<ColorRgb>& out) {
++    const std::size_t n = static_cast<std::size_t>(in.output_width) * in.output_height;
++    out.resize(n);
++    if (!has || in.camera_cut || hw != in.output_width || hh != in.output_height) {
++      hist.assign(n, ColorRgb{0.0f, 0.0f, 0.0f});
++      hw = in.output_width;
++      hh = in.output_height;
++      has = false;
++    }
++    std::vector<ColorRgb> curr_up;
++    upscale_bilinear(in.color_hdr, in.render_width, in.render_height,
++                     in.output_width, in.output_height, curr_up);
++    if (!has) {
++      hist = curr_up;
++      out = curr_up;
++      has = true;
++      return;
++    }
++    const float sx = static_cast<float>(in.render_width) / static_cast<float>(in.output_width);
++    const float sy = static_cast<float>(in.render_height) / static_cast<float>(in.output_height);
++    for (std::uint32_t oy = 0; oy < in.output_height; ++oy) {
++      for (std::uint32_t ox = 0; ox < in.output_width; ++ox) {
++        const std::size_t idx = static_cast<std::size_t>(oy) * in.output_width + ox;
++        const int ix = std::clamp(static_cast<int>(static_cast<float>(ox) * sx), 0, static_cast<int>(in.render_width) - 1);
++        const int iy = std::clamp(static_cast<int>(static_cast<float>(oy) * sy), 0, static_cast<int>(in.render_height) - 1);
++        const Vec2f mv = in.motion_vectors_px[static_cast<std::size_t>(iy) * in.render_width + static_cast<std::size_t>(ix)];
++        const int hx = static_cast<int>(std::lround(static_cast<float>(ox) + mv.x / sx));
++        const int hy = static_cast<int>(std::lround(static_cast<float>(oy) + mv.y / sy));
++        const ColorRgb c = curr_up[idx];
++        if (hx < 0 || hy < 0 || hx >= static_cast<int>(in.output_width) || hy >= static_cast<int>(in.output_height)) {
++          out[idx] = c;
++          continue;
++        }
++        ColorRgb mn{1e9f, 1e9f, 1e9f}, mx{-1e9f, -1e9f, -1e9f};
++        for (int ky = -1; ky <= 1; ++ky) {
++          for (int kx = -1; kx <= 1; ++kx) {
++            const int sx_i = std::clamp(ix + kx, 0, static_cast<int>(in.render_width) - 1);
++            const int sy_i = std::clamp(iy + ky, 0, static_cast<int>(in.render_height) - 1);
++            const ColorRgb nc = in.color_hdr[static_cast<std::size_t>(sy_i) * in.render_width + static_cast<std::size_t>(sx_i)];
++            mn.r = std::min(mn.r, nc.r); mn.g = std::min(mn.g, nc.g); mn.b = std::min(mn.b, nc.b);
++            mx.r = std::max(mx.r, nc.r); mx.g = std::max(mx.g, nc.g); mx.b = std::max(mx.b, nc.b);
++          }
++        }
++        const ColorRgb h = hist[static_cast<std::size_t>(hy) * in.output_width + static_cast<std::size_t>(hx)];
++        const ColorRgb ch{std::clamp(h.r, mn.r, mx.r), std::clamp(h.g, mn.g, mx.g), std::clamp(h.b, mn.b, mx.b)};
++        constexpr float alpha = 0.15f;
++        out[idx] = {ch.r * (1.0f - alpha) + c.r * alpha,
++                    ch.g * (1.0f - alpha) + c.g * alpha,
++                    ch.b * (1.0f - alpha) + c.b * alpha};
++      }
++    }
++    hist = out;
++  }
++};
++
++struct SceneBenchResult {
++  std::string name;
++  double bil_psnr = 0.0;
++  double bic_psnr = 0.0;
++  double ssr_psnr = 0.0;
++  double bil_ssim = 0.0;
++  double bic_ssim = 0.0;
++  double ssr_ssim = 0.0;
++  double taau_psnr = 0.0;
++  double taau_ssim = 0.0;
++  double taau_flicker_rmse = 0.0;
++  double ssr_flicker_rmse = 0.0;
++  double bil_flicker_rmse = 0.0;
++  double avg_cpu_ms = 0.0;
++};
++
++SceneBenchResult run_scene_benchmark(SceneKind kind, const std::string& name,
++                                     std::uint32_t out_w, std::uint32_t out_h,
++                                     SsrQualityMode mode) {
++  const auto ren = SsrContext::compute_render_resolution(out_w, out_h, mode);
++  SsrContext ssr;
++  TaauBaselineContext taau;
++  std::vector<ColorRgb> ssr_out, prev_ssr_out, taau_out, prev_taau_out, bil_out, prev_bil_out, bic_out, prev_gt;
++  double total_ms = 0.0;
++  double flicker_ssr = 0.0, flicker_taau = 0.0, flicker_bil = 0.0;
++  int flicker_frames = 0;
++
++  SceneBenchResult res{};
++  res.name = name;
++
++  for (std::uint32_t f = 0; f < 24; ++f) {
++    const Vec2f jitter = SsrContext::halton_jitter_px(f);
++    const float exp = (f >= 18) ? 2.5f : 1.0f;
++    const bool cut = (f == 12);
++    const auto sf = render_scene(kind, out_w, out_h, ren.width, ren.height, f, jitter, exp);
++
++    SsrDispatchInputs in{};
++    in.render_width = ren.width;
++    in.render_height = ren.height;
++    in.output_width = out_w;
++    in.output_height = out_h;
++    in.color_hdr = sf.low_color.data();
++    in.depth = sf.low_depth.data();
++    in.motion_vectors_px = sf.low_mv.data();
++    in.reactive_mask = sf.low_reactive.data();
++    in.transparency_mask = sf.low_transp.data();
++    in.jitter_offset_px = jitter;
++    in.pre_exposure = exp;
++    in.camera_cut = cut;
++    in.reversed_z = true;
++
++    const auto m = ssr.reconstruct(in, ssr_out);
++    SAIGE_CHECK(m.valid);
++    total_ms += m.cpu_time_ms;
++
++    taau.run(in, taau_out);
++    upscale_bilinear(sf.low_color.data(), ren.width, ren.height, out_w, out_h, bil_out);
++    upscale_bicubic(sf.low_color.data(), ren.width, ren.height, out_w, out_h, bic_out);
++
++    if (f > 0 && !cut && f != 18) {
++      flicker_ssr += compute_temporal_flicker_rmse(prev_ssr_out, ssr_out, prev_gt, sf.gt_color);
++      flicker_taau += compute_temporal_flicker_rmse(prev_taau_out, taau_out, prev_gt, sf.gt_color);
++      flicker_bil += compute_temporal_flicker_rmse(prev_bil_out, bil_out, prev_gt, sf.gt_color);
++      ++flicker_frames;
++    }
++
++    if (f == 23) {
++      res.bil_psnr = compute_psnr_db(sf.gt_color, bil_out);
++      res.bic_psnr = compute_psnr_db(sf.gt_color, bic_out);
++      res.taau_psnr = compute_psnr_db(sf.gt_color, taau_out);
++      res.ssr_psnr = compute_psnr_db(sf.gt_color, ssr_out);
++      res.bil_ssim = compute_ssim(sf.gt_color, bil_out, out_w, out_h);
++      res.bic_ssim = compute_ssim(sf.gt_color, bic_out, out_w, out_h);
++      res.taau_ssim = compute_ssim(sf.gt_color, taau_out, out_w, out_h);
++      res.ssr_ssim = compute_ssim(sf.gt_color, ssr_out, out_w, out_h);
++    }
++
++    prev_ssr_out = ssr_out;
++    prev_taau_out = taau_out;
++    prev_bil_out = bil_out;
++    prev_gt = sf.gt_color;
++  }
++
++  res.avg_cpu_ms = total_ms / 24.0;
++  res.ssr_flicker_rmse = flicker_frames > 0 ? (flicker_ssr / flicker_frames) : 0.0;
++  res.taau_flicker_rmse = flicker_frames > 0 ? (flicker_taau / flicker_frames) : 0.0;
++  res.bil_flicker_rmse = flicker_frames > 0 ? (flicker_bil / flicker_frames) : 0.0;
++  return res;
++}
++
++void write_ppm(const std::string& path, const std::vector<ColorRgb>& img,
++               std::uint32_t w, std::uint32_t h) {
++  std::ofstream f(path, std::ios::binary);
++  f << "P6\n" << w << " " << h << "\n255\n";
++  for (std::size_t i = 0; i < img.size(); ++i) {
++    const ColorRgb s = tonemap_srgb(img[i]);
++    const unsigned char rgb[3] = {
++        static_cast<unsigned char>(std::clamp(s.r * 255.0f, 0.0f, 255.0f)),
++        static_cast<unsigned char>(std::clamp(s.g * 255.0f, 0.0f, 255.0f)),
++        static_cast<unsigned char>(std::clamp(s.b * 255.0f, 0.0f, 255.0f)),
++    };
++    f.write(reinterpret_cast<const char*>(rgb), 3);
++  }
++}
++
++void test_all_six_quality_modes_and_dynamic_res() {
++  const SsrQualityMode modes[] = {
++      SsrQualityMode::NativeAA,    SsrQualityMode::UltraQuality,
++      SsrQualityMode::Quality,     SsrQualityMode::Balanced,
++      SsrQualityMode::Performance, SsrQualityMode::UltraPerformance};
++  SsrContext ssr;
++  std::vector<ColorRgb> out;
++  for (auto mode : modes) {
++    const auto ren = SsrContext::compute_render_resolution(1920, 1080, mode);
++    SAIGE_CHECK(ren.width >= 1 && ren.width <= 1920);
++    SAIGE_CHECK(ren.height >= 1 && ren.height <= 1080);
++
++    // Run 2 dynamic-resolution frames on a 128x72 output target
++    const auto dr = SsrContext::compute_render_resolution(128, 72, mode);
++    const auto sf = render_scene(SceneKind::MovingVehicleAndFence, 128, 72, dr.width, dr.height, 1, {0.0f, 0.0f}, 1.0f);
++    SsrDispatchInputs in{dr.width, dr.height, 128, 72, sf.low_color.data(), sf.low_depth.data(), sf.low_mv.data()};
++    SAIGE_CHECK(ssr.reconstruct(in, out).valid);
++  }
++}
++
++void test_build001_regression_and_multi_scene_suite() {
++  // Build 001 regression: 360p Performance (must beat Build 001's 25.74 dB / 0.781 SSIM)
++  const auto r0 = run_scene_benchmark(SceneKind::MovingVehicleAndFence, "moving_vehicle_and_fence_360p_perf", 640, 360, SsrQualityMode::Performance);
++  const auto r1 = run_scene_benchmark(SceneKind::FineFoliageAndPowerLines, "fine_foliage_and_power_lines_360p_perf", 640, 360, SsrQualityMode::Performance);
++  const auto r2 = run_scene_benchmark(SceneKind::NighttimeNeonHdr, "nighttime_neon_hdr_360p_perf", 640, 360, SsrQualityMode::Performance);
++  const auto r3 = run_scene_benchmark(SceneKind::ReflectiveRoadAndGlass, "reflective_road_and_glass_360p_perf", 640, 360, SsrQualityMode::Performance);
++  const auto r4 = run_scene_benchmark(SceneKind::RapidCameraPanAndCut, "rapid_camera_pan_and_cut_360p_perf", 640, 360, SsrQualityMode::Performance);
++
++  const SceneBenchResult results[] = {r0, r1, r2, r3, r4};
++  for (const auto& r : results) {
++    std::cout << "[bench " << r.name << "] avg_ms=" << r.avg_cpu_ms
++              << " Bil(PSNR=" << r.bil_psnr << ",SSIM=" << r.bil_ssim << ",Flicker=" << r.bil_flicker_rmse << ")"
++              << " Bic(PSNR=" << r.bic_psnr << ",SSIM=" << r.bic_ssim << ")"
++              << " TAAU(PSNR=" << r.taau_psnr << ",SSIM=" << r.taau_ssim << ",Flicker=" << r.taau_flicker_rmse << ")"
++              << " SSR0.2.1(PSNR=" << r.ssr_psnr << ",SSIM=" << r.ssr_ssim << ",Flicker=" << r.ssr_flicker_rmse << ")\n";
++    SAIGE_CHECK(r.ssr_psnr > r.bil_psnr);
++    SAIGE_CHECK(r.ssr_ssim > r.bil_ssim);
++  }
++  // No unexplained regression vs Build 001 (25.7367 dB / 0.7807 SSIM)
++  SAIGE_CHECK(r0.ssr_psnr >= 25.70);
++  SAIGE_CHECK(r0.ssr_ssim >= 0.780);
++}
++
++void test_negative_and_mutation_detection() {
++  // 1. Null/invalid dimensions
++  SsrContext ssr;
++  std::vector<ColorRgb> out;
++  SAIGE_CHECK(!ssr.reconstruct(SsrDispatchInputs{}, out).valid);
++
++  // 2. Corrupted NaN/Inf sanitization
++  constexpr std::uint32_t kW = 16, kH = 16;
++  std::vector<ColorRgb> col(kW * kH, {0.5f, 0.5f, 0.5f});
++  std::vector<float> dep(kW * kH, 0.5f);
++  std::vector<Vec2f> mv(kW * kH, {0.0f, 0.0f});
++  col[0].r = std::numeric_limits<float>::quiet_NaN();
++  dep[1] = std::numeric_limits<float>::infinity();
++  mv[2].x = std::numeric_limits<float>::quiet_NaN();
++  SsrDispatchInputs bad_vals{kW, kH, 32, 32, col.data(), dep.data(), mv.data()};
++  const auto m = ssr.reconstruct(bad_vals, out);
++  SAIGE_CHECK(m.valid);
++  SAIGE_CHECK(m.sanitized_invalid_inputs >= 3);
++
++  // 3. Deliberate Mutation Detection: inverting motion vectors must degrade PSNR
++  auto measure_with_mutation = [&](bool invert_mv, bool zero_jitter) {
++    SsrContext ctx;
++    std::vector<ColorRgb> o;
++    double last_psnr = 0.0;
++    const auto ren = SsrContext::compute_render_resolution(320, 180, SsrQualityMode::Performance);
++    for (std::uint32_t f = 0; f < 16; ++f) {
++      const Vec2f j = zero_jitter ? Vec2f{0.0f, 0.0f} : SsrContext::halton_jitter_px(f);
++      auto sf = render_scene(SceneKind::MovingVehicleAndFence, 320, 180, ren.width, ren.height, f, j, 1.0f);
++      if (invert_mv) {
++        for (auto& v : sf.low_mv) {
++          v.x = -v.x;
++          v.y = -v.y;
++        }
++      }
++      SsrDispatchInputs in{ren.width, ren.height, 320, 180, sf.low_color.data(), sf.low_depth.data(), sf.low_mv.data(), nullptr, nullptr, j, 1.0f, false, true};
++      ctx.reconstruct(in, o);
++      if (f == 15) last_psnr = compute_psnr_db(sf.gt_color, o);
++    }
++    return last_psnr;
++  };
++  const double baseline_psnr = measure_with_mutation(false, false);
++  const double inverted_mv_psnr = measure_with_mutation(true, false);
++  const double zero_jitter_psnr = measure_with_mutation(false, true);
++  SAIGE_CHECK(baseline_psnr > inverted_mv_psnr);
++  SAIGE_CHECK(baseline_psnr > zero_jitter_psnr);
++
++  // 4. Oversized render dimensions & null pointer rejections
++  SsrDispatchInputs oversized{64, 64, 32, 32, col.data(), dep.data(), mv.data()};
++  SAIGE_CHECK(!ssr.reconstruct(oversized, out).valid);
++  SsrDispatchInputs null_dep{kW, kH, 32, 32, col.data(), nullptr, mv.data()};
++  SAIGE_CHECK(!ssr.reconstruct(null_dep, out).valid);
++
++  // 5. Camera-cut reset & exposure jump invariance
++  SsrContext exp_ctx;
++  std::vector<ColorRgb> exp_out;
++  const auto ren = SsrContext::compute_render_resolution(160, 90, SsrQualityMode::Performance);
++  auto sf_e1 = render_scene(SceneKind::NighttimeNeonHdr, 160, 90, ren.width, ren.height, 4, SsrContext::halton_jitter_px(4), 1.0f);
++  SsrDispatchInputs in_e1{ren.width, ren.height, 160, 90, sf_e1.low_color.data(), sf_e1.low_depth.data(), sf_e1.low_mv.data(), nullptr, nullptr, SsrContext::halton_jitter_px(4), 1.0f, true, true};
++  SAIGE_CHECK(exp_ctx.reconstruct(in_e1, exp_out).history_reset_pixels == 160u * 90u);
++  auto sf_e2 = render_scene(SceneKind::NighttimeNeonHdr, 160, 90, ren.width, ren.height, 5, SsrContext::halton_jitter_px(5), 4.0f);
++  SsrDispatchInputs in_e2{ren.width, ren.height, 160, 90, sf_e2.low_color.data(), sf_e2.low_depth.data(), sf_e2.low_mv.data(), nullptr, nullptr, SsrContext::halton_jitter_px(5), 4.0f, false, true};
++  SAIGE_CHECK(exp_ctx.reconstruct(in_e2, exp_out).valid);
++}
++
++void test_vulkan_gpu_parity_suite() {
++  gpu::SsrVulkanHarness harness;
++  std::string status;
++  const bool ready = harness.initialize(gpu::VulkanHarnessConfig{}, status);
++  SAIGE_CHECK(!status.empty());
++
++  SsrContext cpu_ctx;
++  std::vector<ColorRgb> cpu_out, gpu_out;
++  const SsrQualityMode dyn_modes[] = {
++      SsrQualityMode::Quality, SsrQualityMode::Performance, SsrQualityMode::Balanced};
++
++  for (int f = 0; f < 6; ++f) {
++    const auto mode = dyn_modes[f / 2];
++    const auto ren = SsrContext::compute_render_resolution(160, 90, mode);
++    const Vec2f j = SsrContext::halton_jitter_px(static_cast<std::uint32_t>(f));
++    const float exp = (f >= 4) ? 2.0f : 1.0f;
++    const bool cut = (f == 3);
++    const auto kind = (f % 2 == 0) ? SceneKind::MovingVehicleAndFence : SceneKind::ReflectiveRoadAndGlass;
++    const auto sf = render_scene(kind, 160, 90, ren.width, ren.height, static_cast<std::uint32_t>(f), j, exp);
++    SsrDispatchInputs in{ren.width, ren.height, 160, 90, sf.low_color.data(), sf.low_depth.data(), sf.low_mv.data(), sf.low_reactive.data(), sf.low_transp.data(), j, exp, cut, true};
++    SAIGE_CHECK(cpu_ctx.reconstruct(in, cpu_out).valid);
++
++    if (ready) {
++      const auto rep = harness.execute_frame(in, cpu_out, gpu_out);
++      SAIGE_CHECK(rep.executed);
++      SAIGE_CHECK(rep.validation_clean);
++      SAIGE_CHECK(rep.parity_passed);
++    }
++  }
++  if (ready) {
++    harness.reset_history();
++    // Invalid input check on initialized harness
++    const auto bad_rep = harness.execute_frame(SsrDispatchInputs{}, cpu_out, gpu_out);
++    SAIGE_CHECK(!bad_rep.executed);
++  }
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++  test_all_six_quality_modes_and_dynamic_res();
++  test_build001_regression_and_multi_scene_suite();
++  test_negative_and_mutation_detection();
++  test_vulkan_gpu_parity_suite();
++
++  if (argc >= 3 && std::string(argv[1]) == "--dump-artifacts") {
++    const std::string dir = argv[2];
++    // Write machine-readable JSON benchmark report
++    const auto r0 = run_scene_benchmark(SceneKind::MovingVehicleAndFence, "moving_vehicle_and_fence", 640, 360, SsrQualityMode::Performance);
++    const auto r1 = run_scene_benchmark(SceneKind::FineFoliageAndPowerLines, "fine_foliage_and_power_lines", 640, 360, SsrQualityMode::Performance);
++    const auto r2 = run_scene_benchmark(SceneKind::NighttimeNeonHdr, "nighttime_neon_hdr", 640, 360, SsrQualityMode::Performance);
++    const auto r3 = run_scene_benchmark(SceneKind::ReflectiveRoadAndGlass, "reflective_road_and_glass", 640, 360, SsrQualityMode::Performance);
++    const auto r4 = run_scene_benchmark(SceneKind::RapidCameraPanAndCut, "rapid_camera_pan_and_cut", 640, 360, SsrQualityMode::Performance);
++    const SceneBenchResult all[] = {r0, r1, r2, r3, r4};
++
++    std::ofstream jf(dir + "/benchmark_results.json");
++    jf << "{\n  \"build\": 2,\n  \"quality_mode\": \"Performance (50%)\",\n  \"scenes\": [\n";
++    for (int i = 0; i < 5; ++i) {
++      jf << "    {\"name\": \"" << all[i].name << "\", \"avg_cpu_ms\": " << all[i].avg_cpu_ms
++         << ", \"bilinear_psnr_db\": " << all[i].bil_psnr << ", \"bilinear_ssim\": " << all[i].bil_ssim
++         << ", \"bicubic_psnr_db\": " << all[i].bic_psnr << ", \"bicubic_ssim\": " << all[i].bic_ssim
++         << ", \"taau_psnr_db\": " << all[i].taau_psnr << ", \"taau_ssim\": " << all[i].taau_ssim << ", \"taau_flicker_rmse\": " << all[i].taau_flicker_rmse
++         << ", \"ssr_psnr_db\": " << all[i].ssr_psnr << ", \"ssr_ssim\": " << all[i].ssr_ssim
++         << ", \"ssr_flicker_rmse\": " << all[i].ssr_flicker_rmse
++         << ", \"bilinear_flicker_rmse\": " << all[i].bil_flicker_rmse << "}"
++         << (i < 4 ? "," : "") << "\n";
++    }
++    jf << "  ]\n}\n";
++
++    // Render 150-frame 720p30 diagnostic sequence + 1080p still
++    constexpr std::uint32_t kOutW = 960, kOutH = 540;
++    const auto ren = SsrContext::compute_render_resolution(kOutW, kOutH, SsrQualityMode::Performance);
++    SsrContext ssr;
++    std::vector<ColorRgb> ssr_out, bil_out, bic_out;
++    for (std::uint32_t f = 0; f < 150; ++f) {
++      const Vec2f j = SsrContext::halton_jitter_px(f);
++      const auto kind = (f < 75) ? SceneKind::MovingVehicleAndFence : SceneKind::NighttimeNeonHdr;
++      const auto sf = render_scene(kind, kOutW, kOutH, ren.width, ren.height, f, j, 1.0f);
++      SsrDispatchInputs in{ren.width, ren.height, kOutW, kOutH, sf.low_color.data(), sf.low_depth.data(), sf.low_mv.data(), sf.low_reactive.data(), sf.low_transp.data(), j, 1.0f, (f == 75), true};
++      ssr.reconstruct(in, ssr_out);
++      upscale_bilinear(sf.low_color.data(), ren.width, ren.height, kOutW, kOutH, bil_out);
++      upscale_bicubic(sf.low_color.data(), ren.width, ren.height, kOutW, kOutH, bic_out);
++
++      std::vector<ColorRgb> quad(1280 * 720);
++      auto blit = [&](const std::vector<ColorRgb>& src, std::uint32_t qx, std::uint32_t qy) {
++        for (std::uint32_t y = 0; y < 360; ++y) {
++          for (std::uint32_t x = 0; x < 640; ++x) {
++            const std::uint32_t sx = (x * kOutW) / 640;
++            const std::uint32_t sy = (y * kOutH) / 360;
++            quad[static_cast<std::size_t>(qy + y) * 1280 + (qx + x)] = src[static_cast<std::size_t>(sy) * kOutW + sx];
++          }
++        }
++      };
++      blit(sf.gt_color, 0, 0);
++      blit(bil_out, 640, 0);
++      blit(bic_out, 0, 360);
++      blit(ssr_out, 640, 360);
++
++      char buf[64];
++      std::snprintf(buf, sizeof(buf), "/frame_%04u.ppm", f);
++      write_ppm(dir + buf, quad, 1280, 720);
++
++      if (f == 45 || f == 110) {
++        std::vector<ColorRgb> still(1920 * 1080);
++        auto blit1080 = [&](const std::vector<ColorRgb>& src, std::uint32_t qx, std::uint32_t qy) {
++          for (std::uint32_t y = 0; y < 540; ++y) {
++            for (std::uint32_t x = 0; x < 960; ++x) {
++              still[static_cast<std::size_t>(qy + y) * 1920 + (qx + x)] = src[static_cast<std::size_t>(y) * kOutW + x];
++            }
++          }
++        };
++        blit1080(sf.gt_color, 0, 0);
++        blit1080(bil_out, 960, 0);
++        blit1080(bic_out, 0, 540);
++        blit1080(ssr_out, 960, 540);
++        const std::string tag = (f == 45) ? "/ssr_1080p_day_comparison.ppm" : "/ssr_1080p_night_hdr_comparison.ppm";
++        write_ppm(dir + tag, still, 1920, 1080);
++      }
++    }
++  }
++
++  std::cout << "ssr_test: ALL 4 SUITES PASSED\n";
++  return 0;
++}

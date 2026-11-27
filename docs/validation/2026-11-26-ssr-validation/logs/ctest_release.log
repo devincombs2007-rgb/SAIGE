@@ -1,0 +1,45 @@
+Test project /tmp/ssr-build
+      Start 170: ssr_upstream_suite
+      Start 169: ssr_validation
+      Start 187: ssr_harness_mutant_layout_color_only
+      Start 186: ssr_harness_mutant_empty_reference_passes
+ 1/20 Test #169: ssr_validation ...............................   Passed    1.89 sec
+      Start 188: ssr_harness_mutant_validation_always_clean
+ 2/20 Test #187: ssr_harness_mutant_layout_color_only .........   Passed    1.90 sec
+      Start 176: ssr_mutant_depth_history_zero
+ 3/20 Test #186: ssr_harness_mutant_empty_reference_passes ....   Passed    1.91 sec
+      Start 185: ssr_mutant_transparency_ignored
+ 4/20 Test #185: ssr_mutant_transparency_ignored ..............   Passed    0.40 sec
+      Start 175: ssr_mutant_decompress_floor
+ 5/20 Test #176: ssr_mutant_depth_history_zero ................   Passed    0.42 sec
+      Start 184: ssr_mutant_sharpen_off
+ 6/20 Test #184: ssr_mutant_sharpen_off .......................   Passed    0.36 sec
+      Start 174: ssr_mutant_cut_ignored
+ 7/20 Test #175: ssr_mutant_decompress_floor ..................   Passed    0.41 sec
+      Start 180: ssr_mutant_mv_sign
+ 8/20 Test #174: ssr_mutant_cut_ignored .......................   Passed    0.41 sec
+      Start 173: ssr_mutant_confidence_constant
+ 9/20 Test #180: ssr_mutant_mv_sign ...........................   Passed    0.44 sec
+      Start 183: ssr_mutant_sharpen_north_south
+10/20 Test #173: ssr_mutant_confidence_constant ...............   Passed    0.42 sec
+      Start 172: ssr_mutant_alpha_raised
+11/20 Test #183: ssr_mutant_sharpen_north_south ...............   Passed    0.44 sec
+      Start 181: ssr_mutant_no_disocclusion
+12/20 Test #188: ssr_harness_mutant_validation_always_clean ...   Passed    1.96 sec
+      Start 177: ssr_mutant_depth_test_flipped
+13/20 Test #172: ssr_mutant_alpha_raised ......................   Passed    0.39 sec
+      Start 182: ssr_mutant_no_history_clamp
+14/20 Test #181: ssr_mutant_no_disocclusion ...................   Passed    0.37 sec
+      Start 178: ssr_mutant_exposure_ignored
+15/20 Test #177: ssr_mutant_depth_test_flipped ................   Passed    0.39 sec
+      Start 179: ssr_mutant_jitter_sign
+16/20 Test #182: ssr_mutant_no_history_clamp ..................   Passed    0.37 sec
+      Start 171: ssr_spirv_interface
+17/20 Test #171: ssr_spirv_interface ..........................   Passed    0.05 sec
+18/20 Test #178: ssr_mutant_exposure_ignored ..................   Passed    0.37 sec
+19/20 Test #179: ssr_mutant_jitter_sign .......................   Passed    0.43 sec
+20/20 Test #170: ssr_upstream_suite ...........................   Passed   25.50 sec
+
+100% tests passed, 0 tests failed out of 20
+
+Total Test time (real) =  25.51 sec

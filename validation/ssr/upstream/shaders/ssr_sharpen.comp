@@ -1,0 +1,33 @@
+#version 460
+// SAIGE Super Resolution (SSR 0.2) — Separated Post-History RCAS Sharpening Pass
+// Reads unsharpened temporal history and writes final output with anti-ringing clamp.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D u_history_color;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image2D u_final_output;
+
+layout(push_constant) uniform SharpenPushConstants {
+  uvec2 output_size;
+  float sharpness;
+} pc;
+
+void main() {
+  ivec2 ox = ivec2(gl_GlobalInvocationID.xy);
+  if (ox.x >= int(pc.output_size.x) || ox.y >= int(pc.output_size.y)) return;
+
+  ivec2 max_c = ivec2(pc.output_size) - 1;
+  vec3 c = texelFetch(u_history_color, ox, 0).rgb;
+  vec3 n = texelFetch(u_history_color, clamp(ox + ivec2(0, -1), ivec2(0), max_c), 0).rgb;
+  vec3 s = texelFetch(u_history_color, clamp(ox + ivec2(0,  1), ivec2(0), max_c), 0).rgb;
+  vec3 w = texelFetch(u_history_color, clamp(ox + ivec2(-1, 0), ivec2(0), max_c), 0).rgb;
+  vec3 e = texelFetch(u_history_color, clamp(ox + ivec2( 1, 0), ivec2(0), max_c), 0).rgb;
+
+  vec3 mn = min(c, min(min(n, s), min(w, e)));
+  vec3 mx = max(c, max(max(n, s), max(w, e)));
+  vec3 blur = (n + s + w + e) * 0.25;
+  float k = clamp(pc.sharpness, 0.0, 1.0) * 0.25;
+
+  vec3 out_rgb = clamp(c + (c - blur) * k, mn, mx);
+  imageStore(u_final_output, ox, vec4(out_rgb, 1.0));
+}

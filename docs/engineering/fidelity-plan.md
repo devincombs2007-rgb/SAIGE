@@ -99,3 +99,23 @@ allocations and the device's reported budget. Not built: a texture streamer, mip
 strength, ignored grass jitter, a region-dependent scatter hash, a sway that does not vanish in still air, rain-blind visibility, rain that jumps at phase changes, popping LOD, a stretching bend, a Clear-to-Storm transition, brightening wet surfaces, puddles below the
 drainage rate and out-of-bounds gusts). Not built: any renderer or shader change, any Vulkan code, any asset, any wiring into a showcase. Not measured: GPU cost of anything. Limits worth stating: the rain extinction law is a published empirical fit used out of its calibration range
 for the heaviest storm; the sway and flutter amplitudes are tuned for plausibility, not measured on real plants; the foam trail is a visual model, not a wave simulation; the weather schedule is a seeded Markov-like walk, not meteorology.
+
+
+## Addendum 2026-11-26: owner fidelity requirements (director directive)
+
+The owner asked for substantially higher fidelity throughout SAIGE. These are recorded here in dependency order without displacing P0 correctness work; each item ships with real visual evidence (stills, before/after, short clips) and a stated hardware class, per the Continuous Visual Validation Program.
+
+| Priority | Requirement | Depends on | First measurable slice |
+| --- | --- | --- | --- |
+| P0 | Owner-reported defects in earlier footage: vehicle hazard lights detached from the body; cafe chairs facing the wrong way; uniform blue window material; too few reflections; too little indirect light; repetitive low-quality assets | World generation, asset validation | Reproduce each in a diagnostic render, then fix at the engine or generator (semantic placement rules for furniture, light-mesh attachment checks, emissive material and transform validation). **None is reproduced yet**; Showcase 04 stays immutable |
+| P1 | Physically based glass (Fresnel, roughness, tint, transmission, refraction where practical, interior visibility) | Sorted alpha blending, IBL, scene-colour copy | Glass BRDF CPU reference and GPU probe, then a window test card |
+| P1 | Hybrid reflections: probes, screen-space, planar where useful, ray tracing where supported; vehicle paint (clearcoat), wet roads, windows | IBL (done), depth and velocity, glass | Reflection probe capture and parallax-corrected lookup; clearcoat layer in the material model |
+| P1 | Interior mapping for inaccessible and distant windows (perspective-correct rooms, varied layouts, furnishings, window depth, night lighting) | Material model, local lights | One-shader interior-mapped facade with room atlas, CPU reference for the ray-box test; real 3D interiors stay for accessible buildings |
+| P1 | Global illumination: probe-based first (diffuse bounce, colour bleeding, interior illumination, dynamic response), screen-space GI after velocity exists, hardware ray tracing where supported | Local lights (steps 1 to 3 done), velocity | Irradiance probe volume with CPU reference; see the GI evaluation already in this plan |
+| P2 | Surface detail: parallax occlusion mapping, detail normal and albedo, microfacet roughness variation, material layering, wet surfaces, distance-based quality transitions | Material architecture M-steps | Detail normal blend and POM with a tangent-space reference |
+| P2 | Shadows and ambient: contact shadows, AO without dark outlines, soft shadows, shadow stability, local-light shadows, indirect occlusion, volumetric lighting | Local lights, cascades (done) | Local-light shadow maps behind the clustered culling |
+| P2 | Temporal reconstruction: SSR validation and the integration plan in `docs/rendering/ssr-integration-plan.md` | Velocity, jitter, exposure | R1 and R2 of that plan |
+| P2 | Atmospheric scattering (done, `atmosphere.md`), volumetric clouds and fog, HDR exposure and tone mapping, decals, texture streaming, GPU-driven culling (done for instances), hierarchical LOD, impostors, quality scalability | Per item | Volumetric fog on the existing froxel-free path first |
+| P3 | Asset library expansion: vehicles, buildings, furniture, vegetation, street infrastructure, everyday objects, characters, clothing, interiors, materials | Asset pipeline (done) | Per-asset validation: scale and orientation, material correctness, texture quality, LOD compatibility, collision, rigs, moving components (lights, doors, wheels), attachment alignment, licence and provenance. Existing authorised free sources only; no bulk downloads |
+
+Avoid cost and licence surprises: every new dependency or source goes through the dependency review in `AGENTS.md`; nothing is purchased.

@@ -1,0 +1,126 @@
+{
+  "package": "SAIGE_Gemini_SSR_Build_002_1",
+  "file_count": 24,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 1761,
+      "sha256": "5b6c494380d74d26cd63b02331b9cc71c143aceb1879bb4605d91a9590562c10"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 2123,
+      "sha256": "8f6e9a9ff61c5a5706609d16d12f5b3672b13fe1282648237656504f7c4d6024"
+    },
+    {
+      "path": "LICENSES.md",
+      "bytes": 718,
+      "sha256": "5a02b269064f3a6cf48ae8b116a4f4624c568977e66750582584d026b8572ad5"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1652,
+      "sha256": "60c91f649b7dcf65bfaf6c89134834722ec533fb895acd8601731fe13de508b1"
+    },
+    {
+      "path": "docs/BUILD_001_VS_002_COMPARISON.md",
+      "bytes": 2601,
+      "sha256": "19eb370a3b7106e0ab304fc5aca717a9d5d403ede9084f129882482f32f1f8b7"
+    },
+    {
+      "path": "docs/ISSUE_43_SSR_CHECKPOINT.md",
+      "bytes": 1503,
+      "sha256": "f72791bc55ca608b0a6ac0fe8b6c474fb9a259a0c92cd80e1ce01aadfd9ac558"
+    },
+    {
+      "path": "docs/SSR_ARCHITECTURE_SPEC.md",
+      "bytes": 3428,
+      "sha256": "aa48b6ed62d4beea3f5d9cbb18935d984f810943a4cd1d85ce32c23a8898ab23"
+    },
+    {
+      "path": "docs/SSR_ENGINE_INTEGRATION_CONTRACT.md",
+      "bytes": 4427,
+      "sha256": "1c6bf9950d2053c624fd4465b7d7671b9ae70ceb7a27fb7fac15cc37e87f8ae0"
+    },
+    {
+      "path": "docs/SSR_NEURAL_RESEARCH_REPORT.md",
+      "bytes": 3199,
+      "sha256": "0ebadf8e23bd2df6c0857cfc71b5916efb89f9a9fa739dcc25c1a69911470a03"
+    },
+    {
+      "path": "gpu/ssr_vulkan_harness.cpp",
+      "bytes": 43092,
+      "sha256": "3fe9c2843107276dc6f291acfc2505550d0b15b8b02ab7c9600249cbd0ceb5e3"
+    },
+    {
+      "path": "gpu/ssr_vulkan_harness.hpp",
+      "bytes": 2369,
+      "sha256": "9ddb3d160dde904917de800bfa842273d4cc4b167a7e6083b63992becb82cb40"
+    },
+    {
+      "path": "integration/CMakeLists.snippet.cmake",
+      "bytes": 1611,
+      "sha256": "85688b641c2f19bae41040bb146e5ac236719354867826fb166ea9d99ce78ef7"
+    },
+    {
+      "path": "integration/INTEGRATION.md",
+      "bytes": 966,
+      "sha256": "a5aa34f3aca35d9042fbf91cd39b74fc4b2740ce64b56e683ad46fe2df168a54"
+    },
+    {
+      "path": "patches/gemini_ssr.patch",
+      "bytes": 113160,
+      "sha256": "eb81e09ed438a8dc066e826fda854e417d1c64ae4d14a07d7ea5ee7a118adb4b"
+    },
+    {
+      "path": "results/benchmark_results.json",
+      "bytes": 1911,
+      "sha256": "851aa4a59179140d7f9066642bc0687ab3c30cd8b9f68ea4075cb677cc519083"
+    },
+    {
+      "path": "results/compiler_and_sanitizer_output.txt",
+      "bytes": 3438,
+      "sha256": "e00e2689a97ab9b882d1a61373f4d1d78cfbbafa643d03208648db79d64a04fe"
+    },
+    {
+      "path": "shaders/ssr_reconstruct.comp",
+      "bytes": 5784,
+      "sha256": "faa93cedc56e7987f31cf15b641c091b5e7ea333dd87427501bf9e68afb1635e"
+    },
+    {
+      "path": "shaders/ssr_sharpen.comp",
+      "bytes": 1381,
+      "sha256": "07341b1e919350cc5a1889b8aa00169ec4ce9c74f895ac6bad391cc9861255e7"
+    },
+    {
+      "path": "source/include/saige/ssr.hpp",
+      "bytes": 4150,
+      "sha256": "31c62757df7a1e588bc3ee9cefef3973df34d78a62f2361be355068d0f793d08"
+    },
+    {
+      "path": "source/src/ssr.cpp",
+      "bytes": 23319,
+      "sha256": "6ea562153addbb3eb09a624bd13ee3749cedb96762f7b19b0100a78dacfc4191"
+    },
+    {
+      "path": "tests/ssr_test.cpp",
+      "bytes": 29882,
+      "sha256": "19c5ef4be4b83f03df6d2d310398d8269c437987831add2bf345b2c2df557e73"
+    },
+    {
+      "path": "visuals/ssr_1080p_day_comparison.png",
+      "bytes": 409752,
+      "sha256": "fb2c120ef1519e5a55b8ee4833a6a592bceefde76875d7ad13c94f7d7b1e13c3"
+    },
+    {
+      "path": "visuals/ssr_1080p_night_hdr_comparison.png",
+      "bytes": 49053,
+      "sha256": "f1a369a39b5edec366bf38463e46b25a15093415e7eb36d936f069366e8337d1"
+    },
+    {
+      "path": "visuals/ssr_720p30_diagnostic.mp4",
+      "bytes": 3270972,
+      "sha256": "42d0560d8a6b4529494f332e35c28875ad0296e95f7be2850c3a27b779b36093"
+    }
+  ]
+}

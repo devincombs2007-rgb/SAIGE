@@ -1,0 +1,6 @@
+Initialized SSR harness on llvmpipe (LLVM 20.1.2, 256 bits) (FP32 reconstruct), validation + synchronization validation
+vehicle_fence frame 10: GPU-vs-CPU 39.98 dB; PSNR vs truth: bilinear 23.06 bicubic 22.55 TAA-U 24.53 SSR-CPU 25.91 SSR-GPU 25.36 (GPU 83.8 ms on 'llvmpipe (LLVM 20.1.2, 256 bits)', software=1, NOT performance evidence)
+foliage_wires frame 10: GPU-vs-CPU 45.08 dB; PSNR vs truth: bilinear 27.92 bicubic 27.39 TAA-U 27.99 SSR-CPU 28.28 SSR-GPU 28.10 (GPU 96.3 ms on 'llvmpipe (LLVM 20.1.2, 256 bits)', software=1, NOT performance evidence)
+night_hdr frame 10: GPU-vs-CPU 61.29 dB; PSNR vs truth: bilinear 38.80 bicubic 37.90 TAA-U 38.57 SSR-CPU 40.35 SSR-GPU 40.01 (GPU 124.5 ms on 'llvmpipe (LLVM 20.1.2, 256 bits)', software=1, NOT performance evidence)
+road_glass frame 10: GPU-vs-CPU 64.44 dB; PSNR vs truth: bilinear 40.24 bicubic 39.53 TAA-U 41.01 SSR-CPU 43.45 SSR-GPU 43.09 (GPU 88.6 ms on 'llvmpipe (LLVM 20.1.2, 256 bits)', software=1, NOT performance evidence)
+pan_cut frame 10: GPU-vs-CPU 39.86 dB; PSNR vs truth: bilinear 23.06 bicubic 22.54 TAA-U 24.51 SSR-CPU 25.99 SSR-GPU 25.45 (GPU 82.4 ms on 'llvmpipe (LLVM 20.1.2, 256 bits)', software=1, NOT performance evidence)

@@ -5,6 +5,7 @@
 // frames than frames in flight each match their own lights and leave nothing behind in the next frame. CI: lavapipe, so this is correctness only; it says nothing about performance or
 // about a physical GPU.
 
+#include "saige/gfx_assets/environment.hpp"
 #include "saige/gfx_test/brdf_reference.hpp"
 #include "saige/gfx_test/saige_test.hpp"
 #include "saige/render/local_light.hpp"
@@ -24,6 +25,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 using namespace saige;
@@ -227,6 +229,79 @@ Comparison compare_to_oracle(Rig& rig, const Image& lit, const Image& baseline, 
     return c;
 }
 
+/// A smooth sky gradient environment (the IBL tests' builder): darker toward the horizon, a little blue overhead.
+std::shared_ptr<const EnvironmentLighting> sky_environment()
+{
+    static const std::shared_ptr<const EnvironmentLighting> env = [] {
+        gfx::HdrImage image;
+        image.width = 256;
+        image.height = 128;
+        image.rgb.resize(256 * 128 * 3);
+        for (uint32_t y = 0; y < 128; ++y) {
+            for (uint32_t x = 0; x < 256; ++x) {
+                const Float3 d = gfx::equirect_direction((static_cast<float>(x) + 0.5f) / 256.0f, (static_cast<float>(y) + 0.5f) / 128.0f);
+                const float up = std::max(d.z, 0.0f);
+                float* px = image.rgb.data() + (static_cast<std::size_t>(y) * 256 + x) * 3;
+                px[0] = 0.03f + 0.04f * up;
+                px[1] = 0.035f + 0.05f * up;
+                px[2] = 0.05f + 0.09f * up;
+                if (d.x > 0.6f && d.z > 0.05f && d.z < 0.35f) {  // a warm band, so a mirror visibly reflects something other than a gradient
+                    px[0] += 0.25f;
+                    px[1] += 0.12f;
+                }
+            }
+        }
+        gfx::EnvironmentSettings es;
+        es.width = 128;
+        es.levels = 5;
+        es.samples = 192;
+        const gfx::EnvironmentResult r = gfx::precompute_environment(image, es);
+        if (!r.ok()) throw std::runtime_error("sky_environment: precompute failed");
+        return std::make_shared<const EnvironmentLighting>(gfx::to_environment_lighting(*r.environment, 1.0f));
+    }();
+    return env;
+}
+
+RendererSettings combo_settings(uint32_t capacity, bool shadows, bool ibl)
+{
+    RendererSettings s = lit_settings(capacity);
+    if (shadows) {
+        s.shadows.enabled = true;
+        s.shadows.map_size = 1024;
+        s.shadows.distance = 40.0f;
+    }
+    if (ibl) s.environment = sky_environment();
+    return s;
+}
+
+/// A UV sphere of the given radius at the origin, counter-clockwise outward (as in test_ibl.cpp).
+GpuModel make_sphere(GpuResourceRegistry& registry, GpuMaterial material, float radius, int rings = 48, int sectors = 96)
+{
+    constexpr double pi_d = 3.14159265358979323846;
+    std::vector<ModelVertex> v;
+    std::vector<uint32_t> idx;
+    for (int r = 0; r <= rings; ++r) {
+        const double theta = pi_d * r / rings;
+        for (int sct = 0; sct <= sectors; ++sct) {
+            const double phi = 2.0 * pi_d * sct / sectors;
+            const Float3 n{static_cast<float>(std::sin(theta) * std::cos(phi)), static_cast<float>(std::sin(theta) * std::sin(phi)), static_cast<float>(std::cos(theta))};
+            v.push_back({{n.x * radius, n.y * radius, n.z * radius}, n, {static_cast<float>(sct) / static_cast<float>(sectors), static_cast<float>(r) / static_cast<float>(rings)}});
+        }
+    }
+    for (int r = 0; r < rings; ++r) {
+        for (int sct = 0; sct < sectors; ++sct) {
+            const uint32_t a = static_cast<uint32_t>(r * (sectors + 1) + sct), b = a + static_cast<uint32_t>(sectors + 1);
+            idx.insert(idx.end(), {a, b, a + 1, a + 1, b, b + 1});
+        }
+    }
+    GpuModel m;
+    m.name = "sphere";
+    m.materials.push_back(std::move(material));
+    m.meshes.push_back({make_primitive(registry, v, idx, 0)});
+    m.placements.push_back({0, Mat4::identity()});
+    return m;
+}
+
 bool threw_invalid(const RendererSettings& s)
 {
     const auto device = make_validated_device("local_lights_ctor");
@@ -316,9 +391,9 @@ TEST_CASE("Local lights in the model renderer: invalid input and invalid combina
     RendererSettings legacy = lit_settings(8);
     legacy.model_shading = ModelShading::Legacy;
     CHECK(threw_invalid(legacy));
-    RendererSettings shadowed = lit_settings(8);
-    shadowed.shadows.enabled = true;
-    CHECK(threw_invalid(shadowed));
+    CHECK_FALSE(threw_invalid(combo_settings(8, true, false)));  // sun shadows and an environment compose with local lights
+    CHECK_FALSE(threw_invalid(combo_settings(8, false, true)));
+    CHECK_FALSE(threw_invalid(combo_settings(8, true, true)));
     RendererSettings skinned = lit_settings(8);
     skinned.skinning = true;
     CHECK(threw_invalid(skinned));
@@ -480,5 +555,123 @@ TEST_CASE("Local lights in the model renderer: with SAIGE_CAPTURE_DIR, 1920 x 10
     gfx_test::write_ppm(std::filesystem::path(dir) / "model_local_lights_unlit_1080p.ppm", off);
     gfx_test::write_ppm(std::filesystem::path(dir) / "model_local_lights_difference_x8_1080p.ppm", gfx_test::make_diff_image(on, off, 8));
     std::printf("  wrote 1080p stills to %s (llvmpipe)\n", dir);
+    CHECK(rig.device->validation_error_count() == 0);
+}
+
+TEST_CASE("Local lights in the model renderer: composed with sun shadows, an environment (IBL) and both, zero lights equal capacity 0 and lit minus unlit equals the CPU oracle")
+{
+    const struct {
+        bool shadows, ibl;
+        const char* name;
+    } combos[] = {{true, false, "shadows"}, {false, true, "ibl"}, {true, true, "ibl_shadows"}};
+    const std::vector<LocalLightGpu> lights = make_lights(0);
+    // A tall block beside the probe field: its sun shadow falls on probes (x = 9) without hiding any probe from the camera.
+    const auto add_block = [](Rig& rig) {
+        MaterialParams grey;
+        grey.base_color[0] = grey.base_color[1] = grey.base_color[2] = 0.5f;
+        grey.metallic = 0.0f;
+        grey.roughness = 0.8f;
+        GpuModel m = make_cube(rig.renderer->registry(), rig.renderer->model_renderer().create_material(grey, {}, {}, "block"));
+        m.placements[0].local = translation({11.0f, 12.0f, 3.0f}) * scale_matrix({2.0f, 8.0f, 6.0f});
+        rig.props.push_back(std::move(m));
+    };
+    Rig plain(lit_settings(16), "ll_combo_plain");  // the same scene without shadows or IBL, for the shadowing check
+    add_block(plain);
+    const Image plain_unlit = plain.render();
+    for (const auto& c : combos) {
+        const std::string tag = std::string("ll_combo_") + c.name;
+        Rig off(combo_settings(0, c.shadows, c.ibl), (tag + "_off").c_str());
+        Rig on(combo_settings(16, c.shadows, c.ibl), (tag + "_on").c_str());
+        add_block(off);
+        add_block(on);
+        const Image reference = off.render();
+        const Image zero = on.render();
+        CHECK(zero.rgba == reference.rgba);  // the lit permutation with zero lights is byte-identical to the permutation without lights
+        FrameStats stats;
+        const Image lit = on.render(lights, &stats);
+        CHECK(stats.model_local_lights_drawn == 3);
+        const Comparison cmp = compare_to_oracle(on, lit, zero, lights, 0.012);
+        std::printf("  %s: %d probes, %d inside reach, wrong %d, max |error| R %.4f G %.4f B %.4f\n", c.name, cmp.probes, cmp.lit, cmp.wrong, cmp.max_err[0], cmp.max_err[1], cmp.max_err[2]);
+        CHECK(cmp.wrong == 0);
+        CHECK(cmp.lit >= 30);
+        CHECK(on.render().rgba == reference.rgba);  // and the next frame without lights is the unlit image again
+        // The combination really changed the picture: shadows darken some probes against the plain scene, IBL changes the ambient.
+        int darker = 0, differs = 0;
+        for (const Float3 p : floor_probes()) {
+            const auto [x, y] = on.pixel_of(p);
+            if (x < 1 || y < 1 || x >= static_cast<int>(kW) - 1 || y >= static_cast<int>(kH) - 1) continue;
+            const Float3 a = linear_at(zero, x, y), b = linear_at(plain_unlit, x, y);
+            if (a.x + a.y + a.z < b.x + b.y + b.z - 0.01f) ++darker;
+            if (std::fabs(a.x - b.x) + std::fabs(a.y - b.y) + std::fabs(a.z - b.z) > 0.004f) ++differs;
+        }
+        std::printf("  %s: %d probes darker than the plain scene (sun shadow), %d differ from it\n", c.name, darker, differs);
+        if (c.shadows) CHECK(darker >= 3);
+        CHECK(differs >= 3);
+        CHECK(on.device->validation_error_count() == 0);
+    }
+}
+
+TEST_CASE("Local lights in the model renderer: with SAIGE_CAPTURE_DIR, 1920 x 1080 stills of local lights with sun shadows and environment reflections (lavapipe)")
+{
+    const char* dir = std::getenv("SAIGE_CAPTURE_DIR");
+    if (dir == nullptr || dir[0] == '\0') {
+        std::printf("  SAIGE_CAPTURE_DIR is not set: nothing written\n");
+        return;
+    }
+    RendererSettings s = combo_settings(32, true, true);
+    s.sky = {0.02f, 0.03f, 0.05f, 1.0f};
+    Rig rig(s, "ll_capture_combo", 1920, 1080);
+    rig.sun.sun_direction = normalize(Float3{-0.5f, 0.6f, 0.35f});  // low evening sun: long shadows
+    rig.sun.sun_color = {0.35f, 0.22f, 0.12f};
+    rig.sun.ambient_ground = {0.02f, 0.02f, 0.025f};
+    ModelRenderer& mr = rig.renderer->model_renderer();
+    MaterialParams wall;
+    wall.base_color[0] = 0.75f; wall.base_color[1] = 0.72f; wall.base_color[2] = 0.68f;
+    wall.metallic = 0.0f; wall.roughness = 0.7f;
+    MaterialParams chrome = wall;
+    chrome.base_color[0] = chrome.base_color[1] = chrome.base_color[2] = 0.95f; chrome.metallic = 1.0f; chrome.roughness = 0.08f;
+    MaterialParams brushed = chrome;
+    brushed.base_color[0] = 0.95f; brushed.base_color[1] = 0.7f; brushed.base_color[2] = 0.45f; brushed.roughness = 0.35f;
+    MaterialParams lacquer = wall;
+    lacquer.base_color[0] = 0.6f; lacquer.base_color[1] = 0.05f; lacquer.base_color[2] = 0.04f; lacquer.roughness = 0.15f;
+    const GpuMaterial wall_m = mr.create_material(wall, {}, {}, "wall");
+    struct Prop { float x, y, w, d, h; };
+    for (const Prop& p : {Prop{-6.0f, 13.0f, 2.0f, 2.0f, 3.0f}, Prop{0.0f, 20.0f, 12.0f, 0.6f, 3.6f}, Prop{6.5f, 14.0f, 2.5f, 1.5f, 2.2f}}) {
+        GpuModel m = make_cube(rig.renderer->registry(), wall_m);
+        m.placements[0].local = translation({p.x, p.y, p.h * 0.5f}) * scale_matrix({p.w, p.d, p.h});
+        rig.props.push_back(std::move(m));
+    }
+    const struct { MaterialParams mat; Float3 at; float r; const char* name; } spheres[] = {
+        {chrome, {-2.2f, 11.0f, 1.0f}, 1.0f, "chrome"}, {brushed, {0.6f, 12.5f, 0.8f}, 0.8f, "brushed"}, {lacquer, {3.0f, 10.5f, 0.7f}, 0.7f, "lacquer"}};
+    for (const auto& sp : spheres) {
+        GpuModel m = make_sphere(rig.renderer->registry(), mr.create_material(sp.mat, {}, {}, sp.name), sp.r);
+        m.placements[0].local = translation(sp.at);
+        rig.props.push_back(std::move(m));
+    }
+    LocalLightSet set(32);
+    set.add_point({{-4.0f, 9.0f, 2.2f}, {1.0f, 0.62f, 0.3f}, 7.0f, 11.0f});
+    set.add_point({{4.5f, 9.5f, 1.8f}, {0.3f, 0.55f, 1.0f}, 5.0f, 9.0f});
+    SpotLightDesc sp;
+    sp.position = {0.0f, 6.0f, 4.5f};
+    const Float3 axis = normalize(Float3{0.0f, 0.75f, -0.66f});
+    sp.direction = {axis.x, axis.y, axis.z};
+    sp.color = {1.0f, 0.95f, 0.8f};
+    sp.intensity = 16.0f;
+    sp.radius = 22.0f;
+    sp.inner_angle = 0.2f;
+    sp.outer_angle = 0.5f;
+    set.add_spot(sp);
+    rig.camera = look_at_camera({0.0f, 1.0f, 2.6f}, {0.0f, 13.0f, 1.0f});
+    rig.view_proj = view_projection_matrix(rig.camera, 1920.0f / 1080.0f);
+    const Image off = rig.render();
+    FrameStats stats;
+    const Image on = rig.render(set.lights(), &stats);
+    CHECK(stats.model_local_lights_drawn == 3);
+    CHECK(on.rgba != off.rgba);
+    std::filesystem::create_directories(dir);
+    gfx_test::write_ppm(std::filesystem::path(dir) / "model_local_lights_shadows_ibl_lit_1080p.ppm", on);
+    gfx_test::write_ppm(std::filesystem::path(dir) / "model_local_lights_shadows_ibl_unlit_1080p.ppm", off);
+    gfx_test::write_ppm(std::filesystem::path(dir) / "model_local_lights_shadows_ibl_difference_x8_1080p.ppm", gfx_test::make_diff_image(on, off, 8));
+    std::printf("  wrote shadows + IBL + local lights 1080p stills to %s (llvmpipe)\n", dir);
     CHECK(rig.device->validation_error_count() == 0);
 }

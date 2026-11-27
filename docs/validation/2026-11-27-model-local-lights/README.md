@@ -28,3 +28,15 @@ Visible limits in the picture: the lights cast no shadows (the primitives do not
 Mutation: 10 of 10 mutants caught (loop removed, count ignored, count replaced by capacity, wrong record index, off-by-one loop, frame slot always 0, dropped lights not counted, lights written beyond the capacity, record validation removed, unpublished frame keeps the previous slot). A first version of the tests missed two of them; the direct `set_local_lights` test and a `SceneRenderer` change (an unpublished frame relies on the draw-time completion) were added in response.
 
 Regression: the five other model permutations regenerate to byte-identical SPIR-V (only the source-hash line of the generated headers changes); the full local CTest run is 175 tests, 0 failures, 9 skipped for missing optional dependencies (Jolt and licensed assets, present in hosted CI).
+
+## Composition with sun shadows and IBL (fifth step, same day)
+
+| File | What it shows |
+| --- | --- |
+| `model_local_lights_shadows_ibl_unlit_1080p.png` | An evening scene with a low sun (long sun shadows), a sky-gradient environment with a warm band (IBL), three blocks and three spheres: chrome (metal, roughness 0.08), brushed gold (metal, 0.35) and red lacquer (dielectric, 0.15). Local lights published as empty. |
+| `model_local_lights_shadows_ibl_lit_1080p.png` | The same frame with two point lights (warm, blue) and a spot light. |
+| `model_local_lights_shadows_ibl_difference_x8_1080p.png` | Their absolute difference, times 8. |
+
+Looked at by the author (lit and unlit): the point lights and the spot put specular highlights on all three spheres and warm, blue and spot pools on the floor; the chrome sphere reflects the environment (its warm band on the right); the sun shadows of the blocks and spheres are long. Visible limits: **the sun-shadow edges are stair-stepped** at this map resolution (1024, 40 m; the known thin-shadow aliasing, S4-009); **local lights cast no shadows**; **reflections are the environment only**: the chrome sphere does not reflect the floor or the blocks (scene reflections are not implemented). The difference image was not looked at. Software Vulkan only.
+
+Reproduce: `SAIGE_CAPTURE_DIR=<dir> saige_rhi_vulkan_tests "stills of local lights with sun shadows"`.

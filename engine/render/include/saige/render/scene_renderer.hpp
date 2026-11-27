@@ -122,8 +122,8 @@ struct RendererSettings {
     /// With the sun at or below the horizon (`z <= 0`) no cascades are fitted that frame: nothing is shadowed by a sun that is not up. See docs/rendering/dynamic-lighting.md.
     bool dynamic_lighting = false;
     /// Local point and spot lights for imported models (`ModelRenderSettings::local_light_capacity`): 0 is off and changes nothing (the shaders, bindings and image are those of 0.2);
-    /// 1 to 256 needs `model_shading == MetallicRoughness` and `dynamic_lighting`, and cannot yet combine with shadows, an environment, skinning or instancing (the constructor of the
-    /// model renderer throws std::invalid_argument). Each frame's lights come in `SceneFrame::local_lights`; records beyond the capacity are dropped and counted, never written.
+    /// 1 to 256 needs `model_shading == MetallicRoughness` and `dynamic_lighting`, composes with sun shadows and an environment (local lights cast no shadows themselves), and cannot
+    /// yet combine with skinning or instancing (the constructor of the model renderer throws std::invalid_argument). Each frame's lights come in `SceneFrame::local_lights`; records beyond the capacity are dropped and counted, never written.
     uint32_t local_light_capacity = 0;
     /// Composite glTF BLEND materials with sorted alpha blending. Off by default: BLEND draws opaque exactly as in 0.2.
     bool alpha_blending = false;

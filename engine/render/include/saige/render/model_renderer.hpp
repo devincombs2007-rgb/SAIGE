@@ -180,8 +180,9 @@ struct ModelRenderSettings {
     bool dynamic_lighting = false;
     /// Local point and spot lights (docs/rendering/local-lights.md): the most lights one frame can hold (0 to 256). **0 is off**: the shader, layout and resources are exactly the ones
     /// without it. Above 0 the renderer uses the local-light shader permutation (a forward loop over the frame's lights, added to the sun and the ambient term) with a ring of light buffers,
-    /// one per frame slot, written by `set_local_lights`. First version: needs `shading == MetallicRoughness` and `dynamic_lighting` (the ring), and does not combine with shadows, an
-    /// environment, skinning or instancing: each combination throws std::invalid_argument at construction (nothing is acquired). The records are validated on every `set_local_lights`.
+    /// one per frame slot, written by `set_local_lights`. Needs `shading == MetallicRoughness` and `dynamic_lighting` (the ring); composes with sun shadows and an environment
+    /// (the lit shadowed, IBL and IBL-shadowed permutations; local lights cast no shadows themselves), and does not combine with skinning or instancing: those throw
+    /// std::invalid_argument at construction (nothing is acquired). The records are validated on every `set_local_lights`.
     uint32_t local_light_capacity = 0;
     ModelShadowSettings shadows;
     /// Composite glTF BLEND materials (`MaterialData::alpha_blend`) source-over in a sorted phase. **Off by default**: with it off a

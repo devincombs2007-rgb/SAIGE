@@ -22,6 +22,9 @@ set(SAIGE_SHADER_SOURCES
     scene/model_shadowed.hlsl
     scene/model_ibl.hlsl
     scene/model_lit.hlsl
+    scene/model_lit_shadowed.hlsl
+    scene/model_lit_ibl.hlsl
+    scene/model_lit_ibl_shadowed.hlsl
     scene/model_ibl_shadowed.hlsl
     scene/model_skinned.hlsl
     scene/shadow_depth.hlsl

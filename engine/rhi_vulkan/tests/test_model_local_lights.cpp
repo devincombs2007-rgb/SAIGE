@@ -202,7 +202,7 @@ Comparison compare_to_oracle(Rig& rig, const Image& lit, const Image& baseline, 
         std::array<double, 3> want{0, 0, 0};
         for (const LocalLightGpu& l : lights) {
             const auto one = contribution(l, p, eye);
-            for (int k = 0; k < 3; ++k) want[k] += one[k];
+            for (std::size_t k = 0; k < 3; ++k) want[k] += one[k];
         }
         const Float3 a = linear_at(lit, x, y), b = linear_at(baseline, x, y);
         const double got[3] = {static_cast<double>(a.x - b.x), static_cast<double>(a.y - b.y), static_cast<double>(a.z - b.z)};
@@ -210,7 +210,7 @@ Comparison compare_to_oracle(Rig& rig, const Image& lit, const Image& baseline, 
         const bool reached = want[0] + want[1] + want[2] > 0.0;
         (reached ? c.lit : c.beyond) += 1;
         bool ok = true;
-        for (int k = 0; k < 3; ++k) {
+        for (std::size_t k = 0; k < 3; ++k) {
             const double err = std::fabs(got[k] - want[k]);
             c.max_err[k] = std::max(c.max_err[k], err);
             c.max_delta = std::max(c.max_delta, want[k]);

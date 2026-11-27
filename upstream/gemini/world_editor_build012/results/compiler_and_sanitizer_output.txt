@@ -1,0 +1,15 @@
+=== ASan+UBSan: Build 011 Core Regression ===
+[editor-10k] insert_ms=13.3735 chunk_query_ms=0.002293 validate_ms=0.386987 serialize_ms=38.4544 blob_kb=1464
+editor_core_test: ALL 10 SUITES PASSED
+
+=== ASan+UBSan: Build 012 Suite ===
+[bench] scene_1k_ms=8.2291 scene_10k_ms=81.5664 assets_10k_ms=42.6311
+editor_build012_test: ALL 5 SUITES PASSED
+
+=== Release -O2 -DNDEBUG: Build 011 Core Regression ===
+[editor-10k] insert_ms=3.84898 chunk_query_ms=0.000316 validate_ms=0.1163 serialize_ms=20.8691 blob_kb=1464
+editor_core_test: ALL 10 SUITES PASSED
+
+=== Release -O2 -DNDEBUG: Build 012 Suite ===
+[bench] scene_1k_ms=4.25108 scene_10k_ms=41.0218 assets_10k_ms=8.98594
+editor_build012_test: ALL 5 SUITES PASSED

@@ -1,0 +1,76 @@
+=== Compiler Version ===
+g++ (Debian 12.2.0-14+deb12u1) 12.2.0
+
+=== 1. C++20 Debug/O2 + ASan + UBSan + Werror ===
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/tests/npc_simulation_test.cpp -o build/npc_simulation_asan_test
+$ ./build/npc_simulation_asan_test
+npc_simulation_test: ALL 13 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/crowd_avoidance.cpp build/saige_repo/tests/crowd_avoidance_test.cpp -o build/crowd_avoidance_asan_test
+$ ./build/crowd_avoidance_asan_test
+[dense-4way-200] arrived=191/200 min_sep_all_ticks=0.160424m max_overlap_all_ticks=0m deadlocks=0 osc=0
+[narrow-door-60] arrived=54/60 max_overlap=0m deadlocks=0
+[crowd-scale n=100] avg_ms=4.3237 min_sep=0.611289m overlap_pairs=0 max_overlap=0m mem_kb=20
+[crowd-scale n=500] avg_ms=19.9694 min_sep=0.687501m overlap_pairs=0 max_overlap=0m mem_kb=85
+[crowd-scale n=1000] avg_ms=39.4623 min_sep=0.630961m overlap_pairs=0 max_overlap=0m mem_kb=171
+[crowd-scale n=2000] avg_ms=80.0164 min_sep=0.697275m overlap_pairs=0 max_overlap=0m mem_kb=343
+crowd_avoidance_test: ALL 5 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/traffic_simulation.cpp build/saige_repo/tests/traffic_simulation_test.cpp -o build/traffic_simulation_asan_test
+$ ./build/traffic_simulation_asan_test
+traffic_simulation_test: ALL 7 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/multi_floor_nav.cpp build/saige_repo/tests/multi_floor_nav_test.cpp -o build/multi_floor_nav_asan_test
+$ ./build/multi_floor_nav_asan_test
+multi_floor_nav_test: ALL 6 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/persistent_world.cpp build/saige_repo/tests/persistent_world_test.cpp -o build/persistent_world_asan_test
+$ ./build/persistent_world_asan_test
+[persistent-scale n=100] init_ms=0.116195 index_ms=0.075219 avg_ms=0.0167097 max_ms=0.038074 max_lat_s=0 mem_mb=0.0260315
+[persistent-scale n=1000] init_ms=0.576136 index_ms=0.397502 avg_ms=0.0479222 max_ms=0.161743 max_lat_s=0.0166667 mem_mb=0.229065
+[persistent-scale n=10000] init_ms=3.82962 index_ms=2.58563 avg_ms=0.225956 max_ms=0.250622 max_lat_s=0.0166667 mem_mb=2.03088
+[persistent-scale n=50000] init_ms=17.4187 index_ms=10.7357 avg_ms=1.12197 max_ms=1.37237 max_lat_s=0.0666667 mem_mb=9.34424
+[persistent-scale n=100000] init_ms=34.7128 index_ms=21.1686 avg_ms=2.30182 max_ms=2.82733 max_lat_s=0.116667 mem_mb=18.6885
+persistent_world_test: ALL 7 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/npc_psychology.cpp build/saige_repo/tests/npc_psychology_test.cpp -o build/npc_psychology_asan_test
+$ ./build/npc_psychology_asan_test
+npc_psychology_test: ALL 3 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/persistent_world.cpp build/saige_repo/src/npc_psychology.cpp build/saige_repo/src/social_simulation.cpp build/saige_repo/tests/social_simulation_test.cpp -o build/social_simulation_asan_test
+$ ./build/social_simulation_asan_test
+social_simulation_test: ALL 4 SUITES PASSED
+$ g++ -std=c++20 -O2 -g -Wall -Wextra -Wpedantic -Werror -Wconversion -fsanitize=address,undefined -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/persistent_world.cpp build/saige_repo/src/npc_psychology.cpp build/saige_repo/src/local_economy.cpp build/saige_repo/tests/local_economy_test.cpp -o build/local_economy_asan_test
+$ ./build/local_economy_asan_test
+local_economy_test: ALL 3 SUITES PASSED
+
+=== 2. C++20 Release (-O2 -DNDEBUG) Regression & 100k Scale Benchmarks ===
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/tests/npc_simulation_test.cpp -o build/npc_simulation_rel_test
+$ ./build/npc_simulation_rel_test
+npc_simulation_test: ALL 13 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/crowd_avoidance.cpp build/saige_repo/tests/crowd_avoidance_test.cpp -o build/crowd_avoidance_rel_test
+$ ./build/crowd_avoidance_rel_test
+[dense-4way-200] arrived=191/200 min_sep_all_ticks=0.160424m max_overlap_all_ticks=0m deadlocks=0 osc=0
+[narrow-door-60] arrived=54/60 max_overlap=0m deadlocks=0
+[crowd-scale n=100] avg_ms=0.935534 min_sep=0.611289m overlap_pairs=0 max_overlap=0m mem_kb=20
+[crowd-scale n=500] avg_ms=3.92351 min_sep=0.687501m overlap_pairs=0 max_overlap=0m mem_kb=85
+[crowd-scale n=1000] avg_ms=7.24416 min_sep=0.630961m overlap_pairs=0 max_overlap=0m mem_kb=171
+[crowd-scale n=2000] avg_ms=13.5524 min_sep=0.697275m overlap_pairs=0 max_overlap=0m mem_kb=343
+crowd_avoidance_test: ALL 5 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/traffic_simulation.cpp build/saige_repo/tests/traffic_simulation_test.cpp -o build/traffic_simulation_rel_test
+$ ./build/traffic_simulation_rel_test
+traffic_simulation_test: ALL 7 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/multi_floor_nav.cpp build/saige_repo/tests/multi_floor_nav_test.cpp -o build/multi_floor_nav_rel_test
+$ ./build/multi_floor_nav_rel_test
+multi_floor_nav_test: ALL 6 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/persistent_world.cpp build/saige_repo/tests/persistent_world_test.cpp -o build/persistent_world_rel_test
+$ ./build/persistent_world_rel_test
+[persistent-scale n=100] init_ms=0.00759 index_ms=0.003803 avg_ms=0.00105087 max_ms=0.00157 max_lat_s=0 mem_mb=0.0260315
+[persistent-scale n=1000] init_ms=0.108988 index_ms=0.063011 avg_ms=0.0048308 max_ms=0.005917 max_lat_s=0.0166667 mem_mb=0.229065
+[persistent-scale n=10000] init_ms=0.995766 index_ms=0.536786 avg_ms=0.0340602 max_ms=0.04922 max_lat_s=0.0166667 mem_mb=2.03088
+[persistent-scale n=50000] init_ms=4.95855 index_ms=2.46014 avg_ms=0.28928 max_ms=0.428561 max_lat_s=0.0666667 mem_mb=9.34424
+[persistent-scale n=100000] init_ms=10.2003 index_ms=5.35324 avg_ms=0.610907 max_ms=0.924229 max_lat_s=0.116667 mem_mb=18.6885
+persistent_world_test: ALL 7 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/npc_psychology.cpp build/saige_repo/tests/npc_psychology_test.cpp -o build/npc_psychology_rel_test
+$ ./build/npc_psychology_rel_test
+npc_psychology_test: ALL 3 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/persistent_world.cpp build/saige_repo/src/npc_psychology.cpp build/saige_repo/src/social_simulation.cpp build/saige_repo/tests/social_simulation_test.cpp -o build/social_simulation_rel_test
+$ ./build/social_simulation_rel_test
+social_simulation_test: ALL 4 SUITES PASSED
+$ g++ -std=c++20 -O2 -DNDEBUG -Wall -Wextra -Wpedantic -Werror -Wconversion -Ibuild/saige_repo/include build/saige_repo/src/npc_simulation.cpp build/saige_repo/src/persistent_world.cpp build/saige_repo/src/npc_psychology.cpp build/saige_repo/src/local_economy.cpp build/saige_repo/tests/local_economy_test.cpp -o build/local_economy_rel_test
+$ ./build/local_economy_rel_test
+local_economy_test: ALL 3 SUITES PASSED

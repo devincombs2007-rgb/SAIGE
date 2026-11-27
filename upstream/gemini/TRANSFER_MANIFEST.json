@@ -1,0 +1,456 @@
+{
+  "package": "SAIGE_Claude_Engineering_Transfer_Package",
+  "file_count": 90,
+  "files": [
+    {
+      "path": "ssr/CHANGELOG.md",
+      "bytes": 1761,
+      "sha256": "5b6c494380d74d26cd63b02331b9cc71c143aceb1879bb4605d91a9590562c10"
+    },
+    {
+      "path": "ssr/HANDOFF.md",
+      "bytes": 2123,
+      "sha256": "8f6e9a9ff61c5a5706609d16d12f5b3672b13fe1282648237656504f7c4d6024"
+    },
+    {
+      "path": "ssr/LICENSES.md",
+      "bytes": 718,
+      "sha256": "5a02b269064f3a6cf48ae8b116a4f4624c568977e66750582584d026b8572ad5"
+    },
+    {
+      "path": "ssr/MANIFEST.json",
+      "bytes": 3979,
+      "sha256": "73dc05a0ed6f64ad4e60e10b2f911bd3257ef18e39f4961b75b9d92b37627919"
+    },
+    {
+      "path": "ssr/README.md",
+      "bytes": 1652,
+      "sha256": "60c91f649b7dcf65bfaf6c89134834722ec533fb895acd8601731fe13de508b1"
+    },
+    {
+      "path": "ssr/docs/BUILD_001_VS_002_COMPARISON.md",
+      "bytes": 2601,
+      "sha256": "19eb370a3b7106e0ab304fc5aca717a9d5d403ede9084f129882482f32f1f8b7"
+    },
+    {
+      "path": "ssr/docs/ISSUE_43_SSR_CHECKPOINT.md",
+      "bytes": 1503,
+      "sha256": "f72791bc55ca608b0a6ac0fe8b6c474fb9a259a0c92cd80e1ce01aadfd9ac558"
+    },
+    {
+      "path": "ssr/docs/SSR_ARCHITECTURE_SPEC.md",
+      "bytes": 3428,
+      "sha256": "aa48b6ed62d4beea3f5d9cbb18935d984f810943a4cd1d85ce32c23a8898ab23"
+    },
+    {
+      "path": "ssr/docs/SSR_ENGINE_INTEGRATION_CONTRACT.md",
+      "bytes": 4427,
+      "sha256": "1c6bf9950d2053c624fd4465b7d7671b9ae70ceb7a27fb7fac15cc37e87f8ae0"
+    },
+    {
+      "path": "ssr/docs/SSR_NEURAL_RESEARCH_REPORT.md",
+      "bytes": 3199,
+      "sha256": "0ebadf8e23bd2df6c0857cfc71b5916efb89f9a9fa739dcc25c1a69911470a03"
+    },
+    {
+      "path": "ssr/gpu/ssr_vulkan_harness.cpp",
+      "bytes": 43092,
+      "sha256": "3fe9c2843107276dc6f291acfc2505550d0b15b8b02ab7c9600249cbd0ceb5e3"
+    },
+    {
+      "path": "ssr/gpu/ssr_vulkan_harness.hpp",
+      "bytes": 2369,
+      "sha256": "9ddb3d160dde904917de800bfa842273d4cc4b167a7e6083b63992becb82cb40"
+    },
+    {
+      "path": "ssr/integration/CMakeLists.snippet.cmake",
+      "bytes": 1611,
+      "sha256": "85688b641c2f19bae41040bb146e5ac236719354867826fb166ea9d99ce78ef7"
+    },
+    {
+      "path": "ssr/integration/INTEGRATION.md",
+      "bytes": 966,
+      "sha256": "a5aa34f3aca35d9042fbf91cd39b74fc4b2740ce64b56e683ad46fe2df168a54"
+    },
+    {
+      "path": "ssr/patches/gemini_ssr.patch",
+      "bytes": 113160,
+      "sha256": "eb81e09ed438a8dc066e826fda854e417d1c64ae4d14a07d7ea5ee7a118adb4b"
+    },
+    {
+      "path": "ssr/results/benchmark_results.json",
+      "bytes": 1911,
+      "sha256": "851aa4a59179140d7f9066642bc0687ab3c30cd8b9f68ea4075cb677cc519083"
+    },
+    {
+      "path": "ssr/results/compiler_and_sanitizer_output.txt",
+      "bytes": 3438,
+      "sha256": "e00e2689a97ab9b882d1a61373f4d1d78cfbbafa643d03208648db79d64a04fe"
+    },
+    {
+      "path": "ssr/shaders/ssr_reconstruct.comp",
+      "bytes": 5784,
+      "sha256": "faa93cedc56e7987f31cf15b641c091b5e7ea333dd87427501bf9e68afb1635e"
+    },
+    {
+      "path": "ssr/shaders/ssr_sharpen.comp",
+      "bytes": 1381,
+      "sha256": "07341b1e919350cc5a1889b8aa00169ec4ce9c74f895ac6bad391cc9861255e7"
+    },
+    {
+      "path": "ssr/source/include/saige/ssr.hpp",
+      "bytes": 4150,
+      "sha256": "31c62757df7a1e588bc3ee9cefef3973df34d78a62f2361be355068d0f793d08"
+    },
+    {
+      "path": "ssr/source/src/ssr.cpp",
+      "bytes": 23319,
+      "sha256": "6ea562153addbb3eb09a624bd13ee3749cedb96762f7b19b0100a78dacfc4191"
+    },
+    {
+      "path": "ssr/tests/ssr_test.cpp",
+      "bytes": 29882,
+      "sha256": "19c5ef4be4b83f03df6d2d310398d8269c437987831add2bf345b2c2df557e73"
+    },
+    {
+      "path": "ssr/visuals/ssr_1080p_day_comparison.png",
+      "bytes": 409752,
+      "sha256": "fb2c120ef1519e5a55b8ee4833a6a592bceefde76875d7ad13c94f7d7b1e13c3"
+    },
+    {
+      "path": "ssr/visuals/ssr_1080p_night_hdr_comparison.png",
+      "bytes": 49053,
+      "sha256": "f1a369a39b5edec366bf38463e46b25a15093415e7eb36d936f069366e8337d1"
+    },
+    {
+      "path": "ssr/visuals/ssr_720p30_diagnostic.mp4",
+      "bytes": 3270972,
+      "sha256": "42d0560d8a6b4529494f332e35c28875ad0296e95f7be2850c3a27b779b36093"
+    },
+    {
+      "path": "world_editor/CHANGELOG.md",
+      "bytes": 944,
+      "sha256": "55ef48265cbac74e84b29061e064460d7fe566a78b972b260f90daf6a443dc82"
+    },
+    {
+      "path": "world_editor/HANDOFF.md",
+      "bytes": 463,
+      "sha256": "8fafa6f9387795f91a88c5fbc75edd60adb0f9a0165852cb42ee2a6d68496f44"
+    },
+    {
+      "path": "world_editor/LICENSES.md",
+      "bytes": 356,
+      "sha256": "6b9b753c75758b3b021da32c8bc5c4c73d46d9db98552af4a5311ed753296633"
+    },
+    {
+      "path": "world_editor/MANIFEST.json",
+      "bytes": 4550,
+      "sha256": "d505362b8e345c1c38d5b27e54971c2f59e40494830abd3efde078a1ed7bdd2f"
+    },
+    {
+      "path": "world_editor/README.md",
+      "bytes": 669,
+      "sha256": "f193e76cc660b1598eeaa5351c90ed43816dd155b2980829bad68cee45274824"
+    },
+    {
+      "path": "world_editor/docs/ASSET_ACQUISITION_MANIFEST.md",
+      "bytes": 1141,
+      "sha256": "bf8ebf82612fa2442d0ad5c603e68f5c83350f8c64d3b7b348ca5cafb5453757"
+    },
+    {
+      "path": "world_editor/docs/ISSUE_43_EDITOR_CHECKPOINT.md",
+      "bytes": 1342,
+      "sha256": "4c8d7e9a00a8193a148a7ee5c160af1ff476d06c315f066b047a60b520fdf2b9"
+    },
+    {
+      "path": "world_editor/docs/WORLD_EDITOR_ARCHITECTURE.md",
+      "bytes": 1798,
+      "sha256": "7c91358e31e8eb9946d1701ce3a2eb2844427659f94609031527afac0f40157d"
+    },
+    {
+      "path": "world_editor/integration/CMakeLists.snippet.cmake",
+      "bytes": 534,
+      "sha256": "25bc467de1cc4014059a1782ff9dc9edd4dc56e26b226207710d6bde4ff54f12"
+    },
+    {
+      "path": "world_editor/patches/gemini_world_editor.patch",
+      "bytes": 96304,
+      "sha256": "aaaab8577d9ca0063cb71b4ce844be2397c60317607e5481c5c10f28f0bafe74"
+    },
+    {
+      "path": "world_editor/results/benchmark_results.json",
+      "bytes": 173,
+      "sha256": "a778690979db213170b8b5deeacb4b0a81274436f68a33f38b79de34820138ac"
+    },
+    {
+      "path": "world_editor/results/compiler_and_sanitizer_output.txt",
+      "bytes": 708,
+      "sha256": "c79c78fd0ee9de1095e35249dd0c347a19274db2e145999d1276198afa5c403e"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_assets.hpp",
+      "bytes": 3762,
+      "sha256": "6971f3721fbc65c3c94eec9ec8f2e26e25c17be42bf2d4d6cac7647a6da9757b"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_commands.hpp",
+      "bytes": 4550,
+      "sha256": "a83934361ae235c5c3b4c0a602eb374781fdcdb37a05af7bc69196d3318fd90d"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_materials.hpp",
+      "bytes": 1956,
+      "sha256": "027928874c9fb46eb8b4d62d9f589dd7cdc9f9774c5bd4e2bfa0ba8d52715415"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_project.hpp",
+      "bytes": 684,
+      "sha256": "65ff852ac0cabcf51d870b35ab6530b20d36c6acdc9c5d85976372df2e171ebf"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_scene.hpp",
+      "bytes": 5244,
+      "sha256": "cb793c7bd1a3ae8af11189202d97927729460d154294e17771c771e107f36f43"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_semantic.hpp",
+      "bytes": 2197,
+      "sha256": "c06165080c48a1ec997766107d1c514372ee0d160ef3ec0a88f03642bc13d206"
+    },
+    {
+      "path": "world_editor/source/include/saige/editor_workspace.hpp",
+      "bytes": 3030,
+      "sha256": "1d505140b6cfc0b9c6c86583f8c47f49a2aef22e0539672400255412066788d9"
+    },
+    {
+      "path": "world_editor/source/src/editor_assets.cpp",
+      "bytes": 8339,
+      "sha256": "37e220a0b101e06aa80c71d33da99d1a86003ddc0627974a7111d38c77da87f9"
+    },
+    {
+      "path": "world_editor/source/src/editor_commands.cpp",
+      "bytes": 8195,
+      "sha256": "e745dc81c65de6604ca8da9a6997a04e70f6c3daff74faa7a1143e99ac22d8e8"
+    },
+    {
+      "path": "world_editor/source/src/editor_materials.cpp",
+      "bytes": 4346,
+      "sha256": "cdfc868c689a79f8f179dc7f352291813da9691222ef0d7c5bbcdc5409692240"
+    },
+    {
+      "path": "world_editor/source/src/editor_project.cpp",
+      "bytes": 9294,
+      "sha256": "7b7e3386bf45d03a3d5e74818d4bcc64883081eb025d94dd50d8a786be074f1d"
+    },
+    {
+      "path": "world_editor/source/src/editor_scene.cpp",
+      "bytes": 8746,
+      "sha256": "edb5c21bf1c17884945f2e29e114e4300854ceb17471faab9c7742d98c92691d"
+    },
+    {
+      "path": "world_editor/source/src/editor_semantic.cpp",
+      "bytes": 4366,
+      "sha256": "d5b1762262a71ecb7b52dbb67235953b5ee9e20a742cd39cd795ec49c8f4a784"
+    },
+    {
+      "path": "world_editor/source/src/editor_workspace.cpp",
+      "bytes": 4689,
+      "sha256": "8df506f2422db174b25d7f100993f3bfca5a217886b1c4ccc6c2c7263be8f891"
+    },
+    {
+      "path": "world_editor/tests/editor_build012_test.cpp",
+      "bytes": 9767,
+      "sha256": "e3549a7a084299ae4543652d2f5c265d379fb0d87e74daaf15a3d023dfa91ca6"
+    },
+    {
+      "path": "world_editor/tests/editor_core_test.cpp",
+      "bytes": 12763,
+      "sha256": "59c7d7249c77df81519eb53cffe944e793013e6a5750133e7ce80537f28df25c"
+    },
+    {
+      "path": "world_simulation/CHANGELOG.md",
+      "bytes": 1290,
+      "sha256": "de0c37fcb55d883397ab299baa0569fecf68891178ad103130e4f30220438f91"
+    },
+    {
+      "path": "world_simulation/HANDOFF.md",
+      "bytes": 621,
+      "sha256": "d9405e12d6f8a69d8f0b79e12d7eb31e9792bb0ed09d204637a97364b768ec1f"
+    },
+    {
+      "path": "world_simulation/LICENSES.md",
+      "bytes": 249,
+      "sha256": "0c978e2f5b28c671d610ca42bf5adac183db18b1e97201b105f12e6294c4b8ff"
+    },
+    {
+      "path": "world_simulation/MANIFEST.json",
+      "bytes": 6456,
+      "sha256": "4f7d097c73903768108aa7ae24912021fd6b9807cc66419ad590fe8c03354e28"
+    },
+    {
+      "path": "world_simulation/README.md",
+      "bytes": 230,
+      "sha256": "9a64ceace0581dc9aeda706c3365fecdc7de636cad21e3039ea9f4a7854a6e80"
+    },
+    {
+      "path": "world_simulation/demo/urban_world_demo.cpp",
+      "bytes": 8065,
+      "sha256": "721352373b744a58ec0b4a3f5959e46a497da93267ecb5620c202006734a8cc8"
+    },
+    {
+      "path": "world_simulation/docs/ADVANCED_LIVING_WORLD_ROADMAP.md",
+      "bytes": 937,
+      "sha256": "7192466a2d49d97e09f6082e1250e1197849376149d030e2b9a08d9fd6cca548"
+    },
+    {
+      "path": "world_simulation/docs/GRAPHICAL_INTEGRATION_SPEC.md",
+      "bytes": 1959,
+      "sha256": "e3ec736ea073437f73f9ab9e782e7a6d81ad133a63866057021d020e367d1fe3"
+    },
+    {
+      "path": "world_simulation/integration/CMakeLists.snippet.cmake",
+      "bytes": 765,
+      "sha256": "9dfd7b5ee695631c07593d7c51aab7af2b913d77c2cba17b4560072e040af525"
+    },
+    {
+      "path": "world_simulation/integration/INTEGRATION.md",
+      "bytes": 771,
+      "sha256": "5cfdc7ea1d533a2324f521a6c57b956181ec43dd7a180ce1aa0352f4766837f9"
+    },
+    {
+      "path": "world_simulation/patches/gemini_world_simulation.patch",
+      "bytes": 253071,
+      "sha256": "b3ce38d2047e375a634b353a2e443bff6dfbd9f82872634fe27fbb6b9d0c7a0e"
+    },
+    {
+      "path": "world_simulation/results/compiler_and_sanitizer_output.txt",
+      "bytes": 8254,
+      "sha256": "92a44e988a3d9172eabfd658fa115b7426e65b36a3f5325b455bd6c9dbe98ef0"
+    },
+    {
+      "path": "world_simulation/source/include/saige/crowd_avoidance.hpp",
+      "bytes": 3468,
+      "sha256": "50a5e48ac39a3eb68986aa19e59576bbc5a520954a9567a46466055a9b6f5f09"
+    },
+    {
+      "path": "world_simulation/source/include/saige/local_economy.hpp",
+      "bytes": 4596,
+      "sha256": "9592851cc91eb9314f088118f7e0ef032e00470b819905dde7f6017e49e8b646"
+    },
+    {
+      "path": "world_simulation/source/include/saige/multi_floor_nav.hpp",
+      "bytes": 2758,
+      "sha256": "7e5c9f902fe3cf0b2e80d8bcfa63cbd7c3cf15d5ae3d365bd22209720d7a8c74"
+    },
+    {
+      "path": "world_simulation/source/include/saige/npc_psychology.hpp",
+      "bytes": 2694,
+      "sha256": "0dd0633dc492bbeede93ae5947a0085432b0a9a5c361e0ac4cc7e32a41a4a8a0"
+    },
+    {
+      "path": "world_simulation/source/include/saige/npc_simulation.hpp",
+      "bytes": 8203,
+      "sha256": "4d86c3a621bcca0be8719890370fc30958a45acaadf9094aabe412be0aef0ef7"
+    },
+    {
+      "path": "world_simulation/source/include/saige/persistent_world.hpp",
+      "bytes": 6153,
+      "sha256": "63eaaa40e6045479daaa11f1b808b57c1a2ed444bb8804b6316f4f5ac0ab8113"
+    },
+    {
+      "path": "world_simulation/source/include/saige/saige_world_adapter.hpp",
+      "bytes": 3822,
+      "sha256": "b8b34b187e51f7e185239c4a14c522c48a49d5a8a9fe6372239a02af9a69ac5e"
+    },
+    {
+      "path": "world_simulation/source/include/saige/social_simulation.hpp",
+      "bytes": 3475,
+      "sha256": "d4ad84d794bb1581c6ddfc7fe036d14a5a3887f227002260add4fee551718dce"
+    },
+    {
+      "path": "world_simulation/source/include/saige/traffic_simulation.hpp",
+      "bytes": 5314,
+      "sha256": "63b60a44ce0de696d40f687afb3e9c56b2d4752f21794eddf7b8d869197043c1"
+    },
+    {
+      "path": "world_simulation/source/src/crowd_avoidance.cpp",
+      "bytes": 22582,
+      "sha256": "fc38fdb9bac392ef95fdd4b1f2601ecdde3a87c4acee492036e576ea8faa5291"
+    },
+    {
+      "path": "world_simulation/source/src/local_economy.cpp",
+      "bytes": 10274,
+      "sha256": "530bea053cdd60130e120058c6d8c641a26888b8e5cce545380cd8de6491ef31"
+    },
+    {
+      "path": "world_simulation/source/src/multi_floor_nav.cpp",
+      "bytes": 10656,
+      "sha256": "cab974955ad5d3a24e9190670bdb33fd92b62d2a9a888e03c3969c76c3bae1df"
+    },
+    {
+      "path": "world_simulation/source/src/npc_psychology.cpp",
+      "bytes": 4557,
+      "sha256": "9c1759ff475920a8ebba7559eed63d9f2b758d2559a941730b47fe13ef4e75d0"
+    },
+    {
+      "path": "world_simulation/source/src/npc_simulation.cpp",
+      "bytes": 27307,
+      "sha256": "54bae8b056d5e7c388f72ccd55bb3ac3e476d3b8f5470743d686b9a8187876fd"
+    },
+    {
+      "path": "world_simulation/source/src/persistent_world.cpp",
+      "bytes": 30034,
+      "sha256": "db71a73fe80bacfc2c56845a404a8a0f488713e53f55404530708c83c72c784f"
+    },
+    {
+      "path": "world_simulation/source/src/social_simulation.cpp",
+      "bytes": 9444,
+      "sha256": "89f2f6bffe07590ea2cb84c0a763bf2b76e703e2433f2dc8e7e079a8ab039313"
+    },
+    {
+      "path": "world_simulation/source/src/traffic_simulation.cpp",
+      "bytes": 16430,
+      "sha256": "ce38997433b7474a30953f1f19932f57140dac2836088c2b27e4e078805e9c09"
+    },
+    {
+      "path": "world_simulation/tests/crowd_avoidance_test.cpp",
+      "bytes": 9113,
+      "sha256": "4c0543f6aa9c7dc73589a0f69227ff98a571d0b74a3ccbf44e1754db7d3ce279"
+    },
+    {
+      "path": "world_simulation/tests/local_economy_test.cpp",
+      "bytes": 5752,
+      "sha256": "e15856c6c52ade7ea86b44faff4b8a91147027cb34a505c88a2ae28c7c9b7830"
+    },
+    {
+      "path": "world_simulation/tests/multi_floor_nav_test.cpp",
+      "bytes": 4945,
+      "sha256": "79e9ddcb64bf4c4f0a193c638cf6b46837022b26475d005abf8dd94d20d0ef2e"
+    },
+    {
+      "path": "world_simulation/tests/npc_psychology_test.cpp",
+      "bytes": 2491,
+      "sha256": "0d1640130370eb0350d692bfc6275ed977f7f4330defba45b6dbd8b9d14d784c"
+    },
+    {
+      "path": "world_simulation/tests/npc_simulation_test.cpp",
+      "bytes": 16160,
+      "sha256": "2a7418af42ded34fb74fa8b35a9a729e90edd890bf8e52fa9b534d6e454676a9"
+    },
+    {
+      "path": "world_simulation/tests/persistent_world_test.cpp",
+      "bytes": 10295,
+      "sha256": "ebd414bbc191761b0859e2ca77f502f466aec7123ad30169ee6ba6663a481c99"
+    },
+    {
+      "path": "world_simulation/tests/social_simulation_test.cpp",
+      "bytes": 5163,
+      "sha256": "003ae7246dbd8f05944f3e82dbe5f6820cb75cb5b81c6f9941bcae353c5f8703"
+    },
+    {
+      "path": "world_simulation/tests/traffic_simulation_test.cpp",
+      "bytes": 8128,
+      "sha256": "9ee444f1e60314d909c8ae438e7f6e4b67f37be81c25570762e584045640ba49"
+    }
+  ]
+}

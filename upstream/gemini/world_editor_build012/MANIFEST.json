@@ -1,0 +1,141 @@
+{
+  "package": "SAIGE_Gemini_WorldEditor_Build_012",
+  "file_count": 27,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 944,
+      "sha256": "55ef48265cbac74e84b29061e064460d7fe566a78b972b260f90daf6a443dc82"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 463,
+      "sha256": "8fafa6f9387795f91a88c5fbc75edd60adb0f9a0165852cb42ee2a6d68496f44"
+    },
+    {
+      "path": "LICENSES.md",
+      "bytes": 356,
+      "sha256": "6b9b753c75758b3b021da32c8bc5c4c73d46d9db98552af4a5311ed753296633"
+    },
+    {
+      "path": "README.md",
+      "bytes": 669,
+      "sha256": "f193e76cc660b1598eeaa5351c90ed43816dd155b2980829bad68cee45274824"
+    },
+    {
+      "path": "docs/ASSET_ACQUISITION_MANIFEST.md",
+      "bytes": 1141,
+      "sha256": "bf8ebf82612fa2442d0ad5c603e68f5c83350f8c64d3b7b348ca5cafb5453757"
+    },
+    {
+      "path": "docs/ISSUE_43_EDITOR_CHECKPOINT.md",
+      "bytes": 1342,
+      "sha256": "4c8d7e9a00a8193a148a7ee5c160af1ff476d06c315f066b047a60b520fdf2b9"
+    },
+    {
+      "path": "docs/WORLD_EDITOR_ARCHITECTURE.md",
+      "bytes": 1798,
+      "sha256": "7c91358e31e8eb9946d1701ce3a2eb2844427659f94609031527afac0f40157d"
+    },
+    {
+      "path": "integration/CMakeLists.snippet.cmake",
+      "bytes": 534,
+      "sha256": "25bc467de1cc4014059a1782ff9dc9edd4dc56e26b226207710d6bde4ff54f12"
+    },
+    {
+      "path": "patches/gemini_world_editor.patch",
+      "bytes": 96304,
+      "sha256": "aaaab8577d9ca0063cb71b4ce844be2397c60317607e5481c5c10f28f0bafe74"
+    },
+    {
+      "path": "results/benchmark_results.json",
+      "bytes": 173,
+      "sha256": "a778690979db213170b8b5deeacb4b0a81274436f68a33f38b79de34820138ac"
+    },
+    {
+      "path": "results/compiler_and_sanitizer_output.txt",
+      "bytes": 708,
+      "sha256": "c79c78fd0ee9de1095e35249dd0c347a19274db2e145999d1276198afa5c403e"
+    },
+    {
+      "path": "source/include/saige/editor_assets.hpp",
+      "bytes": 3762,
+      "sha256": "6971f3721fbc65c3c94eec9ec8f2e26e25c17be42bf2d4d6cac7647a6da9757b"
+    },
+    {
+      "path": "source/include/saige/editor_commands.hpp",
+      "bytes": 4550,
+      "sha256": "a83934361ae235c5c3b4c0a602eb374781fdcdb37a05af7bc69196d3318fd90d"
+    },
+    {
+      "path": "source/include/saige/editor_materials.hpp",
+      "bytes": 1956,
+      "sha256": "027928874c9fb46eb8b4d62d9f589dd7cdc9f9774c5bd4e2bfa0ba8d52715415"
+    },
+    {
+      "path": "source/include/saige/editor_project.hpp",
+      "bytes": 684,
+      "sha256": "65ff852ac0cabcf51d870b35ab6530b20d36c6acdc9c5d85976372df2e171ebf"
+    },
+    {
+      "path": "source/include/saige/editor_scene.hpp",
+      "bytes": 5244,
+      "sha256": "cb793c7bd1a3ae8af11189202d97927729460d154294e17771c771e107f36f43"
+    },
+    {
+      "path": "source/include/saige/editor_semantic.hpp",
+      "bytes": 2197,
+      "sha256": "c06165080c48a1ec997766107d1c514372ee0d160ef3ec0a88f03642bc13d206"
+    },
+    {
+      "path": "source/include/saige/editor_workspace.hpp",
+      "bytes": 3030,
+      "sha256": "1d505140b6cfc0b9c6c86583f8c47f49a2aef22e0539672400255412066788d9"
+    },
+    {
+      "path": "source/src/editor_assets.cpp",
+      "bytes": 8339,
+      "sha256": "37e220a0b101e06aa80c71d33da99d1a86003ddc0627974a7111d38c77da87f9"
+    },
+    {
+      "path": "source/src/editor_commands.cpp",
+      "bytes": 8195,
+      "sha256": "e745dc81c65de6604ca8da9a6997a04e70f6c3daff74faa7a1143e99ac22d8e8"
+    },
+    {
+      "path": "source/src/editor_materials.cpp",
+      "bytes": 4346,
+      "sha256": "cdfc868c689a79f8f179dc7f352291813da9691222ef0d7c5bbcdc5409692240"
+    },
+    {
+      "path": "source/src/editor_project.cpp",
+      "bytes": 9294,
+      "sha256": "7b7e3386bf45d03a3d5e74818d4bcc64883081eb025d94dd50d8a786be074f1d"
+    },
+    {
+      "path": "source/src/editor_scene.cpp",
+      "bytes": 8746,
+      "sha256": "edb5c21bf1c17884945f2e29e114e4300854ceb17471faab9c7742d98c92691d"
+    },
+    {
+      "path": "source/src/editor_semantic.cpp",
+      "bytes": 4366,
+      "sha256": "d5b1762262a71ecb7b52dbb67235953b5ee9e20a742cd39cd795ec49c8f4a784"
+    },
+    {
+      "path": "source/src/editor_workspace.cpp",
+      "bytes": 4689,
+      "sha256": "8df506f2422db174b25d7f100993f3bfca5a217886b1c4ccc6c2c7263be8f891"
+    },
+    {
+      "path": "tests/editor_build012_test.cpp",
+      "bytes": 9767,
+      "sha256": "e3549a7a084299ae4543652d2f5c265d379fb0d87e74daaf15a3d023dfa91ca6"
+    },
+    {
+      "path": "tests/editor_core_test.cpp",
+      "bytes": 12763,
+      "sha256": "59c7d7249c77df81519eb53cffe944e793013e6a5750133e7ce80537f28df25c"
+    }
+  ]
+}

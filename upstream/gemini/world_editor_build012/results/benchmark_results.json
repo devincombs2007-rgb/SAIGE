@@ -1,0 +1,6 @@
+{
+  "build": "012",
+  "scene_1k_insert_query_roundtrip_ms": 4.25108,
+  "scene_10k_insert_query_roundtrip_ms": 41.0218,
+  "assets_10k_register_search_validate_ms": 8.98594
+}

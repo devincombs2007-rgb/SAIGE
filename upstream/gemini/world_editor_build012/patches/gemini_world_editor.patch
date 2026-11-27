@@ -1,0 +1,2839 @@
+--- a/source/include/saige/editor_assets.hpp
++++ b/source/include/saige/editor_assets.hpp
+@@ -0,0 +1,131 @@
++#pragma once
++
++#include "saige/editor_scene.hpp"
++
++#include <cstdint>
++#include <optional>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++namespace saige::editor {
++
++enum class LibraryAssetCategory : std::uint8_t {
++  Vehicle = 0,
++  Building = 1,
++  Interior = 2,
++  Environment = 3,
++  Character = 4,
++  Material = 5,
++  Light = 6,
++};
++
++struct Aabb3d {
++  Vec3d min{};
++  Vec3d max{};
++
++  [[nodiscard]] bool is_valid() const noexcept {
++    return min.x <= max.x && min.y <= max.y && min.z <= max.z;
++  }
++  [[nodiscard]] bool contains_with_margin(const Vec3d& p,
++                                          double margin_m) const noexcept {
++    return p.x >= (min.x - margin_m) && p.x <= (max.x + margin_m) &&
++           p.y >= (min.y - margin_m) && p.y <= (max.y + margin_m) &&
++           p.z >= (min.z - margin_m) && p.z <= (max.z + margin_m);
++  }
++};
++
++struct VehicleAttachmentPoint {
++  std::string name;  // e.g., "hazard_light_fl", "wheel_fl", "driver_seat"
++  Vec3d local_pos_m{};
++  double tolerance_m = 0.25;
++};
++
++struct VehicleAssetMetadata {
++  Aabb3d body_bounds_m{{-1.0, -2.3, 0.0}, {1.0, 2.3, 1.5}};
++  double wheel_radius_m = 0.34;
++  std::vector<VehicleAttachmentPoint> wheels;
++  std::vector<VehicleAttachmentPoint> lights;  // headlights, brake, hazard, turn
++  std::vector<VehicleAttachmentPoint> seats;
++};
++
++struct AssetMetadata {
++  std::uint64_t asset_id = 0;
++  std::string uri;
++  std::string display_name;
++  LibraryAssetCategory category = LibraryAssetCategory::Environment;
++  std::vector<std::string> tags;
++  std::vector<std::string> collections;
++  bool favorite = false;
++
++  // Provenance & Licensing
++  std::string source_url;
++  std::string author;
++  std::string license_spdx;  // e.g., "CC0-1.0", "CC-BY-4.0"
++  bool redistribution_allowed = false;
++
++  // Versioning & Dependencies
++  std::uint32_t version = 1;
++  std::uint64_t content_hash = 0;
++  std::vector<std::string> dependencies;
++  std::uint64_t usage_count = 0;
++
++  // Geometry / Quality metadata
++  double unit_scale_m = 1.0;
++  bool z_up_right_handed = true;
++  std::uint64_t triangle_count = 0;
++  bool has_normals = true;
++  bool has_uvs = true;
++  bool has_collision_mesh = true;
++  std::uint32_t lod_count = 1;
++
++  std::optional<VehicleAssetMetadata> vehicle_meta;
++};
++
++struct AssetValidationIssue {
++  DiagnosticSeverity severity = DiagnosticSeverity::Warning;
++  std::uint64_t asset_id = 0;
++  std::string uri;
++  std::string code;
++  std::string message;
++  std::string suggestion;
++};
++
++struct AssetValidationReport {
++  bool passed = true;
++  std::size_t error_count = 0;
++  std::size_t warning_count = 0;
++  std::vector<AssetValidationIssue> issues;
++};
++
++class AssetLibrary {
++ public:
++  bool register_asset(AssetMetadata meta);
++  bool remove_asset(std::uint64_t asset_id);
++  bool set_favorite(std::uint64_t asset_id, bool fav);
++  bool increment_usage(const std::string& uri);
++
++  [[nodiscard]] const AssetMetadata* find_by_id(
++      std::uint64_t asset_id) const noexcept;
++  [[nodiscard]] const AssetMetadata* find_by_uri(
++      const std::string& uri) const noexcept;
++  [[nodiscard]] std::vector<const AssetMetadata*> search(
++      std::optional<LibraryAssetCategory> category,
++      const std::string& query,
++      const std::string& required_tag = "",
++      bool favorites_only = false) const;
++
++  [[nodiscard]] AssetValidationReport validate_asset(
++      std::uint64_t asset_id) const;
++  [[nodiscard]] AssetValidationReport validate_all() const;
++
++  [[nodiscard]] std::size_t size() const noexcept { return assets_.size(); }
++
++ private:
++  std::vector<AssetMetadata> assets_;
++  std::unordered_map<std::uint64_t, std::size_t> id_to_idx_;
++  std::unordered_map<std::string, std::size_t> uri_to_idx_;
++  std::unordered_map<std::uint64_t, std::vector<std::uint64_t>> hash_to_ids_;
++};
++
++}  // namespace saige::editor
+--- a/source/include/saige/editor_commands.hpp
++++ b/source/include/saige/editor_commands.hpp
+@@ -0,0 +1,149 @@
++#pragma once
++
++#include "saige/editor_scene.hpp"
++
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace saige::editor {
++
++// Unified command interface shared by human GUI actions and AI authoring agents.
++class IEditorCommand {
++ public:
++  virtual ~IEditorCommand() = default;
++  [[nodiscard]] virtual const char* label() const noexcept = 0;
++  virtual bool execute(EditorScene& scene) = 0;
++  virtual void undo(EditorScene& scene) = 0;
++};
++
++class CommandHistory {
++ public:
++  explicit CommandHistory(std::size_t max_depth = 256);
++
++  bool execute(EditorScene& scene, std::unique_ptr<IEditorCommand> cmd);
++  bool undo(EditorScene& scene);
++  bool redo(EditorScene& scene);
++
++  // Transactional batching: multiple commands undo/redo as one atomic unit,
++  // and rollback_transaction() cleanly reverts any partial changes.
++  bool begin_transaction(std::string label);
++  bool commit_transaction();
++  bool rollback_transaction(EditorScene& scene);
++
++  [[nodiscard]] bool in_transaction() const noexcept { return in_transaction_; }
++  [[nodiscard]] bool can_undo() const noexcept { return !undo_stack_.empty(); }
++  [[nodiscard]] bool can_redo() const noexcept { return !redo_stack_.empty(); }
++  [[nodiscard]] std::size_t undo_count() const noexcept {
++    return undo_stack_.size();
++  }
++  [[nodiscard]] std::size_t redo_count() const noexcept {
++    return redo_stack_.size();
++  }
++
++ private:
++  void push_undo(std::unique_ptr<IEditorCommand> cmd);
++
++  std::size_t max_depth_ = 256;
++  std::vector<std::unique_ptr<IEditorCommand>> undo_stack_;
++  std::vector<std::unique_ptr<IEditorCommand>> redo_stack_;
++
++  bool in_transaction_ = false;
++  std::string tx_label_;
++  std::vector<std::unique_ptr<IEditorCommand>> tx_commands_;
++};
++
++// Concrete validated commands
++class CreateNodeCommand final : public IEditorCommand {
++ public:
++  explicit CreateNodeCommand(EditorNode node);
++  [[nodiscard]] const char* label() const noexcept override { return "CreateNode"; }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++  [[nodiscard]] EntityId created_id() const noexcept { return node_.id; }
++
++ private:
++  EditorNode node_;
++};
++
++class DeleteSubtreeCommand final : public IEditorCommand {
++ public:
++  explicit DeleteSubtreeCommand(EntityId root_id);
++  [[nodiscard]] const char* label() const noexcept override {
++    return "DeleteSubtree";
++  }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++
++ private:
++  EntityId root_id_;
++  std::vector<EditorNode> saved_nodes_;
++};
++
++class SetTransformCommand final : public IEditorCommand {
++ public:
++  SetTransformCommand(EntityId node_id, Transform3d new_transform,
++                      bool apply_snap = true);
++  [[nodiscard]] const char* label() const noexcept override {
++    return "SetTransform";
++  }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++
++ private:
++  EntityId node_id_;
++  Transform3d new_transform_;
++  Transform3d old_transform_{};
++  bool apply_snap_ = true;
++};
++
++class ReparentCommand final : public IEditorCommand {
++ public:
++  ReparentCommand(EntityId node_id, EntityId new_parent_id);
++  [[nodiscard]] const char* label() const noexcept override { return "Reparent"; }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++
++ private:
++  EntityId node_id_;
++  EntityId new_parent_id_;
++  EntityId old_parent_id_ = kInvalidEntityId;
++};
++
++class DuplicateSubtreeCommand final : public IEditorCommand {
++ public:
++  DuplicateSubtreeCommand(EntityId source_root_id, Vec3d offset);
++  [[nodiscard]] const char* label() const noexcept override {
++    return "DuplicateSubtree";
++  }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++  [[nodiscard]] EntityId duplicated_root_id() const noexcept {
++    return duplicated_root_id_;
++  }
++
++ private:
++  EntityId source_root_id_;
++  Vec3d offset_{};
++  EntityId duplicated_root_id_ = kInvalidEntityId;
++  std::vector<EntityId> created_ids_;
++};
++
++class GroupNodesCommand final : public IEditorCommand {
++ public:
++  GroupNodesCommand(std::string group_name, std::vector<EntityId> members);
++  [[nodiscard]] const char* label() const noexcept override {
++    return "GroupNodes";
++  }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++  [[nodiscard]] EntityId group_id() const noexcept { return group_id_; }
++
++ private:
++  std::string group_name_;
++  std::vector<EntityId> members_;
++  std::vector<EntityId> old_parents_;
++  EntityId group_id_ = kInvalidEntityId;
++};
++
++}  // namespace saige::editor
+--- a/source/include/saige/editor_materials.hpp
++++ b/source/include/saige/editor_materials.hpp
+@@ -0,0 +1,76 @@
++#pragma once
++
++#include "saige/editor_scene.hpp"
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace saige::editor {
++
++enum class FeatureSupportStatus : std::uint8_t {
++  EngineSupported = 0,
++  PlannedEngineDependency = 1,
++};
++
++enum class MaterialPreset : std::uint8_t {
++  Custom = 0,
++  AutomotivePaint = 1,
++  ClearGlass = 2,
++  TintedGlass = 3,
++  FrostedGlass = 4,
++  ReflectiveArchitecturalGlass = 5,
++  WetAsphalt = 6,
++  Concrete = 7,
++  Brick = 8,
++  Wood = 9,
++  Leather = 10,
++  Fabric = 11,
++  BrushedMetal = 12,
++};
++
++struct GlassParameters {
++  double opacity = 0.15;        // [0.02, 1.0] - avoids opaque flat blue
++  double transmission = 0.85;   // [0.0, 1.0]
++  double ior = 1.52;            // Crown glass ~1.52
++  double roughness = 0.04;      // [0.0, 1.0]
++  double thickness_m = 0.012;
++  double absorption = 0.08;
++  Vec3d tint_rgb{0.92, 0.96, 0.98};
++  FeatureSupportStatus refraction_status =
++      FeatureSupportStatus::PlannedEngineDependency;
++};
++
++struct InteriorMappingParameters {
++  bool enabled = false;
++  double room_width_m = 4.0;
++  double room_height_m = 3.0;
++  double room_depth_m = 4.5;
++  double day_night_blend = 0.0;  // 0 = day, 1 = night lit interior
++  std::uint32_t room_seed = 1;
++  double distance_fade_m = 120.0;
++  FeatureSupportStatus shader_status =
++      FeatureSupportStatus::PlannedEngineDependency;
++};
++
++struct MaterialAuthoringAsset {
++  std::string name;
++  MaterialPreset preset = MaterialPreset::Custom;
++  Vec3d base_color_rgb{0.5, 0.5, 0.5};
++  double metallic = 0.0;
++  double roughness = 0.5;
++  double clearcoat = 0.0;
++  double wetness = 0.0;
++  double emissive_nits = 0.0;
++  double tiling_uv = 1.0;
++
++  bool is_glass = false;
++  GlassParameters glass{};
++  InteriorMappingParameters interior_mapping{};
++
++  [[nodiscard]] static MaterialAuthoringAsset from_preset(
++      MaterialPreset preset, const std::string& name);
++  [[nodiscard]] std::vector<ValidationDiagnostic> validate() const;
++};
++
++}  // namespace saige::editor
+--- a/source/include/saige/editor_project.hpp
++++ b/source/include/saige/editor_project.hpp
+@@ -0,0 +1,23 @@
++#pragma once
++
++#include "saige/editor_scene.hpp"
++
++#include <cstdint>
++#include <vector>
++
++namespace saige::editor {
++
++inline constexpr std::uint32_t kEditorProjectMagic = 0x53454431u;  // "SED1"
++inline constexpr std::uint16_t kEditorProjectVersion = 1;
++inline constexpr std::uint64_t kMaxEditorNodes = 1000000ULL;
++inline constexpr std::uint32_t kMaxEditorStringLen = 65536u;
++
++class EditorProjectSerializer {
++ public:
++  [[nodiscard]] static std::vector<std::uint8_t> serialize(
++      const EditorScene& scene);
++  [[nodiscard]] static bool deserialize(const std::vector<std::uint8_t>& blob,
++                                        EditorScene& out_scene);
++};
++
++}  // namespace saige::editor
+--- a/source/include/saige/editor_scene.hpp
++++ b/source/include/saige/editor_scene.hpp
+@@ -0,0 +1,190 @@
++#pragma once
++
++#include <cstdint>
++#include <string>
++#include <unordered_map>
++#include <vector>
++
++namespace saige::editor {
++
++using EntityId = std::uint64_t;
++inline constexpr EntityId kInvalidEntityId = 0;
++inline constexpr double kDefaultChunkSizeM = 64.0;
++
++struct Vec3d {
++  double x = 0.0;
++  double y = 0.0;
++  double z = 0.0;  // Right-handed Z-up, meter-based SAIGE coordinate system
++
++  [[nodiscard]] bool operator==(const Vec3d& other) const noexcept = default;
++};
++
++struct ChunkCoord {
++  std::int32_t x = 0;
++  std::int32_t y = 0;
++
++  [[nodiscard]] bool operator==(const ChunkCoord& other) const noexcept = default;
++};
++
++struct ChunkCoordHash {
++  [[nodiscard]] std::size_t operator()(const ChunkCoord& c) const noexcept {
++    const std::uint64_t ux = static_cast<std::uint64_t>(static_cast<std::uint32_t>(c.x));
++    const std::uint64_t uy = static_cast<std::uint64_t>(static_cast<std::uint32_t>(c.y));
++    return static_cast<std::size_t>((ux * 0x9E3779B97F4A7C15ULL) ^
++                                    (uy * 0xBF58476D1CE4E5B9ULL));
++  }
++};
++
++struct Transform3d {
++  Vec3d position{};
++  Vec3d rotation_deg{};
++  Vec3d scale{1.0, 1.0, 1.0};
++
++  [[nodiscard]] bool is_valid() const noexcept;
++};
++
++struct SnapSettings {
++  bool grid_snap_enabled = true;
++  double grid_step_m = 0.5;
++  bool angle_snap_enabled = true;
++  double angle_step_deg = 15.0;
++
++  [[nodiscard]] Transform3d apply(const Transform3d& t) const noexcept;
++};
++
++enum class EditorNodeKind : std::uint8_t {
++  Group = 0,
++  Prop = 1,
++  Building = 2,
++  Road = 3,
++  TerrainPatch = 4,
++  NavVolume = 5,
++  SpawnPoint = 6,
++  Light = 7,
++  Vegetation = 8,
++};
++
++struct AssetReference {
++  std::string asset_uri;
++  std::uint32_t asset_version = 1;
++  std::uint64_t content_hash = 0;
++};
++
++enum class PropertyType : std::uint8_t {
++  Bool = 0,
++  Int64 = 1,
++  Double = 2,
++  String = 3,
++  Vec3 = 4,
++};
++
++struct PropertyValue {
++  PropertyType type = PropertyType::Double;
++  bool bool_val = false;
++  std::int64_t int_val = 0;
++  double double_val = 0.0;
++  std::string str_val;
++  Vec3d vec3_val{};
++};
++
++struct PropertyEntry {
++  std::string key;
++  PropertyValue value{};
++};
++
++struct EditorNode {
++  EntityId id = kInvalidEntityId;
++  EntityId parent_id = kInvalidEntityId;
++  std::vector<EntityId> children;
++  std::string name;
++  EditorNodeKind kind = EditorNodeKind::Prop;
++  Transform3d local_transform{};
++  AssetReference asset{};
++  std::vector<PropertyEntry> properties;
++  ChunkCoord chunk{};
++  bool visible = true;
++  bool locked = false;
++};
++
++enum class DiagnosticSeverity : std::uint8_t {
++  Info = 0,
++  Warning = 1,
++  Error = 2,
++};
++
++struct ValidationDiagnostic {
++  DiagnosticSeverity severity = DiagnosticSeverity::Info;
++  EntityId node_id = kInvalidEntityId;
++  std::string code;
++  std::string message;
++};
++
++class SelectionSet {
++ public:
++  bool select(EntityId id);
++  bool deselect(EntityId id);
++  void clear() noexcept;
++  [[nodiscard]] bool contains(EntityId id) const noexcept;
++  [[nodiscard]] const std::vector<EntityId>& ids() const noexcept { return ids_; }
++  [[nodiscard]] std::size_t size() const noexcept { return ids_.size(); }
++
++ private:
++  std::vector<EntityId> ids_;
++};
++
++class EditorScene {
++ public:
++  explicit EditorScene(double chunk_size_m = kDefaultChunkSizeM);
++
++  [[nodiscard]] EntityId allocate_id() noexcept { return next_id_++; }
++  void set_next_id(EntityId next_id) noexcept { next_id_ = next_id; }
++  [[nodiscard]] EntityId next_id() const noexcept { return next_id_; }
++  [[nodiscard]] double chunk_size_m() const noexcept { return chunk_size_m_; }
++
++  bool insert_node(EditorNode node);
++  bool remove_node_only(EntityId id);
++  bool reparent(EntityId node_id, EntityId new_parent_id);
++  bool set_transform(EntityId node_id, const Transform3d& t);
++  bool set_property(EntityId node_id, const std::string& key,
++                    const PropertyValue& val);
++
++  [[nodiscard]] bool is_ancestor_of(EntityId ancestor,
++                                    EntityId descendant) const noexcept;
++  [[nodiscard]] EditorNode* find_node(EntityId id) noexcept;
++  [[nodiscard]] const EditorNode* find_node(EntityId id) const noexcept;
++
++  [[nodiscard]] ChunkCoord compute_chunk_for_position(
++      const Vec3d& pos) const noexcept;
++  [[nodiscard]] std::vector<EntityId> query_chunk(ChunkCoord chunk) const;
++  [[nodiscard]] std::vector<EntityId> collect_subtree(EntityId root_id) const;
++
++  [[nodiscard]] std::vector<ValidationDiagnostic> validate() const;
++
++  [[nodiscard]] const std::vector<EditorNode>& nodes() const noexcept {
++    return nodes_;
++  }
++  [[nodiscard]] SelectionSet& selection() noexcept { return selection_; }
++  [[nodiscard]] const SelectionSet& selection() const noexcept {
++    return selection_;
++  }
++  [[nodiscard]] SnapSettings& snap_settings() noexcept { return snap_; }
++  [[nodiscard]] const SnapSettings& snap_settings() const noexcept {
++    return snap_;
++  }
++
++ private:
++  void rebuild_indices() const;
++
++  double chunk_size_m_ = kDefaultChunkSizeM;
++  EntityId next_id_ = 1;
++  std::vector<EditorNode> nodes_;
++  SelectionSet selection_;
++  SnapSettings snap_{};
++
++  mutable std::unordered_map<EntityId, std::size_t> id_to_index_;
++  mutable std::unordered_map<ChunkCoord, std::vector<EntityId>, ChunkCoordHash>
++      chunk_to_ids_;
++  mutable bool indices_dirty_ = false;
++};
++
++}  // namespace saige::editor
+--- a/source/include/saige/editor_semantic.hpp
++++ b/source/include/saige/editor_semantic.hpp
+@@ -0,0 +1,77 @@
++#pragma once
++
++#include "saige/editor_commands.hpp"
++#include "saige/editor_scene.hpp"
++
++#include <string>
++#include <vector>
++
++namespace saige::editor {
++
++enum class SemanticRole : std::uint8_t {
++  Generic = 0,
++  Chair = 1,
++  Table = 2,
++  Sofa = 3,
++  Vehicle = 4,
++  ParkingSpace = 5,
++  Streetlight = 6,
++  RoadSign = 7,
++  Sidewalk = 8,
++  RoadLane = 9,
++};
++
++struct SemanticMetadata {
++  SemanticRole role = SemanticRole::Generic;
++  Vec3d local_front_dir{0.0, 1.0, 0.0};  // +Y forward in Z-up
++  Vec3d local_up_dir{0.0, 0.0, 1.0};     // +Z up
++  bool requires_ground_contact = true;
++  double clearance_radius_m = 0.5;
++  double min_walkway_clearance_m = 1.0;
++};
++
++struct PlacementProposal {
++  EntityId target_node_id = kInvalidEntityId;
++  EntityId anchor_node_id = kInvalidEntityId;
++  Transform3d proposed_transform{};
++  bool valid = true;
++  std::string rationale;
++};
++
++class SemanticPlacementEngine {
++ public:
++  // Computes a yaw-aligned + ground-contacted transform for `target` relative
++  // to `anchor` (e.g., chair facing table, vehicle aligned to parking space,
++  // streetlight facing sidewalk, road sign facing approaching lane).
++  [[nodiscard]] static PlacementProposal propose_alignment(
++      const EditorScene& scene,
++      EntityId target_id,
++      const SemanticMetadata& target_meta,
++      EntityId anchor_id,
++      const SemanticMetadata& anchor_meta,
++      double ground_z_m = 0.0,
++      double desired_offset_m = 1.2);
++
++  // Validates walkway/clearance against nearby nodes in the same chunk
++  [[nodiscard]] static std::vector<ValidationDiagnostic> validate_clearance(
++      const EditorScene& scene,
++      EntityId node_id,
++      const SemanticMetadata& meta);
++};
++
++// Reversible command applying a validated PlacementProposal via CommandHistory.
++class ApplySemanticPlacementCommand final : public IEditorCommand {
++ public:
++  explicit ApplySemanticPlacementCommand(PlacementProposal proposal);
++  [[nodiscard]] const char* label() const noexcept override {
++    return "ApplySemanticPlacement";
++  }
++  bool execute(EditorScene& scene) override;
++  void undo(EditorScene& scene) override;
++
++ private:
++  PlacementProposal proposal_;
++  Transform3d old_transform_{};
++};
++
++}  // namespace saige::editor
+--- a/source/include/saige/editor_workspace.hpp
++++ b/source/include/saige/editor_workspace.hpp
+@@ -0,0 +1,112 @@
++#pragma once
++
++#include "saige/editor_scene.hpp"
++
++#include <cstdint>
++#include <string>
++#include <vector>
++
++namespace saige::editor {
++
++// Authoritative engine validator domains (implemented by Claude in SAIGE core,
++// surfaced by the editor without creating a competing validation system).
++enum class EngineValidationDomain : std::uint8_t {
++  Collision = 0,
++  Navigation = 1,
++  Geometry = 2,
++  Road = 3,
++  Pedestrian = 4,
++};
++
++struct EngineValidationFinding {
++  EngineValidationDomain domain = EngineValidationDomain::Geometry;
++  DiagnosticSeverity severity = DiagnosticSeverity::Warning;
++  EntityId node_id = kInvalidEntityId;
++  std::string code;
++  std::string message;
++};
++
++class IWorldValidatorBridge {
++ public:
++  virtual ~IWorldValidatorBridge() = default;
++  [[nodiscard]] virtual std::vector<EngineValidationFinding> validate_scene(
++      const EditorScene& scene) const = 0;
++};
++
++enum class AssetCategory : std::uint8_t {
++  All = 0,
++  Building = 1,
++  Road = 2,
++  Vegetation = 3,
++  Prop = 4,
++  NavVolume = 5,
++  Light = 6,
++};
++
++struct AssetCatalogEntry {
++  AssetReference ref{};
++  std::string display_name;
++  AssetCategory category = AssetCategory::Prop;
++  EditorNodeKind default_node_kind = EditorNodeKind::Prop;
++  bool preview_supported = false;
++};
++
++class AssetRegistry {
++ public:
++  bool register_asset(AssetCatalogEntry entry);
++  [[nodiscard]] std::vector<AssetCatalogEntry> search(
++      AssetCategory category, const std::string& query) const;
++  [[nodiscard]] const AssetCatalogEntry* find_by_uri(
++      const std::string& uri) const noexcept;
++  [[nodiscard]] std::size_t count() const noexcept { return entries_.size(); }
++
++ private:
++  std::vector<AssetCatalogEntry> entries_;
++};
++
++enum class ViewportProjection : std::uint8_t {
++  Perspective = 0,
++  OrthographicTop = 1,
++  OrthographicFront = 2,
++  OrthographicSide = 3,
++};
++
++struct ValidationOverlayFlags {
++  bool show_collision = true;
++  bool show_navigation = true;
++  bool show_geometry = true;
++  bool show_roads = true;
++  bool show_pedestrian = true;
++};
++
++struct ViewportState {
++  ViewportProjection projection = ViewportProjection::Perspective;
++  Vec3d camera_target{0.0, 0.0, 0.0};
++  double orbit_distance_m = 25.0;
++  double yaw_deg = 45.0;
++  double pitch_deg = -30.0;
++  double ortho_width_m = 50.0;
++  ValidationOverlayFlags overlays{};
++
++  void pan(double dx, double dy, double dz) noexcept;
++  void zoom(double delta_m) noexcept;
++  bool focus_on_selection(const EditorScene& scene) noexcept;
++};
++
++struct WorldExportResult {
++  bool success = false;
++  std::string json_payload;
++  std::vector<ValidationDiagnostic> blocking_diagnostics;
++  std::vector<EngineValidationFinding> engine_findings;
++};
++
++class WorldDataExporter {
++ public:
++  // Exports SAIGE-compatible Z-up JSON world data; refuses export if either
++  // authoring diagnostics or authoritative engine validator report Errors.
++  [[nodiscard]] static WorldExportResult export_validated_scene(
++      const EditorScene& scene,
++      const IWorldValidatorBridge* engine_validator = nullptr);
++};
++
++}  // namespace saige::editor
+--- a/source/src/editor_assets.cpp
++++ b/source/src/editor_assets.cpp
+@@ -0,0 +1,230 @@
++#include "saige/editor_assets.hpp"
++
++#include <algorithm>
++#include <cctype>
++#include <cmath>
++
++namespace saige::editor {
++
++namespace {
++
++[[nodiscard]] std::string to_lower_ascii(const std::string& s) {
++  std::string out = s;
++  for (char& c : out) {
++    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
++  }
++  return out;
++}
++
++}  // namespace
++
++bool AssetLibrary::register_asset(AssetMetadata meta) {
++  if (meta.asset_id == 0 || meta.uri.empty()) return false;
++  if (id_to_idx_.count(meta.asset_id) || uri_to_idx_.count(meta.uri)) {
++    return false;
++  }
++  const std::size_t idx = assets_.size();
++  id_to_idx_[meta.asset_id] = idx;
++  uri_to_idx_[meta.uri] = idx;
++  if (meta.content_hash != 0) {
++    hash_to_ids_[meta.content_hash].push_back(meta.asset_id);
++  }
++  assets_.push_back(std::move(meta));
++  return true;
++}
++
++bool AssetLibrary::remove_asset(std::uint64_t asset_id) {
++  auto it = id_to_idx_.find(asset_id);
++  if (it == id_to_idx_.end()) return false;
++  const std::size_t idx = it->second;
++  const std::size_t last = assets_.size() - 1;
++
++  const auto old_hash = assets_[idx].content_hash;
++  if (old_hash != 0) {
++    auto& vec = hash_to_ids_[old_hash];
++    vec.erase(std::remove(vec.begin(), vec.end(), asset_id), vec.end());
++  }
++  uri_to_idx_.erase(assets_[idx].uri);
++  id_to_idx_.erase(it);
++
++  if (idx != last) {
++    assets_[idx] = std::move(assets_[last]);
++    id_to_idx_[assets_[idx].asset_id] = idx;
++    uri_to_idx_[assets_[idx].uri] = idx;
++  }
++  assets_.pop_back();
++  return true;
++}
++
++bool AssetLibrary::set_favorite(std::uint64_t asset_id, bool fav) {
++  auto it = id_to_idx_.find(asset_id);
++  if (it == id_to_idx_.end()) return false;
++  assets_[it->second].favorite = fav;
++  return true;
++}
++
++bool AssetLibrary::increment_usage(const std::string& uri) {
++  auto it = uri_to_idx_.find(uri);
++  if (it == uri_to_idx_.end()) return false;
++  ++assets_[it->second].usage_count;
++  return true;
++}
++
++const AssetMetadata* AssetLibrary::find_by_id(
++    std::uint64_t asset_id) const noexcept {
++  auto it = id_to_idx_.find(asset_id);
++  return it != id_to_idx_.end() ? &assets_[it->second] : nullptr;
++}
++
++const AssetMetadata* AssetLibrary::find_by_uri(
++    const std::string& uri) const noexcept {
++  auto it = uri_to_idx_.find(uri);
++  return it != uri_to_idx_.end() ? &assets_[it->second] : nullptr;
++}
++
++std::vector<const AssetMetadata*> AssetLibrary::search(
++    std::optional<LibraryAssetCategory> category,
++    const std::string& query,
++    const std::string& required_tag,
++    bool favorites_only) const {
++  const std::string q = to_lower_ascii(query);
++  const std::string tag_q = to_lower_ascii(required_tag);
++  std::vector<const AssetMetadata*> out;
++  for (const auto& a : assets_) {
++    if (category.has_value() && a.category != *category) continue;
++    if (favorites_only && !a.favorite) continue;
++    if (!tag_q.empty()) {
++      bool has_tag = false;
++      for (const auto& t : a.tags) {
++        if (to_lower_ascii(t) == tag_q) {
++          has_tag = true;
++          break;
++        }
++      }
++      if (!has_tag) continue;
++    }
++    if (!q.empty()) {
++      const bool match_name = to_lower_ascii(a.display_name).find(q) != std::string::npos;
++      const bool match_uri = to_lower_ascii(a.uri).find(q) != std::string::npos;
++      if (!match_name && !match_uri) continue;
++    }
++    out.push_back(&a);
++  }
++  return out;
++}
++
++AssetValidationReport AssetLibrary::validate_asset(std::uint64_t asset_id) const {
++  AssetValidationReport rep{};
++  const AssetMetadata* a = find_by_id(asset_id);
++  if (!a) {
++    rep.passed = false;
++    rep.error_count = 1;
++    rep.issues.push_back({DiagnosticSeverity::Error, asset_id, "",
++                          "ASSET_NOT_FOUND", "Asset ID does not exist in library.",
++                          "Register the asset before validating."});
++    return rep;
++  }
++
++  auto add_issue = [&](DiagnosticSeverity sev, const std::string& code,
++                       const std::string& msg, const std::string& sug) {
++    rep.issues.push_back({sev, a->asset_id, a->uri, code, msg, sug});
++    if (sev == DiagnosticSeverity::Error) {
++      ++rep.error_count;
++      rep.passed = false;
++    } else if (sev == DiagnosticSeverity::Warning) {
++      ++rep.warning_count;
++    }
++  };
++
++  if (a->license_spdx.empty() || a->source_url.empty()) {
++    add_issue(DiagnosticSeverity::Error, "MISSING_LICENSE_OR_PROVENANCE",
++              "Asset lacks SPDX license identifier or source URL.",
++              "Record exact source URL, author, and SPDX license before import.");
++  }
++  if (!a->redistribution_allowed) {
++    add_issue(DiagnosticSeverity::Error, "REDISTRIBUTION_DISALLOWED",
++              "Asset license does not permit redistribution.",
++              "Replace with a CC0 or redistribution-permitted asset.");
++  }
++  if (!std::isfinite(a->unit_scale_m) || a->unit_scale_m <= 0.0) {
++    add_issue(DiagnosticSeverity::Error, "INVALID_SCALE",
++              "Asset unit scale must be finite and > 0 meters.",
++              "Normalize asset scale to 1 unit = 1 meter.");
++  }
++  if (!a->z_up_right_handed) {
++    add_issue(DiagnosticSeverity::Warning, "NON_ZUP_ORIENTATION",
++              "Asset is not right-handed Z-up.",
++              "Apply +90 deg X rotation on import to match SAIGE Z-up convention.");
++  }
++  if (!a->has_normals || !a->has_uvs) {
++    add_issue(DiagnosticSeverity::Warning, "MISSING_NORMALS_OR_UVS",
++              "Asset is missing vertex normals or UV coordinates.",
++              "Re-export with tangents/normals and UV0 enabled.");
++  }
++  if (!a->has_collision_mesh && a->category != LibraryAssetCategory::Material &&
++      a->category != LibraryAssetCategory::Light) {
++    add_issue(DiagnosticSeverity::Warning, "MISSING_COLLISION_MESH",
++              "Physical asset lacks collision geometry.",
++              "Generate convex hull or simplified collision proxy.");
++  }
++  if (a->lod_count < 2 && a->triangle_count > 15000) {
++    add_issue(DiagnosticSeverity::Warning, "MISSING_LODS",
++              "High-poly asset has fewer than 2 LODs.",
++              "Generate LOD1/LOD2 for streaming distance budgets.");
++  }
++  for (const auto& dep : a->dependencies) {
++    if (!find_by_uri(dep)) {
++      add_issue(DiagnosticSeverity::Error, "MISSING_DEPENDENCY",
++                "Referenced dependency URI not found: " + dep,
++                "Import or relink missing dependency asset.");
++    }
++  }
++  if (a->content_hash != 0) {
++    auto it = hash_to_ids_.find(a->content_hash);
++    if (it != hash_to_ids_.end() && it->second.size() > 1) {
++      add_issue(DiagnosticSeverity::Warning, "DUPLICATE_CONTENT_HASH",
++                "Duplicate asset binary content hash detected.",
++                "Deduplicate references to the canonical asset URI.");
++    }
++  }
++
++  // Vehicle attachment validation (catches detached hazard lights / wheels)
++  if (a->vehicle_meta.has_value()) {
++    const auto& vm = *a->vehicle_meta;
++    if (!vm.body_bounds_m.is_valid()) {
++      add_issue(DiagnosticSeverity::Error, "INVALID_VEHICLE_BOUNDS",
++                "Vehicle body AABB bounds are inverted.",
++                "Recompute vehicle body bounding box.");
++    } else {
++      for (const auto& lt : vm.lights) {
++        if (!vm.body_bounds_m.contains_with_margin(lt.local_pos_m, lt.tolerance_m)) {
++          add_issue(DiagnosticSeverity::Error, "DETACHED_VEHICLE_LIGHT",
++                    "Vehicle light '" + lt.name + "' is detached from body bounds.",
++                    "Snap attachment point onto vehicle chassis surface.");
++        }
++      }
++      for (const auto& wh : vm.wheels) {
++        if (!vm.body_bounds_m.contains_with_margin(wh.local_pos_m, wh.tolerance_m + vm.wheel_radius_m)) {
++          add_issue(DiagnosticSeverity::Error, "DETACHED_VEHICLE_WHEEL",
++                    "Vehicle wheel '" + wh.name + "' is outside expected chassis/wheel-well bounds.",
++                    "Align wheel hub coordinate to suspension hardpoint.");
++        }
++      }
++    }
++  }
++  return rep;
++}
++
++AssetValidationReport AssetLibrary::validate_all() const {
++  AssetValidationReport combined{};
++  for (const auto& a : assets_) {
++    const auto r = validate_asset(a.asset_id);
++    if (!r.passed) combined.passed = false;
++    combined.error_count += r.error_count;
++    combined.warning_count += r.warning_count;
++    combined.issues.insert(combined.issues.end(), r.issues.begin(), r.issues.end());
++  }
++  return combined;
++}
++
++}  // namespace saige::editor
+--- a/source/src/editor_commands.cpp
++++ b/source/src/editor_commands.cpp
+@@ -0,0 +1,280 @@
++#include "saige/editor_commands.hpp"
++
++#include <algorithm>
++
++namespace saige::editor {
++
++namespace {
++
++class CompositeTransactionCommand final : public IEditorCommand {
++ public:
++  CompositeTransactionCommand(std::string label,
++                              std::vector<std::unique_ptr<IEditorCommand>> cmds)
++      : label_(std::move(label)), cmds_(std::move(cmds)) {}
++
++  [[nodiscard]] const char* label() const noexcept override {
++    return label_.c_str();
++  }
++
++  bool execute(EditorScene& scene) override {
++    for (std::size_t i = 0; i < cmds_.size(); ++i) {
++      if (!cmds_[i]->execute(scene)) {
++        for (std::size_t j = i; j > 0; --j) {
++          cmds_[j - 1]->undo(scene);
++        }
++        return false;
++      }
++    }
++    return true;
++  }
++
++  void undo(EditorScene& scene) override {
++    for (std::size_t i = cmds_.size(); i > 0; --i) {
++      cmds_[i - 1]->undo(scene);
++    }
++  }
++
++ private:
++  std::string label_;
++  std::vector<std::unique_ptr<IEditorCommand>> cmds_;
++};
++
++}  // namespace
++
++CommandHistory::CommandHistory(std::size_t max_depth)
++    : max_depth_(max_depth > 0 ? max_depth : 1) {}
++
++void CommandHistory::push_undo(std::unique_ptr<IEditorCommand> cmd) {
++  if (undo_stack_.size() >= max_depth_) {
++    undo_stack_.erase(undo_stack_.begin());
++  }
++  undo_stack_.push_back(std::move(cmd));
++  redo_stack_.clear();
++}
++
++bool CommandHistory::execute(EditorScene& scene,
++                             std::unique_ptr<IEditorCommand> cmd) {
++  if (!cmd || !cmd->execute(scene)) return false;
++  if (in_transaction_) {
++    tx_commands_.push_back(std::move(cmd));
++  } else {
++    push_undo(std::move(cmd));
++  }
++  return true;
++}
++
++bool CommandHistory::undo(EditorScene& scene) {
++  if (in_transaction_ || undo_stack_.empty()) return false;
++  auto cmd = std::move(undo_stack_.back());
++  undo_stack_.pop_back();
++  cmd->undo(scene);
++  redo_stack_.push_back(std::move(cmd));
++  return true;
++}
++
++bool CommandHistory::redo(EditorScene& scene) {
++  if (in_transaction_ || redo_stack_.empty()) return false;
++  auto cmd = std::move(redo_stack_.back());
++  redo_stack_.pop_back();
++  if (!cmd->execute(scene)) return false;
++  undo_stack_.push_back(std::move(cmd));
++  return true;
++}
++
++bool CommandHistory::begin_transaction(std::string label) {
++  if (in_transaction_) return false;
++  in_transaction_ = true;
++  tx_label_ = std::move(label);
++  tx_commands_.clear();
++  return true;
++}
++
++bool CommandHistory::commit_transaction() {
++  if (!in_transaction_) return false;
++  in_transaction_ = false;
++  if (!tx_commands_.empty()) {
++    push_undo(std::make_unique<CompositeTransactionCommand>(
++        std::move(tx_label_), std::move(tx_commands_)));
++  }
++  tx_label_.clear();
++  tx_commands_.clear();
++  return true;
++}
++
++bool CommandHistory::rollback_transaction(EditorScene& scene) {
++  if (!in_transaction_) return false;
++  for (std::size_t i = tx_commands_.size(); i > 0; --i) {
++    tx_commands_[i - 1]->undo(scene);
++  }
++  in_transaction_ = false;
++  tx_label_.clear();
++  tx_commands_.clear();
++  return true;
++}
++
++CreateNodeCommand::CreateNodeCommand(EditorNode node) : node_(std::move(node)) {}
++
++bool CreateNodeCommand::execute(EditorScene& scene) {
++  if (node_.id == kInvalidEntityId) {
++    node_.id = scene.allocate_id();
++  }
++  return scene.insert_node(node_);
++}
++
++void CreateNodeCommand::undo(EditorScene& scene) {
++  scene.remove_node_only(node_.id);
++}
++
++DeleteSubtreeCommand::DeleteSubtreeCommand(EntityId root_id)
++    : root_id_(root_id) {}
++
++bool DeleteSubtreeCommand::execute(EditorScene& scene) {
++  const EditorNode* root = scene.find_node(root_id_);
++  if (root == nullptr || root->locked) return false;
++  const auto ids = scene.collect_subtree(root_id_);
++  saved_nodes_.clear();
++  saved_nodes_.reserve(ids.size());
++  for (EntityId id : ids) {
++    if (const EditorNode* n = scene.find_node(id)) {
++      if (n->locked) return false;
++      saved_nodes_.push_back(*n);
++    }
++  }
++  // Remove leaves first (reverse BFS/DFS order)
++  for (std::size_t i = saved_nodes_.size(); i > 0; --i) {
++    scene.remove_node_only(saved_nodes_[i - 1].id);
++  }
++  return true;
++}
++
++void DeleteSubtreeCommand::undo(EditorScene& scene) {
++  // Restore parents before children (preorder)
++  for (auto node : saved_nodes_) {
++    node.children.clear();
++    scene.insert_node(std::move(node));
++  }
++}
++
++SetTransformCommand::SetTransformCommand(EntityId node_id,
++                                         Transform3d new_transform,
++                                         bool apply_snap)
++    : node_id_(node_id),
++      new_transform_(new_transform),
++      apply_snap_(apply_snap) {}
++
++bool SetTransformCommand::execute(EditorScene& scene) {
++  const EditorNode* n = scene.find_node(node_id_);
++  if (n == nullptr) return false;
++  old_transform_ = n->local_transform;
++  const Transform3d final_t =
++      apply_snap_ ? scene.snap_settings().apply(new_transform_) : new_transform_;
++  return scene.set_transform(node_id_, final_t);
++}
++
++void SetTransformCommand::undo(EditorScene& scene) {
++  scene.set_transform(node_id_, old_transform_);
++}
++
++ReparentCommand::ReparentCommand(EntityId node_id, EntityId new_parent_id)
++    : node_id_(node_id), new_parent_id_(new_parent_id) {}
++
++bool ReparentCommand::execute(EditorScene& scene) {
++  const EditorNode* n = scene.find_node(node_id_);
++  if (n == nullptr) return false;
++  old_parent_id_ = n->parent_id;
++  return scene.reparent(node_id_, new_parent_id_);
++}
++
++void ReparentCommand::undo(EditorScene& scene) {
++  scene.reparent(node_id_, old_parent_id_);
++}
++
++DuplicateSubtreeCommand::DuplicateSubtreeCommand(EntityId source_root_id,
++                                                 Vec3d offset)
++    : source_root_id_(source_root_id), offset_(offset) {}
++
++bool DuplicateSubtreeCommand::execute(EditorScene& scene) {
++  const auto src_ids = scene.collect_subtree(source_root_id_);
++  if (src_ids.empty()) return false;
++
++  created_ids_.clear();
++  std::vector<std::pair<EntityId, EntityId>> id_map;
++  id_map.reserve(src_ids.size());
++
++  for (EntityId old_id : src_ids) {
++    id_map.push_back({old_id, scene.allocate_id()});
++  }
++  duplicated_root_id_ = id_map.front().second;
++
++  auto map_id = [&](EntityId old_id) -> EntityId {
++    for (const auto& kv : id_map) {
++      if (kv.first == old_id) return kv.second;
++    }
++    return old_id;
++  };
++
++  for (EntityId old_id : src_ids) {
++    const EditorNode* src = scene.find_node(old_id);
++    if (src == nullptr) return false;
++    EditorNode copy = *src;
++    copy.id = map_id(old_id);
++    copy.children.clear();
++    if (old_id == source_root_id_) {
++      copy.local_transform.position.x += offset_.x;
++      copy.local_transform.position.y += offset_.y;
++      copy.local_transform.position.z += offset_.z;
++    } else {
++      copy.parent_id = map_id(src->parent_id);
++    }
++    copy.name += "_copy";
++    if (!scene.insert_node(std::move(copy))) return false;
++    created_ids_.push_back(copy.id);
++  }
++  return true;
++}
++
++void DuplicateSubtreeCommand::undo(EditorScene& scene) {
++  for (std::size_t i = created_ids_.size(); i > 0; --i) {
++    scene.remove_node_only(created_ids_[i - 1]);
++  }
++}
++
++GroupNodesCommand::GroupNodesCommand(std::string group_name,
++                                     std::vector<EntityId> members)
++    : group_name_(std::move(group_name)), members_(std::move(members)) {}
++
++bool GroupNodesCommand::execute(EditorScene& scene) {
++  if (members_.empty()) return false;
++  old_parents_.clear();
++  for (EntityId id : members_) {
++    const EditorNode* n = scene.find_node(id);
++    if (n == nullptr || n->locked) return false;
++    old_parents_.push_back(n->parent_id);
++  }
++
++  EditorNode grp{};
++  grp.id = (group_id_ != kInvalidEntityId) ? group_id_ : scene.allocate_id();
++  group_id_ = grp.id;
++  grp.name = group_name_.empty() ? "Group" : group_name_;
++  grp.kind = EditorNodeKind::Group;
++  if (!scene.insert_node(std::move(grp))) return false;
++
++  for (EntityId id : members_) {
++    if (!scene.reparent(id, group_id_)) {
++      undo(scene);
++      return false;
++    }
++  }
++  return true;
++}
++
++void GroupNodesCommand::undo(EditorScene& scene) {
++  for (std::size_t i = 0; i < members_.size() && i < old_parents_.size(); ++i) {
++    scene.reparent(members_[i], old_parents_[i]);
++  }
++  if (group_id_ != kInvalidEntityId) {
++    scene.remove_node_only(group_id_);
++  }
++}
++
++}  // namespace saige::editor
+--- a/source/src/editor_materials.cpp
++++ b/source/src/editor_materials.cpp
+@@ -0,0 +1,122 @@
++#include "saige/editor_materials.hpp"
++
++#include <cmath>
++
++namespace saige::editor {
++
++MaterialAuthoringAsset MaterialAuthoringAsset::from_preset(
++    MaterialPreset preset, const std::string& name) {
++  MaterialAuthoringAsset m{};
++  m.name = name;
++  m.preset = preset;
++  switch (preset) {
++    case MaterialPreset::AutomotivePaint:
++      m.base_color_rgb = {0.55, 0.04, 0.06};
++      m.metallic = 0.85;
++      m.roughness = 0.22;
++      m.clearcoat = 1.0;
++      break;
++    case MaterialPreset::ClearGlass:
++      m.is_glass = true;
++      m.base_color_rgb = {0.95, 0.98, 0.99};
++      m.roughness = 0.03;
++      m.glass = {0.10, 0.92, 1.52, 0.03, 0.008, 0.04, {0.95, 0.98, 0.99},
++                 FeatureSupportStatus::PlannedEngineDependency};
++      break;
++    case MaterialPreset::TintedGlass:
++      m.is_glass = true;
++      m.base_color_rgb = {0.22, 0.28, 0.30};
++      m.roughness = 0.04;
++      m.glass = {0.28, 0.65, 1.52, 0.04, 0.010, 0.25, {0.30, 0.38, 0.40},
++                 FeatureSupportStatus::PlannedEngineDependency};
++      break;
++    case MaterialPreset::FrostedGlass:
++      m.is_glass = true;
++      m.base_color_rgb = {0.88, 0.90, 0.92};
++      m.roughness = 0.45;
++      m.glass = {0.35, 0.60, 1.50, 0.45, 0.012, 0.12, {0.88, 0.90, 0.92},
++                 FeatureSupportStatus::PlannedEngineDependency};
++      break;
++    case MaterialPreset::ReflectiveArchitecturalGlass:
++      m.is_glass = true;
++      m.base_color_rgb = {0.42, 0.50, 0.54};
++      m.metallic = 0.10;
++      m.roughness = 0.02;
++      m.glass = {0.22, 0.72, 1.54, 0.02, 0.018, 0.18, {0.65, 0.75, 0.80},
++                 FeatureSupportStatus::PlannedEngineDependency};
++      break;
++    case MaterialPreset::WetAsphalt:
++      m.base_color_rgb = {0.06, 0.06, 0.07};
++      m.roughness = 0.18;
++      m.wetness = 0.85;
++      break;
++    case MaterialPreset::Concrete:
++      m.base_color_rgb = {0.42, 0.41, 0.39};
++      m.roughness = 0.85;
++      break;
++    case MaterialPreset::Brick:
++      m.base_color_rgb = {0.46, 0.18, 0.12};
++      m.roughness = 0.82;
++      break;
++    case MaterialPreset::Wood:
++      m.base_color_rgb = {0.36, 0.22, 0.12};
++      m.roughness = 0.62;
++      break;
++    case MaterialPreset::Leather:
++      m.base_color_rgb = {0.20, 0.12, 0.08};
++      m.roughness = 0.48;
++      break;
++    case MaterialPreset::Fabric:
++      m.base_color_rgb = {0.32, 0.34, 0.38};
++      m.roughness = 0.90;
++      break;
++    case MaterialPreset::BrushedMetal:
++      m.base_color_rgb = {0.72, 0.74, 0.76};
++      m.metallic = 1.0;
++      m.roughness = 0.32;
++      break;
++    case MaterialPreset::Custom:
++      break;
++  }
++  return m;
++}
++
++std::vector<ValidationDiagnostic> MaterialAuthoringAsset::validate() const {
++  std::vector<ValidationDiagnostic> out;
++  auto check_01 = [&](double v, const char* code, const char* msg) {
++    if (!std::isfinite(v) || v < 0.0 || v > 1.0) {
++      out.push_back({DiagnosticSeverity::Error, kInvalidEntityId, code, msg});
++    }
++  };
++  check_01(metallic, "INVALID_METALLIC", "Metallic must be in [0, 1].");
++  check_01(roughness, "INVALID_ROUGHNESS", "Roughness must be in [0, 1].");
++  check_01(clearcoat, "INVALID_CLEARCOAT", "Clearcoat must be in [0, 1].");
++  check_01(wetness, "INVALID_WETNESS", "Wetness must be in [0, 1].");
++  if (!std::isfinite(tiling_uv) || tiling_uv <= 0.0) {
++    out.push_back({DiagnosticSeverity::Error, kInvalidEntityId,
++                   "INVALID_TILING_UV", "UV tiling must be > 0."});
++  }
++  if (is_glass) {
++    if (!std::isfinite(glass.ior) || glass.ior < 1.0 || glass.ior > 2.6) {
++      out.push_back({DiagnosticSeverity::Error, kInvalidEntityId,
++                     "INVALID_GLASS_IOR", "Glass IOR must be in [1.0, 2.6]."});
++    }
++    if (glass.opacity > 0.95 && glass.transmission < 0.05) {
++      out.push_back({DiagnosticSeverity::Warning, kInvalidEntityId,
++                     "OPAQUE_GLASS_WARNING",
++                     "Glass material is nearly opaque with zero transmission."});
++    }
++  }
++  if (interior_mapping.enabled) {
++    if (interior_mapping.room_width_m <= 0.5 ||
++        interior_mapping.room_height_m <= 0.5 ||
++        interior_mapping.room_depth_m <= 0.5) {
++      out.push_back({DiagnosticSeverity::Error, kInvalidEntityId,
++                     "INVALID_INTERIOR_ROOM_DIMS",
++                     "Interior mapping room dimensions must exceed 0.5 m."});
++    }
++  }
++  return out;
++}
++
++}  // namespace saige::editor
+--- a/source/src/editor_project.cpp
++++ b/source/src/editor_project.cpp
+@@ -0,0 +1,254 @@
++#include "saige/editor_project.hpp"
++
++#include <cstring>
++
++namespace saige::editor {
++
++namespace {
++
++[[nodiscard]] std::uint32_t crc32_compute(const std::uint8_t* data,
++                                          std::size_t len) noexcept {
++  std::uint32_t crc = 0xFFFFFFFFu;
++  for (std::size_t i = 0; i < len; ++i) {
++    crc ^= data[i];
++    for (int b = 0; b < 8; ++b) {
++      const std::uint32_t mask = (crc & 1u) ? 0xEDB88320u : 0u;
++      crc = (crc >> 1) ^ mask;
++    }
++  }
++  return ~crc;
++}
++
++void write_u8(std::vector<std::uint8_t>& out, std::uint8_t v) { out.push_back(v); }
++void write_u16_le(std::vector<std::uint8_t>& out, std::uint16_t v) {
++  out.push_back(static_cast<std::uint8_t>(v & 0xFFu));
++  out.push_back(static_cast<std::uint8_t>((v >> 8) & 0xFFu));
++}
++void write_u32_le(std::vector<std::uint8_t>& out, std::uint32_t v) {
++  for (int i = 0; i < 4; ++i) {
++    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFFu));
++  }
++}
++void write_i32_le(std::vector<std::uint8_t>& out, std::int32_t v) {
++  write_u32_le(out, static_cast<std::uint32_t>(v));
++}
++void write_u64_le(std::vector<std::uint8_t>& out, std::uint64_t v) {
++  for (int i = 0; i < 8; ++i) {
++    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFFu));
++  }
++}
++void write_i64_le(std::vector<std::uint8_t>& out, std::int64_t v) {
++  write_u64_le(out, static_cast<std::uint64_t>(v));
++}
++void write_f64_le(std::vector<std::uint8_t>& out, double v) {
++  std::uint64_t u = 0;
++  std::memcpy(&u, &v, sizeof(u));
++  write_u64_le(out, u);
++}
++void write_vec3(std::vector<std::uint8_t>& out, const Vec3d& v) {
++  write_f64_le(out, v.x);
++  write_f64_le(out, v.y);
++  write_f64_le(out, v.z);
++}
++void write_str(std::vector<std::uint8_t>& out, const std::string& s) {
++  const auto len = static_cast<std::uint32_t>(s.size());
++  write_u32_le(out, len);
++  out.insert(out.end(), s.begin(), s.end());
++}
++
++bool read_u8(const std::vector<std::uint8_t>& in, std::size_t& off, std::uint8_t& v) {
++  if (off + 1 > in.size()) return false;
++  v = in[off++];
++  return true;
++}
++bool read_u16_le(const std::vector<std::uint8_t>& in, std::size_t& off, std::uint16_t& v) {
++  if (off + 2 > in.size()) return false;
++  v = static_cast<std::uint16_t>(static_cast<std::uint16_t>(in[off]) |
++                                 static_cast<std::uint16_t>(static_cast<std::uint16_t>(in[off + 1]) << 8));
++  off += 2;
++  return true;
++}
++bool read_u32_le(const std::vector<std::uint8_t>& in, std::size_t& off, std::uint32_t& v) {
++  if (off + 4 > in.size()) return false;
++  v = 0;
++  for (int i = 0; i < 4; ++i) {
++    v |= static_cast<std::uint32_t>(in[off + static_cast<std::size_t>(i)]) << (i * 8);
++  }
++  off += 4;
++  return true;
++}
++bool read_i32_le(const std::vector<std::uint8_t>& in, std::size_t& off, std::int32_t& v) {
++  std::uint32_t u = 0;
++  if (!read_u32_le(in, off, u)) return false;
++  v = static_cast<std::int32_t>(u);
++  return true;
++}
++bool read_u64_le(const std::vector<std::uint8_t>& in, std::size_t& off, std::uint64_t& v) {
++  if (off + 8 > in.size()) return false;
++  v = 0;
++  for (int i = 0; i < 8; ++i) {
++    v |= static_cast<std::uint64_t>(in[off + static_cast<std::size_t>(i)]) << (i * 8);
++  }
++  off += 8;
++  return true;
++}
++bool read_i64_le(const std::vector<std::uint8_t>& in, std::size_t& off, std::int64_t& v) {
++  std::uint64_t u = 0;
++  if (!read_u64_le(in, off, u)) return false;
++  v = static_cast<std::int64_t>(u);
++  return true;
++}
++bool read_f64_le(const std::vector<std::uint8_t>& in, std::size_t& off, double& v) {
++  std::uint64_t u = 0;
++  if (!read_u64_le(in, off, u)) return false;
++  std::memcpy(&v, &u, sizeof(v));
++  return true;
++}
++bool read_vec3(const std::vector<std::uint8_t>& in, std::size_t& off, Vec3d& v) {
++  return read_f64_le(in, off, v.x) && read_f64_le(in, off, v.y) &&
++         read_f64_le(in, off, v.z);
++}
++bool read_str(const std::vector<std::uint8_t>& in, std::size_t& off,
++              std::size_t max_payload, std::string& out) {
++  std::uint32_t len = 0;
++  if (!read_u32_le(in, off, len)) return false;
++  if (len > kMaxEditorStringLen || off + len > max_payload) return false;
++  out.assign(reinterpret_cast<const char*>(in.data() + off), len);
++  off += len;
++  return true;
++}
++
++}  // namespace
++
++std::vector<std::uint8_t> EditorProjectSerializer::serialize(
++    const EditorScene& scene) {
++  std::vector<std::uint8_t> out;
++  out.reserve(128 + scene.nodes().size() * 128);
++
++  write_u32_le(out, kEditorProjectMagic);
++  write_u16_le(out, kEditorProjectVersion);
++  write_f64_le(out, scene.chunk_size_m());
++  write_u64_le(out, scene.next_id());
++
++  const auto& snap = scene.snap_settings();
++  write_u8(out, snap.grid_snap_enabled ? 1 : 0);
++  write_f64_le(out, snap.grid_step_m);
++  write_u8(out, snap.angle_snap_enabled ? 1 : 0);
++  write_f64_le(out, snap.angle_step_deg);
++
++  write_u64_le(out, static_cast<std::uint64_t>(scene.nodes().size()));
++  for (const auto& n : scene.nodes()) {
++    write_u64_le(out, n.id);
++    write_u64_le(out, n.parent_id);
++    write_str(out, n.name);
++    write_u8(out, static_cast<std::uint8_t>(n.kind));
++    write_vec3(out, n.local_transform.position);
++    write_vec3(out, n.local_transform.rotation_deg);
++    write_vec3(out, n.local_transform.scale);
++    write_str(out, n.asset.asset_uri);
++    write_u32_le(out, n.asset.asset_version);
++    write_u64_le(out, n.asset.content_hash);
++    write_i32_le(out, n.chunk.x);
++    write_i32_le(out, n.chunk.y);
++    write_u8(out, n.visible ? 1 : 0);
++    write_u8(out, n.locked ? 1 : 0);
++
++    write_u32_le(out, static_cast<std::uint32_t>(n.properties.size()));
++    for (const auto& p : n.properties) {
++      write_str(out, p.key);
++      write_u8(out, static_cast<std::uint8_t>(p.value.type));
++      write_u8(out, p.value.bool_val ? 1 : 0);
++      write_i64_le(out, p.value.int_val);
++      write_f64_le(out, p.value.double_val);
++      write_str(out, p.value.str_val);
++      write_vec3(out, p.value.vec3_val);
++    }
++  }
++
++  const std::uint32_t crc = crc32_compute(out.data(), out.size());
++  write_u32_le(out, crc);
++  return out;
++}
++
++bool EditorProjectSerializer::deserialize(const std::vector<std::uint8_t>& blob,
++                                          EditorScene& out_scene) {
++  if (blob.size() < 52) return false;
++  const std::size_t payload_len = blob.size() - 4;
++  std::uint32_t expected_crc = 0;
++  std::size_t crc_off = payload_len;
++  if (!read_u32_le(blob, crc_off, expected_crc)) return false;
++  if (crc32_compute(blob.data(), payload_len) != expected_crc) return false;
++
++  std::size_t off = 0;
++  std::uint32_t magic = 0;
++  std::uint16_t ver = 0;
++  double chunk_size = kDefaultChunkSizeM;
++  EntityId next_id = 1;
++  if (!read_u32_le(blob, off, magic) || magic != kEditorProjectMagic) return false;
++  if (!read_u16_le(blob, off, ver) || ver != kEditorProjectVersion) return false;
++  if (!read_f64_le(blob, off, chunk_size) || !read_u64_le(blob, off, next_id)) {
++    return false;
++  }
++
++  SnapSettings snap{};
++  std::uint8_t gs = 0, as = 0;
++  if (!read_u8(blob, off, gs) || !read_f64_le(blob, off, snap.grid_step_m) ||
++      !read_u8(blob, off, as) || !read_f64_le(blob, off, snap.angle_step_deg)) {
++    return false;
++  }
++  snap.grid_snap_enabled = (gs != 0);
++  snap.angle_snap_enabled = (as != 0);
++
++  std::uint64_t n_nodes = 0;
++  if (!read_u64_le(blob, off, n_nodes)) return false;
++  if (n_nodes > kMaxEditorNodes || n_nodes * 96ULL > payload_len - off) {
++    return false;
++  }
++
++  EditorScene restored(chunk_size);
++  restored.snap_settings() = snap;
++
++  for (std::uint64_t i = 0; i < n_nodes; ++i) {
++    EditorNode n{};
++    std::uint8_t kind_u8 = 0, vis_u8 = 0, lock_u8 = 0;
++    std::uint32_t n_props = 0;
++    if (!read_u64_le(blob, off, n.id) || !read_u64_le(blob, off, n.parent_id) ||
++        !read_str(blob, off, payload_len, n.name) || !read_u8(blob, off, kind_u8) ||
++        !read_vec3(blob, off, n.local_transform.position) ||
++        !read_vec3(blob, off, n.local_transform.rotation_deg) ||
++        !read_vec3(blob, off, n.local_transform.scale) ||
++        !read_str(blob, off, payload_len, n.asset.asset_uri) ||
++        !read_u32_le(blob, off, n.asset.asset_version) ||
++        !read_u64_le(blob, off, n.asset.content_hash) ||
++        !read_i32_le(blob, off, n.chunk.x) || !read_i32_le(blob, off, n.chunk.y) ||
++        !read_u8(blob, off, vis_u8) || !read_u8(blob, off, lock_u8) ||
++        !read_u32_le(blob, off, n_props)) {
++      return false;
++    }
++    if (n_props > 1024u) return false;
++    n.kind = static_cast<EditorNodeKind>(kind_u8);
++    n.visible = (vis_u8 != 0);
++    n.locked = (lock_u8 != 0);
++    n.properties.resize(n_props);
++    for (std::uint32_t p = 0; p < n_props; ++p) {
++      std::uint8_t pt = 0, bv = 0;
++      if (!read_str(blob, off, payload_len, n.properties[p].key) ||
++          !read_u8(blob, off, pt) || !read_u8(blob, off, bv) ||
++          !read_i64_le(blob, off, n.properties[p].value.int_val) ||
++          !read_f64_le(blob, off, n.properties[p].value.double_val) ||
++          !read_str(blob, off, payload_len, n.properties[p].value.str_val) ||
++          !read_vec3(blob, off, n.properties[p].value.vec3_val)) {
++        return false;
++      }
++      n.properties[p].value.type = static_cast<PropertyType>(pt);
++      n.properties[p].value.bool_val = (bv != 0);
++    }
++    if (!restored.insert_node(std::move(n))) return false;
++  }
++
++  restored.set_next_id(next_id);
++  out_scene = std::move(restored);
++  return true;
++}
++
++}  // namespace saige::editor
+--- a/source/src/editor_scene.cpp
++++ b/source/src/editor_scene.cpp
+@@ -0,0 +1,270 @@
++#include "saige/editor_scene.hpp"
++
++#include <algorithm>
++#include <cmath>
++#include <limits>
++
++namespace saige::editor {
++
++namespace {
++
++[[nodiscard]] bool is_finite_vec3(const Vec3d& v) noexcept {
++  return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
++}
++
++[[nodiscard]] double snap_scalar(double val, double step) noexcept {
++  if (!std::isfinite(val) || !std::isfinite(step) || step <= 0.0) return val;
++  return std::round(val / step) * step;
++}
++
++}  // namespace
++
++bool Transform3d::is_valid() const noexcept {
++  return is_finite_vec3(position) && is_finite_vec3(rotation_deg) &&
++         is_finite_vec3(scale) && scale.x > 0.0 && scale.y > 0.0 &&
++         scale.z > 0.0;
++}
++
++Transform3d SnapSettings::apply(const Transform3d& t) const noexcept {
++  Transform3d out = t;
++  if (grid_snap_enabled && grid_step_m > 0.0) {
++    out.position.x = snap_scalar(out.position.x, grid_step_m);
++    out.position.y = snap_scalar(out.position.y, grid_step_m);
++    out.position.z = snap_scalar(out.position.z, grid_step_m);
++  }
++  if (angle_snap_enabled && angle_step_deg > 0.0) {
++    out.rotation_deg.x = snap_scalar(out.rotation_deg.x, angle_step_deg);
++    out.rotation_deg.y = snap_scalar(out.rotation_deg.y, angle_step_deg);
++    out.rotation_deg.z = snap_scalar(out.rotation_deg.z, angle_step_deg);
++  }
++  return out;
++}
++
++bool SelectionSet::select(EntityId id) {
++  if (id == kInvalidEntityId || contains(id)) return false;
++  ids_.push_back(id);
++  std::sort(ids_.begin(), ids_.end());
++  return true;
++}
++
++bool SelectionSet::deselect(EntityId id) {
++  const auto it = std::find(ids_.begin(), ids_.end(), id);
++  if (it == ids_.end()) return false;
++  ids_.erase(it);
++  return true;
++}
++
++void SelectionSet::clear() noexcept { ids_.clear(); }
++
++bool SelectionSet::contains(EntityId id) const noexcept {
++  return std::binary_search(ids_.begin(), ids_.end(), id);
++}
++
++EditorScene::EditorScene(double chunk_size_m)
++    : chunk_size_m_(
++          (std::isfinite(chunk_size_m) && chunk_size_m > 1.0)
++              ? chunk_size_m
++              : kDefaultChunkSizeM) {}
++
++void EditorScene::rebuild_indices() const {
++  if (!indices_dirty_) return;
++  id_to_index_.clear();
++  chunk_to_ids_.clear();
++  id_to_index_.reserve(nodes_.size());
++  for (std::size_t i = 0; i < nodes_.size(); ++i) {
++    id_to_index_[nodes_[i].id] = i;
++    chunk_to_ids_[nodes_[i].chunk].push_back(nodes_[i].id);
++  }
++  indices_dirty_ = false;
++}
++
++ChunkCoord EditorScene::compute_chunk_for_position(
++    const Vec3d& pos) const noexcept {
++  if (!std::isfinite(pos.x) || !std::isfinite(pos.y)) return {};
++  return {
++      static_cast<std::int32_t>(std::floor(pos.x / chunk_size_m_)),
++      static_cast<std::int32_t>(std::floor(pos.y / chunk_size_m_)),
++  };
++}
++
++bool EditorScene::insert_node(EditorNode node) {
++  if (node.id == kInvalidEntityId || find_node(node.id) != nullptr) {
++    return false;
++  }
++  if (node.parent_id != kInvalidEntityId) {
++    EditorNode* parent = find_node(node.parent_id);
++    if (parent == nullptr) return false;
++    if (std::find(parent->children.begin(), parent->children.end(), node.id) ==
++        parent->children.end()) {
++      parent->children.push_back(node.id);
++    }
++  }
++  node.chunk = compute_chunk_for_position(node.local_transform.position);
++  if (node.id >= next_id_) {
++    next_id_ = node.id + 1;
++  }
++  const std::size_t new_idx = nodes_.size();
++  const EntityId new_id = node.id;
++  const ChunkCoord new_chunk = node.chunk;
++  nodes_.push_back(std::move(node));
++  if (!indices_dirty_) {
++    id_to_index_[new_id] = new_idx;
++    chunk_to_ids_[new_chunk].push_back(new_id);
++  }
++  return true;
++}
++
++bool EditorScene::remove_node_only(EntityId id) {
++  rebuild_indices();
++  const auto map_it = id_to_index_.find(id);
++  if (map_it == id_to_index_.end()) return false;
++  const std::size_t idx = map_it->second;
++  const EntityId parent_id = nodes_[idx].parent_id;
++
++  if (parent_id != kInvalidEntityId) {
++    if (EditorNode* parent = find_node(parent_id)) {
++      parent->children.erase(
++          std::remove(parent->children.begin(), parent->children.end(), id),
++          parent->children.end());
++    }
++  }
++  selection_.deselect(id);
++  nodes_.erase(nodes_.begin() + static_cast<std::ptrdiff_t>(idx));
++  indices_dirty_ = true;
++  return true;
++}
++
++bool EditorScene::is_ancestor_of(EntityId ancestor,
++                                 EntityId descendant) const noexcept {
++  EntityId cur = descendant;
++  std::size_t guard = 0;
++  while (cur != kInvalidEntityId && guard <= nodes_.size()) {
++    if (cur == ancestor) return true;
++    const EditorNode* n = find_node(cur);
++    if (n == nullptr) break;
++    cur = n->parent_id;
++    ++guard;
++  }
++  return false;
++}
++
++bool EditorScene::reparent(EntityId node_id, EntityId new_parent_id) {
++  EditorNode* node = find_node(node_id);
++  if (node == nullptr || node->locked) return false;
++  if (new_parent_id == node_id) return false;
++  if (new_parent_id != kInvalidEntityId) {
++    if (find_node(new_parent_id) == nullptr) return false;
++    if (is_ancestor_of(node_id, new_parent_id)) return false;
++  }
++  if (node->parent_id != kInvalidEntityId) {
++    if (EditorNode* old_p = find_node(node->parent_id)) {
++      old_p->children.erase(
++          std::remove(old_p->children.begin(), old_p->children.end(), node_id),
++          old_p->children.end());
++    }
++  }
++  // Re-fetch after potential lookups
++  node = find_node(node_id);
++  node->parent_id = new_parent_id;
++  if (new_parent_id != kInvalidEntityId) {
++    if (EditorNode* new_p = find_node(new_parent_id)) {
++      new_p->children.push_back(node_id);
++    }
++  }
++  return true;
++}
++
++bool EditorScene::set_transform(EntityId node_id, const Transform3d& t) {
++  EditorNode* node = find_node(node_id);
++  if (node == nullptr || node->locked || !t.is_valid()) return false;
++  const ChunkCoord old_chunk = node->chunk;
++  const ChunkCoord new_chunk = compute_chunk_for_position(t.position);
++  node->local_transform = t;
++  node->chunk = new_chunk;
++  if (!(old_chunk == new_chunk)) {
++    indices_dirty_ = true;
++  }
++  return true;
++}
++
++bool EditorScene::set_property(EntityId node_id, const std::string& key,
++                               const PropertyValue& val) {
++  EditorNode* node = find_node(node_id);
++  if (node == nullptr || node->locked || key.empty()) return false;
++  for (auto& prop : node->properties) {
++    if (prop.key == key) {
++      prop.value = val;
++      return true;
++    }
++  }
++  node->properties.push_back({key, val});
++  return true;
++}
++
++EditorNode* EditorScene::find_node(EntityId id) noexcept {
++  rebuild_indices();
++  const auto it = id_to_index_.find(id);
++  if (it == id_to_index_.end()) return nullptr;
++  return &nodes_[it->second];
++}
++
++const EditorNode* EditorScene::find_node(EntityId id) const noexcept {
++  rebuild_indices();
++  const auto it = id_to_index_.find(id);
++  if (it == id_to_index_.end()) return nullptr;
++  return &nodes_[it->second];
++}
++
++std::vector<EntityId> EditorScene::query_chunk(ChunkCoord chunk) const {
++  rebuild_indices();
++  const auto it = chunk_to_ids_.find(chunk);
++  if (it == chunk_to_ids_.end()) return {};
++  return it->second;
++}
++
++std::vector<EntityId> EditorScene::collect_subtree(EntityId root_id) const {
++  std::vector<EntityId> out;
++  const EditorNode* root = find_node(root_id);
++  if (root == nullptr) return out;
++  std::vector<EntityId> stack{root_id};
++  while (!stack.empty()) {
++    const EntityId cur = stack.back();
++    stack.pop_back();
++    out.push_back(cur);
++    if (const EditorNode* n = find_node(cur)) {
++      for (EntityId child : n->children) {
++        stack.push_back(child);
++      }
++    }
++  }
++  return out;
++}
++
++std::vector<ValidationDiagnostic> EditorScene::validate() const {
++  std::vector<ValidationDiagnostic> diags;
++  for (const auto& n : nodes_) {
++    if (!n.local_transform.is_valid()) {
++      diags.push_back({DiagnosticSeverity::Error, n.id, "INVALID_TRANSFORM",
++                       "Node has non-finite transform or non-positive scale."});
++    }
++    if ((n.kind == EditorNodeKind::Prop || n.kind == EditorNodeKind::Building ||
++         n.kind == EditorNodeKind::Vegetation) &&
++        n.asset.asset_uri.empty()) {
++      diags.push_back({DiagnosticSeverity::Warning, n.id, "MISSING_ASSET_URI",
++                       "Placeable node has an empty asset_uri."});
++    }
++    if (n.parent_id != kInvalidEntityId && find_node(n.parent_id) == nullptr) {
++      diags.push_back({DiagnosticSeverity::Error, n.id, "ORPHAN_PARENT",
++                       "Node references non-existent parent_id."});
++    }
++    const ChunkCoord expected =
++        compute_chunk_for_position(n.local_transform.position);
++    if (!(expected == n.chunk)) {
++      diags.push_back({DiagnosticSeverity::Warning, n.id, "CHUNK_MISMATCH",
++                       "Node chunk coordinate out of sync with transform."});
++    }
++  }
++  return diags;
++}
++
++}  // namespace saige::editor
+--- a/source/src/editor_semantic.cpp
++++ b/source/src/editor_semantic.cpp
+@@ -0,0 +1,125 @@
++#include "saige/editor_semantic.hpp"
++
++#include <cmath>
++
++namespace saige::editor {
++
++namespace {
++
++inline constexpr double kRadToDeg = 57.2957795130823208768;
++
++}  // namespace
++
++PlacementProposal SemanticPlacementEngine::propose_alignment(
++    const EditorScene& scene,
++    EntityId target_id,
++    const SemanticMetadata& target_meta,
++    EntityId anchor_id,
++    const SemanticMetadata& anchor_meta,
++    double ground_z_m,
++    double desired_offset_m) {
++  PlacementProposal p{};
++  p.target_node_id = target_id;
++  p.anchor_node_id = anchor_id;
++
++  const EditorNode* target = scene.find_node(target_id);
++  const EditorNode* anchor = scene.find_node(anchor_id);
++  if (!target || !anchor) {
++    p.valid = false;
++    p.rationale = "Target or anchor entity not found in scene.";
++    return p;
++  }
++  if (target->locked) {
++    p.valid = false;
++    p.rationale = "Target entity is locked.";
++    return p;
++  }
++
++  p.proposed_transform = target->local_transform;
++
++  // Ground contact in Z-up meter convention
++  if (target_meta.requires_ground_contact) {
++    p.proposed_transform.position.z = ground_z_m;
++  }
++
++  const Vec3d& ap = anchor->local_transform.position;
++  const Vec3d& tp = target->local_transform.position;
++
++  if (target_meta.role == SemanticRole::Vehicle &&
++      anchor_meta.role == SemanticRole::ParkingSpace) {
++    p.proposed_transform.position.x = ap.x;
++    p.proposed_transform.position.y = ap.y;
++    p.proposed_transform.rotation_deg.z = anchor->local_transform.rotation_deg.z;
++    p.rationale = "Aligned vehicle center and yaw to parking space.";
++    return p;
++  }
++
++  // Face anchor (chair -> table, sofa -> TV, road sign -> lane, streetlight -> sidewalk)
++  double dx = ap.x - tp.x;
++  double dy = ap.y - tp.y;
++  const double dist = std::hypot(dx, dy);
++  if (dist > 1e-4 && desired_offset_m > 0.0 &&
++      (target_meta.role == SemanticRole::Chair ||
++       target_meta.role == SemanticRole::Sofa)) {
++    const double nx = dx / dist;
++    const double ny = dy / dist;
++    p.proposed_transform.position.x = ap.x - nx * desired_offset_m;
++    p.proposed_transform.position.y = ap.y - ny * desired_offset_m;
++    dx = ap.x - p.proposed_transform.position.x;
++    dy = ap.y - p.proposed_transform.position.y;
++  }
++  if (std::hypot(dx, dy) > 1e-6) {
++    // +Y is local forward (yaw = 0 -> +Y, yaw = -90 -> +X)
++    const double yaw_deg = std::atan2(-dx, dy) * kRadToDeg;
++    p.proposed_transform.rotation_deg.z = yaw_deg;
++  }
++  p.rationale = "Aligned entity yaw toward semantic anchor and grounded Z.";
++  return p;
++}
++
++std::vector<ValidationDiagnostic> SemanticPlacementEngine::validate_clearance(
++    const EditorScene& scene,
++    EntityId node_id,
++    const SemanticMetadata& meta) {
++  std::vector<ValidationDiagnostic> diags;
++  const EditorNode* node = scene.find_node(node_id);
++  if (!node) return diags;
++
++  if (meta.requires_ground_contact && node->local_transform.position.z > 0.05) {
++    diags.push_back({DiagnosticSeverity::Warning, node_id, "FLOATING_OBJECT",
++                     "Grounded entity floats above Z=0 reference plane."});
++  }
++
++  const auto chunk_ids = scene.query_chunk(node->chunk);
++  for (EntityId other_id : chunk_ids) {
++    if (other_id == node_id) continue;
++    const EditorNode* other = scene.find_node(other_id);
++    if (!other) continue;
++    const double d = std::hypot(
++        node->local_transform.position.x - other->local_transform.position.x,
++        node->local_transform.position.y - other->local_transform.position.y);
++    if (d < meta.clearance_radius_m) {
++      diags.push_back({DiagnosticSeverity::Warning, node_id, "CLEARANCE_VIOLATION",
++                       "Entity overlaps clearance radius of node '" + other->name + "'."});
++    }
++  }
++  return diags;
++}
++
++ApplySemanticPlacementCommand::ApplySemanticPlacementCommand(
++    PlacementProposal proposal)
++    : proposal_(std::move(proposal)) {}
++
++bool ApplySemanticPlacementCommand::execute(EditorScene& scene) {
++  if (!proposal_.valid || !proposal_.proposed_transform.is_valid()) return false;
++  EditorNode* n = scene.find_node(proposal_.target_node_id);
++  if (!n || n->locked) return false;
++  old_transform_ = n->local_transform;
++  return scene.set_transform(proposal_.target_node_id, proposal_.proposed_transform);
++}
++
++void ApplySemanticPlacementCommand::undo(EditorScene& scene) {
++  (void)scene.set_transform(proposal_.target_node_id, old_transform_);
++}
++
++}  // namespace saige::editor
+--- a/source/src/editor_workspace.cpp
++++ b/source/src/editor_workspace.cpp
+@@ -0,0 +1,152 @@
++#include "saige/editor_workspace.hpp"
++
++#include <algorithm>
++#include <cctype>
++#include <cmath>
++#include <sstream>
++
++namespace saige::editor {
++
++namespace {
++
++[[nodiscard]] std::string to_lower(const std::string& s) {
++  std::string out = s;
++  for (char& ch : out) {
++    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
++  }
++  return out;
++}
++
++[[nodiscard]] std::string escape_json(const std::string& s) {
++  std::string out;
++  out.reserve(s.size());
++  for (char ch : s) {
++    if (ch == '"' || ch == '\\') out.push_back('\\');
++    out.push_back(ch);
++  }
++  return out;
++}
++
++}  // namespace
++
++bool AssetRegistry::register_asset(AssetCatalogEntry entry) {
++  if (entry.ref.asset_uri.empty()) return false;
++  for (const auto& e : entries_) {
++    if (e.ref.asset_uri == entry.ref.asset_uri) return false;
++  }
++  entries_.push_back(std::move(entry));
++  return true;
++}
++
++std::vector<AssetCatalogEntry> AssetRegistry::search(
++    AssetCategory category, const std::string& query) const {
++  std::vector<AssetCatalogEntry> out;
++  const std::string q = to_lower(query);
++  for (const auto& e : entries_) {
++    if (category != AssetCategory::All && e.category != category) continue;
++    if (!q.empty()) {
++      const std::string name_l = to_lower(e.display_name);
++      const std::string uri_l = to_lower(e.ref.asset_uri);
++      if (name_l.find(q) == std::string::npos &&
++          uri_l.find(q) == std::string::npos) {
++        continue;
++      }
++    }
++    out.push_back(e);
++  }
++  return out;
++}
++
++const AssetCatalogEntry* AssetRegistry::find_by_uri(
++    const std::string& uri) const noexcept {
++  for (const auto& e : entries_) {
++    if (e.ref.asset_uri == uri) return &e;
++  }
++  return nullptr;
++}
++
++void ViewportState::pan(double dx, double dy, double dz) noexcept {
++  if (std::isfinite(dx)) camera_target.x += dx;
++  if (std::isfinite(dy)) camera_target.y += dy;
++  if (std::isfinite(dz)) camera_target.z += dz;
++}
++
++void ViewportState::zoom(double delta_m) noexcept {
++  if (!std::isfinite(delta_m)) return;
++  if (projection == ViewportProjection::Perspective) {
++    orbit_distance_m = std::clamp(orbit_distance_m + delta_m, 1.0, 2000.0);
++  } else {
++    ortho_width_m = std::clamp(ortho_width_m + delta_m, 2.0, 4000.0);
++  }
++}
++
++bool ViewportState::focus_on_selection(const EditorScene& scene) noexcept {
++  const auto& ids = scene.selection().ids();
++  if (ids.empty()) return false;
++  Vec3d sum{};
++  std::size_t count = 0;
++  for (EntityId id : ids) {
++    if (const EditorNode* n = scene.find_node(id)) {
++      sum.x += n->local_transform.position.x;
++      sum.y += n->local_transform.position.y;
++      sum.z += n->local_transform.position.z;
++      ++count;
++    }
++  }
++  if (count == 0) return false;
++  const double inv = 1.0 / static_cast<double>(count);
++  camera_target = {sum.x * inv, sum.y * inv, sum.z * inv};
++  return true;
++}
++
++WorldExportResult WorldDataExporter::export_validated_scene(
++    const EditorScene& scene, const IWorldValidatorBridge* engine_validator) {
++  WorldExportResult res{};
++  const auto local_diags = scene.validate();
++  for (const auto& d : local_diags) {
++    if (d.severity == DiagnosticSeverity::Error) {
++      res.blocking_diagnostics.push_back(d);
++    }
++  }
++  if (engine_validator != nullptr) {
++    res.engine_findings = engine_validator->validate_scene(scene);
++    for (const auto& f : res.engine_findings) {
++      if (f.severity == DiagnosticSeverity::Error) {
++        res.blocking_diagnostics.push_back(
++            {f.severity, f.node_id, f.code, f.message});
++      }
++    }
++  }
++  if (!res.blocking_diagnostics.empty()) {
++    res.success = false;
++    return res;
++  }
++
++  std::ostringstream os;
++  os << "{\n"
++     << "  \"format\": \"saige_world_export\",\n"
++     << "  \"version\": 1,\n"
++     << "  \"coordinate_system\": \"right_handed_z_up_meters\",\n"
++     << "  \"chunk_size_m\": " << scene.chunk_size_m() << ",\n"
++     << "  \"nodes\": [\n";
++  for (std::size_t i = 0; i < scene.nodes().size(); ++i) {
++    const auto& n = scene.nodes()[i];
++    os << "    {\"id\": " << n.id
++       << ", \"parent_id\": " << n.parent_id
++       << ", \"name\": \"" << escape_json(n.name) << "\""
++       << ", \"kind\": " << static_cast<int>(n.kind)
++       << ", \"asset_uri\": \"" << escape_json(n.asset.asset_uri) << "\""
++       << ", \"asset_version\": " << n.asset.asset_version
++       << ", \"chunk\": [" << n.chunk.x << ", " << n.chunk.y << "]"
++       << ", \"pos\": [" << n.local_transform.position.x << ", "
++       << n.local_transform.position.y << ", " << n.local_transform.position.z
++       << "]}" << (i + 1 < scene.nodes().size() ? "," : "") << "\n";
++  }
++  os << "  ]\n}\n";
++
++  res.success = true;
++  res.json_payload = os.str();
++  return res;
++}
++
++}  // namespace saige::editor
+--- a/tests/editor_build012_test.cpp
++++ b/tests/editor_build012_test.cpp
+@@ -0,0 +1,259 @@
++#include "saige/editor_assets.hpp"
++#include "saige/editor_commands.hpp"
++#include "saige/editor_materials.hpp"
++#include "saige/editor_project.hpp"
++#include "saige/editor_scene.hpp"
++#include "saige/editor_semantic.hpp"
++#include "saige/editor_workspace.hpp"
++
++#include <chrono>
++#include <cmath>
++#include <cstdlib>
++#include <fstream>
++#include <iostream>
++#include <limits>
++#include <string>
++#include <vector>
++
++#define ED_CHECK(cond)                                                     \
++  do {                                                                     \
++    if (!(cond)) {                                                         \
++      std::cerr << "ED_CHECK FAILED at " << __FILE__ << ":" << __LINE__    \
++                << " (" << #cond << ")\n";                                 \
++      std::exit(1);                                                        \
++    }                                                                      \
++  } while (false)
++
++using namespace saige::editor;
++
++namespace {
++
++void test_asset_library_and_vehicle_validation() {
++  AssetLibrary lib;
++
++  AssetMetadata sedan{};
++  sedan.asset_id = 101;
++  sedan.uri = "assets/vehicles/sedan_01.glb";
++  sedan.display_name = "Compact Sedan";
++  sedan.category = LibraryAssetCategory::Vehicle;
++  sedan.tags = {"vehicle", "urban", "sedan"};
++  sedan.source_url = "https://quaternius.com/packs/ultimateroads.html";
++  sedan.author = "Quaternius";
++  sedan.license_spdx = "CC0-1.0";
++  sedan.redistribution_allowed = true;
++  sedan.content_hash = 0xCAFEBABE0001ULL;
++  sedan.triangle_count = 12000;
++  sedan.lod_count = 2;
++  sedan.vehicle_meta = VehicleAssetMetadata{
++      {{-0.95, -2.2, 0.0}, {0.95, 2.2, 1.45}},
++      0.34,
++      {{"wheel_fl", {-0.85, 1.35, 0.34}, 0.25}},
++      {{"headlight_l", {-0.7, 2.18, 0.65}, 0.15},
++       {"hazard_l", {-0.8, 2.15, 0.65}, 0.15}},
++      {{"driver", {-0.38, 0.1, 0.55}, 0.25}},
++  };
++  ED_CHECK(lib.register_asset(sedan));
++  ED_CHECK(lib.validate_asset(101).passed);
++
++  // Mutation: detached hazard light 2.5m outside vehicle chassis
++  AssetMetadata bad_sedan = sedan;
++  bad_sedan.asset_id = 102;
++  bad_sedan.uri = "assets/vehicles/sedan_bad_hazard.glb";
++  bad_sedan.content_hash = 0xCAFEBABE0002ULL;
++  bad_sedan.vehicle_meta->lights[1].local_pos_m = {-3.5, 2.15, 2.8};
++  ED_CHECK(lib.register_asset(bad_sedan));
++  const auto bad_rep = lib.validate_asset(102);
++  ED_CHECK(!bad_rep.passed);
++  bool found_detached = false;
++  for (const auto& iss : bad_rep.issues) {
++    if (iss.code == "DETACHED_VEHICLE_LIGHT") found_detached = true;
++  }
++  ED_CHECK(found_detached);
++
++  // Missing dependency + missing license + duplicate hash
++  AssetMetadata broken{};
++  broken.asset_id = 103;
++  broken.uri = "assets/props/bench_01.glb";
++  broken.display_name = "Park Bench";
++  broken.content_hash = 0xCAFEBABE0001ULL;  // duplicate of 101
++  broken.dependencies = {"assets/materials/missing_wood.mat"};
++  ED_CHECK(lib.register_asset(broken));
++  const auto br = lib.validate_asset(103);
++  ED_CHECK(!br.passed);
++  ED_CHECK(br.error_count >= 3);  // license + redistribution + missing dep
++
++  ED_CHECK(lib.set_favorite(101, true));
++  ED_CHECK(lib.search(LibraryAssetCategory::Vehicle, "sedan", "urban", true).size() == 1);
++  ED_CHECK(lib.increment_usage("assets/vehicles/sedan_01.glb"));
++  ED_CHECK(lib.find_by_id(101)->usage_count == 1);
++}
++
++void test_semantic_placement_undo_and_save_reload() {
++  EditorScene scene;
++  CommandHistory hist;
++
++  EditorNode table{};
++  table.id = scene.allocate_id();
++  table.name = "Cafe_Table";
++  table.kind = EditorNodeKind::Prop;
++  table.local_transform.position = {10.0, 10.0, 0.0};
++  ED_CHECK(hist.execute(scene, std::make_unique<CreateNodeCommand>(table)));
++
++  EditorNode chair{};
++  chair.id = scene.allocate_id();
++  chair.name = "Cafe_Chair";
++  chair.kind = EditorNodeKind::Prop;
++  chair.local_transform.position = {13.5, 10.0, 0.4};  // floating & far
++  ED_CHECK(hist.execute(scene, std::make_unique<CreateNodeCommand>(chair)));
++
++  const SemanticMetadata chair_meta{SemanticRole::Chair};
++  const SemanticMetadata table_meta{SemanticRole::Table};
++
++  // Floating check before placement
++  const auto pre_diags = SemanticPlacementEngine::validate_clearance(scene, chair.id, chair_meta);
++  ED_CHECK(!pre_diags.empty());
++
++  const auto prop = SemanticPlacementEngine::propose_alignment(
++      scene, chair.id, chair_meta, table.id, table_meta, 0.0, 1.0);
++  ED_CHECK(prop.valid);
++  ED_CHECK(std::abs(prop.proposed_transform.position.z) < 1e-6);
++  ED_CHECK(std::abs(prop.proposed_transform.position.x - 11.0) < 1e-6);
++  // Chair at +X from table faces -X => yaw = +90 deg (+Y rotated +90 deg around Z -> -X)
++  ED_CHECK(std::abs(prop.proposed_transform.rotation_deg.z - 90.0) < 1e-3);
++
++  ED_CHECK(hist.execute(scene, std::make_unique<ApplySemanticPlacementCommand>(prop)));
++  ED_CHECK(std::abs(scene.find_node(chair.id)->local_transform.position.x - 11.0) < 1e-6);
++
++  // Undo & Redo
++  ED_CHECK(hist.undo(scene));
++  ED_CHECK(std::abs(scene.find_node(chair.id)->local_transform.position.x - 13.5) < 1e-6);
++  ED_CHECK(hist.redo(scene));
++  ED_CHECK(std::abs(scene.find_node(chair.id)->local_transform.position.x - 11.0) < 1e-6);
++
++  // Save & Reload preserves stable EntityId & semantic transform
++  const auto blob = EditorProjectSerializer::serialize(scene);
++  EditorScene reloaded;
++  ED_CHECK(EditorProjectSerializer::deserialize(blob, reloaded));
++  const EditorNode* rc = reloaded.find_node(chair.id);
++  ED_CHECK(rc != nullptr);
++  ED_CHECK(std::abs(rc->local_transform.position.x - 11.0) < 1e-6);
++}
++
++void test_material_glass_and_interior_mapping() {
++  const auto glass = MaterialAuthoringAsset::from_preset(
++      MaterialPreset::ReflectiveArchitecturalGlass, "Office_Window_Glass");
++  ED_CHECK(glass.is_glass);
++  ED_CHECK(glass.glass.transmission > 0.5);
++  ED_CHECK(glass.glass.refraction_status ==
++           FeatureSupportStatus::PlannedEngineDependency);
++  ED_CHECK(glass.validate().empty());
++
++  auto bad_glass = glass;
++  bad_glass.glass.ior = 0.4;  // invalid physical IOR
++  bad_glass.interior_mapping.enabled = true;
++  bad_glass.interior_mapping.room_width_m = 0.1;  // invalid room width
++  ED_CHECK(bad_glass.validate().size() >= 2);
++}
++
++void test_negative_and_corruption_cases() {
++  // 1. Corrupted SED1 blob & oversized node count
++  EditorScene out;
++  std::vector<std::uint8_t> bad_magic = {'B', 'A', 'D', '1', 0, 1};
++  ED_CHECK(!EditorProjectSerializer::deserialize(bad_magic, out));
++
++  std::vector<std::uint8_t> truncated = {'S', 'E', 'D', '1'};
++  ED_CHECK(!EditorProjectSerializer::deserialize(truncated, out));
++
++  // 2. Invalid NaN transform rejected by set_transform & caught by validate()
++  EditorScene s;
++  EditorNode n{};
++  n.id = s.allocate_id();
++  n.name = "BadTransform";
++  ED_CHECK(s.insert_node(n));
++  Transform3d bad_t{};
++  bad_t.position.x = std::numeric_limits<double>::quiet_NaN();
++  ED_CHECK(!s.set_transform(n.id, bad_t));
++}
++
++struct BenchTiming {
++  double scene_1k_ms = 0.0;
++  double scene_10k_ms = 0.0;
++  double assets_10k_ms = 0.0;
++};
++
++BenchTiming run_scalability_benchmarks() {
++  BenchTiming bt{};
++
++  auto bench_scene = [](std::size_t count) -> double {
++    const auto t0 = std::chrono::steady_clock::now();
++    EditorScene s;
++    for (std::size_t i = 0; i < count; ++i) {
++      EditorNode n{};
++      n.id = s.allocate_id();
++      n.name = "Entity_" + std::to_string(i);
++      n.local_transform.position = {static_cast<double>(i % 100) * 4.0,
++                                    static_cast<double>(i / 100) * 4.0, 0.0};
++      ED_CHECK(s.insert_node(std::move(n)));
++    }
++    const auto q = s.query_chunk({1, 0});
++    ED_CHECK(!q.empty());
++    const auto blob = EditorProjectSerializer::serialize(s);
++    EditorScene reloaded;
++    ED_CHECK(EditorProjectSerializer::deserialize(blob, reloaded));
++    ED_CHECK(reloaded.nodes().size() == count);
++    const auto t1 = std::chrono::steady_clock::now();
++    return std::chrono::duration<double, std::milli>(t1 - t0).count();
++  };
++
++  bt.scene_1k_ms = bench_scene(1000);
++  bt.scene_10k_ms = bench_scene(10000);
++
++  const auto ta0 = std::chrono::steady_clock::now();
++  AssetLibrary lib;
++  for (std::uint64_t i = 1; i <= 10000; ++i) {
++    AssetMetadata a{};
++    a.asset_id = i;
++    a.uri = "assets/env/prop_" + std::to_string(i) + ".glb";
++    a.display_name = "Prop_" + std::to_string(i);
++    a.source_url = "https://polyhaven.com/models";
++    a.author = "Poly Haven";
++    a.license_spdx = "CC0-1.0";
++    a.redistribution_allowed = true;
++    a.content_hash = i + 100000ULL;
++    ED_CHECK(lib.register_asset(std::move(a)));
++  }
++  const auto hits = lib.search(LibraryAssetCategory::Environment, "Prop_999");
++  ED_CHECK(!hits.empty());
++  const auto val = lib.validate_all();
++  ED_CHECK(val.passed);
++  const auto ta1 = std::chrono::steady_clock::now();
++  bt.assets_10k_ms = std::chrono::duration<double, std::milli>(ta1 - ta0).count();
++
++  std::cout << "[bench] scene_1k_ms=" << bt.scene_1k_ms
++            << " scene_10k_ms=" << bt.scene_10k_ms
++            << " assets_10k_ms=" << bt.assets_10k_ms << "\n";
++  return bt;
++}
++
++}  // namespace
++
++int main(int argc, char** argv) {
++  test_asset_library_and_vehicle_validation();
++  test_semantic_placement_undo_and_save_reload();
++  test_material_glass_and_interior_mapping();
++  test_negative_and_corruption_cases();
++  const auto bt = run_scalability_benchmarks();
++
++  if (argc >= 3 && std::string(argv[1]) == "--dump-json") {
++    std::ofstream jf(argv[2]);
++    jf << "{\n"
++       << "  \"build\": \"012\",\n"
++       << "  \"scene_1k_insert_query_roundtrip_ms\": " << bt.scene_1k_ms << ",\n"
++       << "  \"scene_10k_insert_query_roundtrip_ms\": " << bt.scene_10k_ms << ",\n"
++       << "  \"assets_10k_register_search_validate_ms\": " << bt.assets_10k_ms << "\n"
++       << "}\n";
++  }
++
++  std::cout << "editor_build012_test: ALL 5 SUITES PASSED\n";
++  return 0;
++}
+--- a/tests/editor_core_test.cpp
++++ b/tests/editor_core_test.cpp
+@@ -0,0 +1,341 @@
++#include "saige/editor_commands.hpp"
++#include "saige/editor_project.hpp"
++#include "saige/editor_scene.hpp"
++#include "saige/editor_workspace.hpp"
++
++#include <chrono>
++#include <cmath>
++#include <cstdlib>
++#include <iostream>
++#include <limits>
++#include <memory>
++
++#define SAIGE_CHECK(cond)                                                     \
++  do {                                                                        \
++    if (!(cond)) {                                                            \
++      std::cerr << "SAIGE_CHECK FAILED at " << __FILE__ << ":" << __LINE__    \
++                << " (" << #cond << ")\n";                                    \
++      std::exit(1);                                                           \
++    }                                                                         \
++  } while (false)
++
++using namespace saige::editor;
++
++namespace {
++
++void test_hierarchy_reparenting_and_cycle_guard() {
++  EditorScene scene(64.0);
++  CommandHistory history;
++
++  EditorNode root{};
++  root.name = "District_01";
++  root.kind = EditorNodeKind::Group;
++  SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(root)));
++
++  EditorNode bldg{};
++  bldg.parent_id = 1;
++  bldg.name = "Cafe_01";
++  bldg.kind = EditorNodeKind::Building;
++  bldg.asset.asset_uri = "assets/buildings/cafe_01.saige_asset";
++  bldg.local_transform.position = {130.0, -70.0, 2.0};
++  SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(bldg)));
++
++  const EditorNode* n2 = scene.find_node(2);
++  SAIGE_CHECK(n2 != nullptr);
++  SAIGE_CHECK(n2->chunk == (ChunkCoord{2, -2}));
++  SAIGE_CHECK(!history.execute(scene, std::make_unique<ReparentCommand>(1, 2)));
++}
++
++void test_snapping_duplication_and_grouping() {
++  EditorScene scene(64.0);
++  CommandHistory history;
++  scene.snap_settings() = {true, 0.5, true, 15.0};
++
++  EditorNode prop{};
++  prop.name = "LampPost";
++  prop.kind = EditorNodeKind::Prop;
++  prop.asset.asset_uri = "assets/props/lamp.saige_asset";
++  SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(prop)));
++
++  Transform3d raw{{10.23, 4.78, 0.12}, {0.0, 0.0, 22.0}, {1.0, 1.0, 1.0}};
++  SAIGE_CHECK(history.execute(scene, std::make_unique<SetTransformCommand>(1, raw, true)));
++  const auto* n1 = scene.find_node(1);
++  SAIGE_CHECK(std::abs(n1->local_transform.position.x - 10.0) < 1e-6);
++  SAIGE_CHECK(std::abs(n1->local_transform.position.y - 5.0) < 1e-6);
++  SAIGE_CHECK(std::abs(n1->local_transform.rotation_deg.z - 15.0) < 1e-6);
++
++  auto dup = std::make_unique<DuplicateSubtreeCommand>(1, Vec3d{5.0, 0.0, 0.0});
++  auto* dup_ptr = dup.get();
++  SAIGE_CHECK(history.execute(scene, std::move(dup)));
++  const EntityId dup_id = dup_ptr->duplicated_root_id();
++  SAIGE_CHECK(scene.find_node(dup_id) != nullptr);
++  SAIGE_CHECK(std::abs(scene.find_node(dup_id)->local_transform.position.x - 15.0) < 1e-6);
++
++  auto grp = std::make_unique<GroupNodesCommand>("StreetLights", std::vector<EntityId>{1, dup_id});
++  auto* grp_ptr = grp.get();
++  SAIGE_CHECK(history.execute(scene, std::move(grp)));
++  const EntityId grp_id = grp_ptr->group_id();
++  SAIGE_CHECK(scene.find_node(1)->parent_id == grp_id);
++  SAIGE_CHECK(scene.find_node(dup_id)->parent_id == grp_id);
++}
++
++void test_transactional_undo_redo_and_rollback() {
++  EditorScene scene;
++  CommandHistory history;
++
++  SAIGE_CHECK(history.begin_transaction("PlaceBlock"));
++  for (int i = 0; i < 3; ++i) {
++    EditorNode n{};
++    n.name = "Prop_" + std::to_string(i);
++    n.kind = EditorNodeKind::Prop;
++    n.asset.asset_uri = "assets/props/crate.saige_asset";
++    SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(n)));
++  }
++  SAIGE_CHECK(history.commit_transaction());
++  SAIGE_CHECK(scene.nodes().size() == 3);
++  SAIGE_CHECK(history.undo_count() == 1);
++
++  SAIGE_CHECK(history.undo(scene));
++  SAIGE_CHECK(scene.nodes().empty());
++
++  SAIGE_CHECK(history.redo(scene));
++  SAIGE_CHECK(scene.nodes().size() == 3);
++
++  SAIGE_CHECK(history.begin_transaction("Partial"));
++  EditorNode extra{};
++  extra.name = "Temp";
++  SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(extra)));
++  SAIGE_CHECK(scene.nodes().size() == 4);
++  SAIGE_CHECK(history.rollback_transaction(scene));
++  SAIGE_CHECK(scene.nodes().size() == 3);
++}
++
++void test_delete_subtree_undo_and_locked_protection() {
++  EditorScene scene;
++  CommandHistory history;
++
++  EditorNode parent{};
++  parent.name = "Building";
++  parent.kind = EditorNodeKind::Building;
++  parent.asset.asset_uri = "assets/bldg.saige_asset";
++  SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(parent)));
++
++  EditorNode child{};
++  child.parent_id = 1;
++  child.name = "Door";
++  child.kind = EditorNodeKind::Prop;
++  child.asset.asset_uri = "assets/door.saige_asset";
++  SAIGE_CHECK(history.execute(scene, std::make_unique<CreateNodeCommand>(child)));
++
++  SAIGE_CHECK(history.execute(scene, std::make_unique<DeleteSubtreeCommand>(1)));
++  SAIGE_CHECK(scene.nodes().empty());
++
++  SAIGE_CHECK(history.undo(scene));
++  SAIGE_CHECK(scene.nodes().size() == 2);
++  SAIGE_CHECK(scene.find_node(2)->parent_id == 1);
++
++  scene.find_node(1)->locked = true;
++  SAIGE_CHECK(!history.execute(scene, std::make_unique<SetTransformCommand>(1, Transform3d{})));
++  SAIGE_CHECK(!history.execute(scene, std::make_unique<DeleteSubtreeCommand>(1)));
++}
++
++void test_scene_validation_diagnostics() {
++  EditorScene scene;
++  EditorNode missing_uri{};
++  missing_uri.id = 1;
++  missing_uri.name = "MissingAsset";
++  missing_uri.kind = EditorNodeKind::Vegetation;
++  SAIGE_CHECK(scene.insert_node(missing_uri));
++
++  EditorNode bad_scale{};
++  bad_scale.id = 2;
++  bad_scale.name = "BadScale";
++  bad_scale.kind = EditorNodeKind::Group;
++  bad_scale.local_transform.scale = {0.0, 1.0, 1.0};
++  SAIGE_CHECK(scene.insert_node(bad_scale));
++
++  const auto diags = scene.validate();
++  SAIGE_CHECK(diags.size() == 2);
++  SAIGE_CHECK(diags[0].code == "MISSING_ASSET_URI");
++  SAIGE_CHECK(diags[1].code == "INVALID_TRANSFORM");
++}
++
++void test_project_serialization_and_corruption_guards() {
++  EditorScene scene(64.0);
++  EditorNode n{};
++  n.id = 10;
++  n.name = "HeroBuilding";
++  n.kind = EditorNodeKind::Building;
++  n.local_transform.position = {120.0, 250.0, 4.5};
++  n.asset = {"assets/hero.saige_asset", 3, 0x123456789ABCDEF0ULL};
++  SAIGE_CHECK(scene.insert_node(n));
++  SAIGE_CHECK(scene.set_property(10, "floors", PropertyValue{PropertyType::Int64, false, 4, 0.0, "", {}}));
++
++  const auto blob = EditorProjectSerializer::serialize(scene);
++  SAIGE_CHECK(!blob.empty());
++
++  EditorScene restored;
++  SAIGE_CHECK(EditorProjectSerializer::deserialize(blob, restored));
++  SAIGE_CHECK(restored.nodes().size() == 1);
++  const auto* rn = restored.find_node(10);
++  SAIGE_CHECK(rn != nullptr);
++  SAIGE_CHECK(rn->name == "HeroBuilding");
++  SAIGE_CHECK(rn->asset.asset_version == 3);
++  SAIGE_CHECK(rn->properties.size() == 1);
++  SAIGE_CHECK(rn->properties[0].value.int_val == 4);
++
++  // Malformed/corrupted input checks
++  EditorScene dummy;
++  SAIGE_CHECK(!EditorProjectSerializer::deserialize({}, dummy));
++  SAIGE_CHECK(!EditorProjectSerializer::deserialize(std::vector<std::uint8_t>(60, 0), dummy));
++  auto bad_blob = blob;
++  bad_blob[10] ^= 0xFF;
++  SAIGE_CHECK(!EditorProjectSerializer::deserialize(bad_blob, dummy));
++}
++
++void test_save_reopen_stable_id_preservation() {
++  EditorScene s1(64.0);
++  CommandHistory h1;
++  EditorNode a{};
++  a.name = "RoadSegment_A";
++  a.kind = EditorNodeKind::Road;
++  a.asset = {"assets/roads/two_lane.saige_asset", 2, 0xABCDULL};
++  SAIGE_CHECK(h1.execute(s1, std::make_unique<CreateNodeCommand>(a)));
++
++  const auto blob1 = EditorProjectSerializer::serialize(s1);
++  EditorScene s2;
++  SAIGE_CHECK(EditorProjectSerializer::deserialize(blob1, s2));
++  SAIGE_CHECK(s2.find_node(1) != nullptr);
++  SAIGE_CHECK(s2.next_id() == 2);
++
++  CommandHistory h2;
++  EditorNode b{};
++  b.name = "OakTree_01";
++  b.kind = EditorNodeKind::Vegetation;
++  b.asset = {"assets/foliage/oak.saige_asset", 1, 0xDEADULL};
++  SAIGE_CHECK(h2.execute(s2, std::make_unique<CreateNodeCommand>(b)));
++  SAIGE_CHECK(s2.find_node(2) != nullptr);
++
++  const auto blob2 = EditorProjectSerializer::serialize(s2);
++  EditorScene s3;
++  SAIGE_CHECK(EditorProjectSerializer::deserialize(blob2, s3));
++  SAIGE_CHECK(s3.find_node(1)->asset.content_hash == 0xABCDULL);
++  SAIGE_CHECK(s3.find_node(2)->asset.content_hash == 0xDEADULL);
++}
++
++void test_asset_registry_and_viewport_controls() {
++  AssetRegistry reg;
++  SAIGE_CHECK(reg.register_asset({{"assets/buildings/diner.saige_asset", 1, 11}, "Diner", AssetCategory::Building, EditorNodeKind::Building, true}));
++  SAIGE_CHECK(reg.register_asset({{"assets/foliage/pine.saige_asset", 1, 22}, "Pine Tree", AssetCategory::Vegetation, EditorNodeKind::Vegetation, true}));
++  SAIGE_CHECK(!reg.register_asset({{"", 1, 0}, "Invalid", AssetCategory::Prop, EditorNodeKind::Prop, false}));
++
++  SAIGE_CHECK(reg.search(AssetCategory::Building, "din").size() == 1);
++  SAIGE_CHECK(reg.search(AssetCategory::All, "pine").size() == 1);
++
++  EditorScene scene;
++  EditorNode n{};
++  n.id = 1;
++  n.name = "Diner_01";
++  n.local_transform.position = {40.0, 80.0, 3.0};
++  SAIGE_CHECK(scene.insert_node(n));
++  SAIGE_CHECK(scene.selection().select(1));
++
++  ViewportState vp{};
++  SAIGE_CHECK(vp.focus_on_selection(scene));
++  SAIGE_CHECK(std::abs(vp.camera_target.x - 40.0) < 1e-6);
++  vp.projection = ViewportProjection::OrthographicTop;
++  vp.zoom(-10.0);
++  SAIGE_CHECK(std::abs(vp.ortho_width_m - 40.0) < 1e-6);
++}
++
++void test_validator_bridge_and_export_gate() {
++  class MockEngineValidator final : public IWorldValidatorBridge {
++   public:
++    bool fail_nav = false;
++    [[nodiscard]] std::vector<EngineValidationFinding> validate_scene(
++        const EditorScene& scene) const override {
++      std::vector<EngineValidationFinding> out;
++      if (fail_nav && !scene.nodes().empty()) {
++        out.push_back({EngineValidationDomain::Navigation,
++                       DiagnosticSeverity::Error, scene.nodes().front().id,
++                       "NAV_BLOCKED", "Road blocks pedestrian crossing."});
++      }
++      return out;
++    }
++  };
++
++  EditorScene scene;
++  EditorNode road{};
++  road.id = 1;
++  road.name = "MainSt";
++  road.kind = EditorNodeKind::Road;
++  road.asset.asset_uri = "assets/roads/main.saige_asset";
++  SAIGE_CHECK(scene.insert_node(road));
++
++  MockEngineValidator validator;
++  validator.fail_nav = true;
++  const auto blocked = WorldDataExporter::export_validated_scene(scene, &validator);
++  SAIGE_CHECK(!blocked.success);
++  SAIGE_CHECK(blocked.blocking_diagnostics.size() == 1);
++
++  validator.fail_nav = false;
++  const auto ok = WorldDataExporter::export_validated_scene(scene, &validator);
++  SAIGE_CHECK(ok.success);
++  SAIGE_CHECK(ok.json_payload.find("right_handed_z_up_meters") != std::string::npos);
++}
++
++void test_large_scene_10k_benchmark() {
++  EditorScene scene(64.0);
++  const auto t0 = std::chrono::steady_clock::now();
++  for (std::uint32_t i = 1; i <= 10000; ++i) {
++    EditorNode n{};
++    n.id = i;
++    n.name = "Prop";
++    n.kind = EditorNodeKind::Prop;
++    n.asset.asset_uri = "assets/prop.saige_asset";
++    n.local_transform.position = {
++        static_cast<double>(i % 100) * 16.0,
++        static_cast<double>(i / 100) * 16.0,
++        0.0,
++    };
++    SAIGE_CHECK(scene.insert_node(std::move(n)));
++  }
++  const auto t1 = std::chrono::steady_clock::now();
++  const auto q = scene.query_chunk({1, 1});
++  const auto t2 = std::chrono::steady_clock::now();
++  const auto diags = scene.validate();
++  const auto t3 = std::chrono::steady_clock::now();
++  const auto blob = EditorProjectSerializer::serialize(scene);
++  const auto t4 = std::chrono::steady_clock::now();
++
++  SAIGE_CHECK(diags.empty());
++  SAIGE_CHECK(!q.empty());
++
++  const double insert_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
++  const double query_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
++  const double validate_ms = std::chrono::duration<double, std::milli>(t3 - t2).count();
++  const double serialize_ms = std::chrono::duration<double, std::milli>(t4 - t3).count();
++
++  std::cout << "[editor-10k] insert_ms=" << insert_ms
++            << " chunk_query_ms=" << query_ms
++            << " validate_ms=" << validate_ms
++            << " serialize_ms=" << serialize_ms
++            << " blob_kb=" << (blob.size() / 1024) << "\n";
++}
++
++}  // namespace
++
++int main() {
++  test_hierarchy_reparenting_and_cycle_guard();
++  test_snapping_duplication_and_grouping();
++  test_transactional_undo_redo_and_rollback();
++  test_delete_subtree_undo_and_locked_protection();
++  test_scene_validation_diagnostics();
++  test_project_serialization_and_corruption_guards();
++  test_save_reopen_stable_id_preservation();
++  test_asset_registry_and_viewport_controls();
++  test_validator_bridge_and_export_gate();
++  test_large_scene_10k_benchmark();
++  std::cout << "editor_core_test: ALL 10 SUITES PASSED\n";
++  return 0;
++}

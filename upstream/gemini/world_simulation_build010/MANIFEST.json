@@ -1,0 +1,194 @@
+{
+  "package": "SAIGE_Gemini_WorldSimulation_Build_010",
+  "build_number": 10,
+  "target_repository": "https://github.com/devincombs2007-rgb/SAIGE",
+  "target_base_branch": "claude/production-infrastructure",
+  "target_base_commit": "d15bfd3",
+  "target_work_branch": "gemini/world-simulation",
+  "cpp_standard": "C++20",
+  "compiler_verified": "g++ (Debian 12.2.0-14+deb12u1) 12.2.0",
+  "standalone_only": true,
+  "verified_test_functions": 48,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 1290,
+      "sha256": "de0c37fcb55d883397ab299baa0569fecf68891178ad103130e4f30220438f91"
+    },
+    {
+      "path": "HANDOFF.md",
+      "bytes": 621,
+      "sha256": "d9405e12d6f8a69d8f0b79e12d7eb31e9792bb0ed09d204637a97364b768ec1f"
+    },
+    {
+      "path": "LICENSES.md",
+      "bytes": 249,
+      "sha256": "0c978e2f5b28c671d610ca42bf5adac183db18b1e97201b105f12e6294c4b8ff"
+    },
+    {
+      "path": "README.md",
+      "bytes": 230,
+      "sha256": "9a64ceace0581dc9aeda706c3365fecdc7de636cad21e3039ea9f4a7854a6e80"
+    },
+    {
+      "path": "demo/urban_world_demo.cpp",
+      "bytes": 8065,
+      "sha256": "721352373b744a58ec0b4a3f5959e46a497da93267ecb5620c202006734a8cc8"
+    },
+    {
+      "path": "docs/ADVANCED_LIVING_WORLD_ROADMAP.md",
+      "bytes": 937,
+      "sha256": "7192466a2d49d97e09f6082e1250e1197849376149d030e2b9a08d9fd6cca548"
+    },
+    {
+      "path": "docs/GRAPHICAL_INTEGRATION_SPEC.md",
+      "bytes": 1959,
+      "sha256": "e3ec736ea073437f73f9ab9e782e7a6d81ad133a63866057021d020e367d1fe3"
+    },
+    {
+      "path": "integration/CMakeLists.snippet.cmake",
+      "bytes": 765,
+      "sha256": "9dfd7b5ee695631c07593d7c51aab7af2b913d77c2cba17b4560072e040af525"
+    },
+    {
+      "path": "integration/INTEGRATION.md",
+      "bytes": 771,
+      "sha256": "5cfdc7ea1d533a2324f521a6c57b956181ec43dd7a180ce1aa0352f4766837f9"
+    },
+    {
+      "path": "patches/gemini_world_simulation.patch",
+      "bytes": 253071,
+      "sha256": "b3ce38d2047e375a634b353a2e443bff6dfbd9f82872634fe27fbb6b9d0c7a0e"
+    },
+    {
+      "path": "results/compiler_and_sanitizer_output.txt",
+      "bytes": 8254,
+      "sha256": "92a44e988a3d9172eabfd658fa115b7426e65b36a3f5325b455bd6c9dbe98ef0"
+    },
+    {
+      "path": "source/include/saige/crowd_avoidance.hpp",
+      "bytes": 3468,
+      "sha256": "50a5e48ac39a3eb68986aa19e59576bbc5a520954a9567a46466055a9b6f5f09"
+    },
+    {
+      "path": "source/include/saige/local_economy.hpp",
+      "bytes": 4596,
+      "sha256": "9592851cc91eb9314f088118f7e0ef032e00470b819905dde7f6017e49e8b646"
+    },
+    {
+      "path": "source/include/saige/multi_floor_nav.hpp",
+      "bytes": 2758,
+      "sha256": "7e5c9f902fe3cf0b2e80d8bcfa63cbd7c3cf15d5ae3d365bd22209720d7a8c74"
+    },
+    {
+      "path": "source/include/saige/npc_psychology.hpp",
+      "bytes": 2694,
+      "sha256": "0dd0633dc492bbeede93ae5947a0085432b0a9a5c361e0ac4cc7e32a41a4a8a0"
+    },
+    {
+      "path": "source/include/saige/npc_simulation.hpp",
+      "bytes": 8203,
+      "sha256": "4d86c3a621bcca0be8719890370fc30958a45acaadf9094aabe412be0aef0ef7"
+    },
+    {
+      "path": "source/include/saige/persistent_world.hpp",
+      "bytes": 6153,
+      "sha256": "63eaaa40e6045479daaa11f1b808b57c1a2ed444bb8804b6316f4f5ac0ab8113"
+    },
+    {
+      "path": "source/include/saige/saige_world_adapter.hpp",
+      "bytes": 3822,
+      "sha256": "b8b34b187e51f7e185239c4a14c522c48a49d5a8a9fe6372239a02af9a69ac5e"
+    },
+    {
+      "path": "source/include/saige/social_simulation.hpp",
+      "bytes": 3475,
+      "sha256": "d4ad84d794bb1581c6ddfc7fe036d14a5a3887f227002260add4fee551718dce"
+    },
+    {
+      "path": "source/include/saige/traffic_simulation.hpp",
+      "bytes": 5314,
+      "sha256": "63b60a44ce0de696d40f687afb3e9c56b2d4752f21794eddf7b8d869197043c1"
+    },
+    {
+      "path": "source/src/crowd_avoidance.cpp",
+      "bytes": 22582,
+      "sha256": "fc38fdb9bac392ef95fdd4b1f2601ecdde3a87c4acee492036e576ea8faa5291"
+    },
+    {
+      "path": "source/src/local_economy.cpp",
+      "bytes": 10274,
+      "sha256": "530bea053cdd60130e120058c6d8c641a26888b8e5cce545380cd8de6491ef31"
+    },
+    {
+      "path": "source/src/multi_floor_nav.cpp",
+      "bytes": 10656,
+      "sha256": "cab974955ad5d3a24e9190670bdb33fd92b62d2a9a888e03c3969c76c3bae1df"
+    },
+    {
+      "path": "source/src/npc_psychology.cpp",
+      "bytes": 4557,
+      "sha256": "9c1759ff475920a8ebba7559eed63d9f2b758d2559a941730b47fe13ef4e75d0"
+    },
+    {
+      "path": "source/src/npc_simulation.cpp",
+      "bytes": 27307,
+      "sha256": "54bae8b056d5e7c388f72ccd55bb3ac3e476d3b8f5470743d686b9a8187876fd"
+    },
+    {
+      "path": "source/src/persistent_world.cpp",
+      "bytes": 30034,
+      "sha256": "db71a73fe80bacfc2c56845a404a8a0f488713e53f55404530708c83c72c784f"
+    },
+    {
+      "path": "source/src/social_simulation.cpp",
+      "bytes": 9444,
+      "sha256": "89f2f6bffe07590ea2cb84c0a763bf2b76e703e2433f2dc8e7e079a8ab039313"
+    },
+    {
+      "path": "source/src/traffic_simulation.cpp",
+      "bytes": 16430,
+      "sha256": "ce38997433b7474a30953f1f19932f57140dac2836088c2b27e4e078805e9c09"
+    },
+    {
+      "path": "tests/crowd_avoidance_test.cpp",
+      "bytes": 9113,
+      "sha256": "4c0543f6aa9c7dc73589a0f69227ff98a571d0b74a3ccbf44e1754db7d3ce279"
+    },
+    {
+      "path": "tests/local_economy_test.cpp",
+      "bytes": 5752,
+      "sha256": "e15856c6c52ade7ea86b44faff4b8a91147027cb34a505c88a2ae28c7c9b7830"
+    },
+    {
+      "path": "tests/multi_floor_nav_test.cpp",
+      "bytes": 4945,
+      "sha256": "79e9ddcb64bf4c4f0a193c638cf6b46837022b26475d005abf8dd94d20d0ef2e"
+    },
+    {
+      "path": "tests/npc_psychology_test.cpp",
+      "bytes": 2491,
+      "sha256": "0d1640130370eb0350d692bfc6275ed977f7f4330defba45b6dbd8b9d14d784c"
+    },
+    {
+      "path": "tests/npc_simulation_test.cpp",
+      "bytes": 16160,
+      "sha256": "2a7418af42ded34fb74fa8b35a9a729e90edd890bf8e52fa9b534d6e454676a9"
+    },
+    {
+      "path": "tests/persistent_world_test.cpp",
+      "bytes": 10295,
+      "sha256": "ebd414bbc191761b0859e2ca77f502f466aec7123ad30169ee6ba6663a481c99"
+    },
+    {
+      "path": "tests/social_simulation_test.cpp",
+      "bytes": 5163,
+      "sha256": "003ae7246dbd8f05944f3e82dbe5f6820cb75cb5b81c6f9941bcae353c5f8703"
+    },
+    {
+      "path": "tests/traffic_simulation_test.cpp",
+      "bytes": 8128,
+      "sha256": "9ee444f1e60314d909c8ae438e7f6e4b67f37be81c25570762e584045640ba49"
+    }
+  ]
+}

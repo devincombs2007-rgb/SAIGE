@@ -25,7 +25,7 @@ Evidence levels: **CI** (hosted run id), **local** (my container only), **doc** 
 
 | Item | Status | Evidence and paths | Unresolved criteria |
 | --- | --- | --- | --- |
-| Unified integration baseline (no main merge) | **unintegrated** | `main` is `5239e0c`. Seven dependency-ordered draft PRs exist (`#100`–`#113`, branches `batch/1-platform` … `batch/7-engine-systems`; docs on this branch: `docs/engineering/integration-plan.md`, `integration-batches.md`, `integration-candidate.md`; their content was not re-read for this pass). 59 PRs are open, 57 of them drafts; `claude/fidelity-dev`, `claude/s04-quality`, `claude/ssr-validation` are in none of the batches. | One reviewed baseline that contains the batches and the three active branches; its own CI; owner approval. Not started. |
+| Unified integration baseline (no main merge) | **unintegrated** | `main` is `5239e0c`. Seven dependency-ordered draft PRs exist (`#100`–`#113`, branches `batch/1-platform` … `batch/7-engine-systems`; docs on this branch: `docs/engineering/integration-plan.md`, `integration-batches.md`, `integration-candidate.md`; their content was not re-read for this pass). 59 PRs are open, 57 of them drafts. By ancestry (`git merge-base --is-ancestor`, see section 4): `claude/fidelity-dev`, `claude/s04-quality`, `claude/ssr-validation` and `claude/showcase-04` each **contain batches 1 to 6** (13 batch branches) and then carry their own commits (29, 23, 28 and 13 commits beyond `batch/6-production-infrastructure`); none contains `batch/7-engine-systems`, which adds one commit that they lack. `claude/production-infrastructure` is a separate lineage: it shares only the old ancestor `25cd8e1` with `batch/6` (114 commits only on the production branch, 63 only on `batch/6`), so whether `batch/6` and later reproduce its content exactly is **not verified**. | One reviewed baseline that contains the batches and the active branches' own commits; its own CI; owner approval. A content-equivalence check between `claude/production-infrastructure` and `batch/6`. Not started. |
 | Test, skip and mutation integrity | **partial** | Lavapipe lane, run 45927354250: 175 tests, 169 passed, 6 skipped (`dynamics`, `destruction`, `buoyancy`, `ragdoll`, `saige_animation_ragdoll`: `CMakeLists.txt:132-144` and `engine/animation/CMakeLists.txt:76`, exit code 77, Jolt-dependent; `horizon_props`: `showcase/CMakeLists.txt:52`, backlog says it needs the Showcase 03 assets). S4-039 (visual regression could skip silently) is fixed on `claude/s04-quality`; hosted result seen at the time. Mutation counts are per feature (local lights 10/10, SSR 17 harness and shader mutants, light culling 14/14, host light set 12/12, CPU light reference 18/19 with one equivalent survivor). | Skips on the Windows and ASan lanes are not enumerated here. No repository-wide rule that a skip count may not grow. Mutation coverage of the older modules is not inventoried. |
 | Project migrations and failure recovery | **partial / unknown** | Backlog (Core, item 2): "Project and asset format versioning with migrations" is listed as open. PR #64 (non-draft, saved v1 project transparency test) is open. `docs/project-format-0.2.md` exists. | Whether migrations exist and are tested on `main` or in the batches: not checked. |
 | Physical-GPU evidence | **missing** | Issue #9 (Windows desktop host) and the `0.3` plan record the requirement. No result in this repository comes from a physical GPU. | A recorded run on physical hardware with adapter classification; owner action. |
@@ -81,6 +81,7 @@ Evidence levels: **CI** (hosted run id), **local** (my container only), **doc** 
 | of which every commit is already in `main` | 48 (besides `main` itself) | same |
 | of which carry commits that are not in `main` | 93 | same |
 | Last commit before 2026-11-24 (includes `main`, dated 2026-11-23) | 89 | same |
+| Unmerged branches classified by ancestry: contained in a batch branch / contained in another active branch / tip not contained in either | 53 / 8 / 32 | `audit/unmerged-branch-classification-2026-11-27.tsv` |
 | Open pull requests | 59 (57 draft, 2 ready: #64, #67) | `audit/open-prs-2026-11-27.tsv` |
 | Closed pull requests | 42, all merged | `audit/closed-prs-2026-11-27.tsv` |
 | Open issues | 12 (#1, #2, #3, #4, #5, #7, #9, #17, #19, #43, #62, #66) | `audit/open-issues-2026-11-27.tsv` |
@@ -90,7 +91,7 @@ Reproduce: `git fetch origin && git ls-remote --heads origin`; per branch `git r
 
 ## 5. Not yet accounted for (so this audit cannot be called complete)
 
-1. **Per-branch content.** I counted the 93 branches with unmerged commits and recorded their distance from `main`. I did not classify each one (superseded by a batch PR, abandoned, live, or containing unique work). `claude/production-infrastructure`, `claude/ssr-validation`, `claude/fidelity-dev`, `claude/s04-quality` and `claude/showcase-04` are the furthest ahead (about 200 to 240 commits).
+1. **Per-branch content.** The 93 branches with unmerged commits are classified only by ancestry (53 are contained in a batch branch, 8 in another active branch, 32 have a tip contained in neither; the file lists them). Ancestry says nothing about whether a branch was abandoned, superseded by a squashed copy or holds unique work; the 32 are not yet read. The 32 include six live heads (`claude/fidelity-dev`, `claude/s04-quality`, `claude/ssr-validation`, `claude/production-infrastructure`, `claude/showcase-03-world`, `batch/7-engine-systems`) and 26 older branches (0.2/0.3 integration, validation, review and showcase-01 branches). `claude/showcase-04` is contained in another active branch.
 2. **Per-PR state.** CI status, base branch, overlap between a draft PR and the batch PR that contains it, and review state of the 59 open PRs.
 3. **Issues.** Only titles of the 12 open issues were read for this pass; their acceptance criteria were not reconciled against the code.
 4. **Source modules.** No module-by-module inventory (each directory under `engine/`, `include/saige/`, `src/`, `tools/`, `showcase/`) with its test and its last CI result.
@@ -101,7 +102,7 @@ Reproduce: `git fetch origin && git ls-remote --heads origin`; per branch `git r
 
 ## 6. Proposed order for closing the gaps (for director review)
 
-1. Classify the 93 unmerged branches and the 59 PRs against the seven batch PRs (a script plus a human-readable table); this decides the integration baseline.
+1. Read the 32 branches whose tips are in no batch and no active branch, and map the 59 PRs to the branches that carry them (the ancestry pass is done); this decides the integration baseline.
 2. Enumerate skips on all lanes and add a CI assertion that the skip set equals an allowed list.
 3. Update `backlog.md` from this document.
 4. Then return to P1 engineering in dependency order (clustered local lights, FrameView and velocity, then glass and reflections).

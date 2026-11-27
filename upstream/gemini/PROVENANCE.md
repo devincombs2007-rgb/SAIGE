@@ -23,3 +23,9 @@ The SSR media are kept out of Git history (size); their hashes, from the verifie
 - World Editor: director review 7198676267 (material finite/range validation, world transforms and the +X forward axis, cross-chunk clearance, dependencies and licensing, vehicle attachments, versioned persistence, a validator bridge). Build 012 predates it; a Build 013 was never delivered.
 - World Simulation: standalone and experimental; must be reconciled with the current navigation, traffic and persistence before integration (exact ledger, event priority, crowd/navigation behaviour, boundary conditions).
 - The packages' `HANDOFF.md` files describe the old ownership split; owner directive 7209812710 supersedes them.
+
+## Master Asset Acquisition 001 (received 2026-11-27, separately)
+- `SAIGE_Master_Asset_Acquisition_001.zip`, 17,777 bytes, SHA-256 `a82bacab76ae0fcf26c1c82ebebea2d73eb57f68991d96bf74f2d16478c47ea1` (matches #43 comment
+  7209985020), relayed by the owner. Kept unchanged in `upstream/gemini/asset_acquisition_001/` (14 files: Python source, a 16-entry catalog of intents, tests,
+  docs; no assets).
+- Not adopted as a second tool. Its review findings were applied to `tools/production/saige_assets`; see `docs/assets/acquisition-safety.md`.

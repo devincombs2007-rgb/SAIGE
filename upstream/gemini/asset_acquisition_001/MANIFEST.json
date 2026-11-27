@@ -1,0 +1,71 @@
+{
+  "package": "SAIGE_Master_Asset_Acquisition_001",
+  "file_count": 13,
+  "files": [
+    {
+      "path": "INTEGRATION_GUIDE.md",
+      "bytes": 1076,
+      "sha256": "481b8d5b9ee1636ef80e215628a90a5670c64ac7b6004e5fdb1284227653e4a3"
+    },
+    {
+      "path": "LICENSES.md",
+      "bytes": 800,
+      "sha256": "87cdf6bb90cb362a62e238fe02f5a4211aaa9244c4ba15a7ca7aed3d600ce944"
+    },
+    {
+      "path": "README.md",
+      "bytes": 1845,
+      "sha256": "28a6c3020a204186e16b466e66a464f80671bd6e7836e82139193ca79bde6788"
+    },
+    {
+      "path": "saige_acquire.py",
+      "bytes": 6276,
+      "sha256": "7a10608d9a7215616e105c0d300417c422e56a4686c98b6be1b9eb9300fb6332"
+    },
+    {
+      "path": "test_results.txt",
+      "bytes": 88,
+      "sha256": "2d920bf2600f0e37e1f6df062ee6ef153b22f79b6a5f4da8b2ead3551171088b"
+    },
+    {
+      "path": "catalog/acquisition_catalog.json",
+      "bytes": 8730,
+      "sha256": "705bac6dbddf8a228b4aa822bd5f423086b9e2a0107bb203233fc2098c1d9e42"
+    },
+    {
+      "path": "saige_acq/__init__.py",
+      "bytes": 85,
+      "sha256": "604f687bb7d337d1bbcd12b8cf8a09ae058a6185c4997d5ed97c2b57c4f3fb5d"
+    },
+    {
+      "path": "saige_acq/downloader.py",
+      "bytes": 6266,
+      "sha256": "3023d7d61327eefd2da2130f33e431df7f0d001946f62456f3291606aa021f97"
+    },
+    {
+      "path": "saige_acq/extractors.py",
+      "bytes": 6998,
+      "sha256": "2cf291bc66ce34ea2c2c5a06944ae0314061b89ce2b037eab6fdc13bdeb7b29c"
+    },
+    {
+      "path": "saige_acq/models.py",
+      "bytes": 2135,
+      "sha256": "8106b5a6bde9f7354226998fa88f4ce1ad8b250fab6f56d298c4eda2901ad829"
+    },
+    {
+      "path": "saige_acq/organizer.py",
+      "bytes": 4370,
+      "sha256": "b7dda3391042275e6789668bd98d4164661e10dd2dadda501a325af8712291fa"
+    },
+    {
+      "path": "saige_acq/validator.py",
+      "bytes": 1338,
+      "sha256": "c411974051c3e1b7acec468f544310f57e1c057a8b7587ab93a9f376948ab66e"
+    },
+    {
+      "path": "tests/test_acquisition.py",
+      "bytes": 9956,
+      "sha256": "c7a7685f3e20cc2c291bfbf2075ff81cdc97da6ad4ecdf5539cff00b7f0ce22b"
+    }
+  ]
+}

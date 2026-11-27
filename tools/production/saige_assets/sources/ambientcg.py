@@ -3,10 +3,15 @@ import zipfile
 from pathlib import Path
 
 from ..common import CACHE_DIR, http_get, now, sha256_file
+from .. import safety
 from .. import extract
 from ..catalog import classify
 
 API = "https://ambientcg.com/api/v2/full_json"
+# ambientcg.com/get answers with a 302 to its download CDN. Evidence that the CDN is ambientCG's own (checked 2026-11-27): the redirect comes from
+# ambientcg.com itself, to /file/ambientCG-Web/download/..., and ambientcg.com serves its own site media from acg-media.struffelproductions.com under
+# the same /file/ambientCG-Web/ tree. Only that exact download host is added; a redirect anywhere else is refused.
+HOSTS = ("ambientcg.com", "acg-download.struffelproductions.com")
 LICENSE = {"spdx": "CC0-1.0", "url": "https://docs.ambientcg.com/license/", "commercial_use": True, "redistribution": "allowed", "ai_training": True, "attribution": "", "notes": "ambientCG assets are CC0."}
 KIND = {"Material": "material", "Atlas": "material", "Decal": "material", "HDRI": "hdri", "3DModel": "model", "Brush": "texture", "Substance": "material"}
 
@@ -18,24 +23,25 @@ def search(query="", type="Material", limit=20):
 
 
 def fetch(asset_id, attribute="1K-JPG"):
-    d = http_get(f"{API}?id={asset_id}&include=downloadData,tagData,displayData", expect_json=True)
+    safety.contained(CACHE_DIR / "ambientcg", asset_id)
+    d = http_get(f"{API}?id={asset_id}&include=downloadData,tagData,displayData", expect_json=True, allowed_hosts=HOSTS)
     a = d["foundAssets"][0]
     dl = next((x for x in a["downloadFolders"]["default"]["downloadFiletypeCategories"]["zip"]["downloads"] if x["attribute"] == attribute), None)
     if dl is None:
         raise RuntimeError(f"{asset_id} has no {attribute} download")
     out_dir = CACHE_DIR / "ambientcg" / asset_id / attribute
     zpath = out_dir / (asset_id + "_" + attribute + ".zip")
-    if not zpath.exists():
-        http_get(dl["fullDownloadPath"], stream_to=zpath, timeout=600)
-    with zipfile.ZipFile(zpath) as z:
-        z.extractall(out_dir / "files")
+    http_get(dl["fullDownloadPath"], stream_to=zpath, timeout=600, allowed_hosts=HOSTS, expected_size=dl.get("size"))  # ambientCG publishes a size, no hash
+    extracted = safety.safe_extract(zpath, out_dir / "files")  # member by member, contained and bounded (was ZipFile.extractall)
     files = []
-    for p in sorted((out_dir / "files").rglob("*")):
+    for p in sorted(extracted):
         if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".exr", ".hdr", ".glb", ".gltf", ".usdc", ".mtlx", ".obj", ".fbx"):
             low = p.name.lower()
             role = "base_color" if "color" in low else "normal_gl" if "normalgl" in low else "normal_dx" if "normaldx" in low else "roughness" if "roughness" in low else "metalness" if "metalness" in low else "ao" if "ambientocclusion" in low else "displacement" if "displacement" in low else "emission" if "emission" in low else "other"
             files.append({"path": str(p.relative_to(CACHE_DIR)), "sha256": sha256_file(p), "bytes": p.stat().st_size, "role": role, "format": p.suffix.lstrip(".")})
     kind = KIND.get(a.get("dataType"), "material")
+    if not files:
+        raise RuntimeError(f"{asset_id} {attribute}: the archive holds no usable map or model")
     base = next((f for f in files if f["role"] in ("base_color",)), files[0])
     tech = extract.describe(CACHE_DIR / base["path"])
     tags = a.get("tags", [])

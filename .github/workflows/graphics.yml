@@ -61,7 +61,11 @@ jobs:
           mkdir -p captures
           # The SSR validation tests must exist (20) and must run here: a lane that required them cannot lose them (the configure step also fails without them).
           test "$(ctest --test-dir build -N -R '^ssr_' | sed -n 's/^Total Tests: //p')" = "20"
-          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure -E "alive_visual$"
+          SAIGE_REQUIRE_VALIDATION=1 SAIGE_CAPTURE_DIR=$PWD/captures xvfb-run -a ctest --test-dir build --output-on-failure -E "alive_visual$" --output-junit ctest-junit.xml
+      - name: Skips match the lane's allowed list (tools/ci/allowed_skips.json)
+        run: |
+          python3 tools/ci/test_check_skips.py
+          python3 tools/ci/check_skips.py --junit build/ctest-junit.xml --lane linux-vulkan-lavapipe
       # Showcase 04 visual regression on generated fixtures (tools/make_fixtures.py: checker textures, the procedural car, no residents): needs nothing downloaded, so it is REQUIRED and runs before anything that
       # depends on the network. Every intended mutant (the film's old behaviours, a scout summary read as a report) must be caught, an unknown case, an empty selection or zero executed tests fail it, and
       # SAIGE_REQUIRE_VISUAL=1 makes a missing renderer a failure. What it covers and what it does not (the third-party textures' detail, the Khronos car, props, residents) is in the defect register's
@@ -120,7 +124,9 @@ jobs:
       - name: Test (the real-asset animation tests run under ASan and UBSan)
         env:
           SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure --output-junit ctest-junit.xml
+      - name: Skips match the lane's allowed list (tools/ci/allowed_skips.json)
+        run: python3 tools/ci/check_skips.py --junit build/ctest-junit.xml --lane linux-gcc-asan
 
   windows-msvc-vulkan:
     runs-on: windows-2022
@@ -141,4 +147,6 @@ jobs:
       - name: Test (the real-asset animation tests run with MSVC's floating point)
         env:
           SAIGE_ANIM_ASSETS: ${{ runner.temp }}/anim_assets
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure --output-junit ctest-junit.xml
+      - name: Skips match the lane's allowed list (tools/ci/allowed_skips.json)
+        run: python tools/ci/check_skips.py --junit build/ctest-junit.xml --lane windows-msvc-vulkan

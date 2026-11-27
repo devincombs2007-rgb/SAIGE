@@ -1,0 +1,38 @@
+{
+  "about": "Tests each CI lane may skip (CTest exit code 77), with the reason. tools/ci/check_skips.py fails a lane on any other skip. Remove an entry when its test starts running in that lane. Recorded from the green Graphics run 45952592976 (2026-11-27).",
+  "lanes": {
+    "linux-vulkan-lavapipe": {
+      "dynamics": "needs the Jolt backend (SAIGE_PHYSICS_JOLT); runs in the Physics Jolt workflow",
+      "destruction": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "buoyancy": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "ragdoll": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "saige_animation_ragdoll": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "horizon_props": "needs the Showcase 03 licensed props, which this lane does not restore"
+    },
+    "linux-gcc-asan": {
+      "dynamics": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "destruction": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "buoyancy": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "ragdoll": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "saige_animation_ragdoll": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "horizon_props": "needs the Showcase 03 licensed props",
+      "production_tools_python": "this lane does not install the production tools' Python packages; the lavapipe lane runs it"
+    },
+    "windows-msvc-vulkan": {
+      "dynamics": "needs the Jolt backend; runs in the Physics Jolt workflow (Linux and Windows)",
+      "destruction": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "buoyancy": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "ragdoll": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "saige_animation_ragdoll": "needs the Jolt backend; runs in the Physics Jolt workflow",
+      "horizon_props": "needs the Showcase 03 licensed props",
+      "production_tools_python": "the production tools' Python packages are not installed on this lane",
+      "animation_viewer_smoke": "renders with Vulkan; this lane has no Vulkan device",
+      "showcase_smoke": "renders with Vulkan; this lane has no Vulkan device",
+      "saige_rhi_vulkan_tests": "no Vulkan device on the hosted Windows runner (no software rasterizer installed): built, not executed",
+      "saige_render_sink_vulkan_tests": "no Vulkan device on the hosted Windows runner",
+      "saige_render_sink_scene_vulkan_tests": "no Vulkan device on the hosted Windows runner",
+      "saige_render_sink_prepared_scene_vulkan_tests": "no Vulkan device on the hosted Windows runner",
+      "saige_win32_vulkan_tests": "no Vulkan device on the hosted Windows runner"
+    }
+  }
+}

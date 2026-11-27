@@ -3,6 +3,8 @@
 #include "actors.hpp"
 #include "city.hpp"
 #include "director.hpp"
+#include "vegetation_shape.hpp"
+#include "district_validate.hpp"
 #include "gfx.hpp"
 #include "scout.hpp"
 #include "world.hpp"
@@ -12,6 +14,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -51,6 +54,8 @@ struct Options {
     int start_frame = 0, end_frame = -1;
     fs::path video;
     fs::path scout_file;
+    bool fixtures = false;       // the fixture path (see Actors): procedural car, no residents
+    bool scout_legacy = false;   // read a headerless (pre-format-1) scout file, such as the one the delivered film was shot from
     fs::path audio_log;
     bool no_render = false;
     std::vector<int> only_frames;
@@ -61,8 +66,13 @@ struct Options {
     float shadow_distance = 220.0f;
     float far_distance = 260.0f;
     double hour = 17.5;
+    double hour_step = 0.0;   // stills: the hour advances by this much per still (a sun sequence in one run)
     float exposure_bias = 0.45f;
     bool validate = false;
+    // Diagnostics: switch one renderer pass off to attribute an artefact to it (shadows, ao, bloom, fxaa).
+    bool disable_shadows = false, disable_ao = false, disable_bloom = false, disable_fxaa = false;
+    bool disable_stabilize = false;   // diagnostics: cascades not snapped to texels (what the shadow stability test measures)
+    bool check_camera = false;   // film mode: count the frames whose eye is inside tree foliage or whose first 6 m of view pass through leaves (exit status 3 if any)
     std::vector<std::array<double, 7>> stills;
 };
 
@@ -92,6 +102,8 @@ Options parse(int argc, char** argv) {
             else if (a == "--end-frame") o.end_frame = std::stoi(value());
             else if (a == "--video") o.video = value();
             else if (a == "--scout-file") o.scout_file = value();
+            else if (a == "--scout-legacy") o.scout_legacy = true;
+            else if (a == "--fixtures") o.fixtures = true;
             else if (a == "--audio-log") o.audio_log = value();
             else if (a == "--no-render") o.no_render = true;
             else if (a == "--frames") {
@@ -109,10 +121,24 @@ Options parse(int argc, char** argv) {
             else if (a == "--height") o.height = static_cast<std::uint32_t>(std::stoul(value()));
             else if (a == "--ssaa") o.ssaa = static_cast<std::uint32_t>(std::stoul(value()));
             else if (a == "--hour") o.hour = std::stod(value());
+            else if (a == "--hour-step") o.hour_step = std::stod(value());
             else if (a == "--shadow-map") o.shadow_map = static_cast<std::uint32_t>(std::stoul(value()));
             else if (a == "--shadow-distance") o.shadow_distance = std::stof(value());
             else if (a == "--exposure") o.exposure_bias = std::stof(value());
             else if (a == "--validate") o.validate = true;
+            else if (a == "--check-camera") o.check_camera = true;
+            else if (a == "--disable") {
+                std::stringstream ss(value());
+                std::string tok;
+                while (std::getline(ss, tok, ',')) {
+                    if (tok == "shadows") o.disable_shadows = true;
+                    else if (tok == "ao") o.disable_ao = true;
+                    else if (tok == "bloom") o.disable_bloom = true;
+                    else if (tok == "fxaa") o.disable_fxaa = true;
+                    else if (tok == "stabilize") o.disable_stabilize = true;
+                    else usage("--disable takes shadows,ao,bloom,fxaa,stabilize");
+                }
+            }
             else if (a == "--still") {
                 std::array<double, 7> c{};
                 std::stringstream ss(value());
@@ -183,14 +209,15 @@ int main(int argc, char** argv) {
         rs.atmosphere.sun_disc_intensity = 3500.0f;
         rs.atmosphere.moon_intensity = 14.0f;
         rs.atmosphere.star_intensity = 60.0f;
-        rs.shadows.enabled = true;
+        rs.shadows.enabled = !opt.disable_shadows;
         rs.shadows.cascades = 3;
         rs.shadows.map_size = opt.shadow_map;
         rs.shadows.distance = opt.shadow_distance;
         rs.shadows.filter_radius = 1;
-        rs.bloom.enabled = true;
-        rs.ambient_occlusion.enabled = true;
-        rs.fxaa.enabled = true;
+        rs.shadows.stabilize = !opt.disable_stabilize;
+        rs.bloom.enabled = !opt.disable_bloom;
+        rs.ambient_occlusion.enabled = !opt.disable_ao;
+        rs.fxaa.enabled = !opt.disable_fxaa;
 
         Offscreen target(*device, opt.width * opt.ssaa, opt.height * opt.ssaa);
         render::SceneRenderer renderer(*device, rhi::Format::RGBA8_SRGB, rs);
@@ -207,7 +234,7 @@ int main(int argc, char** argv) {
         alive::World world(wc);
         const District& district = world.district();
         CityScene city(renderer, materials, district, opt.assets / "polyhaven", warnings);
-        Actors actors(renderer, materials, district, opt.assets, opt.anim, warnings);
+        Actors actors(renderer, materials, district, opt.assets, opt.anim, warnings, opt.fixtures);
         std::printf("city: %zu draws, %zu triangles, built in %.1f s\n", city.draw_count(), city.triangle_count(), std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
         for (const std::string& w : warnings) std::printf("warning: %s\n", w.c_str());
         const auto s0 = std::chrono::steady_clock::now();
@@ -221,25 +248,27 @@ int main(int argc, char** argv) {
         if (opt.film) {
             ScoutReport rep;
             if (!opt.scout_file.empty() && fs::exists(opt.scout_file)) {
-                std::ifstream in(opt.scout_file);
-                std::string tag;
-                while (in >> tag) {
-                    if (tag == "accident") in >> rep.accident_t >> rep.accident_x >> rep.accident_y >> rep.accident_vehicle >> rep.onscene_t >> rep.cleared_t;
-                    else if (tag == "event") {
-                        ScoutEvent e;
-                        int type = 0;
-                        in >> e.t >> type >> e.vehicle >> e.x >> e.y;
-                        e.type = static_cast<TrafficEvent::Type>(type);
-                        rep.events.push_back(e);
-                    }
-                }
+                // An existing file is read strictly and never silently replaced: a file that cannot be read is an error, not a reason to scout again.
+                std::ifstream in(opt.scout_file, std::ios::binary);
+                std::string text(static_cast<std::size_t>(fs::file_size(opt.scout_file)), '\0');
+                in.read(text.data(), static_cast<std::streamsize>(text.size()));
+                if (!in || static_cast<std::size_t>(in.gcount()) != text.size()) throw std::runtime_error("cannot read scout file " + opt.scout_file.string());
+                const ScoutParse pr = parse_scout_report(text, rep, opt.scout_legacy);
+                if (!pr.ok) throw std::runtime_error("scout file " + opt.scout_file.string() + ": " + pr.error);
+                std::string mismatch_why;
+                if (!scout_matches_world(pr, wc, mismatch_why)) throw std::runtime_error("scout file " + opt.scout_file.string() + " was " + mismatch_why);
+                std::printf("scout file %s: %s, %zu events\n", opt.scout_file.string().c_str(), pr.legacy ? "legacy layout (no seed, no configuration, no end line: neither truncation nor a different world can be detected)" : "format 2", rep.events.size());
             } else {
                 rep = scout_world(wc, opt.preroll + opt.film_seconds + 1.0);
                 if (!opt.scout_file.empty()) {
-                    std::ofstream out(opt.scout_file);
-                    out.precision(17);
-                    out << "accident " << rep.accident_t << " " << rep.accident_x << " " << rep.accident_y << " " << rep.accident_vehicle << " " << rep.onscene_t << " " << rep.cleared_t << "\n";
-                    for (const ScoutEvent& e : rep.events) out << "event " << e.t << " " << static_cast<int>(e.type) << " " << e.vehicle << " " << e.x << " " << e.y << "\n";
+                    const fs::path tmp = opt.scout_file.string() + ".tmp";
+                    {
+                        std::ofstream out(tmp, std::ios::binary);
+                        write_scout_report(out, rep, wc);
+                        out.flush();
+                        if (!out) throw std::runtime_error("cannot write scout file " + tmp.string());
+                    }
+                    fs::rename(tmp, opt.scout_file);
                 }
             }
             std::printf("scout (seed %u): accident at %.1f s sim (film %.1f), response on scene at %.1f, cleared %.1f\n", opt.seed, rep.accident_t, rep.accident_t - opt.preroll, rep.onscene_t, rep.cleared_t);
@@ -265,6 +294,10 @@ int main(int argc, char** argv) {
             FILE* audio = opt.audio_log.empty() ? nullptr : std::fopen(opt.audio_log.string().c_str(), "w");
             double frame_ms = 0.0;
             int drawn = 0;
+            int camera_violations = 0, cam_obstructed = 0, cam_solid = 0, cam_hidden = 0;
+            std::map<std::string, int> violation_prints;
+            int vehicle_in_building = 0;   // vehicle-frames with the centre more than 0.5 m inside a collision box taller than a person (a world consistency check, not a camera one)
+            std::map<std::string, std::array<int, 3>> by_shot;   // per shot: frames, obstructed + solid, subject hidden
             for (int f = 0; f < last; ++f) {
                 const double tf = static_cast<double>(f) * dt;
                 world.step(dt);
@@ -272,14 +305,65 @@ int main(int argc, char** argv) {
                 const std::vector<TrafficEvent> frame_events = world.take_traffic_events();
                 for (const TrafficEvent& e : frame_events)
                     if (e.type == TrafficEvent::Type::Impact && e.energy > 2500.0f) actors.impact(world.time_seconds(), e.x, e.y, 0.3, e.energy);
-                const Cam cam = director.camera(tf, dt, world);
+                Cam cam = director.camera(tf, dt, world);
+                if (const char* ov = std::getenv("SAIGE_ALIVE_FILM_CAMERA")) {  // diagnostics: "ex,ey,ez,lx,ly,lz,fov" replaces the director's camera for every frame drawn (close-ups of what the simulation placed)
+                    std::array<double, 7> c{};
+                    std::stringstream ss(ov);
+                    std::string tok;
+                    std::size_t k = 0;
+                    while (std::getline(ss, tok, ',') && k < 7) c[k++] = std::stod(tok);
+                    if (k == 7) {
+                        cam.eye = {static_cast<float>(c[0]), static_cast<float>(c[1]), static_cast<float>(c[2])};
+                        cam.look = {static_cast<float>(c[3]), static_cast<float>(c[4]), static_cast<float>(c[5])};
+                        cam.fov_deg = static_cast<float>(c[6]);
+                    }
+                }
+                if (opt.check_camera) {
+                    static const std::vector<Box3> awnings = awning_boxes(district);
+                    static const std::vector<StreetProp> trees = [&] {
+                        std::vector<StreetProp> t;
+                        for (const StreetProp& p : district.props)
+                            if (p.type == "tree") t.push_back(p);
+                        return t;
+                    }();
+                    const std::array<float, 3> eye3{cam.eye.x, cam.eye.y, cam.eye.z}, look3{cam.look.x, cam.look.y, cam.look.z};
+                    const bool obstructed = view_obstructed(trees, awnings, eye3, look3, cam.fov_deg);
+                    const bool solid = eye_in_solid(district, eye3) || view_into_solid(district, eye3, look3, 1.2f);   // inside a wall, or a wall within 1.2 m straight ahead
+                    const bool hidden = director.shot_tracks_subject(tf) && sightline_blocked_by_building(district, eye3, cam.has_subject ? std::array<float, 3>{cam.subject.x, cam.subject.y, cam.subject.z} : look3);   // only shots that follow a resident or a vehicle have a subject for a building to hide
+                    if (solid && std::getenv("SAIGE_ALIVE_CAMERA_DEBUG") != nullptr) {
+                        for (const Aabb& c : district.collision)
+                            if (c.max.z >= 1.8f && eye3[0] > c.min.x && eye3[0] < c.max.x && eye3[1] > c.min.y && eye3[1] < c.max.y && eye3[2] > c.min.z && eye3[2] < c.max.z)
+                                std::printf("  solid frame %d shot '%s' eye (%.2f %.2f %.2f) look (%.2f %.2f %.2f) in box (%.2f %.2f %.2f)-(%.2f %.2f %.2f)\n", f, director.shot_name(tf).c_str(), static_cast<double>(eye3[0]), static_cast<double>(eye3[1]), static_cast<double>(eye3[2]), static_cast<double>(look3[0]), static_cast<double>(look3[1]), static_cast<double>(look3[2]), static_cast<double>(c.min.x), static_cast<double>(c.min.y), static_cast<double>(c.min.z), static_cast<double>(c.max.x), static_cast<double>(c.max.y), static_cast<double>(c.max.z));
+                    }
+                    for (const VehicleView& v : world.vehicles())
+                        for (const Aabb& c : district.collision)
+                            if (c.max.z >= 1.8f && static_cast<float>(v.x) > c.min.x + 0.5f && static_cast<float>(v.x) < c.max.x - 0.5f && static_cast<float>(v.y) > c.min.y + 0.5f && static_cast<float>(v.y) < c.max.y - 0.5f) {
+                                if (vehicle_in_building++ < 3) std::printf("vehicle %u centre inside a building volume at frame %d (t=%.2f s): (%.2f %.2f), box (%.1f %.1f)-(%.1f %.1f)\n", v.id, f, tf, v.x, v.y, static_cast<double>(c.min.x), static_cast<double>(c.min.y), static_cast<double>(c.max.x), static_cast<double>(c.max.y));
+                                break;
+                            }
+                    if (obstructed) ++cam_obstructed;
+                    if (solid) ++cam_solid;
+                    if (hidden) ++cam_hidden;
+                    const bool bad = obstructed || solid || hidden;
+                    auto& bs = by_shot[director.shot_name(tf)];
+                    ++bs[0];
+                    if (obstructed || solid) ++bs[1];
+                    if (hidden) {
+                        ++bs[2];
+                        if (++violation_prints["hidden:" + director.shot_name(tf)] <= 3) std::printf("subject hidden at frame %d (t=%.2f s, shot '%s') eye (%.1f %.1f %.1f) look (%.1f %.1f %.1f)\n", f, tf, director.shot_name(tf).c_str(), static_cast<double>(eye3[0]), static_cast<double>(eye3[1]), static_cast<double>(eye3[2]), static_cast<double>(look3[0]), static_cast<double>(look3[1]), static_cast<double>(look3[2]));
+                    }
+                    if (bad) {
+                        ++camera_violations;
+                        if (++violation_prints[director.shot_name(tf)] <= 3) std::printf("camera obstructed at frame %d (t=%.2f s, shot '%s')\n", f, tf, director.shot_name(tf).c_str());
+                    }
+                }
                 if (f < opt.start_frame) continue;
                 if (audio != nullptr) {
                     // What the soundtrack needs about this frame: where the listener is, every vehicle, the residents within earshot, and the world's events (each is a real engine fact: a vehicle's rpm, a resident's gait, an impact's energy).
                     bool indoors = false;
                     for (const Interior& in : district.interiors)
                         if (in.room.contains(static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y)) && cam.eye.z < 3.8f) indoors = true;
-                    std::fprintf(audio, "{\"f\":%d,\"t\":%.4f,\"in\":%d,\"cam\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f],\"veh\":[", f, tf, indoors ? 1 : 0, static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y), static_cast<double>(cam.eye.z), static_cast<double>(cam.look.x), static_cast<double>(cam.look.y), static_cast<double>(cam.look.z));
+                    std::fprintf(audio, "{\"f\":%d,\"t\":%.4f,\"in\":%d,\"cam\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f],\"fov\":%.2f,\"veh\":[", f, tf, indoors ? 1 : 0, static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y), static_cast<double>(cam.eye.z), static_cast<double>(cam.look.x), static_cast<double>(cam.look.y), static_cast<double>(cam.look.z), static_cast<double>(cam.fov_deg));
                     bool first = true;
                     for (const VehicleView& v : world.vehicles()) {
                         std::fprintf(audio, "%s[%u,%d,%.2f,%.2f,%.2f,%.2f,%d,%d,%d,%d]", first ? "" : ",", v.id, static_cast<int>(v.kind), v.x, v.y, v.z, v.speed, v.engine_rpm, v.siren ? 1 : 0, v.disabled ? 1 : 0, v.braking ? 1 : 0);
@@ -347,13 +431,23 @@ int main(int argc, char** argv) {
                     std::snprintf(name, sizeof name, "frame_%05d.ppm", f);
                     write_ppm(opt.out / name, img);
                 }
+                if (!opt.only_frames.empty()) std::printf("camera frame %d eye %.4f %.4f %.4f look %.4f %.4f %.4f fov %.2f\n", f, static_cast<double>(cam.eye.x), static_cast<double>(cam.eye.y), static_cast<double>(cam.eye.z), static_cast<double>(cam.look.x), static_cast<double>(cam.look.y), static_cast<double>(cam.look.z), static_cast<double>(cam.fov_deg));
                 if (f % 30 == 0) std::printf("frame %d/%d  t=%.1f s  shot '%s'  sun %.1f deg  %.2f s/frame avg\n", f, total, tf, director.shot_name(tf).c_str(), elev_deg, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
                 std::fflush(stdout);
             }
             if (pipe != nullptr) SAIGE_PCLOSE(pipe);
             if (audio != nullptr) std::fclose(audio);
             std::printf("film: %d frames drawn, %.2f s/frame average\n", drawn, drawn > 0 ? frame_ms / drawn / 1000.0 : 0.0);
-            return 0;
+            if (opt.check_camera)
+                for (const auto& [name, c] : by_shot)
+                    if (c[1] > 0 || c[2] > 0) std::printf("  shot '%s': %d frames, %d obstructed or in solid, %d with the subject hidden\n", name.c_str(), c[0], c[1], c[2]);
+            if (opt.check_camera) {
+                std::printf("world check: %d vehicle-frames with the centre inside a building volume\n", vehicle_in_building);
+                const ClearanceStats cs = director.clearance_stats();
+                std::printf("camera clearance: displaced %d frames, largest horizontal shift %.2f m, lift %.2f m, largest change of the shift between two frames %.2f m (%d jumps over 1.5 m), %d frames with no passing candidate, %d frames beyond the 5 m budget (up to 12 m), %d frames re-framed on an arc around the subject\n", cs.displaced_frames, static_cast<double>(cs.max_offset_horizontal), static_cast<double>(cs.max_offset_lift), static_cast<double>(cs.max_offset_step), cs.pops, cs.unresolved, cs.over_budget, cs.reframed);
+            }
+            if (opt.check_camera) std::printf("camera check: %d of %d frames have the camera in or looking through foliage or an awning, inside solid geometry, or with a building between it and its subject (obstructed %d, in solid %d, subject hidden %d)\n", camera_violations, last, cam_obstructed, cam_solid, cam_hidden);
+            return opt.check_camera && camera_violations > 0 ? 3 : 0;
         }
 
         int index = 0;
@@ -372,7 +466,7 @@ int main(int argc, char** argv) {
                 const traffic::SignalColor col = ic->signal_for_lane(I.inbound[static_cast<std::size_t>(leg)]);
                 return col == traffic::SignalColor::Green ? 3 : col == traffic::SignalColor::Yellow ? 2 : 1;
             }, [&](std::uint32_t cw) { return world.walk_signal(cw); });
-            const render::SolarPosition sun = render::solar_position(190, opt.hour, 37.0, kPi * 0.5);
+            const render::SolarPosition sun = render::solar_position(190, opt.hour + opt.hour_step * static_cast<double>(index), 37.0, kPi * 0.5);
             const double elev_deg = sun.elevation * 180.0 / kPi;
             render::SceneFrame frame;
             frame.tick = static_cast<std::uint64_t>(index);

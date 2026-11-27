@@ -23,6 +23,30 @@ enum class VehicleKind : std::uint8_t { Sedan, Hatchback, Van, Taxi, Ambulance, 
 // The physics configuration of a kind of vehicle (the renderer reads the wheel mounts, the radius and the box from it so that what is drawn sits where the physics puts it).
 [[nodiscard]] VehicleConfig vehicle_config_for(VehicleKind kind);
 
+// Hazard lamps of a disabled vehicle: one small lamp at each of the four corners of the VISIBLE body. The hazard model holds exactly kHazardLampsPerModel lamp and the renderer draws it once per corner
+// (kHazardCorners draws), at hazard_lamp_offsets(), in the body frame. Owner-reported defect "hazard lights detached from the vehicle body": the delivered code drew a four-lamp model four times, shifted by
+// the opposite corner (16 lamps, 12 of them 2 m from their corner), and, once that was fixed, placed the corners from the PHYSICS box, which is not the visible mesh (the Car Concept body is shorter and
+// lower than the chassis box): a rendered frame still showed a lamp hanging in the air behind the car. The corners now come from the body's own bounds.
+struct BodyBox {
+    std::array<float, 3> lo{}, hi{};  // the visible body's bounds in the body frame (x forward, y left, z up)
+};
+inline constexpr int kHazardLampsPerModel = 1;
+inline constexpr int kHazardCorners = 4;
+inline constexpr float kHazardInsetX = 0.10f;    // m inside the end of the body
+inline constexpr float kHazardInsetY = 0.18f;    // m inside the side of the body
+inline constexpr float kHazardHeightFrac = 0.45f;  // height of the lamp between the body's lowest and highest point
+[[nodiscard]] std::array<std::array<float, 3>, kHazardCorners> hazard_lamp_offsets(const BodyBox& body);
+// Hazard-lamp anchors ON THE SURFACE of a body mesh: for each corner the mesh vertex, in the middle height band (25 to 75 percent), that lies farthest toward the corner (score sx * x + 0.6 * sy * y).
+// `xyz` is the mesh's vertices (x forward, y left, z up, any common origin); the result is in the same space. A bounding-box corner is not on a rounded body: the second fix (box corners) still left a
+// lamp hanging about 0.4 m behind the visible rear of the Car Concept in a rendered frame.
+[[nodiscard]] std::array<std::array<float, 3>, kHazardCorners> hazard_surface_anchors(const std::vector<float>& xyz);
+// World position of a body-frame point of a vehicle at `pos` with orientation `q` (x, y, z, w): pos + rotate(q, p). The renderer places a lamp with the equivalent matrix; the tests check this in world space across poses.
+[[nodiscard]] std::array<double, 3> body_point_to_world(const std::array<double, 3>& pos, const std::array<float, 4>& q, const std::array<float, 3>& p);
+// The inverse: a world point into the body frame.
+[[nodiscard]] std::array<double, 3> world_point_to_body(const std::array<double, 3>& pos, const std::array<float, 4>& q, const std::array<double, 3>& w);
+// The same for vehicles drawn from their own physics box (vans, ambulance, fire engine: their bodies are built from the box).
+[[nodiscard]] std::array<std::array<float, 3>, kHazardCorners> hazard_lamp_offsets(const VehicleConfig& cfg);
+
 struct VehicleView {
     std::uint32_t id = 0;
     VehicleKind kind = VehicleKind::Sedan;

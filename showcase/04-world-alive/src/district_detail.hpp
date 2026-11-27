@@ -3,6 +3,8 @@
 
 #include "district.hpp"
 
+#include <array>
+
 namespace saige::alive {
 
 struct Rng {
@@ -25,6 +27,12 @@ inline Aabb box(double x0, double y0, double z0, double x1, double y1, double z1
 
 // The collision box of a prop or a piece of furniture, in world coordinates, or false when it does not block (flat things, awnings). Dimensions are by type; `scale` stretches counters and shelves along their length.
 bool prop_box(const StreetProp& p, Aabb& out);
+
+// The pedestrian path through a park, from the sidewalk along its north side, in, and back out: one definition for the navigation graph and for where trees may stand.
+inline std::array<std::array<double, 2>, 5> park_path_points(const Rect& p) {
+    const double sy = p.y1 + 1.75, cx = p.cx();
+    return {{{cx - 24.0, sy}, {cx - 24.0, p.y1 - 8.0}, {cx, p.cy() - 6.0}, {cx + 24.0, p.y1 - 8.0}, {cx + 24.0, sy}}};
+}
 
 void build_interiors(District& d, Rng& rng);   // chooses the accessible buildings and models their rooms, furniture and stairs
 void build_props(District& d, Rng& rng);       // street furniture

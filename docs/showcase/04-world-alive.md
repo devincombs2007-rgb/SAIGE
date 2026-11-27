@@ -58,3 +58,70 @@ showcase/04-world-alive/tools/assemble.sh SEGMENT_DIR mix8.wav film.mp4 1920 108
 
 The film is an **offline capture**: one frame at a time on a **software Vulkan rasterizer (llvmpipe, 4 CPU cores)**, 1920x1080 at **30 distinct frames per second**, 180 s. It makes no real-time
 claim, and nothing here is physical-GPU evidence. Measured cost on this machine is about 5 s per frame at 1080p with a 4096 shadow map.
+
+## The delivered film
+
+| Item | Value |
+| --- | --- |
+| File | `SAIGE_A_World_Alive.mp4` (not committed: 206 MB; the segments, audio log and mix are reproducible from this branch) |
+| Container, video | H.264 High, yuv420p, 1920x1080, 30 fps constant, `+faststart` (iPhone compatible), crf 20 |
+| Length | 191.0 s = 180.0 s of film (5400 frames, 18 segments of 300 frames) + an 11 s end card; 5730 frames counted by `ffprobe -count_frames` |
+| Audio | AAC-LC 192 kb/s, 48 kHz stereo, integrated loudness -16.6 LUFS, true peak -1.0 dBFS (the encoder overshoots the -1.5 dB target by 0.5 dB; the pre-encode mix is -28.6 LUFS before normalisation) |
+| SHA-256 | `00dcf1fdd2fc33c7535d2d743fc81a7ea46f10aa1d66201f020a958c6ee3e312` |
+| Seed and time | seed 8, `--time-scale 47` (the film runs from late afternoon through sunset to night) |
+| Where the accident is | about 1:35 into the film (the 95 s frame shows the smoking wreck); the scout pass found it and the director cut to it; responders and the night follow |
+
+The first assembly had an end-card line wider than the frame; it was shortened and the film re-assembled (only `assemble.sh` changed; no frame was re-rendered). The 5400 film frames are the original
+render, unmodified.
+
+## Feature and technology inventory
+
+Every item below is exercised in the film. "Tested" means a test in the repository covers it; nothing here is a measurement on physical GPU hardware.
+
+* Renderer: Vulkan RHI, PBR metallic-roughness model pipeline, HDR target, three-cascade sun shadows (4096 map), atmosphere sky with a solar position for the date and time, procedural stars, screen-space AO, bloom, FXAA, GPU skinning, emissive windows and lamps ramped with the evening.
+* Simulation (CPU, deterministic from the seed): district generator, 60 residents with schedules and venue visits, crowd solver, capsule characters, traffic with signals, raycast-suspension vehicles on static collision, one stochastic accident, emergency dispatch with signal preemption, residents reacting to the impact.
+* Animation: UAL humanoid, locomotion state machine and blend space posed from each resident's real speed.
+* Water: the engine's wave surface sampled for the sea mesh.
+* Camera: scout pass + director (shots follow real residents and vehicles; the camera never moves a simulated object).
+* Audio: offline stereo mix from the simulation's per-frame audio log (engine tone by vehicle speed, footsteps by resident speed, sirens, impact, ambience), with panning, distance attenuation, Doppler and an indoor low-pass, then loudness normalisation.
+* Film tooling: chunked, resumable rendering (frames before a chunk are simulated but not drawn, so chunks are exact), an ffmpeg pipe, an assembly script (concatenate, title, end card, loudnorm, H.264/AAC).
+
+## Validation
+
+Run on the film's binary (`build-vk`, a **Debug** build; the film was rendered with it, not a Release build) on 2026-11-26:
+
+| Check | Result |
+| --- | --- |
+| `alive_district_test` | district ok: 113 buildings, 473 props, 200 pedestrian nodes, 3703 interior cells, 754 collision boxes |
+| `alive_world_test 150` | simulated 150 s; closest pair of centres 0.685 m; worst overlap 0; worst stuck 0; 46 arrivals (3 into interiors); 39 crossings; world ok |
+| `alive_traffic_test` | accident at +0.8 s, cleared at +65.8 s; 6 impacts; 2 responders dispatched and on scene; 6 resident reactions; 0 red-light runs; max lane error 0.29 m; traffic ok |
+| Film frames | 5400 frames, all 1920x1080, in 18 segments; assembled file probed with `ffprobe` (see the table above); a contact sheet of ten frames across the film and the title, accident and end-card frames were inspected by eye |
+| Hosted CI, `12c73d7` | Linux ASan/UBSan, Linux lavapipe, Physics Jolt and Audio passed; **the Windows MSVC build failed** because `popen`/`pclose` are not MSVC names |
+| Hosted CI, `d2f94c6` | the same fix passed on the engineering branch (`50bd467`: Graphics, Physics, Audio all green); for this branch it is pending until pushed and run |
+
+## Commit ids
+
+| Commit | What |
+| --- | --- |
+| `72d959e`, `50dce61`, `c1e8141` | the living world, traffic, the renderer app |
+| `12c73d7` | scout pass, director, film mode, spatial audio mix |
+| `50ca1f3` | far skirt to 300 km, light fog, assembly script, first draft of this page. **The film's engine and assets are exactly this commit** (binary built 2026-11-25, not rebuilt during the render) |
+| `d2f94c6` | portable ffmpeg pipe for MSVC (cherry-pick of `50bd467`); Windows-only, does not change any pixel or sound on Linux |
+| (this commit) | the end-card text fix in `assemble.sh` and this page |
+
+## Known limitations
+
+* **Software rendering.** The film is an offline capture on llvmpipe at roughly 5 s per frame. It says nothing about real-time or GPU performance, and it makes no 60 FPS claim.
+* **Lighting.** There are no point lights, no image-based lighting and no global illumination: night scenes are lit by the sun-and-sky model plus emissive surfaces and bloom, so lamps do not light their surroundings.
+* **Crumple is visual.** The accident's deformation is a scripted mesh change driven by the impact event; the vehicle is not a soft body. Jolt destruction and ragdoll are not in this build.
+* **Boats are decorative**; boat buoyancy is not simulated in the film.
+* **Vegetation and weather.** Trees are simple low-poly meshes with no wind; there is no weather. (Engine-side CPU modules for wind, weather and vegetation exist on a separate branch and are not in the film.)
+* **Audio** is an offline mix from the event log with CC0 recordings, not a runtime audio engine; some sound classes are approximated where no recording was reachable.
+* **Characters** share one rig and one mannequin mesh split into clothing regions (tinted per resident).
+* **Resolution of the horizon and far field** is limited by the land skirt (300 km) and uniform fog; the earlier seam was fixed by a restart of the render, not by post-processing.
+* **Debug build.** The film binary is a Debug build. A Release build was not used or compared, so the reproduction command above (Release) is untested against this film.
+
+## Reproduction notes
+
+The cache of third-party assets (Poly Haven, UAL, CarConcept, OpenGameArt sounds) is fetched, not committed. The Python mix needs `python3 -I` and the default `--assets` cache path. The assembly step needs `ffmpeg`
+with `libx264`, `drawtext` and the DejaVu fonts. At about 5 s per frame, the 5400 frames are roughly 7.5 hours of rendering on 4 cores (derived from the measured per-frame cost, not a separate timing of the whole run); the assembly took about 6 minutes.

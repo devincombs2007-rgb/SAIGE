@@ -756,4 +756,64 @@ std::vector<std::array<double, 5>> TrafficDriver::obstacles() const {
     return out;
 }
 
+std::array<std::array<float, 3>, kHazardCorners> hazard_lamp_offsets(const BodyBox& body) {
+    std::array<std::array<float, 3>, kHazardCorners> out{};
+    const float z = body.lo[2] + kHazardHeightFrac * (body.hi[2] - body.lo[2]);
+    std::size_t k = 0;
+    for (const float sx : {-1.0f, 1.0f})
+        for (const float sy : {-1.0f, 1.0f}) {
+            const float x = sx > 0 ? body.hi[0] - kHazardInsetX : body.lo[0] + kHazardInsetX;
+            const float y = sy > 0 ? body.hi[1] - kHazardInsetY : body.lo[1] + kHazardInsetY;
+            out[k++] = {x, y, z};
+        }
+    return out;
+}
+
+std::array<std::array<float, 3>, kHazardCorners> hazard_lamp_offsets(const VehicleConfig& cfg) {
+    BodyBox b;
+    b.lo = {-cfg.half_extents.x, -cfg.half_extents.y, -cfg.half_extents.z};
+    b.hi = {cfg.half_extents.x, cfg.half_extents.y, cfg.half_extents.z};
+    return hazard_lamp_offsets(b);
+}
+
+namespace {
+std::array<double, 3> rotate_by(const std::array<float, 4>& q, const std::array<double, 3>& v, bool inverse) {
+    const double qx = inverse ? -q[0] : q[0], qy = inverse ? -q[1] : q[1], qz = inverse ? -q[2] : q[2], qw = q[3];
+    const double tx = 2.0 * (qy * v[2] - qz * v[1]), ty = 2.0 * (qz * v[0] - qx * v[2]), tz = 2.0 * (qx * v[1] - qy * v[0]);
+    return {v[0] + qw * tx + (qy * tz - qz * ty), v[1] + qw * ty + (qz * tx - qx * tz), v[2] + qw * tz + (qx * ty - qy * tx)};
+}
+}  // namespace
+
+std::array<double, 3> body_point_to_world(const std::array<double, 3>& pos, const std::array<float, 4>& q, const std::array<float, 3>& p) {
+    const auto r = rotate_by(q, {static_cast<double>(p[0]), static_cast<double>(p[1]), static_cast<double>(p[2])}, false);
+    return {pos[0] + r[0], pos[1] + r[1], pos[2] + r[2]};
+}
+
+std::array<double, 3> world_point_to_body(const std::array<double, 3>& pos, const std::array<float, 4>& q, const std::array<double, 3>& w) {
+    return rotate_by(q, {w[0] - pos[0], w[1] - pos[1], w[2] - pos[2]}, true);
+}
+
+std::array<std::array<float, 3>, kHazardCorners> hazard_surface_anchors(const std::vector<float>& xyz) {
+    std::array<std::array<float, 3>, kHazardCorners> out{};
+    const std::size_t n = xyz.size() / 3;
+    if (n == 0) return out;
+    float zlo = xyz[2], zhi = xyz[2];
+    for (std::size_t i = 0; i < n; ++i) { zlo = std::min(zlo, xyz[3 * i + 2]); zhi = std::max(zhi, xyz[3 * i + 2]); }
+    const float band_lo = zlo + 0.25f * (zhi - zlo), band_hi = zlo + 0.75f * (zhi - zlo);
+    std::size_t k = 0;
+    for (const float sx : {-1.0f, 1.0f})
+        for (const float sy : {-1.0f, 1.0f}) {
+            float best = -1e30f;
+            std::array<float, 3> pick{xyz[0], xyz[1], xyz[2]};
+            for (std::size_t i = 0; i < n; ++i) {
+                const float x = xyz[3 * i], y = xyz[3 * i + 1], z = xyz[3 * i + 2];
+                if (z < band_lo || z > band_hi) continue;
+                const float score = sx * x + 0.6f * sy * y;
+                if (score > best) { best = score; pick = {x, y, z}; }
+            }
+            out[k++] = pick;
+        }
+    return out;
+}
+
 } // namespace saige::alive

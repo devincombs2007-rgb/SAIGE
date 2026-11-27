@@ -152,7 +152,7 @@ void build_ped_network(District& d) {
         std::uint32_t prev = 0;
         bool first = true;
         const double cx = p.cx();
-        const double pts[][2] = {{cx - 24.0, sy}, {cx - 24.0, p.y1 - 8.0}, {cx, p.cy() - 6.0}, {cx + 24.0, p.y1 - 8.0}, {cx + 24.0, sy}};
+        const auto pts = park_path_points(p);
         for (const auto& q : pts) {
             const std::uint32_t n = add_node(d, q[0], q[1]);
             if (!first) add_edge(d, prev, n);

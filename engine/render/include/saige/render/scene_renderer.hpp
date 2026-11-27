@@ -74,6 +74,7 @@ struct SunShadowSettings {
     uint32_t cascades = 1;
     float split_lambda = 0.75f;            ///< 0 to 1
     float cascade_blend = 0.1f;            ///< 0 to 0.5
+    bool stabilize = true;                 ///< snap each cascade to whole shadow-map texels so edges do not shimmer as the camera moves (off only to measure what it removes: tests, diagnostics)
     float distance = 60.0f;                ///< meters of view depth that receive shadows; beyond it the sun is unoccluded
     float caster_margin = 50.0f;           ///< how far toward the sun the light's near plane is pulled, so off-screen casters still shadow
     float depth_bias_constant = -1024.0f;  ///< rasterizer depth bias of the shadow pass (reverse-Z: negative moves casters away from the sun)

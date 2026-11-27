@@ -44,6 +44,7 @@ struct CarRig {
     std::array<render::GpuModel, 4> wheel, hub;
     std::array<Float3, 4> wc{};
     Float3 lo{}, hi{};
+    std::array<Float3, 4> hazard{};   // hazard-lamp anchors in model space, on the body's surface (hazard_surface_anchors)
     bool ok = false;
 };
 
@@ -58,6 +59,7 @@ struct Actors::Impl {
     const District& d;
     fs::path cache, anim_root;
     std::vector<std::string>& warnings;
+    bool fixtures = false;   // the fixture path: a procedural car and no residents (no third-party model is read)
 
     // cars
     std::vector<CarRig> cars;   // one per paint
@@ -142,12 +144,59 @@ struct Actors::Impl {
             }
         };
         bounds_of(body, rig.lo, rig.hi);
+        {   // hazard-lamp anchors: on the surface of the body mesh itself (the bounding boxes of the primitives are looser than the body and a corner of one hangs in the air)
+            std::vector<float> verts;
+            for (std::size_t i = 0; i < n; ++i) {
+                if (!body[i] || asset.instances[i].mesh < 0) continue;
+                for (const gfx::Primitive& p : asset.meshes[static_cast<std::size_t>(asset.instances[i].mesh)].primitives)
+                    for (std::size_t v = 0; v + 2 < p.positions.size(); v += 3) {
+                        const Float3 w = render::transform_point(asset.instances[i].world, {p.positions[v], p.positions[v + 1], p.positions[v + 2]});
+                        verts.insert(verts.end(), {w.x, w.y, w.z});
+                    }
+            }
+            const auto anchors = hazard_surface_anchors(verts);
+            for (std::size_t k = 0; k < 4; ++k) rig.hazard[k] = {anchors[k][0], anchors[k][1], anchors[k][2]};
+        }
         const saige::horizon::WheelPartMasks parts = saige::horizon::split_wheel_masks(asset, wheel);
         for (std::size_t w = 0; w < 4; ++w) {
             const saige::horizon::WheelFit fit = saige::horizon::fit_wheel(saige::horizon::wheel_points(asset, wheel[w]));
             rig.wc[w] = fit.center;
             rig.wheel[w] = filter_placements(full, parts.spinning[w], saige::horizon::wheel_to_rig_frame(fit));
             rig.hub[w] = filter_placements(full, parts.fixed[w], saige::horizon::wheel_to_rig_frame(fit));
+        }
+        rig.ok = true;
+        return rig;
+    }
+
+    // The fixture car: a procedural sedan in the vehicle frame (boxes and the shared wheel), used by the fixture path (no third-party car model). Same rig contract as stage_car.
+    CarRig stage_fixture_car(int paint_index) {
+        CarRig rig;
+        const VehicleConfig cfg = vehicle_config_for(VehicleKind::Sedan);
+        const float g = cfg.wheels[0].mount.z - cfg.suspension_travel + 0.17f - cfg.wheel_radius;
+        const Mat paint = static_cast<Mat>(static_cast<int>(MCar0) + paint_index % 8);
+        MeshBuilder mb;
+        const float hx = cfg.half_extents.x, hy = cfg.half_extents.y;
+        mb.box(paint, {-hx, -hy, g + 0.30f}, {hx, hy, g + 0.85f}, 63);                               // body
+        mb.box(paint, {-hx * 0.45f, -hy * 0.9f, g + 0.85f}, {hx * 0.40f, hy * 0.9f, g + 1.38f}, 63);   // cabin
+        mb.quad(MGlassDark, {hx * 0.40f, -hy * 0.86f, g + 1.36f}, {hx * 0.40f, hy * 0.86f, g + 1.36f}, {hx * 0.62f, hy * 0.86f, g + 0.87f}, {hx * 0.62f, -hy * 0.86f, g + 0.87f});
+        mb.box(MPaintDarkGrey, {-hx - 0.04f, -hy * 0.98f, g + 0.22f}, {hx + 0.04f, hy * 0.98f, g + 0.34f}, 63);   // bumpers
+        mb.quad(MHeadlight, {hx + 0.041f, -hy * 0.85f, g + 0.55f}, {hx + 0.041f, -hy * 0.55f, g + 0.55f}, {hx + 0.041f, -hy * 0.55f, g + 0.7f}, {hx + 0.041f, -hy * 0.85f, g + 0.7f});
+        mb.quad(MHeadlight, {hx + 0.041f, hy * 0.55f, g + 0.55f}, {hx + 0.041f, hy * 0.85f, g + 0.55f}, {hx + 0.041f, hy * 0.85f, g + 0.7f}, {hx + 0.041f, hy * 0.55f, g + 0.7f});
+        rig.body = upload_model(r, "fixture_car", mb.finish(), mats.list());
+        Truck tmp;
+        build_wheel(tmp, cfg.wheel_radius, 0.24f);
+        for (std::size_t w = 0; w < 4; ++w) {
+            rig.wheel[w] = tmp.wheel;
+            rig.wc[w] = {cfg.wheels[w].mount.x, cfg.wheels[w].mount.y, cfg.wheels[w].mount.z - cfg.suspension_travel};
+        }
+        rig.lo = {-hx, -hy, g};
+        rig.hi = {hx, hy, g + 1.38f};
+        {   // boxes: the body box is the body
+            BodyBox bb;
+            bb.lo = {rig.lo.x, rig.lo.y, rig.lo.z};
+            bb.hi = {rig.hi.x, rig.hi.y, rig.hi.z};
+            const auto offs = hazard_lamp_offsets(bb);
+            for (std::size_t k = 0; k < 4; ++k) rig.hazard[k] = {offs[k][0], offs[k][1], offs[k][2]};
         }
         rig.ok = true;
         return rig;
@@ -499,7 +548,7 @@ struct Actors::Impl {
 
     void init() {
         sea = std::make_unique<WaterSurface>(harbor_sea_config(d.sea_level));
-        for (int i = 0; i < kPaintCount; ++i) cars.push_back(stage_car(kPaints[i]));
+        for (int i = 0; i < kPaintCount; ++i) cars.push_back(fixtures ? stage_fixture_car(i) : stage_car(kPaints[i]));
         build_trucks();
         boat_models[0] = build_boat(4.6f, 1.8f, MBoatHullWhite, false);
         boat_models[1] = build_boat(5.4f, 2.0f, MBoatHullBlue, false);
@@ -511,8 +560,8 @@ struct Actors::Impl {
         }
         for (int on = 0; on < 2; ++on) {
             MeshBuilder mb;
-            for (const float sx : {-1.0f, 1.0f})
-                for (const float sy : {-1.0f, 1.0f}) mb.box(on ? MSignalAmber : MSignalOff, {sx - 0.03f - (sx > 0 ? 0.0f : 0.0f), sy - 0.03f, -0.03f}, {sx + 0.03f, sy + 0.03f, 0.03f}, 63);
+            static_assert(kHazardLampsPerModel == 1, "the hazard model holds one lamp; it is drawn once per corner");
+            mb.box(on ? MSignalAmber : MSignalOff, {-0.03f, -0.03f, -0.03f}, {0.03f, 0.03f, 0.03f}, 63);   // one lamp at the origin; hazard_lamp_offsets() places it
             hazard[on] = upload_model(r, "hazard", mb.finish(), mats.list());
         }
         {
@@ -520,7 +569,7 @@ struct Actors::Impl {
             mb.sphere(MSpark, {0, 0, 0}, 0.045f, 3, 5);
             spark = upload_model(r, "spark", mb.finish(), mats.list());
         }
-        stage_people();
+        if (!fixtures) stage_people();
     }
 
     void collect_fx(std::vector<render::ModelDraw>& out, double time) {
@@ -560,7 +609,12 @@ struct Actors::Impl {
         return m * translation({pivot, 0, 0}) * rot_y(pitch) * scaling(shorten, 1.0f, 1.0f - 0.05f * std::max(f, r)) * translation({-pivot, 0, 0});
     }
 
-    void draw_car(std::vector<render::ModelDraw>& out, const CarRig& rig, const VehicleView& v) {
+    // Where the Car Concept body sits on the physics chassis: `c` is the model-space point that lies at the body frame's origin, `car_m` maps model space to the world (before the crash deformation).
+    struct CarFrame {
+        Float3 c;
+        Mat4 car_m;
+    };
+    CarFrame car_frame(const CarRig& rig, const VehicleView& v) const {
         const VehicleConfig cfg = vehicle_config_for(v.kind == VehicleKind::Hatchback || v.kind == VehicleKind::Taxi ? VehicleKind::Sedan : v.kind);
         const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
         float wz_model = 0, wz_phys = 0;
@@ -568,8 +622,14 @@ struct Actors::Impl {
             wz_model += rig.wc[w].z * 0.25f;
             wz_phys += (cfg.wheels[w].mount.z - cfg.suspension_travel + v.wheel_compression[w]) * 0.25f;
         }
-        const float cx = (rig.lo.x + rig.hi.x) * 0.5f, cy = (rig.lo.y + rig.hi.y) * 0.5f;
-        const Mat4 car_m = body_world * translation({-cx, -cy, -(wz_model - wz_phys)});
+        const Float3 c{(rig.lo.x + rig.hi.x) * 0.5f, (rig.lo.y + rig.hi.y) * 0.5f, wz_model - wz_phys};
+        return {c, body_world * translation({-c.x, -c.y, -c.z})};
+    }
+
+    void draw_car(std::vector<render::ModelDraw>& out, const CarRig& rig, const VehicleView& v) {
+        const VehicleConfig cfg = vehicle_config_for(v.kind == VehicleKind::Hatchback || v.kind == VehicleKind::Taxi ? VehicleKind::Sedan : v.kind);
+        const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
+        const Mat4 car_m = car_frame(rig, v).car_m;
         out.push_back({&rig.body, crumple(car_m, v, rig.lo.x, rig.hi.x)});
         for (std::size_t w = 0; w < 4; ++w) {
             const VehicleWheelConfig& wc = cfg.wheels[w];
@@ -616,9 +676,17 @@ struct Actors::Impl {
                 const VehicleConfig cfgv = vehicle_config_for(v.kind);
                 const bool on = static_cast<int>(std::floor(time * 1.6)) % 2 == 0;
                 const Mat4 body_world = translation({static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)}) * from_quat(v.q[0], v.q[1], v.q[2], v.q[3]);
-                // Hazard lamps at the corners (the unit box scaled by half extents; the lamps are tiny boxes, so scale only their placement).
-                for (const float sx : {-1.0f, 1.0f})
-                    for (const float sy : {-1.0f, 1.0f}) out.push_back({&hazard[on ? 1 : 0], body_world * translation({sx * (cfgv.half_extents.x + 0.02f), sy * (cfgv.half_extents.y - 0.12f), -0.1f}) * scaling(1.0f) * translation({-sx, -sy, 0.0f})});
+                // One hazard lamp at each corner of the visible body (hazard_lamp_offsets, traffic_driver.hpp). Cars: the corners of the Car Concept body's own bounds, carried by the same transform as the
+                // mesh (including the crash deformation). Trucks are built from the physics box, so the box is their body.
+                if (v.kind == VehicleKind::Sedan || v.kind == VehicleKind::Taxi || v.kind == VehicleKind::Hatchback) {
+                    const int paint = v.kind == VehicleKind::Taxi ? 4 : v.palette % kPaintCount;
+                    const CarRig& rig = cars[static_cast<std::size_t>(paint)];
+                    const CarFrame cf = car_frame(rig, v);
+                    const Mat4 deformed = crumple(cf.car_m, v, rig.lo.x, rig.hi.x);   // the mesh's own transform, crash deformation included
+                    for (const Float3& a : rig.hazard) out.push_back({&hazard[on ? 1 : 0], deformed * translation(a)});
+                } else {
+                    for (const auto& o : hazard_lamp_offsets(cfgv)) out.push_back({&hazard[on ? 1 : 0], body_world * translation({o[0], o[1], o[2]})});
+                }
                 // Smoke from under the bonnet: puffs rising and spreading over a few seconds.
                 for (int k = 0; k < 14; ++k) {
                     const float age = std::fmod(static_cast<float>(time) * 0.30f + static_cast<float>(k) / 14.0f, 1.0f);
@@ -633,6 +701,7 @@ struct Actors::Impl {
     }
 
     void collect_people(std::vector<render::ModelDraw>& out, Float3 eye, float far) {
+        if (fixtures) return;
         // Nearest first, as many as there are palettes.
         std::vector<const PedView*> near;
         for (const PedView& p : last_peds) {
@@ -654,11 +723,15 @@ struct Actors::Impl {
     }
 };
 
-Actors::Actors(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, const fs::path& anim_root, std::vector<std::string>& warnings) : impl_(std::make_unique<Impl>(renderer, materials, district, cache, anim_root, warnings)) { impl_->init(); }
+Actors::Actors(render::SceneRenderer& renderer, const Materials& materials, const District& district, const fs::path& cache, const fs::path& anim_root, std::vector<std::string>& warnings, bool fixtures) : impl_(std::make_unique<Impl>(renderer, materials, district, cache, anim_root, warnings)) {
+    impl_->fixtures = fixtures;
+    impl_->init();
+}
 Actors::~Actors() = default;
 
 void Actors::animate(const std::vector<PedView>& peds, double dt) {
     Impl& i = *impl_;
+    if (i.fixtures) return;
     i.last_peds = peds;
     for (const PedView& p : peds) {
         auto it = i.anims.find(p.id);

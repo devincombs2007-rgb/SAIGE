@@ -308,6 +308,7 @@ if(TARGET saige::project AND TARGET saige::gfx_assets)
     endif()
 endif()
 
+add_subdirectory(engine/editor)
 add_subdirectory(showcase)
 add_subdirectory(tools/production/inspect)
 add_subdirectory(tools/animation/viewer)

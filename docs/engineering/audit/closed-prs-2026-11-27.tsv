@@ -1,0 +1,43 @@
+number	merged_at	title
+59	2026-11-23	render: sorted source-over alpha blending for glTF BLEND materials (step 2 of th
+57	2026-11-23	rhi: optional per-pipeline blend state (portable subset) with validation and pix
+55	2026-11-22	render: embed the environment BRDF table as a precomputed, versioned asset
+53	2026-11-23	render: HDR output through the tone-map pass (PBR M4)
+52	2026-11-23	render: tangent-space normal mapping (PBR M3)
+51	2026-11-22	render: metallic-roughness shading with an environment BRDF table (PBR M2)
+50	2026-11-22	render: five-slot material with per-slot samplers and color space (PBR M1)
+49	2026-11-22	docs: PBR material and lighting architecture (approved) with recorded decisions
+48	2026-11-22	0.3 PBR: HDR tone-mapping pass with a CPU reference (ACES fit default)
+47	2026-11-22	0.3 PBR: CPU reference of the glTF metallic-roughness BRDF, with property tests
+46	2026-11-23	0.3 PBR: Deterministic tangent generation for normal-mapped primitives
+41	2026-11-22	0.2: Integrate the native textured scene application
+40	2026-11-22	0.2 D: Permanent renderer evidence tests
+39	2026-11-22	0.2 C: Renderer diagnostics
+38	2026-11-22	0.2 B: Transactional scene staging and activation
+37	2026-11-22	Record SAIGE's long-term engineering direction
+36	2026-11-22	0.2 A: Imported-model renderer
+35	2026-11-22	rhi: GPU timestamps and exact device memory accounting
+33	2026-11-22	render: GPU resource registry (shared ownership, counters, leak reporting)
+32	2026-11-22	gfx_assets: bounded PNG/JPEG decoding and mip chains (pinned stb_image)
+31	2026-11-22	Stage project and imported assets before native scene activation
+30	2026-11-22	Trace CPU scene frame phases and regress project reload and shutdown
+29	2026-11-22	rhi: bind groups for textures, samplers and buffers (stacked on #28)
+28	2026-11-22	rhi: texture upload and samplers
+27	2026-11-21	Validate a textured scene's project and glTF inputs together
+26	2026-11-21	Activate and reload projects through the runtime frame boundary
+25	2026-11-21	gfx_assets: glTF 2.0 CPU importer
+24	2026-11-21	Send scene matrices and free-camera input through the runtime
+23	2026-11-21	Persist and validate versioned scene projects
+22	2026-11-21	[Rendering 0.2] Camera, transform math, visual regression harness, depth/occlusi
+21	2026-11-21	[Rendering] Windows test: assert the displayed window actually shows the rendere
+20	2026-11-21	Define a canonical 128-bit project asset ID
+18	2026-11-21	Resolve scene hierarchies to full world transforms
+16	2026-11-21	Reuse render snapshot storage across runtime frames
+15	2026-11-21	Verify the 0.1 Win32 Vulkan path on a CPU driver
+14	2026-11-21	Package the Windows Vulkan demo and make rendered-frame acceptance explicit
+13	2026-11-21	[Integration] Desktop sample renders a moving 3D cube with Vulkan (#9)
+12	2026-11-21	Let a presenting renderer own Windows frame pacing
+11	2026-11-21	[Rendering] Vulkan 1.3 first frame: RHI, null + Vulkan backends, scene renderer,
+10	2026-11-21	Launch the Win32 desktop host and expose a versioned headless CLI
+8	2026-11-21	Boot a headless C++20 engine with a fixed-step world
+6	2026-11-21	[Rendering] Design + RHI foundation + render graph + shaderc core (core-independ

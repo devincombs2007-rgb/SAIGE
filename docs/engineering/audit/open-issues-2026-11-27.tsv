@@ -1,0 +1,13 @@
+number	title	updated
+66	Roll back Vulkan descriptor acquisition when host bookkeeping fails	2026-11-23
+62	Deliver the first playable character and vehicle test course	2026-11-24
+43	Plan SAIGE 0.3 chunk streaming and Vulkan 1.4 evaluation	2026-11-27
+19	SAIGE 0.2 milestone: load and explore an imported textured scene	2026-11-22
+17	[RFC] SAIGE 0.2 render-facing contracts: transform, asset identity, camera (C-1…C-5)	2026-11-24
+9	Core: integrate and verify the Windows desktop host for SAIGE 0.1	2026-11-21
+7	[Animation] Subsystem boundaries & ownership: agree before implementation (D-19)	2026-11-21
+5	[Rendering] Graphics asset pipeline: glTF 2.0 import + PBR materials + texture/mesh cooking	2026-11-21
+4	[Rendering] Shader compilation pipeline: HLSL → SPIR-V via saige-shaderc	2026-11-21
+3	[Rendering] RHI + Vulkan 1.3 backend (Phase 1)	2026-11-21
+2	[Core ↔ Rendering] Interface decisions needed before rendering implementation (D-01…D-18)	2026-11-21
+1	[Rendering] Epic: Graphics & asset systems roadmap	2026-11-21

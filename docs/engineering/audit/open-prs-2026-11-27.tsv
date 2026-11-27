@@ -1,0 +1,60 @@
+number	draft	title	updated
+113	true	Batch 7: Newly developed engine systems (dynamics, ragdoll, water, navigation, audio, vehi	2026-11-25
+112	true	Batch 6: Production infrastructure (assets catalogue, tools, audit, Windows bootstrap, eng	2026-11-25
+111	true	Batch 5f: renderer changes made on the production branch (emissive gain, render sink)	2026-11-25
+110	true	Batch 2b: Core follow-up, live world origin (#86)	2026-11-25
+109	true	Batch 3b: Physics follow-up, character on triangles (#74)	2026-11-25
+108	true	Batch 5e: Animation integration (#94, skinned-culling seam of #93, #99, #97)	2026-11-25
+107	true	Batch 5d: Atmosphere, per-frame lighting, night sky, draw-state cache (#90, #91, #96, #84)	2026-11-25
+106	true	Batch 5c: Image-based lighting and GPU skinning (#85, #87)	2026-11-25
+105	true	Batch 5b: Sun shadows, alpha-tested casters, cascades (#76, #79, #89)	2026-11-25
+104	true	Batch 5a: Post-processing (#92 bloom, #95 FXAA, #98 SSAO) with a composition test	2026-11-25
+103	true	Batch 4: Foundational rendering (#71, #75, #77, #78, #81, #82, #83)	2026-11-25
+102	true	Batch 3: Physics and collision (#69, #70, #65, #73, #80, #88)	2026-11-25
+101	true	Batch 2: Core architecture and resource management (#64, #42, #60, #63)	2026-11-25
+100	true	Batch 1: Platform and Vulkan modernization (#67, #44, #45)	2026-11-25
+99	true	render: conservative per-pose bounds for skinned primitives (safe animated-model culling)	2026-11-24
+98	true	render: opt-in screen-space ambient occlusion (depth-only, CPU reference)	2026-11-24
+97	true	gfx_assets: sky-derived IBL environment and the recommended outdoor settings (draft, stack	2026-11-24
+96	true	render: opt-in sun disc, moon and stars in the sky pass (draft, stacked on #90)	2026-11-24
+95	true	render: opt-in FXAA post-process anti-aliasing with a CPU reference (draft)	2026-11-24
+94	true	gfx_scene: CPU-only prepare_model and device upload_model; stage_model is their compositio	2026-11-24
+93	true	Integration candidate (draft): #91 lighting + #87 skinning (with #85, #81) + #83 culling o	2026-11-24
+92	true	render: opt-in HDR bloom with a CPU reference and GPU parity tests (draft)	2026-11-24
+91	true	render: opt-in per-frame lighting for time of day (draft, stacked on #90 and #89)	2026-11-24
+90	true	render: opt-in single-scattering atmosphere, sky pass and solar position (draft, stacked o	2026-11-24
+89	true	render: up to four sun shadow cascades in one atlas, with blending and quality presets (dr	2026-11-24
+88	true	physics: oriented-box queries and wheel/terrain contact probes against StaticCollision (dr	2026-11-24
+87	true	Render: opt-in GPU skinning with per-instance palettes and a CPU parity oracle (draft, sta	2026-11-24
+86	true	Core: migrate the live world origin and prepare streamed chunks in the background	2026-11-24
+85	true	Render: image-based lighting for imported models (GPU slice, stacked on #76 and #82)	2026-11-24
+84	true	render: skip redundant material and buffer binds in the model draw loop (draft, stacked on	2026-11-24
+83	true	render: frustum culling of imported-model primitives by bounding sphere (draft)	2026-11-24
+82	true	gfx_assets: HDR environment precompute for image-based lighting, SH9 diffuse and prefilter	2026-11-24
+81	true	gfx_assets: glTF skins, joint weights and animation clips with a CPU posing and skinning r	2026-11-24
+80	true	physics: static collision broadphase with ray casts, region queries and capsule queries (d	2026-11-24
+79	true	render: alpha-tested sun shadows for glTF MASK materials (draft, stacked on #76)	2026-11-24
+78	true	render: release raw GPU handles when SceneRenderer or ModelRenderer construction fails (dr	2026-11-24
+77	true	render: CPU shadow-cascade fitting (extracted from #61, draft)	2026-11-23
+76	true	render: opt-in sun shadows for imported models (M6 slice 2, draft; stacked on #75, #71 and	2026-11-24
+75	true	rhi: depth-only pipelines, static depth bias and shadow-map round-trip tests (M6 slice 1, 	2026-11-23
+74	true	physics: CapsuleCharacter on triangles (ramps, crests, creases) and idle slide braking fix	2026-11-24
+73	true	physics: exact vertical-capsule versus triangle sweep primitive for ramps (draft, stacked 	2026-11-23
+72	true	Showcase 01: scripted capsule-character course rendered by the real renderer (draft, evide	2026-11-23
+71	true	render: configurable sun and ground ambient for imported models (SceneLighting)	2026-11-24
+70	true	physics: deterministic capsule character controller (draft, stacked on #69)	2026-11-24
+69	true	physics: exact vertical-capsule versus box sweep primitive (draft, API under review)	2026-11-23
+68	true	perf: frame-interval, fixed-step and memory instrumentation for the 60 FPS goal (draft, AP	2026-11-23
+67	false	rhi_vulkan: release the descriptor set when bind group creation fails after acquiring it (	2026-11-23
+65	true	Add the first fixed-step character collision course	2026-11-24
+64	false	Test saved v1 project transparency against the 0.2 default	2026-11-23
+63	true	Load versioned world chunk manifests and plan the playable course	2026-11-23
+61	true	M5/M6 preparation: research, CPU cascade fitting and IBL math references (no GPU or RHI ch	2026-11-22
+60	true	Core: stage deterministic world chunks at frame boundaries	2026-11-23
+58	true	gfx_assets: generate_tangents_mikktspace with the pinned reference MikkTSpace (importer de	2026-11-22
+56	true	docs: 0.3 handoff, energy and BRDF table notes, MikkTSpace evaluation, alpha blending plan	2026-11-22
+54	true	DO NOT MERGE: 0.3 PBR integration branch (M1-M4 combined validation)	2026-11-22
+45	true	0.3: Vulkan version negotiation and a read-only capability probe (1.4 opt-in, 1.3 default)	2026-11-22
+44	true	0.3: Build against SDK-aligned Vulkan-Headers 1.4.363 (runtime baseline stays 1.3)	2026-11-22
+42	true	Reuse project hierarchy validation during runtime startup	2026-11-22
+34	true	[0.2 integration, CI evidence, do not merge] textured scene end to end (contains #29, #32,	2026-11-22
